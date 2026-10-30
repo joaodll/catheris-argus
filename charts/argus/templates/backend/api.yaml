@@ -1,0 +1,37 @@
+{{- /* The HTTP API (/api/v1), behind web's nginx. Connects as argus_api; no Kubernetes token,
+no cloud identity (ADR-0040). Reached only by web (NetworkPolicy). Its Service, disruption budget
+and autoscaler are in services.yaml, pdb.yaml and hpa.yaml. */ -}}
+{{- define "argus.api.env" -}}
+{{ include "argus.keyringEnv" . }}
+# Kubernetes offers real connections only: Demo connections are for Docker Compose (ADR-0039).
+- name: ARGUS_DEMO_CONNECTIONS
+  value: "false"
+# Only web's pods may set the client IP; the NetworkPolicy lets only them in.
+- name: ARGUS_TRUSTED_PROXIES
+  value: {{ .Values.api.trustedProxies | quote }}
+{{- end }}
+{{- define "argus.api.ports" -}}
+ports:
+  - {name: http, containerPort: 8000}
+# Ready when the database answers; alive while the process answers. A slow database takes the
+# pod out of the Service, never restarts it.
+readinessProbe:
+  httpGet: {path: /api/v1/ready, port: http}
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+livenessProbe:
+  httpGet: {path: /api/v1/health, port: http}
+  initialDelaySeconds: 10
+  periodSeconds: 20
+  timeoutSeconds: 5
+  failureThreshold: 3
+{{- end }}
+{{- $db := dict "root" . "user" "argus_api" "key" "ARGUS_API_DB_PASSWORD" "pool" "api" }}
+{{- include "argus.deployment" (dict "root" . "component" "api" "v" .Values.api "pod" (dict
+  "grace" 30 "db" true
+  "initContainers" (include "argus.waitForSchema" $db)
+  "containers" (include "argus.container" (dict "root" . "name" "api" "db" $db
+    "command" (list "python" "-m" "argus.entrypoints.api")
+    "env" (include "argus.api.env" .) "extra" (include "argus.api.ports" .)
+    "resources" .Values.api.resources)))) }}

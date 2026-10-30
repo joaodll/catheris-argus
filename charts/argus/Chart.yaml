@@ -1,0 +1,20 @@
+apiVersion: v2
+name: argus
+description: >-
+  CatherIs Argus, a self-hosted cloud security platform: Prowler, CloudFox and Steampipe as
+  read-only collectors, the join between them, history and a UI.
+type: application
+# The chart and the images are released together: appVersion is the images' version.
+version: 0.1.0
+appVersion: "0.1.0"
+# ValidatingAdmissionPolicy (ADR-0040) is GA from 1.30.
+kubeVersion: ">=1.30.0-0"
+home: https://github.com/joaodll/catheris-argus
+sources:
+  - https://github.com/joaodll/catheris-argus
+keywords: [security, cloud-security, aws, prowler, cloudfox, steampipe, attack-paths]
+maintainers:
+  - name: João Dalla Rosa
+    url: https://github.com/joaodll
+annotations:
+  licenses: Apache-2.0

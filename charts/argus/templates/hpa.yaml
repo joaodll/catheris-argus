@@ -1,0 +1,39 @@
+{{- /* A HorizontalPodAutoscaler for api and web, each off by default (needs metrics-server).
+While one is on, its Deployment carries no replica count. Scales on CPU, and on memory when a
+target is set; scales down only after five quiet minutes. */ -}}
+{{- range $component := list "api" "web" }}
+{{- $a := (index $.Values $component).autoscaling }}
+{{- if $a.enabled }}
+{{- if gt (int $a.minReplicas) (int $a.maxReplicas) }}
+{{- fail (printf "%s.autoscaling: minReplicas (%v) is above maxReplicas (%v)" $component $a.minReplicas $a.maxReplicas) }}
+{{- end }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "argus.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "argus.labels" (dict "root" $ "component" $component) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "argus.fullname" $ }}-{{ $component }}
+  minReplicas: {{ $a.minReplicas }}
+  maxReplicas: {{ $a.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target: {type: Utilization, averageUtilization: {{ $a.targetCPUUtilizationPercentage }}}
+    {{- with $a.targetMemoryUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target: {type: Utilization, averageUtilization: {{ . }}}
+    {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+{{- end }}
+{{- end }}

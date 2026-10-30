@@ -1,0 +1,212 @@
+{{- /*
+The scheduler may create a Job only exactly as the chart rendered it (ADR-0040): this policy
+pins what makes "create jobs" dangerous in a namespace. The expected values are read from the
+same helper that renders the scan Job template (argus.scanJob), so the two cannot drift.
+- image, command, service account, environment (so no other Secret key, no other database
+  host), labels, annotations, the Job's limits;
+- the security contexts, the volumes (by name; emptyDir or the database CA only);
+- no init or ephemeral container, no host namespace or path, no other node (node selector and
+  each toleration as rendered);
+- no probe or lifecycle hook (each runs a command of its choosing in the container), the
+  volume mounts as rendered, the cluster's DNS and scheduler.
+CEL cannot list a typed object's fields, so dangerous fields are refused by name: when the
+chart's kubeVersion floor moves, check the PodSpec and Container fields added since (runbook).
+*/ -}}
+{{- if .Values.admissionPolicy.enabled }}
+{{- $ns := .Release.Namespace }}
+{{- $schedulerSA := include "argus.serviceAccount" (dict "root" . "name" "scheduler") }}
+{{- $job := include "argus.scanJob" . | fromYaml }}
+{{- $pod := $job.spec.template.spec }}
+{{- $c := index $pod.containers 0 }}
+{{- $env := dict }}
+{{- range $c.env }}
+{{- if .valueFrom }}
+{{- $_ := set $env .name (dict "s" .valueFrom.secretKeyRef.name "k" .valueFrom.secretKeyRef.key) }}
+{{- else }}
+{{- $_ := set $env .name (dict "v" (toString .value)) }}
+{{- end }}
+{{- end }}
+{{- $vols := list }}{{- range $pod.volumes }}{{- $vols = append $vols .name }}{{- end }}
+{{- $mounts := list }}
+{{- range $c.volumeMounts }}{{- $mounts = append $mounts (printf "%s=%s=%s" .name .mountPath (ternary "ro" "rw" (default false .readOnly))) }}{{- end }}
+{{- $labels := $job.spec.template.metadata.labels }}
+{{- $annotations := $job.spec.template.metadata.annotations }}
+{{- $nodeSelector := $pod.nodeSelector | default dict }}
+{{- $tolerations := list }}
+{{- range ($pod.tolerations | default list) }}
+{{- $tolerations = append $tolerations (dict "key" (.key | default "") "operator" (.operator | default "") "value" (.value | default "") "effect" (.effect | default "") "seconds" (.tolerationSeconds | default -1 | int)) }}
+{{- end }}
+{{- $ca := .Values.postgres.external.caConfigMap | default "" }}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ printf "%s-%s-run-jobs" $ns (include "argus.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "argus.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [batch]
+        apiVersions: [v1]
+        operations: [CREATE, UPDATE]
+        resources: [jobs]
+  matchConditions:
+    - name: created-by-the-scheduler
+      expression: request.userInfo.username == {{ printf "system:serviceaccount:%s:%s" $ns $schedulerSA | quote }}
+  variables:
+    - name: meta
+      expression: object.spec.template.metadata
+    - name: pod
+      expression: object.spec.template.spec
+    - name: c
+      expression: object.spec.template.spec.containers[0]
+    - name: controllerLabels
+      expression: "['batch.kubernetes.io/controller-uid', 'batch.kubernetes.io/job-name', 'controller-uid', 'job-name']"
+  validations:
+    - expression: request.operation == 'CREATE'
+      message: the scheduler may only create Jobs
+    - expression: >-
+        has(object.metadata.generateName)
+        && object.metadata.generateName == {{ $job.metadata.generateName | toJson }}
+      message: the Job's name prefix is not its template's
+    # The Job's own limits.
+    - expression: >-
+        object.spec.parallelism == 1 && object.spec.completions == 1
+        && object.spec.backoffLimit == 0
+        && object.spec.activeDeadlineSeconds == {{ $job.spec.activeDeadlineSeconds | int }}
+        && !has(object.spec.podFailurePolicy) && !has(object.spec.successPolicy)
+        && !has(object.spec.managedBy)
+        && (!has(object.spec.completionMode) || object.spec.completionMode == 'NonIndexed')
+        && (!has(object.spec.suspend) || !object.spec.suspend)
+        && (!has(object.spec.manualSelector) || !object.spec.manualSelector)
+        && object.spec.ttlSecondsAfterFinished == {{ .Values.scanJobs.ttlSecondsAfterFinished }}
+      message: the Job's limits are not its template's
+    # Labels decide which NetworkPolicy applies; annotations can steer other controllers.
+    - expression: >-
+        has(variables.meta.labels)
+        && {{ toJson $labels }}.all(k, k in variables.meta.labels
+             && variables.meta.labels[k] == {{ toJson $labels }}[k])
+        && variables.meta.labels.all(k, k in {{ toJson $labels }}
+             || k in variables.controllerLabels)
+      message: the pod's labels are not its template's
+    - expression: >-
+        !has(variables.meta.annotations)
+        || variables.meta.annotations.all(k, k in {{ toJson $annotations }}
+             && variables.meta.annotations[k] == {{ toJson $annotations }}[k])
+      message: the pod's annotations are not its template's
+    # Who it runs as, and where.
+    - expression: >-
+        variables.pod.serviceAccountName == {{ $pod.serviceAccountName | toJson }}
+        && (!has(variables.pod.serviceAccount)
+            || variables.pod.serviceAccount == {{ $pod.serviceAccountName | toJson }})
+        && has(variables.pod.automountServiceAccountToken)
+        && !variables.pod.automountServiceAccountToken
+      message: the Job runs as another service account
+    - expression: >-
+        (!has(variables.pod.hostNetwork) || !variables.pod.hostNetwork)
+        && (!has(variables.pod.hostPID) || !variables.pod.hostPID)
+        && (!has(variables.pod.hostIPC) || !variables.pod.hostIPC)
+        && (!has(variables.pod.hostUsers) || !variables.pod.hostUsers)
+        && !has(variables.pod.hostAliases) && !has(variables.pod.nodeName)
+        && !has(variables.pod.initContainers) && !has(variables.pod.ephemeralContainers)
+        && !has(variables.pod.shareProcessNamespace) && !has(variables.pod.runtimeClassName)
+        && !has(variables.pod.affinity) && !has(variables.pod.resourceClaims)
+        && !has(variables.pod.priorityClassName)
+        && !has(variables.pod.hostname) && !has(variables.pod.subdomain)
+        && !has(variables.pod.setHostnameAsFQDN) && !has(variables.pod.dnsConfig)
+        && (!has(variables.pod.dnsPolicy) || variables.pod.dnsPolicy == 'ClusterFirst')
+        && (!has(variables.pod.schedulerName) || variables.pod.schedulerName == 'default-scheduler')
+        && !has(variables.pod.topologySpreadConstraints) && !has(variables.pod.schedulingGates)
+        && !has(variables.pod.readinessGates) && !has(variables.pod.activeDeadlineSeconds)
+        && size(variables.pod.containers) == 1
+      message: the pod asks for the host, another node or another container
+    - expression: >-
+        (has(variables.pod.nodeSelector)
+         ? variables.pod.nodeSelector == {{ toJson $nodeSelector }}
+         : size({{ toJson $nodeSelector }}) == 0)
+        && (has(variables.pod.tolerations) ? size(variables.pod.tolerations) : 0) == {{ len $tolerations }}
+        && (!has(variables.pod.tolerations) || variables.pod.tolerations.all(t, {{ toJson $tolerations }}.exists(a,
+             (has(t.key) ? t.key : '') == a.key && (has(t.operator) ? t.operator : '') == a.operator
+             && (has(t.value) ? t.value : '') == a.value && (has(t.effect) ? t.effect : '') == a.effect
+             && (has(t.tolerationSeconds) ? t.tolerationSeconds : -1) == a.seconds)))
+      message: the pod's node placement is not its template's
+    - expression: >-
+        variables.pod.securityContext.runAsNonRoot == true
+        && variables.pod.securityContext.runAsUser == 10001
+        && variables.pod.securityContext.runAsGroup == 10001
+        && variables.pod.securityContext.fsGroup == 10001
+        && !has(variables.pod.securityContext.supplementalGroups)
+        && variables.pod.securityContext.seccompProfile.type == 'RuntimeDefault'
+        && !has(variables.pod.securityContext.sysctls)
+        && !has(variables.pod.securityContext.seLinuxOptions)
+        && !has(variables.pod.securityContext.windowsOptions)
+      message: the pod's security context is not its template's
+    # What it runs.
+    - expression: >-
+        variables.c.image == {{ $c.image | toJson }}
+        && variables.c.command == {{ $c.command | toJson }}
+        && !has(variables.c.args) && !has(variables.c.envFrom) && !has(variables.c.lifecycle)
+        && !has(variables.c.ports) && !has(variables.c.volumeDevices)
+        && !has(variables.c.workingDir)
+        && !has(variables.c.livenessProbe) && !has(variables.c.readinessProbe)
+        && !has(variables.c.startupProbe) && !has(variables.c.resizePolicy)
+        && !has(variables.c.restartPolicy)
+        && (!has(variables.c.stdin) || !variables.c.stdin)
+        && (!has(variables.c.stdinOnce) || !variables.c.stdinOnce)
+        && (!has(variables.c.tty) || !variables.c.tty)
+      message: the container's image or command is not its template's
+    - expression: >-
+        variables.c.securityContext.allowPrivilegeEscalation == false
+        && variables.c.securityContext.readOnlyRootFilesystem == true
+        && variables.c.securityContext.capabilities.drop == ['ALL']
+        && !has(variables.c.securityContext.capabilities.add)
+        && (!has(variables.c.securityContext.privileged) || !variables.c.securityContext.privileged)
+        && !has(variables.c.securityContext.runAsUser)
+        && !has(variables.c.securityContext.runAsGroup)
+        && !has(variables.c.securityContext.procMount)
+        && !has(variables.c.securityContext.seLinuxOptions)
+      message: the container's security context is not its template's
+    # Every variable as rendered: no other Secret key, and no other database host to send a
+    # password to.
+    - expression: >-
+        has(variables.c.env)
+        && size(variables.c.env) == size({{ toJson $env }})
+        && variables.c.env.all(e, e.name in {{ toJson $env }}
+             && (has(e.value)
+                 ? !has(e.valueFrom) && 'v' in {{ toJson $env }}[e.name]
+                   && e.value == {{ toJson $env }}[e.name]['v']
+                 : has(e.valueFrom) && has(e.valueFrom.secretKeyRef)
+                   && !has(e.valueFrom.fieldRef) && !has(e.valueFrom.configMapKeyRef)
+                   && !has(e.valueFrom.resourceFieldRef)
+                   && 's' in {{ toJson $env }}[e.name]
+                   && e.valueFrom.secretKeyRef.name == {{ toJson $env }}[e.name]['s']
+                   && e.valueFrom.secretKeyRef.key == {{ toJson $env }}[e.name]['k']))
+        && {{ toJson $env }}.all(n, variables.c.env.exists(e, e.name == n))
+      message: the container's environment is not its template's
+    - expression: >-
+        has(variables.pod.volumes)
+        && variables.pod.volumes.map(v, v.name) == {{ toJson $vols }}
+        && variables.pod.volumes.all(v, has(v.emptyDir)
+             || (has(v.configMap) && v.configMap.name == {{ $ca | quote }} && {{ $ca | quote }} != ''))
+        && has(variables.c.volumeMounts)
+        && variables.c.volumeMounts.map(m, m.name + '=' + m.mountPath + '='
+             + ((has(m.readOnly) && m.readOnly) ? 'ro' : 'rw')) == {{ toJson $mounts }}
+        && variables.c.volumeMounts.all(m, !has(m.subPath) && !has(m.subPathExpr)
+             && !has(m.mountPropagation) && !has(m.recursiveReadOnly))
+      message: the pod's volumes are not its template's
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ printf "%s-%s-run-jobs" $ns (include "argus.fullname" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "argus.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+spec:
+  policyName: {{ printf "%s-%s-run-jobs" $ns (include "argus.fullname" .) | trunc 63 | trimSuffix "-" }}
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ $ns }}
+{{- end }}

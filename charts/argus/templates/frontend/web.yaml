@@ -1,0 +1,67 @@
+{{- /* The UI: the built app on unprivileged nginx (uid 101), which proxies /api to the API's
+Service. ClusterIP only: no public entry until SSO (ADR-0040). Its Service, disruption budget
+and autoscaler are in services.yaml, pdb.yaml and hpa.yaml. */ -}}
+{{- define "argus.web.env" -}}
+# nginx fills its config template with this at start (frontend/nginx).
+- name: ARGUS_API_UPSTREAM
+  value: {{ printf "%s-api:8000" (include "argus.fullname" .) | quote }}
+{{- end }}
+{{- define "argus.web.ports" -}}
+ports:
+  - {name: http, containerPort: 8080}
+# Ready when it can serve the API through itself; alive while nginx accepts.
+readinessProbe:
+  httpGet: {path: /api/v1/health, port: http}
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+livenessProbe:
+  tcpSocket: {port: http}
+  initialDelaySeconds: 5
+  periodSeconds: 20
+  failureThreshold: 3
+{{- end }}
+{{- include "argus.deployment" (dict "root" . "component" "web" "v" .Values.web "pod" (dict
+  "uid" 101 "grace" 30
+  "volumes" "- name: conf\n  emptyDir:\n    sizeLimit: 1Mi"
+  "containers" (include "argus.container" (dict "root" . "name" "web"
+    "image" (include "argus.image" (dict "root" . "image" .Values.images.web "registry" true))
+    "env" (include "argus.web.env" .) "extra" (include "argus.web.ports" .)
+    "resources" .Values.web.resources
+    "mounts" "# The filled-in config is written here at start.\n- {name: conf, mountPath: /etc/nginx/conf.d}")))) }}
+{{- with .Values.web.ingress }}
+{{- if .enabled }}
+---
+# Off by default. Turn on only for an internal ingress, and allow its controller in
+# networkPolicy.webIngressFrom.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "argus.fullname" $ }}-web
+  labels:
+    {{- include "argus.labels" (dict "root" $ "component" "web") | nindent 4 }}
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .tlsSecretName }}
+  tls:
+    - hosts: [{{ .host | quote }}]
+      secretName: {{ .tlsSecretName }}
+  {{- end }}
+  rules:
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "argus.fullname" $ }}-web
+                port: {name: http}
+{{- end }}
+{{- end }}

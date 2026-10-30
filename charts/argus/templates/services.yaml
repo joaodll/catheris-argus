@@ -1,0 +1,22 @@
+{{- /* The chart's Services, all ClusterIP: no public entry until SSO (ADR-0040). The API is
+reached only through web; Postgres only by its clients (NetworkPolicy), and only when it runs in
+the chart. */ -}}
+{{- $services := list (dict "component" "api" "port" 8000 "portName" "http") (dict "component" "web" "port" 8080 "portName" "http") }}
+{{- if .Values.postgres.enabled }}
+{{- $services = append $services (dict "component" "postgres" "port" 5432 "portName" "postgres") }}
+{{- end }}
+{{- range $s := $services }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "argus.fullname" $ }}-{{ $s.component }}
+  labels:
+    {{- include "argus.labels" (dict "root" $ "component" $s.component) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "argus.selectorLabels" (dict "root" $ "component" $s.component) | nindent 4 }}
+  ports:
+    - {name: {{ $s.portName }}, port: {{ $s.port }}, targetPort: {{ $s.portName }}}
+{{- end }}

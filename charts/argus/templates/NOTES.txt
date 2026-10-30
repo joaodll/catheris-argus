@@ -1,0 +1,54 @@
+CatherIs Argus {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+
+1. Prove the cluster enforces the NetworkPolicies, after every install and upgrade:
+
+     helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
+
+2. Open the UI. There is no public entry until SSO exists. Forward the web Service to this
+   machine's loopback, so the browser keeps the Secure session cookie:
+
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "argus.fullname" . }}-web 8080:8080
+     # then http://localhost:8080, as {{ .Values.admin.username }}
+
+3. Schema migrations run in the Job {{ include "argus.fullname" . }}-migrate-*; api and the scheduler
+   start once it has finished. Run Jobs carry the label app.kubernetes.io/component=run:
+
+     kubectl -n {{ .Release.Namespace }} get jobs -l app.kubernetes.io/instance={{ .Release.Name }}
+
+The namespace must carry pod-security.kubernetes.io/enforce=restricted and hold nothing but Argus.
+{{- if not .Values.admissionPolicy.enabled }}
+
+WARNING: the admission policy is off (admissionPolicy.enabled=false). Nothing checks the Jobs the
+scheduler creates: a compromised scheduler can start any image as the service account
+{{ include "argus.serviceAccount" (dict "root" . "name" "run") }}, with its cloud identity, and read any Secret in this namespace.
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+
+WARNING: the NetworkPolicies are off (networkPolicy.enabled=false). Every pod can reach Postgres,
+every pod can reach the API and set the client address it records, and every pod has a route
+out. `helm test` has no probe to run.
+{{- end }}
+{{- if not .Values.resourceQuota.enabled }}
+
+WARNING: the ResourceQuota is off: nothing bounds how many pods and Jobs the scheduler can start.
+{{- end }}
+{{- if or .Values.api.autoscaling.enabled .Values.web.autoscaling.enabled }}
+
+NOTE: autoscaling is on. It needs metrics-server, which EKS does not install by default:
+`kubectl get hpa -n {{ .Release.Namespace }}` shows <unknown> targets without it.
+{{- end }}
+{{- if .Values.web.ingress.enabled }}
+
+NOTE: the Ingress is on ({{ .Values.web.ingress.host }}). Keep it internal until SSO exists, and
+make sure its controller is listed in networkPolicy.webIngressFrom, or it cannot reach web.
+{{- end }}
+{{- if and (eq .Values.identity.mode "irsa") .Values.identity.roleArn }}
+
+The run service account assumes {{ .Values.identity.roleArn }}. Its trust policy must name exactly
+system:serviceaccount:{{ .Release.Namespace }}:{{ include "argus.serviceAccount" (dict "root" . "name" "run") }}.
+{{- end }}
+{{- if and (not .Values.postgres.enabled) (ne .Values.postgres.external.sslmode "verify-full") }}
+
+WARNING: the external database is reached with sslmode={{ .Values.postgres.external.sslmode }}, which
+does not verify the server's name. Use verify-full with postgres.external.caConfigMap.
+{{- end }}

@@ -1,0 +1,166 @@
+{{- /* Default deny, then each pod's few routes (ADR-0040). The namespace is Argus's alone. Only
+enforced when the cluster's network plugin enforces NetworkPolicy (on EKS the VPC CNI leaves it
+off by default): `helm test` proves it. The kubelet's probes are always allowed. */ -}}
+{{- define "argus.np.pods" -}}
+{{- /* A podSelector on this release's pods of the given components. (dict "root" $ "components" (list ...)) */ -}}
+matchLabels:
+  app.kubernetes.io/name: {{ include "argus.name" .root }}
+  app.kubernetes.io/instance: {{ .root.Release.Name }}
+matchExpressions:
+  - key: app.kubernetes.io/component
+    operator: In
+    values: {{ toJson .components }}
+{{- end }}
+{{- define "argus.np.meta" -}}
+{{- /* A NetworkPolicy's header. (dict "root" $ "name" "api") */ -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "argus.fullname" .root }}-{{ .name }}
+  labels:
+    {{- include "argus.labels" (dict "root" .root "component" "network") | nindent 4 }}
+{{- end }}
+{{- define "argus.np.toDatabase" -}}
+{{- if .Values.postgres.enabled }}
+- to:
+    - podSelector:
+        {{- include "argus.np.pods" (dict "root" . "components" (list "postgres")) | nindent 8 }}
+  ports:
+    - {protocol: TCP, port: 5432}
+{{- else }}
+- to:
+    {{- range .Values.postgres.external.cidrs }}
+    - ipBlock: {cidr: {{ . }}}
+    {{- end }}
+  ports:
+    - {protocol: TCP, port: {{ .Values.postgres.external.port }}}
+{{- end }}
+{{- end }}
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy }}
+{{- /* Every pod that connects to the database. */}}
+{{- $dbClients := list "api" "scheduler" "run" "migrate" "rederive" "retention" }}
+{{ include "argus.np.meta" (dict "root" . "name" "default-deny") }}
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+# Every pod resolves names.
+{{ include "argus.np.meta" (dict "root" . "name" "dns") }}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $np.dns.namespaceSelector | nindent 14 }}
+          podSelector:
+            matchLabels:
+              {{- toYaml $np.dns.podSelector | nindent 14 }}
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+---
+# The database's clients reach it; web and the test probe never do.
+{{ include "argus.np.meta" (dict "root" . "name" "database-clients") }}
+spec:
+  podSelector:
+    {{- include "argus.np.pods" (dict "root" . "components" $dbClients) | nindent 4 }}
+  policyTypes: [Egress]
+  egress:
+    {{- include "argus.np.toDatabase" . | trim | nindent 4 }}
+{{- if .Values.postgres.enabled }}
+---
+{{ include "argus.np.meta" (dict "root" . "name" "postgres") }}
+spec:
+  podSelector:
+    {{- include "argus.np.pods" (dict "root" . "components" (list "postgres")) | nindent 4 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            {{- include "argus.np.pods" (dict "root" . "components" $dbClients) | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 5432}
+{{- end }}
+---
+# web -> api: the only way in to the API, which is why it may trust web's X-Forwarded-For.
+{{ include "argus.np.meta" (dict "root" . "name" "api") }}
+spec:
+  podSelector:
+    {{- include "argus.np.pods" (dict "root" . "components" (list "api")) | nindent 4 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            {{- include "argus.np.pods" (dict "root" . "components" (list "web")) | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 8000}
+---
+{{ include "argus.np.meta" (dict "root" . "name" "web") }}
+spec:
+  podSelector:
+    {{- include "argus.np.pods" (dict "root" . "components" (list "web")) | nindent 4 }}
+  policyTypes: [Ingress, Egress]
+  egress:
+    - to:
+        - podSelector:
+            {{- include "argus.np.pods" (dict "root" . "components" (list "api")) | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 8000}
+  {{- if $np.webIngressFrom }}
+  # Only these peers (an ingress controller); `kubectl port-forward` needs no rule.
+  ingress:
+    - from:
+        {{- toYaml $np.webIngressFrom | nindent 8 }}
+      ports:
+        - {protocol: TCP, port: 8080}
+  {{- else }}
+  ingress: []
+  {{- end }}
+---
+# The scheduler creates Jobs: the Kubernetes API, at its endpoint addresses.
+{{ include "argus.np.meta" (dict "root" . "name" "scheduler") }}
+spec:
+  podSelector:
+    {{- include "argus.np.pods" (dict "root" . "components" (list "scheduler")) | nindent 4 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- range $np.kubeApi.cidrs }}
+        - ipBlock: {cidr: {{ . }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: {{ $np.kubeApi.port }}}
+---
+# Scan Jobs: HTTPS outside the cluster (STS, the AWS APIs, S3), never link-local, so never
+# instance metadata.
+{{ include "argus.np.meta" (dict "root" . "name" "run-egress") }}
+spec:
+  podSelector:
+    {{- include "argus.np.pods" (dict "root" . "components" (list "run")) | nindent 4 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except: {{ toJson $np.scanEgressExcept }}
+        {{- if $np.ipv6 }}
+        - ipBlock:
+            cidr: "::/0"
+            except: {{ toJson $np.scanEgressExceptIPv6 }}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 443}
+    {{- if eq .Values.identity.mode "podIdentity" }}
+    # The EKS Pod Identity agent on the node.
+    - to:
+        - ipBlock: {cidr: 169.254.170.23/32}
+        {{- if $np.ipv6 }}
+        - ipBlock: {cidr: "fd00:ec2::23/128"}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 80}
+    {{- end }}
+{{- end }}

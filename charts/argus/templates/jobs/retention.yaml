@@ -1,0 +1,28 @@
+{{- /* Retention once a day (ADR-0039): drops the history older than the History setting
+(monthly partitions), orphan configurations and old rule loads, as argus_worker. Never two at
+once; the time is UTC. Its pod is the same task pod as rederive's. */ -}}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "argus.fullname" . }}-retention
+  labels:
+    {{- include "argus.labels" (dict "root" . "component" "retention") | nindent 4 }}
+spec:
+  schedule: {{ .Values.retention.schedule | quote }}
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 3600
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      labels:
+        {{- include "argus.labels" (dict "root" . "component" "retention") | nindent 8 }}
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 7200
+      template:
+        {{- include "argus.taskPod" (dict "root" . "component" "retention" "wait" true
+          "command" (list "python" "-m" "argus.entrypoints.retention")
+          "db" (dict "root" . "user" "argus_worker" "key" "ARGUS_WORKER_DB_PASSWORD" "pool" "task")
+          "resources" .Values.retention.resources) | nindent 8 }}

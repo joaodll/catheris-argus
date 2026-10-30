@@ -1,0 +1,28 @@
+{{- /* The scheduler's only Kubernetes permission: create Jobs, and see them (ADR-0040). No
+pods, no CronJobs, no Secrets; no delete, patch or watch. The admission policy pins which Jobs.
+Its service account is in serviceaccounts.yaml. */ -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "argus.fullname" . }}-scheduler
+  labels:
+    {{- include "argus.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+rules:
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "argus.fullname" . }}-scheduler
+  labels:
+    {{- include "argus.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "argus.fullname" . }}-scheduler
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argus.serviceAccount" (dict "root" . "name" "scheduler") }}
+    namespace: {{ .Release.Namespace }}
