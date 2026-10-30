@@ -1,0 +1,25 @@
+id = "internet-entry"
+version = 8
+edge_type = "ROUTES_TO"
+description = """The internet's front doors, only where traffic can really arrive (ADR-0035):
+enabled CloudFront distributions, API Gateway APIs that are not private or limited to source
+addresses, internet-facing load balancers with a security group open to anywhere on a listener
+port, running instances with a public address and an open security group, publicly accessible
+databases with an open security group, function URLs without IAM auth and EKS endpoints open
+to 0.0.0.0/0. Route53 records are no longer front doors: they name an entry (route53-target).
+The Resource map starts from these, so the API never reads configuration to find them.
+In a VPC, traffic must also pass the subnet's route to an internet gateway and its network ACL,
+per address family (version 3, ADR-0035 second amendment). Unconfirmed on real output for
+listeners, RDS security groups and subnets, EKS, route tables and network ACLs.
+Version 5 (ADR-0035, fourth amendment): a UDP listener is matched by UDP rules, a TCP one by
+TCP rules.
+Version 6 (ADR-0035, fifth amendment): an instance is judged per network interface and is open
+when one interface passes; ICMP never opens a door; every door carries its evidence (`network`
+per interface: public families, open per family, each subnet's route and ACL; `state`).
+Version 7 (ADR-0037, second amendment): a resource public by its own policy, `via`
+resource_policy (Block Public Access restricts a bucket; a condition is unknown).
+Version 8 (ADR-0037, second amendment, wave 3): an instance's metadata service, `imds`
+(v1: no tokens required, v2, off)."""
+sql = """
+SELECT 'internet', p.uid, p.attributes FROM p WHERE p.reach = 'open'
+"""

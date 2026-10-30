@@ -1,0 +1,52 @@
+id = "resource-security-group"
+version = 1
+edge_type = "MEMBER_OF"
+description = """A resource is a member of each security group attached to it: instances,
+databases, functions in a VPC, load balancers, ECS services and EKS clusters (with their
+cluster security group). Replaces instance-security-group (ADR-0033)."""
+sql = """
+SELECT DISTINCT m.uid, sg.uid, '{}'::jsonb
+FROM (
+  SELECT x.uid, g ->> 'GroupId' AS gid
+  FROM r x CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(x.config -> 'security_groups') = 'array'
+         THEN x.config -> 'security_groups' ELSE '[]' END) AS g
+  WHERE x.type = 'aws_ec2_instance'
+  UNION ALL
+  SELECT x.uid, g ->> 'VpcSecurityGroupId'
+  FROM r x CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(x.config -> 'vpc_security_groups') = 'array'
+         THEN x.config -> 'vpc_security_groups' ELSE '[]' END) AS g
+  WHERE x.type = 'aws_rds_db_instance'
+  UNION ALL
+  SELECT x.uid, g #>> '{}'
+  FROM r x CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(x.config -> 'vpc_security_group_ids') = 'array'
+         THEN x.config -> 'vpc_security_group_ids' ELSE '[]' END) AS g
+  WHERE x.type = 'aws_lambda_function'
+  UNION ALL
+  SELECT x.uid, g #>> '{}'
+  FROM r x CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(x.config -> 'security_groups') = 'array'
+         THEN x.config -> 'security_groups' ELSE '[]' END) AS g
+  WHERE x.type IN ('aws_ec2_application_load_balancer', 'aws_ec2_network_load_balancer',
+                   'aws_ec2_classic_load_balancer')
+  UNION ALL
+  SELECT x.uid, g #>> '{}'
+  FROM r x CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(x.config -> 'network_configuration' -> 'AwsvpcConfiguration' -> 'SecurityGroups') = 'array'
+         THEN x.config -> 'network_configuration' -> 'AwsvpcConfiguration' -> 'SecurityGroups'
+         ELSE '[]' END) AS g
+  WHERE x.type = 'aws_ecs_service'
+  UNION ALL
+  SELECT x.uid, g #>> '{}'
+  FROM r x CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(x.config -> 'resources_vpc_config' -> 'SecurityGroupIds') = 'array'
+         THEN x.config -> 'resources_vpc_config' -> 'SecurityGroupIds' ELSE '[]' END) AS g
+  WHERE x.type = 'aws_eks_cluster'
+  UNION ALL
+  SELECT x.uid, x.config -> 'resources_vpc_config' ->> 'ClusterSecurityGroupId'
+  FROM r x WHERE x.type = 'aws_eks_cluster'
+) m
+JOIN r sg ON sg.type = 'aws_vpc_security_group' AND sg.native_id = m.gid
+"""

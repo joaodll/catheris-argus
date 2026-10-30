@@ -1,0 +1,139 @@
+{
+  "about": "Every AWS principal in an Allow statement, as a string or a list, with its condition. Service principals and Deny statements give no edge. A federated principal (an OIDC provider) with its condition (version 2).",
+  "resources": [
+    {
+      "uid": "arn:aws:iam::123456789012:role/deploy",
+      "type": "aws_iam_role",
+      "native_id": "deploy",
+      "config": {
+        "assume_role_policy_std": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": "arn:aws:iam::111122223333:root"
+              },
+              "Condition": {
+                "StringEquals": {
+                  "sts:ExternalId": "example"
+                }
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": [
+                  "arn:aws:iam::123456789012:role/ci",
+                  "arn:aws:iam::123456789012:user/ops"
+                ]
+              }
+            },
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              }
+            },
+            {
+              "Effect": "Deny",
+              "Principal": {
+                "AWS": "arn:aws:iam::444455556666:root"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:lambda:us-east-1:123456789012:function:not-a-role",
+      "type": "aws_lambda_function",
+      "native_id": "not-a-role",
+      "config": {
+        "assume_role_policy_std": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "AWS": "arn:aws:iam::111122223333:root"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/github-deploy",
+      "type": "aws_iam_role",
+      "native_id": "github-deploy",
+      "name": "github-deploy",
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "name": "github-deploy",
+        "assume_role_policy_std": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "sts:assumerolewithwebidentity"
+              ],
+              "Principal": {
+                "Federated": [
+                  "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com"
+                ]
+              },
+              "Condition": {
+                "StringEquals": {
+                  "token.actions.githubusercontent.com:aud": [
+                    "sts.amazonaws.com"
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:iam::111122223333:root",
+      "target": "arn:aws:iam::123456789012:role/deploy",
+      "attributes": {
+        "condition": {
+          "StringEquals": {
+            "sts:ExternalId": "example"
+          }
+        }
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com",
+      "target": "arn:aws:iam::123456789012:role/github-deploy",
+      "attributes": {
+        "condition": {
+          "StringEquals": {
+            "token.actions.githubusercontent.com:aud": [
+              "sts.amazonaws.com"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ci",
+      "target": "arn:aws:iam::123456789012:role/deploy",
+      "attributes": {
+        "condition": {}
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:user/ops",
+      "target": "arn:aws:iam::123456789012:role/deploy",
+      "attributes": {
+        "condition": {}
+      }
+    }
+  ]
+}

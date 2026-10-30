@@ -1,0 +1,16 @@
+id = "principal-policy"
+version = 1
+edge_type = "HAS_POLICY"
+description = """An IAM user, group or role has each managed policy attached to it. An
+AWS-managed policy (arn:aws:iam::aws:policy/...) is not in the inventory: the edge points to
+its ARN. Inline policies stay in the principal's configuration."""
+sql = """
+SELECT p.uid, a.arn,
+       jsonb_build_object('managed_by',
+         CASE WHEN a.arn LIKE 'arn:%:iam::aws:policy/%' THEN 'aws' ELSE 'customer' END)
+FROM r p
+CROSS JOIN LATERAL jsonb_array_elements_text(
+       CASE jsonb_typeof(p.config -> 'attached_policy_arns')
+            WHEN 'array' THEN p.config -> 'attached_policy_arns' ELSE '[]'::jsonb END) AS a(arn)
+WHERE p.type IN ('aws_iam_user', 'aws_iam_group', 'aws_iam_role') AND a.arn LIKE 'arn:%'
+"""

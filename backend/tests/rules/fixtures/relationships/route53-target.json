@@ -1,0 +1,335 @@
+{
+  "about": "Alias records to a distribution, a dualstack load balancer, an API custom domain and a bucket website; a CNAME to another record; a CNAME to a host nobody owns (external); an A record to an address nobody owns (external); an A record to an instance's public IP, an AAAA record to its IPv6 address and a CNAME to its public name reach the instance; an A record to an address only a network interface holds reaches the interface.",
+  "resources": [
+    {
+      "uid": "arn:aws:cloudfront::123456789012:distribution/E1AAAA",
+      "type": "aws_cloudfront_distribution",
+      "native_id": "E1AAAA",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "domain_name": "d111abcdef8.cloudfront.net"
+      }
+    },
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+      "type": "aws_ec2_application_load_balancer",
+      "native_id": "web",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "dns_name": "web-1111.us-east-1.elb.amazonaws.com"
+      }
+    },
+    {
+      "uid": "arn:aws:apigateway:us-east-1::/domainnames/api.example.com",
+      "type": "aws_api_gateway_domain_name",
+      "native_id": "api.example.com",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "domain_name": "api.example.com",
+        "regional_domain_name": "d-abc123.execute-api.us-east-1.amazonaws.com"
+      }
+    },
+    {
+      "uid": "arn:aws:s3:::www.example.com",
+      "type": "aws_s3_bucket",
+      "native_id": "www.example.com",
+      "name": null,
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/app.example.com./A",
+      "type": "aws_route53_record",
+      "native_id": "app.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "app.example.com.",
+        "type": "A",
+        "zone_id": "Z0PUBLIC",
+        "alias_target": {
+          "DNSName": "D111ABCDEF8.cloudfront.net.",
+          "HostedZoneId": "Z2FDTNDATAQYW2"
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/web.example.com./A",
+      "type": "aws_route53_record",
+      "native_id": "web.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "web.example.com.",
+        "type": "A",
+        "zone_id": "Z0PUBLIC",
+        "alias_target": {
+          "DNSName": "dualstack.web-1111.us-east-1.elb.amazonaws.com."
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/api.example.com./A",
+      "type": "aws_route53_record",
+      "native_id": "api.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "api.example.com.",
+        "type": "A",
+        "zone_id": "Z0PUBLIC",
+        "alias_target": {
+          "DNSName": "d-abc123.execute-api.us-east-1.amazonaws.com."
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/www.example.com./A",
+      "type": "aws_route53_record",
+      "native_id": "www.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "www.example.com.",
+        "type": "A",
+        "zone_id": "Z0PUBLIC",
+        "alias_target": {
+          "DNSName": "s3-website-us-east-1.amazonaws.com."
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/shop.example.com./CNAME",
+      "type": "aws_route53_record",
+      "native_id": "shop.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "shop.example.com.",
+        "type": "CNAME",
+        "zone_id": "Z0PUBLIC",
+        "records": [
+          "app.example.com"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/status.example.com./CNAME",
+      "type": "aws_route53_record",
+      "native_id": "status.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "status.example.com.",
+        "type": "CNAME",
+        "zone_id": "Z0PUBLIC",
+        "resource_records": [
+          {
+            "Value": "Status.Vendor.example.net."
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/mail.example.com./A",
+      "type": "aws_route53_record",
+      "native_id": "mail.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "mail.example.com.",
+        "type": "A",
+        "zone_id": "Z0PUBLIC",
+        "records": [
+          "203.0.113.10"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-web",
+      "type": "aws_ec2_instance",
+      "native_id": "i-web",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "instance_state": "running",
+        "public_ip_address": "198.51.100.7",
+        "public_dns_name": "ec2-198-51-100-7.compute-1.amazonaws.com",
+        "network_interfaces": [
+          {
+            "NetworkInterfaceId": "eni-web",
+            "Ipv6Addresses": [
+              {
+                "Ipv6Address": "2001:db8::7"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:network-interface/eni-lonely",
+      "type": "aws_ec2_network_interface",
+      "native_id": "eni-lonely",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "association_public_ip": "198.51.100.40",
+        "attached_instance_id": "i-notinventoried"
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/host.example.com./A",
+      "type": "aws_route53_record",
+      "native_id": "host.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "host.example.com.",
+        "type": "A",
+        "zone_id": "Z0PUBLIC",
+        "records": [
+          "198.51.100.7"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/host.example.com./AAAA",
+      "type": "aws_route53_record",
+      "native_id": "host.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "host.example.com.",
+        "type": "AAAA",
+        "zone_id": "Z0PUBLIC",
+        "records": [
+          "2001:db8::7"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/box.example.com./CNAME",
+      "type": "aws_route53_record",
+      "native_id": "box.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "box.example.com.",
+        "type": "CNAME",
+        "zone_id": "Z0PUBLIC",
+        "records": [
+          "ec2-198-51-100-7.compute-1.amazonaws.com"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/old.example.com./A",
+      "type": "aws_route53_record",
+      "native_id": "old.example.com.",
+      "name": null,
+      "region": "global",
+      "config": {
+        "name": "old.example.com.",
+        "type": "A",
+        "zone_id": "Z0PUBLIC",
+        "records": [
+          "198.51.100.40"
+        ]
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/app.example.com./A",
+      "target": "arn:aws:cloudfront::123456789012:distribution/E1AAAA",
+      "attributes": {
+        "record_type": "A",
+        "alias": true
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/web.example.com./A",
+      "target": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+      "attributes": {
+        "record_type": "A",
+        "alias": true
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/api.example.com./A",
+      "target": "arn:aws:apigateway:us-east-1::/domainnames/api.example.com",
+      "attributes": {
+        "record_type": "A",
+        "alias": true
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/www.example.com./A",
+      "target": "arn:aws:s3:::www.example.com",
+      "attributes": {
+        "record_type": "A",
+        "alias": true
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/shop.example.com./CNAME",
+      "target": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/app.example.com./A",
+      "attributes": {
+        "record_type": "CNAME",
+        "alias": false
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/status.example.com./CNAME",
+      "target": "external:status.vendor.example.net",
+      "attributes": {
+        "record_type": "CNAME",
+        "alias": false
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/mail.example.com./A",
+      "target": "external:203.0.113.10",
+      "attributes": {
+        "record_type": "A",
+        "alias": false
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/host.example.com./A",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-web",
+      "attributes": {
+        "record_type": "A",
+        "alias": false
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/host.example.com./AAAA",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-web",
+      "attributes": {
+        "record_type": "AAAA",
+        "alias": false
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/box.example.com./CNAME",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-web",
+      "attributes": {
+        "record_type": "CNAME",
+        "alias": false
+      }
+    },
+    {
+      "source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/old.example.com./A",
+      "target": "arn:aws:ec2:us-east-1:123456789012:network-interface/eni-lonely",
+      "attributes": {
+        "record_type": "A",
+        "alias": false
+      }
+    }
+  ]
+}

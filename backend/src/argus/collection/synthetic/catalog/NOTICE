@@ -1,0 +1,7 @@
+prowler_aws_5.45.0.json contains check metadata and compliance framework definitions taken from
+Prowler 5.45.0 (https://github.com/prowler-cloud/prowler), Copyright Prowler / Toni de la
+Fuente, licensed under the Apache License, Version 2.0. Fields were trimmed to those the
+synthetic source needs; values are unmodified.
+
+It is used only to generate synthetic Prowler output for local development and tests, so the
+synthetic estate uses Prowler's real check ids, titles, severities and framework mappings.

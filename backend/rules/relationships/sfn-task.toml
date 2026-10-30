@@ -1,0 +1,22 @@
+id = "sfn-task"
+version = 1
+edge_type = "TRIGGERS"
+description = """A Step Functions state machine calls the resources its definition names
+(ADR-0036): every ARN string in the definition that is an inventoried resource (functions,
+queues, topics, tables, other state machines). A Lambda ARN with a version or alias counts for
+its function. Only ARNs are read from the definition, never its other values. Unconfirmed on
+real output."""
+sql = """
+SELECT DISTINCT sm.uid, t.uid, '{}'::jsonb
+FROM r sm
+CROSS JOIN LATERAL jsonb_path_query(
+  CASE WHEN jsonb_typeof(sm.config -> 'definition') = 'object' THEN sm.config -> 'definition'
+       ELSE '{}' END,
+  'strict $.** ? (@.type() == "string" && @ starts with "arn:")') AS v
+CROSS JOIN LATERAL (SELECT COALESCE(
+  substring(v #>> '{}'
+    from '^(arn[:]aws[a-z-]*[:]lambda[:][a-z0-9-]+[:][0-9]{12}[:]function[:][A-Za-z0-9_-]+)'),
+  v #>> '{}') AS arn) a
+JOIN r t ON t.uid = a.arn AND t.uid <> sm.uid
+WHERE sm.type = 'aws_sfn_state_machine'
+"""

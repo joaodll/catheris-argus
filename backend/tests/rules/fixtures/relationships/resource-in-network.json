@@ -1,0 +1,227 @@
+{
+  "about": "Instance, database, function, ECS service, EKS cluster and node group, load balancers -> subnet; subnet -> VPC. A function outside any VPC (null subnets) and a subnet not in the inventory give no edge.",
+  "resources": [
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-01",
+      "type": "aws_vpc",
+      "native_id": "vpc-01",
+      "name": null,
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-01",
+      "type": "aws_vpc_subnet",
+      "native_id": "subnet-01",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "vpc_id": "vpc-01"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-02",
+      "type": "aws_vpc_subnet",
+      "native_id": "subnet-02",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "vpc_id": "vpc-01"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111aaaa1111a",
+      "type": "aws_ec2_instance",
+      "native_id": "i-0aaa1111aaaa1111a",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnet_id": "subnet-01"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb",
+      "type": "aws_ec2_instance",
+      "native_id": "i-0bbb",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnet_id": "subnet-99"
+      }
+    },
+    {
+      "uid": "arn:aws:rds:us-east-1:123456789012:db:main",
+      "type": "aws_rds_db_instance",
+      "native_id": "main",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnets": [
+          {
+            "SubnetIdentifier": "subnet-01"
+          },
+          {
+            "SubnetIdentifier": "subnet-02"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:lambda:us-east-1:123456789012:function:orders",
+      "type": "aws_lambda_function",
+      "native_id": "orders",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "vpc_subnet_ids": [
+          "subnet-02"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:lambda:us-east-1:123456789012:function:notify",
+      "type": "aws_lambda_function",
+      "native_id": "notify",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "vpc_subnet_ids": null
+      }
+    },
+    {
+      "uid": "arn:aws:ecs:us-east-1:123456789012:service/main/orders",
+      "type": "aws_ecs_service",
+      "native_id": "orders",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "network_configuration": {
+          "AwsvpcConfiguration": {
+            "Subnets": [
+              "subnet-01"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:eks:us-east-1:123456789012:cluster/main",
+      "type": "aws_eks_cluster",
+      "native_id": "main",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "resources_vpc_config": {
+          "SubnetIds": [
+            "subnet-02"
+          ]
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:eks:us-east-1:123456789012:nodegroup/main/ng/1",
+      "type": "aws_eks_node_group",
+      "native_id": "ng",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnets": [
+          "subnet-01"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+      "type": "aws_ec2_application_load_balancer",
+      "native_id": "web",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "availability_zones": [
+          {
+            "ZoneName": "us-east-1a",
+            "SubnetId": "subnet-01"
+          },
+          {
+            "ZoneName": "us-east-1b",
+            "SubnetId": "subnet-02"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/legacy",
+      "type": "aws_ec2_classic_load_balancer",
+      "native_id": "legacy",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnets": [
+          "subnet-02"
+        ]
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111aaaa1111a",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-01",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:rds:us-east-1:123456789012:db:main",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-01",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:rds:us-east-1:123456789012:db:main",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-02",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:lambda:us-east-1:123456789012:function:orders",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-02",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:ecs:us-east-1:123456789012:service/main/orders",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-01",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:eks:us-east-1:123456789012:cluster/main",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-02",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:eks:us-east-1:123456789012:nodegroup/main/ng/1",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-01",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-01",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-02",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/legacy",
+      "target": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-02",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-01",
+      "target": "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-01",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-02",
+      "target": "arn:aws:ec2:us-east-1:123456789012:vpc/vpc-01",
+      "attributes": {}
+    }
+  ]
+}

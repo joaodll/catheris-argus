@@ -1,0 +1,629 @@
+{
+  "about": "A role's Allow statements, inline and customer-managed, to the data stores and services they name: read/write/full, a wildcard resource as any:<service>. AWS-managed policies from the curated list (version 2), in any partition and with their path, as any:<service>. Near misses: a Deny statement, an underscore that is not a wildcard, an index ARN, an EC2 action, an AWS-managed policy with no data access (ViewOnlyAccess), a customer policy named like an AWS one. Version 3: a user, with its own inline policy and its group's inline and AWS-managed ones; the group itself draws nothing.",
+  "resources": [
+    {
+      "uid": "arn:aws:dynamodb:us-east-1:123456789012:table/orders",
+      "type": "aws_dynamodb_table",
+      "native_id": "orders",
+      "name": "orders",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:dynamodb:us-east-1:123456789012:table/order_items",
+      "type": "aws_dynamodb_table",
+      "native_id": "order_items",
+      "name": "order_items",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:dynamodb:us-east-1:123456789012:table/orderXitems",
+      "type": "aws_dynamodb_table",
+      "native_id": "orderXitems",
+      "name": "orderXitems",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:s3:::acme-assets",
+      "type": "aws_s3_bucket",
+      "native_id": "acme-assets",
+      "name": "acme-assets",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:s3:::acme-logs",
+      "type": "aws_s3_bucket",
+      "native_id": "acme-logs",
+      "name": "acme-logs",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:sqs:us-east-1:123456789012:jobs",
+      "type": "aws_sqs_queue",
+      "native_id": "jobs",
+      "name": "jobs",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:secretsmanager:us-east-1:123456789012:secret:db-AbCdEf",
+      "type": "aws_secretsmanager_secret",
+      "native_id": "db",
+      "name": "db",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:policy/queue-writer",
+      "type": "aws_iam_policy",
+      "native_id": "queue-writer",
+      "name": "queue-writer",
+      "region": "us-east-1",
+      "config": {
+        "policy_std": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "sqs:sendmessage"
+              ],
+              "Resource": [
+                "arn:aws:sqs:us-east-1:123456789012:jobs"
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/orders-api",
+      "type": "aws_iam_role",
+      "native_id": "orders-api",
+      "name": "orders-api",
+      "region": "us-east-1",
+      "config": {
+        "inline_policies_std": [
+          {
+            "PolicyName": "tables",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:getitem",
+                    "dynamodb:query"
+                  ],
+                  "Resource": [
+                    "arn:aws:dynamodb:us-east-1:123456789012:table/orders"
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:putitem"
+                  ],
+                  "Resource": [
+                    "arn:aws:dynamodb:us-east-1:123456789012:table/order_items",
+                    "arn:aws:dynamodb:us-east-1:123456789012:table/orders/index/*"
+                  ]
+                },
+                {
+                  "Effect": "Deny",
+                  "Action": [
+                    "dynamodb:*"
+                  ],
+                  "Resource": [
+                    "arn:aws:dynamodb:us-east-1:123456789012:table/orderXitems"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "PolicyName": "assets",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:getobject"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::acme-assets/*"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "attached_policy_arns": [
+          "arn:aws:iam::123456789012:policy/queue-writer",
+          "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/ops-admin",
+      "type": "aws_iam_role",
+      "native_id": "ops-admin",
+      "name": "ops-admin",
+      "region": "us-east-1",
+      "config": {
+        "inline_policies_std": [
+          {
+            "PolicyName": "all",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "attached_policy_arns": []
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/secret-reader",
+      "type": "aws_iam_role",
+      "native_id": "secret-reader",
+      "name": "secret-reader",
+      "region": "us-east-1",
+      "config": {
+        "inline_policies_std": [
+          {
+            "PolicyName": "db",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "secretsmanager:getsecretvalue"
+                  ],
+                  "Resource": [
+                    "arn:aws:secretsmanager:us-east-1:123456789012:secret:db-*"
+                  ]
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ec2:describeinstances"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ],
+        "attached_policy_arns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaRole",
+          "arn:aws:iam::aws:policy/ViewOnlyAccess",
+          "arn:aws:iam::123456789012:policy/AmazonS3FullAccess",
+          "arn:aws-us-gov:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:group/readers",
+      "type": "aws_iam_group",
+      "native_id": "readers",
+      "name": "readers",
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "name": "readers",
+        "attached_policy_arns": [
+          "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"
+        ],
+        "inline_policies_std": [
+          {
+            "PolicyName": "logs",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:getobject"
+                  ],
+                  "Resource": [
+                    "arn:aws:s3:::acme-logs/*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:user/analyst",
+      "type": "aws_iam_user",
+      "native_id": "analyst",
+      "name": "analyst",
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "name": "analyst",
+        "groups": [
+          {
+            "Arn": "arn:aws:iam::123456789012:group/readers",
+            "GroupName": "readers"
+          }
+        ],
+        "inline_policies_std": [
+          {
+            "PolicyName": "jobs",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sqs:sendmessage"
+                  ],
+                  "Resource": [
+                    "arn:aws:sqs:us-east-1:123456789012:jobs"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:iam::123456789012:role/ops-admin",
+      "target": "any:dynamodb",
+      "attributes": {
+        "level": "full",
+        "via_policy": [
+          "inline:all"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ops-admin",
+      "target": "any:kinesis",
+      "attributes": {
+        "level": "full",
+        "via_policy": [
+          "inline:all"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ops-admin",
+      "target": "any:kms",
+      "attributes": {
+        "level": "full",
+        "via_policy": [
+          "inline:all"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ops-admin",
+      "target": "any:lambda",
+      "attributes": {
+        "level": "full",
+        "via_policy": [
+          "inline:all"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ops-admin",
+      "target": "any:s3",
+      "attributes": {
+        "level": "full",
+        "via_policy": [
+          "inline:all"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ops-admin",
+      "target": "any:secretsmanager",
+      "attributes": {
+        "level": "full",
+        "via_policy": [
+          "inline:all"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ops-admin",
+      "target": "any:sns",
+      "attributes": {
+        "level": "full",
+        "via_policy": [
+          "inline:all"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ops-admin",
+      "target": "any:sqs",
+      "attributes": {
+        "level": "full",
+        "via_policy": [
+          "inline:all"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ops-admin",
+      "target": "any:states",
+      "attributes": {
+        "level": "full",
+        "via_policy": [
+          "inline:all"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/orders-api",
+      "target": "any:s3",
+      "attributes": {
+        "level": "read",
+        "via_policy": [
+          "arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/orders-api",
+      "target": "arn:aws:dynamodb:us-east-1:123456789012:table/order_items",
+      "attributes": {
+        "level": "write",
+        "via_policy": [
+          "inline:tables"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/orders-api",
+      "target": "arn:aws:dynamodb:us-east-1:123456789012:table/orders",
+      "attributes": {
+        "level": "read",
+        "via_policy": [
+          "inline:tables"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/orders-api",
+      "target": "arn:aws:s3:::acme-assets",
+      "attributes": {
+        "level": "read",
+        "via_policy": [
+          "inline:assets"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/orders-api",
+      "target": "arn:aws:sqs:us-east-1:123456789012:jobs",
+      "attributes": {
+        "level": "write",
+        "via_policy": [
+          "arn:aws:iam::123456789012:policy/queue-writer"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/secret-reader",
+      "target": "any:dynamodb",
+      "attributes": {
+        "level": "read",
+        "via_policy": [
+          "arn:aws-us-gov:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/secret-reader",
+      "target": "any:lambda",
+      "attributes": {
+        "level": "write",
+        "via_policy": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaRole"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/secret-reader",
+      "target": "arn:aws:secretsmanager:us-east-1:123456789012:secret:db-AbCdEf",
+      "attributes": {
+        "level": "read",
+        "via_policy": [
+          "inline:db"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:user/analyst",
+      "target": "any:dynamodb",
+      "attributes": {
+        "level": "read",
+        "via_policy": [
+          "arn:aws:iam::aws:policy/AmazonDynamoDBReadOnlyAccess"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:user/analyst",
+      "target": "arn:aws:s3:::acme-logs",
+      "attributes": {
+        "level": "read",
+        "via_policy": [
+          "group:readers/inline:logs"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:user/analyst",
+      "target": "arn:aws:sqs:us-east-1:123456789012:jobs",
+      "attributes": {
+        "level": "write",
+        "via_policy": [
+          "inline:jobs"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "scps",
+          "unlisted_aws_managed_policies"
+        ]
+      }
+    }
+  ]
+}

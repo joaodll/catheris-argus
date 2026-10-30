@@ -1,0 +1,275 @@
+{
+  "about": "A principal allowed ssm:SendCommand or ssm:StartSession (a wildcard, AmazonSSMFullAccess) reaches any:ssm, and any:ssm each instance SSM manages and reaches (Online). Near misses: an administrator's own *, ssm:Describe*, an instance SSM lost, one it does not manage.",
+  "resources": [
+    {
+      "uid": "arn:aws:iam::123456789012:role/operator",
+      "type": "aws_iam_role",
+      "native_id": "operator",
+      "name": "operator",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "operator",
+        "inline_policies_std": [
+          {
+            "PolicyName": "operator-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:sendcommand"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/sessions",
+      "type": "aws_iam_role",
+      "native_id": "sessions",
+      "name": "sessions",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "sessions",
+        "inline_policies_std": [
+          {
+            "PolicyName": "sessions-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:start*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/ssm-full",
+      "type": "aws_iam_role",
+      "native_id": "ssm-full",
+      "name": "ssm-full",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "ssm-full",
+        "attached_policy_arns": [
+          "arn:aws:iam::aws:policy/AmazonSSMFullAccess"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/admin",
+      "type": "aws_iam_role",
+      "native_id": "admin",
+      "name": "admin",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "admin",
+        "inline_policies_std": [
+          {
+            "PolicyName": "admin-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/reader",
+      "type": "aws_iam_role",
+      "native_id": "reader",
+      "name": "reader",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "reader",
+        "inline_policies_std": [
+          {
+            "PolicyName": "reader-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "ssm:describe*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-managed",
+      "type": "aws_ec2_instance",
+      "native_id": "i-managed",
+      "name": "i-managed",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-x",
+            "GroupName": "sg-x"
+          }
+        ],
+        "vpc_id": "vpc-1",
+        "subnet_id": "subnet-priv"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-offline",
+      "type": "aws_ec2_instance",
+      "native_id": "i-offline",
+      "name": "i-offline",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-x",
+            "GroupName": "sg-x"
+          }
+        ],
+        "vpc_id": "vpc-1",
+        "subnet_id": "subnet-priv"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-unmanaged",
+      "type": "aws_ec2_instance",
+      "native_id": "i-unmanaged",
+      "name": "i-unmanaged",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-x",
+            "GroupName": "sg-x"
+          }
+        ],
+        "vpc_id": "vpc-1",
+        "subnet_id": "subnet-priv"
+      }
+    },
+    {
+      "uid": "arn:aws:ssm:us-east-1:123456789012:managed-instance/i-managed",
+      "type": "aws_ssm_managed_instance",
+      "native_id": "i-managed",
+      "name": "i-managed",
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "instance_id": "i-managed",
+        "ping_status": "Online",
+        "resource_type": "EC2Instance"
+      }
+    },
+    {
+      "uid": "arn:aws:ssm:us-east-1:123456789012:managed-instance/i-offline",
+      "type": "aws_ssm_managed_instance",
+      "native_id": "i-offline",
+      "name": "i-offline",
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "instance_id": "i-offline",
+        "ping_status": "ConnectionLost",
+        "resource_type": "EC2Instance"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "any:ssm",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-managed",
+      "attributes": {
+        "ping_status": "Online"
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/operator",
+      "target": "any:ssm",
+      "attributes": {
+        "via": [
+          "ssm:sendcommand"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "resources",
+          "scps"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/sessions",
+      "target": "any:ssm",
+      "attributes": {
+        "via": [
+          "ssm:start*"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "resources",
+          "scps"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/ssm-full",
+      "target": "any:ssm",
+      "attributes": {
+        "via": [
+          "arn:aws:iam::aws:policy/AmazonSSMFullAccess"
+        ],
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "resources",
+          "scps"
+        ]
+      }
+    }
+  ]
+}

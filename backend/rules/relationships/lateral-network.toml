@@ -1,0 +1,70 @@
+id = "lateral-network"
+version = 1
+edge_type = "CAN_CONNECT_TO"
+description = """From an instance the internet reaches, an attacker can
+connect to another running instance or a database in the same VPC whose security groups admit,
+from a private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), a remote-access port (SSH 22,
+RDP 3389, WinRM 5985/5986), a database or cache port (5432, 3306, 1433, 1521, 6379, 11211,
+27017) or, for a database, its own port (ADR-0037, second amendment, wave 3). A key, password or
+exploit from the first opens the second: the attack-path search walks it as a Candidate step,
+Blocked behind a Restricted door. A door counts when it is open or unknown, or Restricted with
+something its groups open to the internet (one change away); a public instance whose groups open
+nothing is no foothold, and leaving it out keeps a flat VPC from linking every public instance
+to every other. `ports` and `services` name what is admitted. Replaces ssh-lateral (port 22 from
+open doors only)."""
+sql = """
+SELECT a.uid, t.uid,
+       jsonb_build_object('ports', jsonb_agg(DISTINCT t.port ORDER BY t.port),
+                          'services', jsonb_agg(DISTINCT t.service ORDER BY t.service))
+FROM p
+JOIN r a ON a.uid = p.uid AND a.type = 'aws_ec2_instance'
+JOIN (
+  -- Running instances, by the groups on the instance or any of its interfaces.
+  SELECT b.uid, b.vpc_id, svc.port, svc.service
+  FROM r b
+  CROSS JOIN LATERAL (
+    SELECT sg ->> 'GroupId' AS gid
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.config -> 'security_groups') = 'array'
+                                   THEN b.config -> 'security_groups' ELSE '[]'::jsonb END) sg
+    UNION
+    SELECT gr ->> 'GroupId'
+    FROM jsonb_array_elements(CASE WHEN jsonb_typeof(b.config -> 'network_interfaces') = 'array'
+                                   THEN b.config -> 'network_interfaces' ELSE '[]'::jsonb END) ni
+    CROSS JOIN LATERAL jsonb_array_elements(CASE WHEN jsonb_typeof(ni -> 'Groups') = 'array'
+                                                 THEN ni -> 'Groups' ELSE '[]'::jsonb END) gr
+  ) bg
+  CROSS JOIN (VALUES (22, 'ssh'), (3389, 'rdp'), (5985, 'winrm'), (5986, 'winrm'),
+                     (5432, 'postgresql'), (3306, 'mysql'), (1433, 'sqlserver'), (1521, 'oracle'),
+                     (6379, 'redis'), (11211, 'memcached'), (27017, 'mongodb'))
+    AS svc(port, service)
+  JOIN g ON g.group_id = bg.gid
+  WHERE b.type = 'aws_ec2_instance' AND b.config ->> 'instance_state' = 'running'
+    AND g.family = 'ipv4'
+    AND (g.protocol = '-1'
+         OR (g.protocol IN ('tcp', '6') AND svc.port BETWEEN g.from_port AND g.to_port))
+    AND g.source ~ '^(10[.]|172[.](1[6-9]|2[0-9]|3[01])[.]|192[.]168[.])'
+  UNION
+  -- Databases, on their own port.
+  SELECT d.uid, d.vpc_id, dp.port, COALESCE(d.config ->> 'engine', 'database')
+  FROM r d
+  CROSS JOIN LATERAL (SELECT COALESCE((d.config ->> 'endpoint_port')::int,
+                                      (d.config ->> 'port')::int) AS port) dp
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE WHEN jsonb_typeof(d.config -> 'vpc_security_groups') = 'array'
+         THEN d.config -> 'vpc_security_groups' ELSE '[]'::jsonb END) AS vsg
+  JOIN g ON g.group_id = vsg ->> 'VpcSecurityGroupId'
+  WHERE d.type = 'aws_rds_db_instance' AND dp.port IS NOT NULL AND g.family = 'ipv4'
+    AND (g.protocol = '-1'
+         OR (g.protocol IN ('tcp', '6') AND dp.port BETWEEN g.from_port AND g.to_port))
+    AND g.source ~ '^(10[.]|172[.](1[6-9]|2[0-9]|3[01])[.]|192[.]168[.])'
+) t ON t.vpc_id = a.vpc_id AND t.uid <> a.uid
+WHERE p.reach <> 'restricted'
+   OR jsonb_array_length(CASE WHEN jsonb_typeof(p.attributes -> 'open_ports') = 'array'
+                              THEN p.attributes -> 'open_ports' ELSE '[]'::jsonb END) > 0
+   OR EXISTS (SELECT 1
+              FROM jsonb_array_elements(CASE WHEN jsonb_typeof(p.attributes -> 'network') = 'array'
+                                             THEN p.attributes -> 'network' ELSE '[]'::jsonb END) n
+              WHERE jsonb_array_length(COALESCE(n -> 'open' -> 'ipv4', '[]'::jsonb))
+                    + jsonb_array_length(COALESCE(n -> 'open' -> 'ipv6', '[]'::jsonb)) > 0)
+GROUP BY a.uid, t.uid
+"""

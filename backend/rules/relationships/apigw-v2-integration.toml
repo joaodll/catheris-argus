@@ -1,0 +1,43 @@
+id = "apigw-v2-integration"
+version = 2
+edge_type = "ROUTES_TO"
+description = """An HTTP or WebSocket API (API Gateway v2) routes to what its integrations call:
+a Lambda function (qualifier dropped), the load balancer of a VPC-link listener, a Cloud Map
+service, or an HTTP host (external:<host> when no inventoried resource owns it). One edge per
+API and target, with the route keys that use it."""
+# A colon in a string literal before a word reads as a bind parameter in SQLAlchemy text(),
+# so regex colons are written [:] and the replacement's colon is concatenated.
+sql = '''
+SELECT api.uid, COALESCE(x.arn_target, b.uid, 'external:' || x.host),
+       jsonb_build_object('routes', COALESCE(to_jsonb(
+         (array_agg(DISTINCT x.route ORDER BY x.route) FILTER (WHERE x.route IS NOT NULL))[1:50]),
+         '[]'::jsonb))
+FROM (
+  SELECT ig.region, ig.config ->> 'api_id' AS api_id, rt.config ->> 'route_key' AS route,
+         COALESCE(
+           substring(i.u from '(arn[:]aws[a-z-]*[:]lambda[:][a-z0-9-]+[:][0-9]{12}[:]function[:][A-Za-z0-9_-]+)'),
+           regexp_replace(
+             substring(i.u from '^(arn[:]aws[a-z-]*[:]elasticloadbalancing[:].*[:]listener/.*)$'),
+             '[:]listener/((app|net)/[^/]+/[^/]+)/[^/]+$', ':' || 'loadbalancer/\1'),
+           substring(i.u from '^(arn[:]aws[a-z-]*[:]servicediscovery[:].*)$')
+         ) AS arn_target,
+         -- The host alone: never the userinfo, port, path or query, which can hold a token.
+         CASE WHEN i.u ~* '^https?[:]//' THEN
+           lower(regexp_replace(rtrim(substring(i.u from
+             '^[A-Za-z][A-Za-z0-9+.-]*[:]//(?:[^/?#]*@)?([A-Za-z0-9.-]+)'), '.'),
+             '^dualstack[.]', ''))
+         END AS host
+  FROM r ig
+  CROSS JOIN LATERAL (SELECT ig.config ->> 'integration_uri' AS u) i
+  LEFT JOIN r rt ON rt.type = 'aws_api_gatewayv2_route'
+                AND rt.config ->> 'api_id' = ig.config ->> 'api_id'
+                AND rt.config ->> 'target' = 'integrations/' || (ig.config ->> 'integration_id')
+  WHERE ig.type = 'aws_api_gatewayv2_integration' AND i.u IS NOT NULL
+) x
+JOIN r api ON api.type = 'aws_api_gatewayv2_api' AND api.native_id = x.api_id
+          AND api.region = x.region
+LEFT JOIN (SELECT DISTINCT ON (host) host, uid FROM h ORDER BY host, rank, uid) b
+       ON b.host = x.host
+WHERE x.arn_target IS NOT NULL OR (x.host IS NOT NULL AND x.host <> '')
+GROUP BY api.uid, COALESCE(x.arn_target, b.uid, 'external:' || x.host)
+'''

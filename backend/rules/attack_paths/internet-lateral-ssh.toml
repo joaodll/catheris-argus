@@ -1,0 +1,20 @@
+id = "internet-lateral-ssh"
+version = 2
+name = "From the internet to a neighbour"
+category = "Lateral movement"
+severity = "medium"
+technique = "T1021"  # Remote Services
+description = """The internet reaches an instance, and from it an attacker can connect to another
+instance or a database in the same VPC that admits, from private addresses, SSH, RDP, WinRM or
+a database or cache port. A key, password or exploit taken from the first opens the second.
+Version 2 (ADR-0037, second amendment, wave 3): every remote-access and database port, from
+every door (a Restricted door's path is latent); the id stays, so SSH paths keep their
+history."""
+remediation = """Close the first instance to the internet (use Session Manager instead of SSH or
+RDP), and limit private ingress to the neighbour to a bastion or the clients that need it."""
+# The path must end with the step to the neighbour: one also reached another way (a load
+# balancer in front of it) is a different story.
+last_steps = ["CAN_CONNECT_TO"]
+sql = """
+SELECT DISTINCT e.target_uid FROM e WHERE e.type = 'CAN_CONNECT_TO'
+"""

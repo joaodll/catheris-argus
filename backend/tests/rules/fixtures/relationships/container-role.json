@@ -1,0 +1,78 @@
+{
+  "about": "An ECS service runs as its task definition's task role (not the execution role); an EKS node group as its node role. A task definition without a task role, and a service whose task definition is not in the inventory, give no edge.",
+  "resources": [
+    {
+      "uid": "arn:aws:ecs:us-east-1:123456789012:task-definition/orders:7",
+      "type": "aws_ecs_task_definition",
+      "native_id": "orders:7",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "task_role_arn": "arn:aws:iam::123456789012:role/orders-task",
+        "execution_role_arn": "arn:aws:iam::123456789012:role/exec"
+      }
+    },
+    {
+      "uid": "arn:aws:ecs:us-east-1:123456789012:service/main/orders",
+      "type": "aws_ecs_service",
+      "native_id": "orders",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "task_definition": "arn:aws:ecs:us-east-1:123456789012:task-definition/orders:7"
+      }
+    },
+    {
+      "uid": "arn:aws:ecs:us-east-1:123456789012:task-definition/batch:1",
+      "type": "aws_ecs_task_definition",
+      "native_id": "batch:1",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "task_role_arn": null
+      }
+    },
+    {
+      "uid": "arn:aws:ecs:us-east-1:123456789012:service/main/batch",
+      "type": "aws_ecs_service",
+      "native_id": "batch",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "task_definition": "arn:aws:ecs:us-east-1:123456789012:task-definition/batch:1"
+      }
+    },
+    {
+      "uid": "arn:aws:ecs:us-east-1:123456789012:service/main/gone",
+      "type": "aws_ecs_service",
+      "native_id": "gone",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "task_definition": "arn:aws:ecs:us-east-1:123456789012:task-definition/gone:3"
+      }
+    },
+    {
+      "uid": "arn:aws:eks:us-east-1:123456789012:nodegroup/main/ng/1",
+      "type": "aws_eks_node_group",
+      "native_id": "ng",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "node_role": "arn:aws:iam::123456789012:role/eks-node"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:ecs:us-east-1:123456789012:service/main/orders",
+      "target": "arn:aws:iam::123456789012:role/orders-task",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:eks:us-east-1:123456789012:nodegroup/main/ng/1",
+      "target": "arn:aws:iam::123456789012:role/eks-node",
+      "attributes": {}
+    }
+  ]
+}

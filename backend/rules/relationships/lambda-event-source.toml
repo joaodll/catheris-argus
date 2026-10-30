@@ -1,0 +1,18 @@
+id = "lambda-event-source"
+version = 1
+edge_type = "TRIGGERS"
+description = """An event source mapping makes a queue, stream or Kafka cluster trigger a Lambda
+function. A DynamoDB stream is drawn from its table. The plugin's `arn` column on this table is
+the event source's ARN."""
+sql = """
+SELECT DISTINCT
+       CASE WHEN m.config ->> 'arn' LIKE '%dynamodb%/stream/%'
+            THEN split_part(m.config ->> 'arn', '/stream/', 1) ELSE m.config ->> 'arn' END,
+       COALESCE(substring(m.config ->> 'function_arn'
+                  from '^(arn[:]aws[a-z-]*[:]lambda[:][a-z0-9-]+[:][0-9]{12}[:]function[:][A-Za-z0-9_-]+)'),
+                m.config ->> 'function_arn'),
+       '{}'::jsonb
+FROM r m
+WHERE m.type = 'aws_lambda_event_source_mapping'
+  AND m.config ->> 'arn' LIKE 'arn%' AND m.config ->> 'function_arn' LIKE 'arn%'
+"""

@@ -1,0 +1,93 @@
+{
+  "about": "A door that is a resource public by its own policy (via resource_policy), whatever its reach: open, restricted by Block Public Access, unknown for a condition. Near misses: a network door, an outsider's principal and a user's credential (entries, not doors), an edge inside the estate.",
+  "edges": [
+    {
+      "id": 1,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:s3:::public-assets",
+      "type": "ROUTES_TO",
+      "origin": "rule:internet-entry@7",
+      "attributes": {
+        "via": "resource_policy",
+        "actions": [
+          "s3:getobject"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:s3:::blocked-bucket",
+      "type": "PUBLIC_RESTRICTED",
+      "origin": "rule:internet-restricted@6",
+      "attributes": {
+        "via": "resource_policy",
+        "reason": "block_public_access",
+        "open_ports": []
+      }
+    },
+    {
+      "id": 3,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:sqs:us-east-1:123456789012:events",
+      "type": "PUBLIC_UNVERIFIED",
+      "origin": "rule:internet-unverified@5",
+      "attributes": {
+        "via": "resource_policy",
+        "missing": [
+          "policy_condition:events"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-web",
+      "type": "ROUTES_TO",
+      "origin": "rule:internet-entry@7",
+      "attributes": {
+        "via": "public_ip",
+        "open": [
+          "tcp/443"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:iam::999988887777:root",
+      "type": "OUTSIDER",
+      "origin": "rule:outsider-trust@1",
+      "attributes": {
+        "kind": "other_account"
+      }
+    },
+    {
+      "id": 6,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:iam::123456789012:user/ci",
+      "type": "HAS_CREDENTIAL",
+      "origin": "rule:exposed-user-credential@1",
+      "attributes": {
+        "credentials": [
+          "access_key"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "source_uid": "arn:aws:iam::123456789012:role/app",
+      "target_uid": "arn:aws:s3:::inner",
+      "type": "ACCESSES",
+      "origin": "rule:role-accesses@3",
+      "attributes": {
+        "via": "resource_policy"
+      }
+    }
+  ],
+  "expected": [
+    "arn:aws:s3:::public-assets",
+    "arn:aws:s3:::blocked-bucket",
+    "arn:aws:sqs:us-east-1:123456789012:events"
+  ]
+}

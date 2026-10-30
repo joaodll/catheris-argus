@@ -1,0 +1,13 @@
+id = "route53-target"
+version = 2
+edge_type = "ROUTES_TO"
+description = """A Route53 record routes to what its alias target or CNAME names: a CloudFront
+distribution, a load balancer, an API Gateway domain, a bucket website, or another record; an A or
+AAAA record's addresses (and a CNAME to an instance's public name) route to the instance, network
+interface or Elastic IP that owns them (argus_v12). A name or address no inventoried resource
+owns becomes external:<host> (ADR-0033)."""
+# The resolution itself is the engine's `dt` view (relationships/engine.py), which internet-dns
+# also reads.
+sql = """
+SELECT d.src, d.target, jsonb_build_object('record_type', d.rtype, 'alias', d.alias) FROM dt d
+"""

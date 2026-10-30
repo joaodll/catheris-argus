@@ -1,0 +1,1034 @@
+{
+  "about": "From an instance the internet reaches, whatever its reach (i-entry open; i-private-door Restricted: no public address, a group open to the internet), to running instances and databases of the same VPC that admit from a private range SSH (i-peer), all traffic (i-peer172: every service), RDP (i-rdp), a database port (i-pg) or a database's own port (orders). Not from: a public instance whose groups open nothing (i-closed-public, Restricted). Not to: SSH from a public range, a stopped instance, another VPC, a database in another VPC, a port no service is named for (443).",
+  "resources": [
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-open80",
+      "type": "aws_vpc_security_group",
+      "native_id": "sg-open80",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "group_id": "sg-open80"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-sg-open80-0",
+      "type": "aws_vpc_security_group_rule",
+      "native_id": "sgr-sg-open80-0",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "group_id": "sg-open80",
+        "type": "ingress",
+        "ip_protocol": "tcp",
+        "from_port": 80,
+        "to_port": 80,
+        "cidr_ipv4": "0.0.0.0/0"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-pub",
+      "type": "aws_vpc_subnet",
+      "native_id": "subnet-pub",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnet_id": "subnet-pub",
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-priv",
+      "type": "aws_vpc_subnet",
+      "native_id": "subnet-priv",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnet_id": "subnet-priv",
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-acl",
+      "type": "aws_vpc_subnet",
+      "native_id": "subnet-acl",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnet_id": "subnet-acl",
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-acl2",
+      "type": "aws_vpc_subnet",
+      "native_id": "subnet-acl2",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnet_id": "subnet-acl2",
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-acl3",
+      "type": "aws_vpc_subnet",
+      "native_id": "subnet-acl3",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnet_id": "subnet-acl3",
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-noacl",
+      "type": "aws_vpc_subnet",
+      "native_id": "subnet-noacl",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnet_id": "subnet-noacl",
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:subnet/subnet-gone",
+      "type": "aws_vpc_subnet",
+      "native_id": "subnet-gone",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "subnet_id": "subnet-gone",
+        "vpc_id": "vpc-2"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:route-table/rtb-main",
+      "type": "aws_vpc_route_table",
+      "native_id": "rtb-main",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "route_table_id": "rtb-main",
+        "vpc_id": "vpc-1",
+        "routes": [
+          {
+            "DestinationCidrBlock": "10.0.0.0/16",
+            "GatewayId": "local",
+            "State": "active",
+            "Origin": "CreateRouteTable"
+          }
+        ],
+        "associations": [
+          {
+            "RouteTableAssociationId": "rtbassoc-main-rtb-main",
+            "RouteTableId": "rtb-main",
+            "Main": true
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:route-table/rtb-pub",
+      "type": "aws_vpc_route_table",
+      "native_id": "rtb-pub",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "route_table_id": "rtb-pub",
+        "vpc_id": "vpc-1",
+        "routes": [
+          {
+            "DestinationCidrBlock": "10.0.0.0/16",
+            "GatewayId": "local",
+            "State": "active",
+            "Origin": "CreateRouteTable"
+          },
+          {
+            "DestinationCidrBlock": "0.0.0.0/0",
+            "GatewayId": "igw-1",
+            "State": "active",
+            "Origin": "CreateRoute"
+          },
+          {
+            "DestinationIpv6CidrBlock": "::/0",
+            "GatewayId": "igw-1",
+            "State": "active",
+            "Origin": "CreateRoute"
+          }
+        ],
+        "associations": [
+          {
+            "RouteTableAssociationId": "rtbassoc-subnet-pub",
+            "RouteTableId": "rtb-pub",
+            "SubnetId": "subnet-pub",
+            "Main": false
+          },
+          {
+            "RouteTableAssociationId": "rtbassoc-subnet-acl",
+            "RouteTableId": "rtb-pub",
+            "SubnetId": "subnet-acl",
+            "Main": false
+          },
+          {
+            "RouteTableAssociationId": "rtbassoc-subnet-acl2",
+            "RouteTableId": "rtb-pub",
+            "SubnetId": "subnet-acl2",
+            "Main": false
+          },
+          {
+            "RouteTableAssociationId": "rtbassoc-subnet-acl3",
+            "RouteTableId": "rtb-pub",
+            "SubnetId": "subnet-acl3",
+            "Main": false
+          },
+          {
+            "RouteTableAssociationId": "rtbassoc-subnet-noacl",
+            "RouteTableId": "rtb-pub",
+            "SubnetId": "subnet-noacl",
+            "Main": false
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:network-acl/acl-default",
+      "type": "aws_vpc_network_acl",
+      "native_id": "acl-default",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "network_acl_id": "acl-default",
+        "vpc_id": "vpc-1",
+        "is_default": true,
+        "entries": [
+          {
+            "RuleNumber": 100,
+            "Egress": false,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 101,
+            "Egress": false,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "Ipv6CidrBlock": "::/0"
+          },
+          {
+            "RuleNumber": 32767,
+            "Egress": false,
+            "RuleAction": "deny",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 100,
+            "Egress": true,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 101,
+            "Egress": true,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "Ipv6CidrBlock": "::/0"
+          },
+          {
+            "RuleNumber": 32767,
+            "Egress": true,
+            "RuleAction": "deny",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          }
+        ],
+        "associations": [
+          {
+            "NetworkAclAssociationId": "aclassoc-subnet-pub",
+            "NetworkAclId": "acl-default",
+            "SubnetId": "subnet-pub"
+          },
+          {
+            "NetworkAclAssociationId": "aclassoc-subnet-priv",
+            "NetworkAclId": "acl-default",
+            "SubnetId": "subnet-priv"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:network-acl/acl-office",
+      "type": "aws_vpc_network_acl",
+      "native_id": "acl-office",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "network_acl_id": "acl-office",
+        "vpc_id": "vpc-1",
+        "is_default": false,
+        "entries": [
+          {
+            "RuleNumber": 90,
+            "Egress": false,
+            "RuleAction": "allow",
+            "Protocol": "6",
+            "PortRange": {
+              "From": 80,
+              "To": 80
+            },
+            "CidrBlock": "203.0.113.0/24"
+          },
+          {
+            "RuleNumber": 100,
+            "Egress": false,
+            "RuleAction": "deny",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 32767,
+            "Egress": false,
+            "RuleAction": "deny",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 100,
+            "Egress": true,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 101,
+            "Egress": true,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "Ipv6CidrBlock": "::/0"
+          },
+          {
+            "RuleNumber": 32767,
+            "Egress": true,
+            "RuleAction": "deny",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          }
+        ],
+        "associations": [
+          {
+            "NetworkAclAssociationId": "aclassoc-subnet-acl",
+            "NetworkAclId": "acl-office",
+            "SubnetId": "subnet-acl"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:network-acl/acl-no80",
+      "type": "aws_vpc_network_acl",
+      "native_id": "acl-no80",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "network_acl_id": "acl-no80",
+        "vpc_id": "vpc-1",
+        "is_default": false,
+        "entries": [
+          {
+            "RuleNumber": 100,
+            "Egress": false,
+            "RuleAction": "deny",
+            "Protocol": "6",
+            "PortRange": {
+              "From": 80,
+              "To": 80
+            },
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 200,
+            "Egress": false,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 32767,
+            "Egress": false,
+            "RuleAction": "deny",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 100,
+            "Egress": true,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 101,
+            "Egress": true,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "Ipv6CidrBlock": "::/0"
+          },
+          {
+            "RuleNumber": 32767,
+            "Egress": true,
+            "RuleAction": "deny",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          }
+        ],
+        "associations": [
+          {
+            "NetworkAclAssociationId": "aclassoc-subnet-acl2",
+            "NetworkAclId": "acl-no80",
+            "SubnetId": "subnet-acl2"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:network-acl/acl-noreply",
+      "type": "aws_vpc_network_acl",
+      "native_id": "acl-noreply",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "network_acl_id": "acl-noreply",
+        "vpc_id": "vpc-1",
+        "is_default": false,
+        "entries": [
+          {
+            "RuleNumber": 100,
+            "Egress": false,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 101,
+            "Egress": false,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "Ipv6CidrBlock": "::/0"
+          },
+          {
+            "RuleNumber": 32767,
+            "Egress": false,
+            "RuleAction": "deny",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 100,
+            "Egress": true,
+            "RuleAction": "deny",
+            "Protocol": "6",
+            "PortRange": {
+              "From": 1024,
+              "To": 65535
+            },
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 200,
+            "Egress": true,
+            "RuleAction": "allow",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          },
+          {
+            "RuleNumber": 32767,
+            "Egress": true,
+            "RuleAction": "deny",
+            "Protocol": "-1",
+            "CidrBlock": "0.0.0.0/0"
+          }
+        ],
+        "associations": [
+          {
+            "NetworkAclAssociationId": "aclassoc-subnet-acl3",
+            "NetworkAclId": "acl-noreply",
+            "SubnetId": "subnet-acl3"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-ssh10",
+      "type": "aws_vpc_security_group",
+      "native_id": "sg-ssh10",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "group_id": "sg-ssh10"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-sg-ssh10-0",
+      "type": "aws_vpc_security_group_rule",
+      "native_id": "sgr-sg-ssh10-0",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "group_id": "sg-ssh10",
+        "type": "ingress",
+        "ip_protocol": "tcp",
+        "from_port": 22,
+        "to_port": 22,
+        "cidr_ipv4": "10.0.0.0/8"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-ssh172",
+      "type": "aws_vpc_security_group",
+      "native_id": "sg-ssh172",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "group_id": "sg-ssh172"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-sg-ssh172-0",
+      "type": "aws_vpc_security_group_rule",
+      "native_id": "sgr-sg-ssh172-0",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "group_id": "sg-ssh172",
+        "type": "ingress",
+        "ip_protocol": "-1",
+        "from_port": -1,
+        "to_port": -1,
+        "cidr_ipv4": "172.31.0.0/16"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-rdp10",
+      "type": "aws_vpc_security_group",
+      "native_id": "sg-rdp10",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "group_id": "sg-rdp10"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-sg-rdp10-0",
+      "type": "aws_vpc_security_group_rule",
+      "native_id": "sgr-sg-rdp10-0",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "group_id": "sg-rdp10",
+        "type": "ingress",
+        "ip_protocol": "tcp",
+        "from_port": 3389,
+        "to_port": 3389,
+        "cidr_ipv4": "10.0.0.0/8"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-sshpub",
+      "type": "aws_vpc_security_group",
+      "native_id": "sg-sshpub",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "group_id": "sg-sshpub"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-sg-sshpub-0",
+      "type": "aws_vpc_security_group_rule",
+      "native_id": "sgr-sg-sshpub-0",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": null,
+      "config": {
+        "group_id": "sg-sshpub",
+        "type": "ingress",
+        "ip_protocol": "tcp",
+        "from_port": 22,
+        "to_port": 22,
+        "cidr_ipv4": "198.51.100.0/24"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-entry",
+      "type": "aws_ec2_instance",
+      "native_id": "i-entry",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-open80",
+            "GroupName": "sg-open80"
+          }
+        ],
+        "vpc_id": "vpc-1",
+        "public_ip_address": "198.51.100.30",
+        "subnet_id": "subnet-pub"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-peer",
+      "type": "aws_ec2_instance",
+      "native_id": "i-peer",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-ssh10",
+            "GroupName": "sg-ssh10"
+          }
+        ],
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-peer172",
+      "type": "aws_ec2_instance",
+      "native_id": "i-peer172",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-ssh172",
+            "GroupName": "sg-ssh172"
+          }
+        ],
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-rdp",
+      "type": "aws_ec2_instance",
+      "native_id": "i-rdp",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-rdp10",
+            "GroupName": "sg-rdp10"
+          }
+        ],
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-publicssh",
+      "type": "aws_ec2_instance",
+      "native_id": "i-publicssh",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-sshpub",
+            "GroupName": "sg-sshpub"
+          }
+        ],
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-stopped",
+      "type": "aws_ec2_instance",
+      "native_id": "i-stopped",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "stopped",
+        "security_groups": [
+          {
+            "GroupId": "sg-ssh10",
+            "GroupName": "sg-ssh10"
+          }
+        ],
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-othervpc",
+      "type": "aws_ec2_instance",
+      "native_id": "i-othervpc",
+      "name": null,
+      "region": "us-east-1",
+      "vpc_id": "vpc-2",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-ssh10",
+            "GroupName": "sg-ssh10"
+          }
+        ],
+        "vpc_id": "vpc-2"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-pg10",
+      "type": "aws_vpc_security_group",
+      "native_id": "sg-pg10",
+      "name": "sg-pg10",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "group_id": "sg-pg10",
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-sg-pg10-0",
+      "type": "aws_vpc_security_group_rule",
+      "native_id": "sgr-sg-pg10-0",
+      "name": "sgr-sg-pg10-0",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "group_id": "sg-pg10",
+        "ip_protocol": "tcp",
+        "from_port": 5432,
+        "to_port": 5432,
+        "cidr_ipv4": "10.0.0.0/8",
+        "type": "ingress"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-https10",
+      "type": "aws_vpc_security_group",
+      "native_id": "sg-https10",
+      "name": "sg-https10",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "group_id": "sg-https10",
+        "vpc_id": "vpc-1"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-sg-https10-0",
+      "type": "aws_vpc_security_group_rule",
+      "native_id": "sgr-sg-https10-0",
+      "name": "sgr-sg-https10-0",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "group_id": "sg-https10",
+        "ip_protocol": "tcp",
+        "from_port": 443,
+        "to_port": 443,
+        "cidr_ipv4": "10.0.0.0/8",
+        "type": "ingress"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-private-door",
+      "type": "aws_ec2_instance",
+      "native_id": "i-private-door",
+      "name": "i-private-door",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-open80",
+            "GroupName": "sg-open80"
+          }
+        ],
+        "vpc_id": "vpc-1",
+        "subnet_id": "subnet-priv"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-pg",
+      "type": "aws_ec2_instance",
+      "native_id": "i-pg",
+      "name": "i-pg",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-pg10",
+            "GroupName": "sg-pg10"
+          }
+        ],
+        "vpc_id": "vpc-1",
+        "subnet_id": "subnet-priv"
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-https",
+      "type": "aws_ec2_instance",
+      "native_id": "i-https",
+      "name": "i-https",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-https10",
+            "GroupName": "sg-https10"
+          }
+        ],
+        "vpc_id": "vpc-1",
+        "subnet_id": "subnet-priv"
+      }
+    },
+    {
+      "uid": "arn:aws:rds:us-east-1:123456789012:db:orders",
+      "type": "aws_rds_db_instance",
+      "native_id": "orders",
+      "name": "orders",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "vpc_id": "vpc-1",
+        "endpoint_port": 5432,
+        "engine": "postgres",
+        "publicly_accessible": false,
+        "vpc_security_groups": [
+          {
+            "VpcSecurityGroupId": "sg-pg10",
+            "Status": "active"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:rds:us-east-1:123456789012:db:elsewhere",
+      "type": "aws_rds_db_instance",
+      "native_id": "elsewhere",
+      "name": "elsewhere",
+      "region": "us-east-1",
+      "vpc_id": "vpc-2",
+      "config": {
+        "vpc_id": "vpc-2",
+        "endpoint_port": 5432,
+        "engine": "postgres",
+        "publicly_accessible": false,
+        "vpc_security_groups": [
+          {
+            "VpcSecurityGroupId": "sg-pg10",
+            "Status": "active"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-closed-public",
+      "type": "aws_ec2_instance",
+      "native_id": "i-closed-public",
+      "name": "i-closed-public",
+      "region": "us-east-1",
+      "vpc_id": "vpc-1",
+      "config": {
+        "instance_state": "running",
+        "security_groups": [
+          {
+            "GroupId": "sg-https10",
+            "GroupName": "sg-https10"
+          }
+        ],
+        "vpc_id": "vpc-1",
+        "subnet_id": "subnet-pub",
+        "public_ip_address": "198.51.100.40"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-entry",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-peer",
+      "attributes": {
+        "ports": [
+          22
+        ],
+        "services": [
+          "ssh"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-entry",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-peer172",
+      "attributes": {
+        "ports": [
+          22,
+          1433,
+          1521,
+          3306,
+          3389,
+          5432,
+          5985,
+          5986,
+          6379,
+          11211,
+          27017
+        ],
+        "services": [
+          "memcached",
+          "mongodb",
+          "mysql",
+          "oracle",
+          "postgresql",
+          "rdp",
+          "redis",
+          "sqlserver",
+          "ssh",
+          "winrm"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-entry",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-pg",
+      "attributes": {
+        "ports": [
+          5432
+        ],
+        "services": [
+          "postgresql"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-entry",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-rdp",
+      "attributes": {
+        "ports": [
+          3389
+        ],
+        "services": [
+          "rdp"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-entry",
+      "target": "arn:aws:rds:us-east-1:123456789012:db:orders",
+      "attributes": {
+        "ports": [
+          5432
+        ],
+        "services": [
+          "postgres"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-private-door",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-peer",
+      "attributes": {
+        "ports": [
+          22
+        ],
+        "services": [
+          "ssh"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-private-door",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-peer172",
+      "attributes": {
+        "ports": [
+          22,
+          1433,
+          1521,
+          3306,
+          3389,
+          5432,
+          5985,
+          5986,
+          6379,
+          11211,
+          27017
+        ],
+        "services": [
+          "memcached",
+          "mongodb",
+          "mysql",
+          "oracle",
+          "postgresql",
+          "rdp",
+          "redis",
+          "sqlserver",
+          "ssh",
+          "winrm"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-private-door",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-pg",
+      "attributes": {
+        "ports": [
+          5432
+        ],
+        "services": [
+          "postgresql"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-private-door",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-rdp",
+      "attributes": {
+        "ports": [
+          3389
+        ],
+        "services": [
+          "rdp"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:ec2:us-east-1:123456789012:instance/i-private-door",
+      "target": "arn:aws:rds:us-east-1:123456789012:db:orders",
+      "attributes": {
+        "ports": [
+          5432
+        ],
+        "services": [
+          "postgres"
+        ]
+      }
+    }
+  ]
+}

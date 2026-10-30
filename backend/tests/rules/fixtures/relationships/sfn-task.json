@@ -1,0 +1,75 @@
+{
+  "about": "Every inventoried ARN in a definition: a function (its alias dropped), a table. Near misses: an ARN not in the inventory, the service integration ARN, the state machine itself.",
+  "resources": [
+    {
+      "uid": "arn:aws:states:us-east-1:123456789012:stateMachine:fulfil",
+      "type": "aws_sfn_state_machine",
+      "native_id": "fulfil",
+      "name": "fulfil",
+      "region": "us-east-1",
+      "config": {
+        "definition": {
+          "StartAt": "Pay",
+          "States": {
+            "Pay": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "arn:aws:lambda:us-east-1:123456789012:function:orders:$LATEST"
+              },
+              "Next": "Save"
+            },
+            "Save": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::dynamodb:putItem",
+              "Parameters": {
+                "TableName": "arn:aws:dynamodb:us-east-1:123456789012:table/orders"
+              },
+              "Next": "Notify"
+            },
+            "Notify": {
+              "Type": "Task",
+              "Resource": "arn:aws:sns:us-east-1:123456789012:not-collected",
+              "End": true
+            },
+            "Again": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::states:startExecution",
+              "Parameters": {
+                "StateMachineArn": "arn:aws:states:us-east-1:123456789012:stateMachine:fulfil"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "uid": "arn:aws:lambda:us-east-1:123456789012:function:orders",
+      "type": "aws_lambda_function",
+      "native_id": "orders",
+      "name": "orders",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:dynamodb:us-east-1:123456789012:table/orders",
+      "type": "aws_dynamodb_table",
+      "native_id": "orders",
+      "name": "orders",
+      "region": "us-east-1",
+      "config": {}
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:states:us-east-1:123456789012:stateMachine:fulfil",
+      "target": "arn:aws:lambda:us-east-1:123456789012:function:orders",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:states:us-east-1:123456789012:stateMachine:fulfil",
+      "target": "arn:aws:dynamodb:us-east-1:123456789012:table/orders",
+      "attributes": {}
+    }
+  ]
+}

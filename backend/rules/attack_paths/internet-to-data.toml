@@ -1,0 +1,23 @@
+id = "internet-to-data"
+version = 2
+name = "From the internet to a data store"
+category = "Public data exposure"
+severity = "medium"
+technique = "T1530"  # Data from Cloud Storage
+description = """The internet reaches a data store, behind something it reaches (a bucket
+behind a distribution) or through a workload whose role can read or write it, a store by name
+or every store of a service (a grant on "*": any:s3, any:dynamodb, any:secretsmanager). Anyone
+who controls the first step can reach the data behind it.
+Version 2 (ADR-0037, second amendment): never the door itself, which is an exposure path
+(internet-exposed-admin-port, internet-exposed); a grant on every store of a service counts."""
+remediation = """Remove public access (publicly_accessible=false, Block Public Access on
+buckets, a private origin), or narrow the workload's role to the data it needs and require
+authentication in front of it."""
+sql = """
+SELECT r.uid FROM r
+WHERE r.type IN ('aws_s3_bucket', 'aws_dynamodb_table', 'aws_rds_db_instance',
+                 'aws_secretsmanager_secret')
+UNION
+SELECT e.target_uid FROM e
+WHERE e.type = 'ACCESSES' AND e.target_uid IN ('any:s3', 'any:dynamodb', 'any:secretsmanager')
+"""

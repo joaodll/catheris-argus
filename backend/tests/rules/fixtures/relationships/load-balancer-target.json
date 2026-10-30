@@ -1,0 +1,268 @@
+{
+  "about": "Load balancer -> target group -> instance (a gone instance gives no edge), Lambda target, ECS service (its IP targets are not drawn), an IP target no service owns (external), and a classic load balancer -> instance. An IP target resolves through the network interface in its target group's VPC to the instance (version 3); the same address in another VPC stays external.",
+  "resources": [
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+      "type": "aws_ec2_application_load_balancer",
+      "native_id": "web",
+      "name": null,
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/2222",
+      "type": "aws_ec2_target_group",
+      "native_id": "web",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "port": 443,
+        "protocol": "HTTPS",
+        "target_type": "instance",
+        "load_balancer_arns": [
+          "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111"
+        ],
+        "target_health_descriptions": [
+          {
+            "Target": {
+              "Id": "i-0aaa1111aaaa1111a",
+              "Port": 443
+            }
+          },
+          {
+            "Target": {
+              "Id": "i-0eee5555eeee5555e",
+              "Port": 443
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111aaaa1111a",
+      "type": "aws_ec2_instance",
+      "native_id": "i-0aaa1111aaaa1111a",
+      "name": null,
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/fn/4444",
+      "type": "aws_ec2_target_group",
+      "native_id": "fn",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "target_type": "lambda",
+        "load_balancer_arns": [
+          "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111"
+        ],
+        "target_health_descriptions": [
+          {
+            "Target": {
+              "Id": "arn:aws:lambda:us-east-1:123456789012:function:orders"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/ecs/5555",
+      "type": "aws_ec2_target_group",
+      "native_id": "ecs",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "port": 8080,
+        "protocol": "HTTP",
+        "target_type": "ip",
+        "load_balancer_arns": null,
+        "target_health_descriptions": [
+          {
+            "Target": {
+              "Id": "10.0.1.5",
+              "Port": 8080
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:ecs:us-east-1:123456789012:service/main/orders",
+      "type": "aws_ecs_service",
+      "native_id": "orders",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "load_balancers": [
+          {
+            "TargetGroupArn": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/ecs/5555",
+            "ContainerName": "web",
+            "ContainerPort": 8080
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/ip/6666",
+      "type": "aws_ec2_target_group",
+      "native_id": "ip",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "target_type": "ip",
+        "load_balancer_arns": [],
+        "target_health_descriptions": [
+          {
+            "Target": {
+              "Id": "10.0.9.9",
+              "Port": 80
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/legacy",
+      "type": "aws_ec2_classic_load_balancer",
+      "native_id": "legacy",
+      "name": null,
+      "region": "us-east-1",
+      "config": {
+        "instances": [
+          {
+            "InstanceId": "i-0aaa1111aaaa1111a"
+          },
+          {
+            "InstanceId": "i-0fff0000ffff0000f"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/eni/7777",
+      "type": "aws_ec2_target_group",
+      "native_id": "eni",
+      "name": "eni",
+      "region": "us-east-1",
+      "config": {
+        "target_type": "ip",
+        "load_balancer_arns": [],
+        "target_health_descriptions": [
+          {
+            "Target": {
+              "Id": "10.0.4.4",
+              "Port": 80
+            }
+          },
+          {
+            "Target": {
+              "Id": "10.0.5.5",
+              "Port": 80
+            }
+          }
+        ]
+      },
+      "vpc_id": "vpc-a"
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb2222bbbb2222b",
+      "type": "aws_ec2_instance",
+      "native_id": "i-0bbb2222bbbb2222b",
+      "name": "i-0bbb2222bbbb2222b",
+      "region": "us-east-1",
+      "config": {},
+      "vpc_id": "vpc-a"
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:network-interface/eni-1",
+      "type": "aws_ec2_network_interface",
+      "native_id": "eni-1",
+      "name": "eni-1",
+      "region": "us-east-1",
+      "config": {
+        "private_ip_address": "10.0.4.4",
+        "attached_instance_id": "i-0bbb2222bbbb2222b"
+      },
+      "vpc_id": "vpc-a"
+    },
+    {
+      "uid": "arn:aws:ec2:us-east-1:123456789012:network-interface/eni-2",
+      "type": "aws_ec2_network_interface",
+      "native_id": "eni-2",
+      "name": "eni-2",
+      "region": "us-east-1",
+      "config": {
+        "private_ip_address": "10.0.5.5",
+        "attached_instance_id": "i-0bbb2222bbbb2222b"
+      },
+      "vpc_id": "vpc-b"
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+      "target": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/2222",
+      "attributes": {
+        "port": 443,
+        "protocol": "HTTPS"
+      }
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+      "target": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/fn/4444",
+      "attributes": {
+        "port": null,
+        "protocol": null
+      }
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/web/2222",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111aaaa1111a",
+      "attributes": {
+        "port": 443
+      }
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/fn/4444",
+      "target": "arn:aws:lambda:us-east-1:123456789012:function:orders",
+      "attributes": {
+        "port": null
+      }
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/ecs/5555",
+      "target": "arn:aws:ecs:us-east-1:123456789012:service/main/orders",
+      "attributes": {
+        "container": "web",
+        "port": 8080
+      }
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/ip/6666",
+      "target": "external:10.0.9.9",
+      "attributes": {
+        "port": 80
+      }
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/legacy",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-0aaa1111aaaa1111a",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/eni/7777",
+      "target": "arn:aws:ec2:us-east-1:123456789012:instance/i-0bbb2222bbbb2222b",
+      "attributes": {
+        "port": 80
+      }
+    },
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:targetgroup/eni/7777",
+      "target": "external:10.0.5.5",
+      "attributes": {
+        "port": 80
+      }
+    }
+  ]
+}

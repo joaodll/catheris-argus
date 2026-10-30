@@ -1,0 +1,47 @@
+{
+  "about": "Administrator of an account is the target of IS_ADMIN and CAN_PRIVESC_TO, once per account. A role that can only be assumed (CAN_ASSUME) is not a target. Version 2: an escalation Argus matches by permission name (CAN_ESCALATE_TO).",
+  "edges": [
+    {
+      "id": 1,
+      "source_uid": "arn:aws:iam::123456789012:role/admin",
+      "target_uid": "admin:123456789012",
+      "type": "IS_ADMIN",
+      "origin": "cloudfox",
+      "attributes": {}
+    },
+    {
+      "id": 2,
+      "source_uid": "arn:aws:iam::123456789012:role/app",
+      "target_uid": "admin:123456789012",
+      "type": "CAN_PRIVESC_TO",
+      "origin": "cloudfox",
+      "attributes": {}
+    },
+    {
+      "id": 3,
+      "source_uid": "arn:aws:iam::123456789012:root",
+      "target_uid": "arn:aws:iam::123456789012:role/app",
+      "type": "CAN_ASSUME",
+      "origin": "rule:role-trust@1",
+      "attributes": {
+        "condition": {}
+      }
+    },
+    {
+      "id": 90,
+      "source_uid": "arn:aws:iam::123456789012:user/versioner",
+      "target_uid": "admin:999988887777",
+      "type": "CAN_ESCALATE_TO",
+      "origin": "rule:privilege-escalation@1",
+      "attributes": {
+        "methods": [
+          "iam:createpolicyversion"
+        ]
+      }
+    }
+  ],
+  "expected": [
+    "admin:123456789012",
+    "admin:999988887777"
+  ]
+}

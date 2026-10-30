@@ -1,0 +1,631 @@
+# Steampipe AWS tables collected for the inventory (ADR-0012, amended 2026-10-08, argus_v8).
+# One table per line. The rule: EVERY configuration table of the pinned plugin, except the
+# classes listed at the end. "Configuration, yes; contents, never." Per-table options
+# (--where, --select) are in collection/tables.py. The image build fails on a name the
+# pinned plugin lacks. A table that fails or is denied in an account is out of that run's
+# scope only: its resources carry forward, the others are complete (per-table completeness).
+
+# accessanalyzer
+aws_accessanalyzer_analyzer
+# account
+aws_account
+aws_account_alternate_contact
+aws_account_contact
+# acm
+aws_acm_certificate
+# acmpca
+aws_acmpca_certificate_authority
+# amplify
+aws_amplify_app
+# api
+aws_api_gateway_account
+aws_api_gateway_authorizer
+aws_api_gateway_domain_name
+aws_api_gateway_method
+aws_api_gateway_rest_api
+aws_api_gateway_stage
+aws_api_gateway_usage_plan
+aws_api_gatewayv2_api
+aws_api_gatewayv2_domain_name
+aws_api_gatewayv2_integration
+aws_api_gatewayv2_route
+aws_api_gatewayv2_stage
+# app
+aws_app_runner_service
+# appconfig
+aws_appconfig_application
+# appstream
+aws_appstream_fleet
+aws_appstream_image
+# appsync
+aws_appsync_api
+aws_appsync_graphql_api
+# athena
+aws_athena_workgroup
+# auditmanager
+aws_auditmanager_assessment
+aws_auditmanager_control
+aws_auditmanager_framework
+# backup
+aws_backup_framework
+aws_backup_legal_hold
+aws_backup_plan
+aws_backup_protected_resource
+aws_backup_recovery_point
+aws_backup_report_plan
+aws_backup_selection
+aws_backup_vault
+# batch
+aws_batch_queue
+# bedrock
+aws_bedrock_agent
+aws_bedrock_agentcore_agent_runtime
+aws_bedrock_custom_model
+aws_bedrock_guardrail
+aws_bedrock_imported_model
+aws_bedrock_knowledge_base
+# cloudformation
+aws_cloudformation_stack
+aws_cloudformation_stack_resource
+aws_cloudformation_stack_set
+# cloudfront
+aws_cloudfront_cache_policy
+aws_cloudfront_distribution
+aws_cloudfront_function
+aws_cloudfront_origin_access_identity
+aws_cloudfront_origin_request_policy
+aws_cloudfront_response_headers_policy
+# cloudsearch
+aws_cloudsearch_domain
+# cloudtrail
+aws_cloudtrail_channel
+aws_cloudtrail_event_data_store
+aws_cloudtrail_trail
+# cloudwatch
+aws_cloudwatch_alarm
+aws_cloudwatch_event_rule
+aws_cloudwatch_log_delivery
+aws_cloudwatch_log_delivery_destination
+aws_cloudwatch_log_delivery_source
+aws_cloudwatch_log_destination
+aws_cloudwatch_log_group
+aws_cloudwatch_log_resource_policy
+aws_cloudwatch_log_subscription_filter
+# codeartifact
+aws_codeartifact_domain
+aws_codeartifact_repository
+# codebuild
+aws_codebuild_fleet
+aws_codebuild_project
+aws_codebuild_report_group
+aws_codebuild_source_credential
+# codecommit
+aws_codecommit_repository
+# codedeploy
+aws_codedeploy_app
+aws_codedeploy_deployment_config
+aws_codedeploy_deployment_group
+# codepipeline
+aws_codepipeline_pipeline
+# codestar
+aws_codestar_notification_rule
+# cognito
+aws_cognito_identity_pool
+aws_cognito_identity_provider
+aws_cognito_user_group
+aws_cognito_user_pool
+# config
+aws_config_aggregate_authorization
+aws_config_configuration_recorder
+aws_config_conformance_pack
+aws_config_delivery_channel
+aws_config_retention_configuration
+aws_config_rule
+# connect
+aws_connect_instance
+aws_connect_instance_attribute
+# datasync
+aws_datasync_task
+# dax
+aws_dax_cluster
+aws_dax_parameter_group
+aws_dax_subnet_group
+# directconnect
+aws_directconnect_connection
+# directory
+aws_directory_service_certificate
+aws_directory_service_directory
+aws_directory_service_log_subscription
+# dlm
+aws_dlm_lifecycle_policy
+# dms
+aws_dms_certificate
+aws_dms_endpoint
+aws_dms_replication_instance
+aws_dms_replication_task
+# docdb
+aws_docdb_cluster
+aws_docdb_cluster_instance
+aws_docdb_cluster_snapshot
+# drs
+aws_drs_recovery_instance
+aws_drs_recovery_snapshot
+aws_drs_source_server
+# dynamodb
+aws_dynamodb_backup
+aws_dynamodb_global_table
+aws_dynamodb_table
+aws_dynamodb_table_export
+# ebs
+aws_ebs_snapshot
+aws_ebs_volume
+# ec2
+aws_ec2_ami
+aws_ec2_application_load_balancer
+aws_ec2_autoscaling_group
+aws_ec2_capacity_reservation
+aws_ec2_classic_load_balancer
+aws_ec2_client_vpn_endpoint
+aws_ec2_fleet
+aws_ec2_gateway_load_balancer
+aws_ec2_instance
+aws_ec2_key_pair
+aws_ec2_launch_configuration
+aws_ec2_launch_template
+aws_ec2_launch_template_version
+aws_ec2_load_balancer_listener
+aws_ec2_managed_prefix_list
+aws_ec2_managed_prefix_list_entry
+aws_ec2_network_interface
+aws_ec2_network_load_balancer
+aws_ec2_placement_group
+aws_ec2_regional_settings
+aws_ec2_spot_fleet_request
+aws_ec2_ssl_policy
+aws_ec2_target_group
+aws_ec2_transit_gateway
+aws_ec2_transit_gateway_route
+aws_ec2_transit_gateway_route_table
+aws_ec2_transit_gateway_vpc_attachment
+# ecr
+aws_ecr_image
+aws_ecr_registry
+aws_ecr_registry_scanning_configuration
+aws_ecr_repository
+# ecrpublic
+aws_ecrpublic_repository
+# ecs
+aws_ecs_cluster
+aws_ecs_container_instance
+aws_ecs_service
+aws_ecs_task
+aws_ecs_task_definition
+# efs
+aws_efs_access_point
+aws_efs_file_system
+aws_efs_mount_target
+# eks
+aws_eks_access_entry
+aws_eks_access_policy_association
+aws_eks_addon
+aws_eks_cluster
+aws_eks_fargate_profile
+aws_eks_identity_provider_config
+aws_eks_node_group
+aws_eks_pod_identity_association
+# elastic
+aws_elastic_beanstalk_application
+aws_elastic_beanstalk_application_version
+aws_elastic_beanstalk_environment
+# elasticache
+aws_elasticache_cluster
+aws_elasticache_parameter_group
+aws_elasticache_replication_group
+aws_elasticache_serverless_cache
+aws_elasticache_subnet_group
+# elasticsearch
+aws_elasticsearch_domain
+# emr
+aws_emr_block_public_access_configuration
+aws_emr_cluster
+aws_emr_instance
+aws_emr_instance_fleet
+aws_emr_instance_group
+aws_emr_security_configuration
+aws_emr_studio
+# eventbridge
+aws_eventbridge_bus
+aws_eventbridge_rule
+# fms
+aws_fms_app_list
+aws_fms_policy
+# fsx
+aws_fsx_file_system
+# glacier
+aws_glacier_vault
+# globalaccelerator
+aws_globalaccelerator_accelerator
+aws_globalaccelerator_endpoint_group
+aws_globalaccelerator_listener
+# glue
+aws_glue_catalog_database
+aws_glue_catalog_table
+aws_glue_connection
+aws_glue_crawler
+aws_glue_data_catalog_encryption_settings
+aws_glue_data_quality_ruleset
+aws_glue_dev_endpoint
+aws_glue_job
+aws_glue_ml_transform
+aws_glue_security_configuration
+# guardduty
+aws_guardduty_detector
+aws_guardduty_filter
+aws_guardduty_ipset
+aws_guardduty_member
+aws_guardduty_publishing_destination
+aws_guardduty_threat_intel_set
+# iam
+aws_iam_access_key
+aws_iam_account_password_policy
+aws_iam_account_summary
+aws_iam_group
+aws_iam_instance_profile
+aws_iam_open_id_connect_provider
+aws_iam_policy
+aws_iam_policy_attachment
+aws_iam_role
+aws_iam_saml_provider
+aws_iam_server_certificate
+aws_iam_service_specific_credential
+aws_iam_user
+aws_iam_virtual_mfa_device
+# inspector2
+aws_inspector2_coverage
+aws_inspector2_member
+aws_inspector2_organization_configuration
+# inspector
+aws_inspector_assessment_target
+aws_inspector_assessment_template
+# iot
+aws_iot_thing
+aws_iot_thing_group
+aws_iot_thing_type
+# keyspaces
+aws_keyspaces_keyspace
+aws_keyspaces_table
+# kinesis
+aws_kinesis_consumer
+aws_kinesis_firehose_delivery_stream
+aws_kinesis_stream
+aws_kinesis_video_stream
+# kinesisanalyticsv2
+aws_kinesisanalyticsv2_application
+# kms
+aws_kms_alias
+aws_kms_key
+aws_kms_key_rotation
+# lakeformation
+aws_lakeformation_permission
+aws_lakeformation_resource
+aws_lakeformation_tag
+# lambda
+aws_lambda_alias
+aws_lambda_event_source_mapping
+aws_lambda_function
+aws_lambda_layer
+aws_lambda_layer_version
+aws_lambda_version
+# lightsail
+aws_lightsail_bucket
+aws_lightsail_instance
+# macie2
+aws_macie2_classification_job
+# media
+aws_media_store_container
+# memorydb
+aws_memorydb_cluster
+# mgn
+aws_mgn_application
+# mq
+aws_mq_broker
+# msk
+aws_msk_cluster
+aws_msk_serverless_cluster
+aws_msk_topic
+# mskconnect
+aws_mskconnect_connector
+# neptune
+aws_neptune_db_cluster
+aws_neptune_db_cluster_snapshot
+# networkfirewall
+aws_networkfirewall_firewall
+aws_networkfirewall_firewall_policy
+aws_networkfirewall_rule_group
+# oam
+aws_oam_link
+aws_oam_sink
+# opensearch
+aws_opensearch_domain
+# organizations
+aws_organizations_account
+aws_organizations_delegated_administrator
+aws_organizations_delegated_services_for_account
+aws_organizations_organizational_unit
+aws_organizations_root
+# pinpoint
+aws_pinpoint_app
+# pipes
+aws_pipes_pipe
+# quicksight
+aws_quicksight_data_set
+aws_quicksight_data_source
+aws_quicksight_namespace
+aws_quicksight_vpc_connection
+# ram
+aws_ram_principal_association
+aws_ram_resource_association
+# rds
+aws_rds_db_cluster
+aws_rds_db_cluster_parameter_group
+aws_rds_db_cluster_snapshot
+aws_rds_db_event_subscription
+aws_rds_db_instance
+aws_rds_db_instance_automated_backup
+aws_rds_db_option_group
+aws_rds_db_parameter_group
+aws_rds_db_proxy
+aws_rds_db_snapshot
+aws_rds_db_subnet_group
+aws_rds_global_cluster
+# redshift
+aws_redshift_cluster
+aws_redshift_event_subscription
+aws_redshift_parameter_group
+aws_redshift_snapshot
+aws_redshift_subnet_group
+# redshiftserverless
+aws_redshiftserverless_namespace
+aws_redshiftserverless_workgroup
+# region
+aws_region
+# resource
+aws_resource_explorer_index
+# rolesanywhere
+aws_rolesanywhere_profile
+aws_rolesanywhere_trust_anchor
+# route53
+aws_route53_domain
+aws_route53_health_check
+aws_route53_query_log
+aws_route53_record
+aws_route53_resolver_endpoint
+aws_route53_resolver_query_log_config
+aws_route53_resolver_rule
+aws_route53_traffic_policy
+aws_route53_traffic_policy_instance
+aws_route53_vpc_association_authorization
+aws_route53_zone
+# s3
+aws_s3_access_point
+aws_s3_account_settings
+aws_s3_bucket
+aws_s3_bucket_intelligent_tiering_configuration
+aws_s3_directory_bucket
+aws_s3_multi_region_access_point
+# s3tables
+aws_s3tables_namespace
+aws_s3tables_table
+aws_s3tables_table_bucket
+# sagemaker
+aws_sagemaker_app
+aws_sagemaker_domain
+aws_sagemaker_endpoint_configuration
+aws_sagemaker_model
+aws_sagemaker_notebook_instance
+aws_sagemaker_training_job
+# scheduler
+aws_scheduler_schedule
+# secretsmanager
+aws_secretsmanager_secret
+# securityhub
+aws_securityhub_action_target
+aws_securityhub_enabled_product_subscription
+aws_securityhub_finding_aggregator
+aws_securityhub_hub
+aws_securityhub_insight
+aws_securityhub_member
+aws_securityhub_standards_control
+aws_securityhub_standards_subscription
+# securitylake
+aws_securitylake_data_lake
+aws_securitylake_subscriber
+# serverlessapplicationrepository
+aws_serverlessapplicationrepository_application
+# service
+aws_service_discovery_instance
+aws_service_discovery_namespace
+aws_service_discovery_service
+# servicecatalog
+aws_servicecatalog_portfolio
+aws_servicecatalog_product
+aws_servicecatalog_provisioned_product
+# servicequotas
+aws_servicequotas_auto_management_configuration
+# ses
+aws_ses_domain_identity
+aws_ses_email_identity
+# sfn
+aws_sfn_state_machine
+# shield
+aws_shield_drt_access
+aws_shield_emergency_contact
+aws_shield_protection
+aws_shield_protection_group
+aws_shield_subscription
+# sns
+aws_sns_subscription
+aws_sns_topic
+aws_sns_topic_subscription
+# sqs
+aws_sqs_queue
+# ssm
+aws_ssm_association
+aws_ssm_document
+aws_ssm_maintenance_window
+aws_ssm_managed_instance
+aws_ssm_managed_instance_patch_state
+aws_ssm_patch_baseline
+# ssmincidents
+aws_ssmincidents_response_plan
+# ssoadmin
+aws_ssoadmin_instance
+aws_ssoadmin_permission_set
+# synthetics
+aws_synthetics_canary
+# timestreamwrite
+aws_timestreamwrite_database
+aws_timestreamwrite_table
+# transfer
+aws_transfer_connector
+aws_transfer_server
+aws_transfer_user
+# vpc
+aws_vpc
+aws_vpc_block_public_access_options
+aws_vpc_customer_gateway
+aws_vpc_dhcp_options
+aws_vpc_egress_only_internet_gateway
+aws_vpc_eip
+aws_vpc_eip_address_transfer
+aws_vpc_endpoint
+aws_vpc_endpoint_service
+aws_vpc_flow_log
+aws_vpc_internet_gateway
+aws_vpc_nat_gateway
+aws_vpc_network_acl
+aws_vpc_peering_connection
+aws_vpc_route
+aws_vpc_route_table
+aws_vpc_security_group
+aws_vpc_security_group_rule
+aws_vpc_security_group_vpc_association
+aws_vpc_subnet
+aws_vpc_verified_access_endpoint
+aws_vpc_verified_access_group
+aws_vpc_verified_access_instance
+aws_vpc_verified_access_trust_provider
+aws_vpc_vpn_connection
+aws_vpc_vpn_gateway
+# waf
+aws_waf_rate_based_rule
+aws_waf_rule
+aws_waf_rule_group
+aws_waf_web_acl
+# wafregional
+aws_wafregional_rule
+aws_wafregional_rule_group
+aws_wafregional_web_acl
+# wafv2
+aws_wafv2_ip_set
+aws_wafv2_regex_pattern_set
+aws_wafv2_rule_group
+aws_wafv2_web_acl
+# workspaces
+aws_workspaces_directory
+aws_workspaces_workspace
+
+# ---------------------------------------------------------------- not collected
+#
+# Contents and data plane: objects, items, log and flow events, query and execution
+# history, parameter values, workload software inventory, personal data. Never collected.
+#   aws_athena_query_execution aws_cloudtrail_import aws_cloudtrail_lookup_event
+#   aws_cloudtrail_query aws_cloudtrail_trail_event aws_cloudwatch_log_event
+#   aws_cloudwatch_log_stream aws_codebuild_build aws_iam_credential_report aws_identitystore_user
+#   aws_s3_multipart_upload aws_s3_object aws_s3_object_version aws_ses_template
+#   aws_sesv2_suppressed_destination aws_sfn_state_machine_execution
+#   aws_sfn_state_machine_execution_history aws_ssm_inventory aws_ssm_inventory_entry
+#   aws_ssm_parameter aws_vpc_flow_log_event
+#
+# Activity, metrics, cost and other tools' findings: CloudWatch metrics, Cost Explorer,
+# pricing, billing reservations, Health and Shield events, GuardDuty/Security Hub/Inspector/
+# Macie/Access Analyzer findings, Well-Architected reviews. Not configuration; detection is a
+# v1 non-goal.
+#   aws_accessanalyzer_finding aws_auditmanager_evidence aws_auditmanager_evidence_folder
+#   aws_backup_job aws_budgets_budget aws_ce_anomaly_monitor aws_ce_cost_allocation_tags
+#   aws_cloudwatch_log_metric_filter aws_cloudwatch_metric aws_cloudwatch_metric_data_point
+#   aws_cloudwatch_metric_statistic_data_point aws_config_rule_compliance_detail
+#   aws_cost_by_account_daily aws_cost_by_account_monthly aws_cost_by_record_type_daily
+#   aws_cost_by_record_type_monthly aws_cost_by_region_monthly aws_cost_by_resource_daily
+#   aws_cost_by_resource_hourly aws_cost_by_resource_monthly aws_cost_by_service_daily
+#   aws_cost_by_service_monthly aws_cost_by_service_usage_type_daily
+#   aws_cost_by_service_usage_type_monthly aws_cost_by_tag aws_cost_forecast_daily
+#   aws_cost_forecast_monthly aws_cost_usage aws_costoptimizationhub_recommendation aws_drs_job
+#   aws_dynamodb_metric_account_provisioned_read_capacity_util
+#   aws_dynamodb_metric_account_provisioned_write_capacity_util aws_ebs_volume_metric_read_ops
+#   aws_ebs_volume_metric_read_ops_daily aws_ebs_volume_metric_read_ops_hourly
+#   aws_ebs_volume_metric_write_ops aws_ebs_volume_metric_write_ops_daily
+#   aws_ebs_volume_metric_write_ops_hourly aws_ec2_application_load_balancer_metric_request_count
+#   aws_ec2_application_load_balancer_metric_request_count_daily
+#   aws_ec2_instance_metric_cpu_utilization aws_ec2_instance_metric_cpu_utilization_daily
+#   aws_ec2_instance_metric_cpu_utilization_hourly
+#   aws_ec2_network_load_balancer_metric_net_flow_count
+#   aws_ec2_network_load_balancer_metric_net_flow_count_daily aws_ec2_reserved_instance
+#   aws_ecr_image_scan_finding aws_ecs_cluster_metric_cpu_utilization
+#   aws_ecs_cluster_metric_cpu_utilization_daily aws_ecs_cluster_metric_cpu_utilization_hourly
+#   aws_elasticache_redis_metric_cache_hits_hourly
+#   aws_elasticache_redis_metric_curr_connections_hourly
+#   aws_elasticache_redis_metric_engine_cpu_utilization_daily
+#   aws_elasticache_redis_metric_engine_cpu_utilization_hourly
+#   aws_elasticache_redis_metric_get_type_cmds_hourly
+#   aws_elasticache_redis_metric_list_based_cmds_hourly
+#   aws_elasticache_redis_metric_new_connections_hourly aws_elasticache_reserved_cache_node
+#   aws_elasticache_update_action aws_emr_cluster_metric_is_idle aws_guardduty_finding
+#   aws_health_affected_entity aws_health_event aws_inspector2_coverage_statistics
+#   aws_inspector2_finding aws_inspector_assessment_run aws_inspector_exclusion
+#   aws_inspector_finding aws_iot_fleet_metric aws_lambda_function_metric_duration_daily
+#   aws_lambda_function_metric_errors_daily aws_lambda_function_metric_invocations_daily
+#   aws_macie2_finding aws_opensearch_reserved_instance aws_pricing_product
+#   aws_pricing_service_attribute aws_rds_db_instance_metric_connections
+#   aws_rds_db_instance_metric_connections_daily aws_rds_db_instance_metric_connections_hourly
+#   aws_rds_db_instance_metric_cpu_utilization aws_rds_db_instance_metric_cpu_utilization_daily
+#   aws_rds_db_instance_metric_cpu_utilization_hourly aws_rds_db_instance_metric_read_iops
+#   aws_rds_db_instance_metric_read_iops_daily aws_rds_db_instance_metric_read_iops_hourly
+#   aws_rds_db_instance_metric_write_iops aws_rds_db_instance_metric_write_iops_daily
+#   aws_rds_db_instance_metric_write_iops_hourly aws_rds_db_recommendation
+#   aws_rds_pending_maintenance_action aws_rds_reserved_db_instance
+#   aws_redshift_cluster_metric_cpu_utilization_daily aws_savingsplans_savings_plan
+#   aws_securityhub_finding aws_servicequotas_service_quota_change_request aws_shield_attack
+#   aws_shield_attack_statistic aws_ssm_managed_instance_compliance aws_synthetics_canary_run
+#   aws_trusted_advisor_check_result aws_trusted_advisor_check_summary
+#   aws_vpc_nat_gateway_metric_bytes_out_to_destination aws_wellarchitected_answer
+#   aws_wellarchitected_check_detail aws_wellarchitected_check_summary
+#   aws_wellarchitected_consolidated_report aws_wellarchitected_lens
+#   aws_wellarchitected_lens_review aws_wellarchitected_lens_review_improvement
+#   aws_wellarchitected_lens_review_report aws_wellarchitected_lens_share
+#   aws_wellarchitected_milestone aws_wellarchitected_notification
+#   aws_wellarchitected_share_invitation aws_wellarchitected_workload
+#   aws_wellarchitected_workload_share
+#
+# Reference data, not this account's resources (catalogs, AWS-wide lists, other
+# inventories of the same resources, simulators).
+#   aws_availability_zone aws_bedrock_foundation_model aws_cloudcontrol_resource aws_dax_parameter
+#   aws_ec2_ami_shared aws_ec2_instance_availability aws_ec2_instance_type aws_ec2_spot_price
+#   aws_eks_addon_version aws_iam_access_advisor aws_iam_action aws_iam_policy_simulator
+#   aws_rds_db_engine_version aws_resource_explorer_resource aws_resource_explorer_search
+#   aws_resource_explorer_supported_resource_type aws_securityhub_product
+#   aws_servicequotas_default_service_quota aws_servicequotas_service
+#   aws_servicequotas_service_quota aws_sts_caller_identity aws_tagging_resource
+#
+# Denied by design: the scanner role denies apigateway:GET on /apikeys and on usage-plan keys
+# (their values are credentials), so the table can never be listed (ADR-0012, 2026-10-21).
+#   aws_api_gateway_api_key
+#
+# Tables that cannot list without a fixed filter value.
+#   aws_appautoscaling_policy aws_appautoscaling_target aws_ec2_load_balancer_listener_rule
+#   (needs listener_arn or rule_arn; found by the emulator, argus_v12) aws_identitystore_group
+#   aws_identitystore_group_membership aws_organizations_policy aws_organizations_policy_target
+#   aws_quicksight_account_setting aws_quicksight_group aws_quicksight_user
+#   aws_servicecatalog_portfolio_share aws_ssm_document_permission aws_ssm_service_setting
+#   aws_ssoadmin_account_assignment aws_ssoadmin_customer_policy_attachment
+#   aws_ssoadmin_managed_policy_attachment

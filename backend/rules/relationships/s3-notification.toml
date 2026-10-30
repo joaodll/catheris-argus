@@ -1,0 +1,30 @@
+id = "s3-notification"
+version = 1
+edge_type = "TRIGGERS"
+description = """A bucket's event notifications trigger Lambda functions, SQS queues and SNS
+topics."""
+sql = """
+SELECT DISTINCT b.uid,
+       COALESCE(substring(t.arn
+                  from '^(arn[:]aws[a-z-]*[:]lambda[:][a-z0-9-]+[:][0-9]{12}[:]function[:][A-Za-z0-9_-]+)'),
+                t.arn),
+       '{}'::jsonb
+FROM r b
+CROSS JOIN LATERAL (
+  SELECT c ->> 'LambdaFunctionArn' FROM jsonb_array_elements(
+    CASE WHEN jsonb_typeof(b.config -> 'event_notification_configuration' -> 'LambdaFunctionConfigurations') = 'array'
+         THEN b.config -> 'event_notification_configuration' -> 'LambdaFunctionConfigurations'
+         ELSE '[]' END) AS c
+  UNION ALL
+  SELECT c ->> 'QueueArn' FROM jsonb_array_elements(
+    CASE WHEN jsonb_typeof(b.config -> 'event_notification_configuration' -> 'QueueConfigurations') = 'array'
+         THEN b.config -> 'event_notification_configuration' -> 'QueueConfigurations'
+         ELSE '[]' END) AS c
+  UNION ALL
+  SELECT c ->> 'TopicArn' FROM jsonb_array_elements(
+    CASE WHEN jsonb_typeof(b.config -> 'event_notification_configuration' -> 'TopicConfigurations') = 'array'
+         THEN b.config -> 'event_notification_configuration' -> 'TopicConfigurations'
+         ELSE '[]' END) AS c
+) AS t(arn)
+WHERE b.type = 'aws_s3_bucket' AND t.arn LIKE 'arn%'
+"""

@@ -1,0 +1,105 @@
+[project]
+name = "argus"
+version = "0.1.0"
+description = "CatherIs Argus: cloud security platform joining Prowler, CloudFox and Steampipe"
+license = "Apache-2.0"
+requires-python = ">=3.13,<3.14"
+# Ranges state the real constraint; uv.lock holds the exact versions and hashes.
+dependencies = [
+    "pydantic-settings>=2.6",
+    "sqlalchemy>=2.0.36,<2.1",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.14",
+    "cryptography>=44",
+    # Cron parsing for schedules. Small, maintained (croniter is unmaintained since 2024).
+    "cronsim>=2.6",
+    "fastapi>=0.115",
+    "uvicorn>=0.32",
+    # argon2id verification of the admin password hash (design: MVP admin login).
+    "argon2-cffi>=23.1",
+    # S3 uploads of raw output (SA-8) and, in the AWS phase, sts:AssumeRole into scanner roles.
+    "boto3>=1.35",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+    "httpx>=0.28",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/argus"]
+
+[tool.uv]
+# The project is installed into the image's venv; never resolve anything not in uv.lock.
+package = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "S", "C4", "SIM", "RUF", "PL"]
+ignore = ["PLR2004"]
+
+[tool.ruff.lint.pylint]
+# Keyword-only arguments are the house style for functions that take a run's context.
+max-args = 9
+max-positional-args = 6
+max-returns = 8
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+mypy_path = "src"
+packages = ["argus"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+# boto3 ships no type information; its clients are used through small typed wrappers.
+module = ["boto3", "boto3.*", "botocore", "botocore.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# The repository root of backend/ is importable, so test tooling (tests/tooling) can be imported.
+pythonpath = ["."]
+addopts = "-ra --strict-markers"
+markers = [
+    "db: needs the Postgres service from compose",
+    "budget: the query-budget test (300,000 resources; about a minute)",
+]
+
+[tool.importlinter]
+root_package = "argus"
+
+# Layers from top to bottom. Parenthesised layers are optional, so a layer can be listed
+# before its module exists. Siblings separated by ':' may call each other's public interface.
+#   scheduling   claims run requests, then calls collection and ingest
+#   collection   raw store, manifest, sources (synthetic now, aws later)
+#   ingest       runs adapters, rules, lifecycle, snapshots, paths and metrics for one run
+#   metrics      the metric_daily store; each domain module computes and puts its own rollups
+[[tool.importlinter.contracts]]
+name = "Layering: entrypoints > api > scheduling > collection/ingest > domain > core"
+type = "layers"
+layers = [
+    "(argus.entrypoints)",
+    "(argus.api)",
+    "(argus.scheduling)",
+    "(argus.collection) : (argus.ingest) : (argus.retention)",
+    "(argus.attackpaths) : (argus.auth)",
+    "(argus.findings) : (argus.relationships)",
+    "(argus.inventory) : (argus.connections) : (argus.metrics) : (argus.settings)",
+    "argus.core",
+]

@@ -1,0 +1,38 @@
+id = "ssm-command"
+version = 1
+edge_type = "CAN_RUN_ON"
+description = """A role or user can run commands on the instances Systems Manager manages (ADR-0037,
+second amendment, wave 3): its policies, its groups' included, allow ssm:SendCommand or
+ssm:StartSession (wildcards and AWS's AmazonSSMFullAccess or PowerUserAccess count). The edges
+go through one node, any:ssm, every instance SSM manages and reaches: principal -> any:ssm, then
+any:ssm -> each instance (aws_ssm_managed_instance, ping status Online), so their number grows
+with principals plus instances, not their product. `via` names what allowed it. Which instances
+the permission names, conditions, boundaries, SCPs and Deny are not evaluated (`unevaluated`):
+a step through it is Candidate. An administrator's own "*" is left out: administrator is already
+the end of its paths."""
+sql = """
+SELECT a.principal, 'any:ssm',
+       jsonb_build_object(
+         'via', jsonb_agg(DISTINCT a.via ORDER BY a.via),
+         'unevaluated', '["boundaries", "conditions", "deny", "resources", "scps"]'::jsonb)
+FROM (
+  SELECT s.principal, lower(x) AS via
+  FROM ps s
+  CROSS JOIN LATERAL jsonb_array_elements_text(
+    CASE jsonb_typeof(s.st -> 'Action') WHEN 'array' THEN s.st -> 'Action'
+         WHEN 'string' THEN jsonb_build_array(s.st -> 'Action') ELSE '[]'::jsonb END) AS x
+  WHERE lower(x) <> '*'
+    AND ('ssm:sendcommand' LIKE replace(replace(lower(x), '*', '%'), '?', '_')
+         OR 'ssm:startsession' LIKE replace(replace(lower(x), '*', '%'), '?', '_'))
+  UNION
+  SELECT p.principal, p.arn FROM pa p
+  WHERE split_part(p.arn, ':', 3) = 'iam' AND split_part(p.arn, ':', 5) = 'aws'
+    AND split_part(p.arn, ':', 6) IN ('policy/AmazonSSMFullAccess', 'policy/PowerUserAccess')
+) a
+GROUP BY a.principal
+UNION ALL
+SELECT DISTINCT 'any:ssm', i.uid, jsonb_build_object('ping_status', m.config ->> 'ping_status')
+FROM r m
+JOIN r i ON i.type = 'aws_ec2_instance' AND i.native_id = m.config ->> 'instance_id'
+WHERE m.type = 'aws_ssm_managed_instance' AND m.config ->> 'ping_status' = 'Online'
+"""

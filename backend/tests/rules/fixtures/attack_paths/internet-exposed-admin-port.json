@@ -1,0 +1,268 @@
+{
+  "about": "A door open on a port of Prowler 5.44.0's ec2_instance_port_* checks, a range that covers one, or every port (all, tcp/0-65535), in Argus's verdict: open when Reachable, open_ports when Restricted, network when Unknown; CloudFox's ports only where Argus has no verdict. Near misses: CloudFox's port 22 on a door Argus judged at 443, udp/22, icmp, a range missing every admin port, a ROUTES_TO from the internet no rule drew, a step inside the estate. A Restricted door counts what its groups open in either family on any interface (network): tcp/22 to ::/0 on an instance with no IPv6 address is one change from open.",
+  "edges": [
+    {
+      "id": 1,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-ssh",
+      "type": "ROUTES_TO",
+      "origin": "rule:internet-entry@6",
+      "attributes": {
+        "via": "public_ip",
+        "open": [
+          "tcp/22",
+          "tcp/443"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1",
+      "type": "ROUTES_TO",
+      "origin": "rule:internet-entry@6",
+      "attributes": {
+        "via": "load_balancer",
+        "open": [
+          "tcp/443"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-range",
+      "type": "PUBLIC_RESTRICTED",
+      "origin": "rule:internet-restricted@5",
+      "attributes": {
+        "reason": "nacl_blocks",
+        "open_ports": [
+          "tcp/20-25"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-unknown",
+      "type": "PUBLIC_UNVERIFIED",
+      "origin": "rule:internet-unverified@4",
+      "attributes": {
+        "missing": [
+          "route_table:subnet-1"
+        ],
+        "network": [
+          {
+            "interface": "eni-1",
+            "public": [
+              "ipv4"
+            ],
+            "open": {
+              "ipv4": [],
+              "ipv6": [
+                "tcp/5432"
+              ]
+            },
+            "subnets": []
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:rds:us-east-1:123456789012:db:open",
+      "type": "ROUTES_TO",
+      "origin": "rule:internet-entry@6",
+      "attributes": {
+        "via": "database",
+        "open": [
+          "all"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:apigateway:us-east-1::/restapis/a1",
+      "type": "ROUTES_TO",
+      "origin": "rule:internet-entry@6",
+      "attributes": {
+        "via": "api"
+      }
+    },
+    {
+      "id": 7,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-cf-only",
+      "type": "INTERNET_REACHABLE",
+      "origin": "cloudfox",
+      "attributes": {
+        "module": "network-ports",
+        "protocol": "tcp",
+        "ports": "80,3380-3390"
+      }
+    },
+    {
+      "id": 8,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1",
+      "type": "INTERNET_REACHABLE",
+      "origin": "cloudfox",
+      "attributes": {
+        "service": "ELB",
+        "port": "22",
+        "protocol": "tcp"
+      }
+    },
+    {
+      "id": 9,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-udp",
+      "type": "INTERNET_REACHABLE",
+      "origin": "cloudfox",
+      "attributes": {
+        "module": "network-ports",
+        "protocol": "udp",
+        "ports": "22"
+      }
+    },
+    {
+      "id": 10,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-icmp",
+      "type": "PUBLIC_RESTRICTED",
+      "origin": "rule:internet-restricted@5",
+      "attributes": {
+        "reason": "sg_no_public_source",
+        "open_ports": [
+          "icmp"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-high-range",
+      "type": "ROUTES_TO",
+      "origin": "rule:internet-entry@6",
+      "attributes": {
+        "via": "public_ip",
+        "open": [
+          "tcp/1024-1400"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-wide",
+      "type": "ROUTES_TO",
+      "origin": "rule:internet-entry@6",
+      "attributes": {
+        "via": "public_ip",
+        "open": [
+          "tcp/0-65535"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-manual",
+      "type": "ROUTES_TO",
+      "origin": "manual",
+      "attributes": {
+        "open": [
+          "tcp/22"
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "source_uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-behind",
+      "type": "ROUTES_TO",
+      "origin": "rule:load-balancer-target@1",
+      "attributes": {
+        "open": [
+          "tcp/22"
+        ]
+      }
+    },
+    {
+      "id": 15,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:lambda:us-east-1:123456789012:function:hook",
+      "type": "INTERNET_REACHABLE",
+      "origin": "cloudfox",
+      "attributes": {
+        "service": "Lambda",
+        "port": "443",
+        "protocol": "https"
+      }
+    },
+    {
+      "id": 16,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-v6-rule",
+      "type": "PUBLIC_RESTRICTED",
+      "origin": "rule:internet-restricted@5",
+      "attributes": {
+        "reason": "sg_no_public_source",
+        "open_ports": [],
+        "network": [
+          {
+            "interface": "eni-2",
+            "public": [
+              "ipv4"
+            ],
+            "open": {
+              "ipv4": [],
+              "ipv6": [
+                "tcp/22"
+              ]
+            },
+            "subnets": []
+          }
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-odd",
+      "type": "INTERNET_REACHABLE",
+      "origin": "cloudfox",
+      "attributes": {
+        "module": "network-ports",
+        "protocol": "tcp",
+        "ports": "99999999999,abc,22x"
+      }
+    },
+    {
+      "id": 18,
+      "source_uid": "internet",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-odd-label",
+      "type": "ROUTES_TO",
+      "origin": "rule:internet-entry@6",
+      "attributes": {
+        "via": "public_ip",
+        "open": [
+          "tcp/",
+          "tcp/99999999999",
+          "icmp/8"
+        ]
+      }
+    }
+  ],
+  "expected": [
+    "arn:aws:ec2:us-east-1:123456789012:instance/i-ssh",
+    "arn:aws:ec2:us-east-1:123456789012:instance/i-range",
+    "arn:aws:ec2:us-east-1:123456789012:instance/i-unknown",
+    "arn:aws:rds:us-east-1:123456789012:db:open",
+    "arn:aws:ec2:us-east-1:123456789012:instance/i-cf-only",
+    "arn:aws:ec2:us-east-1:123456789012:instance/i-wide",
+    "arn:aws:ec2:us-east-1:123456789012:instance/i-v6-rule"
+  ]
+}

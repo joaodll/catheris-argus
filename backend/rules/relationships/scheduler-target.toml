@@ -1,0 +1,14 @@
+id = "scheduler-target"
+version = 1
+edge_type = "TRIGGERS"
+description = """An EventBridge Scheduler schedule triggers its target (ADR-0036). A Lambda target
+keeps the function, without a version or alias. Unconfirmed on real output."""
+sql = """
+SELECT s.uid,
+       COALESCE(substring(s.config -> 'target' ->> 'Arn'
+                  from '^(arn[:]aws[a-z-]*[:]lambda[:][a-z0-9-]+[:][0-9]{12}[:]function[:][A-Za-z0-9_-]+)'),
+                s.config -> 'target' ->> 'Arn'),
+       '{}'::jsonb
+FROM r s
+WHERE s.type = 'aws_scheduler_schedule' AND s.config -> 'target' ->> 'Arn' LIKE 'arn%'
+"""

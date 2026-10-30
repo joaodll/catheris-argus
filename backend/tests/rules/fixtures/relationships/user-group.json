@@ -1,0 +1,14 @@
+{
+  "about": "A user is a member of each group it lists, in the inventory or not; a group entry without an ARN and a role's groups give no edge.",
+  "resources": [
+    {"uid": "arn:aws:iam::123456789012:user/deploy", "type": "aws_iam_user", "native_id": "AIDAFIXTURE0000000001", "config": {"name": "deploy", "groups": [{"GroupName": "developers", "Arn": "arn:aws:iam::123456789012:group/developers"}, {"GroupName": "admins", "Arn": "arn:aws:iam::123456789012:group/admins"}]}},
+    {"uid": "arn:aws:iam::123456789012:user/broken", "type": "aws_iam_user", "native_id": "AIDAFIXTURE0000000002", "config": {"name": "broken", "groups": [{"GroupName": "no-arn"}]}},
+    {"uid": "arn:aws:iam::123456789012:user/none", "type": "aws_iam_user", "native_id": "AIDAFIXTURE0000000003", "config": {"name": "none", "groups": null}},
+    {"uid": "arn:aws:iam::123456789012:role/app", "type": "aws_iam_role", "native_id": "AROAFIXTURE0000000001", "config": {"name": "app", "groups": [{"Arn": "arn:aws:iam::123456789012:group/developers"}]}},
+    {"uid": "arn:aws:iam::123456789012:group/developers", "type": "aws_iam_group", "native_id": "AGPAFIXTURE0000000001", "config": {"name": "developers"}}
+  ],
+  "expected": [
+    {"source": "arn:aws:iam::123456789012:user/deploy", "target": "arn:aws:iam::123456789012:group/developers", "attributes": {}},
+    {"source": "arn:aws:iam::123456789012:user/deploy", "target": "arn:aws:iam::123456789012:group/admins", "attributes": {}}
+  ]
+}

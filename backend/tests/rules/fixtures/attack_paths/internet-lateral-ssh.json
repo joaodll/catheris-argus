@@ -1,0 +1,31 @@
+{
+  "about": "Lateral movement targets are the targets of CAN_CONNECT_TO (lateral-network, version 2). An instance reached only by routing is not one.",
+  "edges": [
+    {
+      "id": 1,
+      "source_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-a",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-b",
+      "type": "CAN_CONNECT_TO",
+      "origin": "rule:lateral-network@1",
+      "attributes": {
+        "ports": [
+          22
+        ],
+        "services": [
+          "ssh"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "source_uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web",
+      "target_uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-c",
+      "type": "ROUTES_TO",
+      "origin": "rule:load-balancer-target@1",
+      "attributes": {}
+    }
+  ],
+  "expected": [
+    "arn:aws:ec2:us-east-1:123456789012:instance/i-b"
+  ]
+}

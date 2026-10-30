@@ -1,0 +1,55 @@
+{
+  "about": "Kinesis source -> stream -> S3 and OpenSearch destinations. Near miss: an HTTP endpoint destination is not read.",
+  "resources": [
+    {
+      "uid": "arn:aws:firehose:us-east-1:123456789012:deliverystream/clicks",
+      "type": "aws_kinesis_firehose_delivery_stream",
+      "native_id": "clicks",
+      "name": "clicks",
+      "region": "us-east-1",
+      "config": {
+        "source": {
+          "KinesisStreamSourceDescription": {
+            "KinesisStreamARN": "arn:aws:kinesis:us-east-1:123456789012:stream/clicks"
+          }
+        },
+        "destinations": [
+          {
+            "ExtendedS3DestinationDescription": {
+              "BucketARN": "arn:aws:s3:::acme-clicks"
+            }
+          },
+          {
+            "AmazonopensearchserviceDestinationDescription": {
+              "DomainARN": "arn:aws:es:us-east-1:123456789012:domain/logs"
+            }
+          },
+          {
+            "HttpEndpointDestinationDescription": {
+              "EndpointConfiguration": {
+                "Url": "https://partner.example.com/in"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:kinesis:us-east-1:123456789012:stream/clicks",
+      "target": "arn:aws:firehose:us-east-1:123456789012:deliverystream/clicks",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:firehose:us-east-1:123456789012:deliverystream/clicks",
+      "target": "arn:aws:s3:::acme-clicks",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:firehose:us-east-1:123456789012:deliverystream/clicks",
+      "target": "arn:aws:es:us-east-1:123456789012:domain/logs",
+      "attributes": {}
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+id = "firehose-delivery"
+version = 1
+edge_type = "TRIGGERS"
+description = """A Firehose delivery stream reads from its Kinesis stream or MSK cluster and
+delivers to its S3 buckets and OpenSearch domains (ADR-0036): source -> stream -> destination.
+HTTP endpoint destinations are not read (their URL can hold a key). Unconfirmed on real
+output."""
+sql = """
+SELECT x.arn, f.uid, '{}'::jsonb
+FROM r f
+CROSS JOIN LATERAL (VALUES
+  (f.config -> 'source' -> 'KinesisStreamSourceDescription' ->> 'KinesisStreamARN'),
+  (f.config -> 'source' -> 'MSKSourceDescription' ->> 'MSKClusterARN')) AS x(arn)
+WHERE f.type = 'aws_kinesis_firehose_delivery_stream' AND x.arn LIKE 'arn%'
+UNION
+SELECT f.uid, x.arn, '{}'::jsonb
+FROM r f
+CROSS JOIN LATERAL jsonb_array_elements(
+  CASE WHEN jsonb_typeof(f.config -> 'destinations') = 'array'
+       THEN f.config -> 'destinations' ELSE '[]' END) AS d
+CROSS JOIN LATERAL (VALUES
+  (d -> 'ExtendedS3DestinationDescription' ->> 'BucketARN'),
+  (d -> 'S3DestinationDescription' ->> 'BucketARN'),
+  (d -> 'AmazonopensearchserviceDestinationDescription' ->> 'DomainARN'),
+  (d -> 'ElasticsearchDestinationDescription' ->> 'DomainARN')) AS x(arn)
+WHERE f.type = 'aws_kinesis_firehose_delivery_stream' AND x.arn LIKE 'arn%'
+"""

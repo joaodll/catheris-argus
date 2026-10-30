@@ -1,0 +1,29 @@
+id = "waf-protects"
+version = 1
+edge_type = "PROTECTED_BY"
+description = """A front door is protected by a web ACL (ADR-0036): the resources a WAFv2 web ACL
+lists as associated (load balancers, API Gateway stages, AppSync, Cognito), CloudFront's
+web_acl_id, and an API Gateway stage's web_acl_arn. An API stage counts for its API. The web
+ACL is the target even when it is not in the inventory. Flow mode shows it as a chip on the
+protected resource. Unconfirmed on real output (associated_resources needs
+wafv2:ListResourcesForWebACL)."""
+sql = """
+SELECT DISTINCT
+       COALESCE(substring(a.arn from '^(arn[:][^:]+[:]apigateway[:][^:]*[:][:]/restapis/[^/]+)/stages/'),
+                a.arn),
+       acl.uid, '{}'::jsonb
+FROM r acl
+CROSS JOIN LATERAL jsonb_array_elements_text(
+  CASE WHEN jsonb_typeof(acl.config -> 'associated_resources') = 'array'
+       THEN acl.config -> 'associated_resources' ELSE '[]' END) AS a(arn)
+WHERE acl.type = 'aws_wafv2_web_acl' AND a.arn LIKE 'arn%'
+UNION
+SELECT d.uid, d.config ->> 'web_acl_id', '{}'::jsonb
+FROM r d
+WHERE d.type = 'aws_cloudfront_distribution' AND d.config ->> 'web_acl_id' LIKE 'arn%'
+UNION
+SELECT api.uid, st.config ->> 'web_acl_arn', '{}'::jsonb
+FROM r st
+JOIN r api ON api.type = 'aws_api_gateway_rest_api' AND api.native_id = st.config ->> 'rest_api_id'
+WHERE st.type = 'aws_api_gateway_stage' AND st.config ->> 'web_acl_arn' LIKE 'arn%'
+"""

@@ -1,0 +1,14 @@
+{
+  "about": "Ingress from 0.0.0.0/0 or ::/0 reaches the group from 'internet'. Egress and private ranges do not.",
+  "resources": [
+    {"uid": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0aaa1111aaaa1111a", "type": "aws_vpc_security_group", "native_id": "sg-0aaa1111aaaa1111a", "config": {}},
+    {"uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-0000000000000001", "type": "aws_vpc_security_group_rule", "native_id": "sgr-0000000000000001", "config": {"group_id": "sg-0aaa1111aaaa1111a", "type": "ingress", "ip_protocol": "tcp", "from_port": 22, "to_port": 22, "cidr_ipv4": "0.0.0.0/0"}},
+    {"uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-0000000000000002", "type": "aws_vpc_security_group_rule", "native_id": "sgr-0000000000000002", "config": {"group_id": "sg-0aaa1111aaaa1111a", "type": "ingress", "ip_protocol": "tcp", "from_port": 443, "to_port": 443, "cidr_ipv6": "::/0"}},
+    {"uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-0000000000000003", "type": "aws_vpc_security_group_rule", "native_id": "sgr-0000000000000003", "config": {"group_id": "sg-0aaa1111aaaa1111a", "type": "egress", "ip_protocol": "-1", "from_port": -1, "to_port": -1, "cidr_ipv4": "0.0.0.0/0"}},
+    {"uid": "arn:aws:ec2:us-east-1:123456789012:security-group-rule/sgr-0000000000000004", "type": "aws_vpc_security_group_rule", "native_id": "sgr-0000000000000004", "config": {"group_id": "sg-0aaa1111aaaa1111a", "type": "ingress", "ip_protocol": "tcp", "from_port": 5432, "to_port": 5432, "cidr_ipv4": "10.0.0.0/8"}}
+  ],
+  "expected": [
+    {"source": "internet", "target": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0aaa1111aaaa1111a", "attributes": {"protocol": "tcp", "from_port": 22, "to_port": 22, "cidr": "0.0.0.0/0"}},
+    {"source": "internet", "target": "arn:aws:ec2:us-east-1:123456789012:security-group/sg-0aaa1111aaaa1111a", "attributes": {"protocol": "tcp", "from_port": 443, "to_port": 443, "cidr": "::/0"}}
+  ]
+}

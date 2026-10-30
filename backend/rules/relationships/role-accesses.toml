@@ -1,0 +1,94 @@
+id = "role-accesses"
+version = 3
+edge_type = "ACCESSES"
+description = """A role can use a data store or a service its policies allow (ADR-0036): DynamoDB
+tables, S3 buckets, SQS queues, SNS topics, Kinesis streams, Secrets Manager secrets, KMS keys,
+Lambda functions and Step Functions state machines, from the Allow statements of its inline
+policies and of the customer-managed policies attached to it. A Resource of "*" points to the
+pseudo-node any:<service> instead of every resource of the service. `level` is read, write or
+full (a wildcard action). Not evaluated: Deny statements, conditions, permission boundaries,
+SCPs, and AWS-managed policies outside the list below; listed in `unevaluated`. This is what a
+role may do, not what it does. Unconfirmed on real output (policy_std shapes).
+Version 2 (ADR-0037, second amendment): AWS-managed policies attached to the role, from a
+curated list of their data access per service, a grant on every store of the service
+(any:<service>). Derived on 2026-10-22 from AWS's policy documents as moto 5.1.4 ships them
+(moto/iam/aws_managed_policies.py): a data action reads or changes content (s3:GetObject,
+dynamodb:Query, secretsmanager:GetSecretValue, sqs:ReceiveMessage, kinesis:GetRecords,
+kms:Decrypt; writes such as s3:PutObject, sqs:SendMessage, sns:Publish, lambda:InvokeFunction,
+states:StartExecution), List and Describe do not. So ReadOnlyAccess reads S3, DynamoDB, SQS and
+Kinesis, not Secrets Manager; AmazonSQSReadOnlyAccess reads no message and is not listed.
+Version 3 (ADR-0037, second amendment, wave 2): users too, each with its groups' policies (the
+views `ps` and `pa`), so a leaked key or console password reaches what its user may use. The
+id stays role-accesses for the edges' history."""
+sql = """
+SELECT g.principal, g.target,
+       jsonb_build_object(
+         'level', CASE max(g.rank) WHEN 3 THEN 'full' WHEN 2 THEN 'write' ELSE 'read' END,
+         'via_policy', jsonb_agg(DISTINCT g.src ORDER BY g.src),
+         'unevaluated',
+           '["boundaries", "conditions", "deny", "scps", "unlisted_aws_managed_policies"]'::jsonb)
+FROM (
+  SELECT d.principal, d.src,
+         CASE WHEN res.pattern = '*' THEN 'any:' || svc.name ELSE t.uid END AS target,
+         lvl.rank
+  FROM ps d
+  CROSS JOIN (VALUES ('dynamodb', 'aws_dynamodb_table'), ('s3', 'aws_s3_bucket'),
+                     ('sqs', 'aws_sqs_queue'), ('sns', 'aws_sns_topic'),
+                     ('kinesis', 'aws_kinesis_stream'),
+                     ('secretsmanager', 'aws_secretsmanager_secret'), ('kms', 'aws_kms_key'),
+                     ('lambda', 'aws_lambda_function'),
+                     ('states', 'aws_sfn_state_machine')) AS svc(name, type)
+  CROSS JOIN LATERAL (
+    SELECT max(CASE WHEN a IN ('*', svc.name || ':*') THEN 3
+                    WHEN split_part(a, ':', 2)
+                         ~ '^(get|list|describe|query|scan|batchget|receive|head|select)' THEN 1
+                    ELSE 2 END) AS rank
+    FROM jsonb_array_elements_text(
+      CASE WHEN jsonb_typeof(d.st -> 'Action') = 'array' THEN d.st -> 'Action' ELSE '[]' END) AS a
+    WHERE a = '*' OR a LIKE svc.name || ':%'
+  ) lvl
+  CROSS JOIN LATERAL jsonb_array_elements_text(
+    CASE WHEN jsonb_typeof(d.st -> 'Resource') = 'array' THEN d.st -> 'Resource' ELSE '[]' END)
+    AS res(pattern)
+  CROSS JOIN LATERAL (SELECT replace(replace(replace(res.pattern, '_', '\\_'), '*', '%'), '?', '_')
+                        AS p) pat
+  LEFT JOIN r t ON res.pattern <> '*' AND t.type = svc.type
+       AND t.uid LIKE CASE WHEN svc.name = 's3' THEN split_part(pat.p, '/', 1) ELSE pat.p END
+  WHERE lvl.rank IS NOT NULL AND (res.pattern = '*' OR t.uid IS NOT NULL)
+  UNION ALL
+  -- AWS-managed policies (version 2): arn:<partition>:iam::aws:policy/<path><name>.
+  SELECT a.principal, a.arn, 'any:' || mp.service, mp.rank
+  FROM pa a
+  JOIN (VALUES
+    ('AdministratorAccess', 's3', 3), ('AdministratorAccess', 'dynamodb', 3),
+    ('AdministratorAccess', 'secretsmanager', 3), ('AdministratorAccess', 'kms', 3),
+    ('AdministratorAccess', 'sqs', 3), ('AdministratorAccess', 'sns', 3),
+    ('AdministratorAccess', 'kinesis', 3), ('AdministratorAccess', 'lambda', 3),
+    ('AdministratorAccess', 'states', 3),
+    ('PowerUserAccess', 's3', 3), ('PowerUserAccess', 'dynamodb', 3),
+    ('PowerUserAccess', 'secretsmanager', 3), ('PowerUserAccess', 'kms', 3),
+    ('PowerUserAccess', 'sqs', 3), ('PowerUserAccess', 'sns', 3),
+    ('PowerUserAccess', 'kinesis', 3), ('PowerUserAccess', 'lambda', 3),
+    ('PowerUserAccess', 'states', 3),
+    ('ReadOnlyAccess', 's3', 1), ('ReadOnlyAccess', 'dynamodb', 1),
+    ('ReadOnlyAccess', 'sqs', 1), ('ReadOnlyAccess', 'kinesis', 1),
+    ('job-function/DataScientist', 's3', 2), ('job-function/DataScientist', 'dynamodb', 3),
+    ('job-function/DataScientist', 'kinesis', 3), ('job-function/DataScientist', 'lambda', 2),
+    ('AmazonS3ReadOnlyAccess', 's3', 1), ('AmazonS3FullAccess', 's3', 3),
+    ('AmazonDynamoDBReadOnlyAccess', 'dynamodb', 1), ('AmazonDynamoDBFullAccess', 'dynamodb', 3),
+    ('AmazonDynamoDBFullAccesswithDataPipeline', 's3', 2),
+    ('AmazonDynamoDBFullAccesswithDataPipeline', 'dynamodb', 3),
+    ('AmazonDynamoDBFullAccesswithDataPipeline', 'lambda', 3),
+    ('SecretsManagerReadWrite', 'secretsmanager', 3), ('SecretsManagerReadWrite', 'lambda', 2),
+    ('AmazonSQSFullAccess', 'sqs', 3), ('AmazonSNSFullAccess', 'sns', 3),
+    ('AmazonKinesisReadOnlyAccess', 'kinesis', 1), ('AmazonKinesisFullAccess', 'kinesis', 3),
+    ('AWSLambda_FullAccess', 'lambda', 3), ('service-role/AWSLambdaRole', 'lambda', 2),
+    ('service-role/AWSLambdaSQSQueueExecutionRole', 'sqs', 2),
+    ('service-role/AWSLambdaKinesisExecutionRole', 'kinesis', 1),
+    ('AWSStepFunctionsFullAccess', 'states', 3)
+  ) AS mp(name, service, rank)
+    ON split_part(a.arn, ':', 3) = 'iam' AND split_part(a.arn, ':', 5) = 'aws'
+   AND split_part(a.arn, ':', 6) = 'policy/' || mp.name
+) g
+GROUP BY g.principal, g.target
+"""

@@ -1,0 +1,23 @@
+id = "internet-to-admin"
+version = 2
+name = "From the internet to administrator"
+category = "IAM privilege escalation"
+severity = "high"
+technique = "T1078.004"  # Valid Accounts: Cloud Accounts
+description = """From something the internet reaches, a chain of steps (routing, triggers, the
+role a workload runs as, roles it can assume) ends at a role CloudFox reports as an
+administrator or able to escalate to one. Whoever controls the first step can act as the
+account's administrator. Argus rules supply the routing and the roles, CloudFox the
+escalation, Prowler the failing checks on the way.
+Version 2 (ADR-0037, second amendment, wave 3): an escalation Argus matches by permission name
+(CAN_ESCALATE_TO, from Steampipe's policies), a user's administrator policy (principal-admin)."""
+remediation = """Break the cheapest link: require authentication at the front door (an
+authorizer on the API, a WAF rule, a private load balancer, a closed security group), or give
+the workload a role with only the permissions it needs and remove the escalation permissions
+CloudFox names."""
+# Administrator of an account is the pseudo-node admin:<account>: the target of every
+# IS_ADMIN and CAN_PRIVESC_TO edge.
+sql = """
+SELECT DISTINCT e.target_uid FROM e
+WHERE e.type IN ('IS_ADMIN', 'CAN_PRIVESC_TO', 'CAN_ESCALATE_TO')
+"""

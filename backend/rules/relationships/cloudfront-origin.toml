@@ -1,0 +1,24 @@
+id = "cloudfront-origin"
+version = 2
+edge_type = "ROUTES_TO"
+description = """A CloudFront distribution routes to each of its origins: a bucket, a load
+balancer, an API, or a custom host (external:<host> when no inventoried resource owns it)."""
+# The plugin may return origins as the array or as {Quantity, Items}.
+sql = """
+SELECT o.src, COALESCE(b.uid, 'external:' || o.host), jsonb_build_object('origin_id', o.origin_id)
+FROM (
+  SELECT d.uid AS src, x ->> 'Id' AS origin_id,
+         lower(regexp_replace(rtrim(x ->> 'DomainName', '.'), '^dualstack[.]', '')) AS host
+  FROM r d
+  CROSS JOIN LATERAL jsonb_array_elements(
+    CASE jsonb_typeof(d.config -> 'origins')
+      WHEN 'array' THEN d.config -> 'origins'
+      WHEN 'object' THEN CASE WHEN jsonb_typeof(d.config -> 'origins' -> 'Items') = 'array'
+                              THEN d.config -> 'origins' -> 'Items' ELSE '[]' END
+      ELSE '[]' END) AS x
+  WHERE d.type = 'aws_cloudfront_distribution'
+) o
+LEFT JOIN (SELECT DISTINCT ON (host) host, uid FROM h ORDER BY host, rank, uid) b
+       ON b.host = o.host
+WHERE o.host IS NOT NULL AND o.host <> ''
+"""

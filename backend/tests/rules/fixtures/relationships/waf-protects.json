@@ -1,0 +1,98 @@
+{
+  "about": "Associated resources of a web ACL (an API stage counts for its API), CloudFront's web_acl_id and a stage's web_acl_arn. Near misses: a distribution with an empty web_acl_id, a stage without one.",
+  "resources": [
+    {
+      "uid": "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/edge/aaaa",
+      "type": "aws_wafv2_web_acl",
+      "native_id": "edge",
+      "name": "edge",
+      "region": "us-east-1",
+      "config": {
+        "associated_resources": [
+          "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+          "arn:aws:apigateway:us-east-1::/restapis/abc123/stages/prod"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:cloudfront::123456789012:distribution/E1",
+      "type": "aws_cloudfront_distribution",
+      "native_id": "E1",
+      "name": "E1",
+      "region": "us-east-1",
+      "config": {
+        "web_acl_id": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/cdn/bbbb"
+      }
+    },
+    {
+      "uid": "arn:aws:cloudfront::123456789012:distribution/E2",
+      "type": "aws_cloudfront_distribution",
+      "native_id": "E2",
+      "name": "E2",
+      "region": "us-east-1",
+      "config": {
+        "web_acl_id": ""
+      }
+    },
+    {
+      "uid": "arn:aws:apigateway:us-east-1::/restapis/abc123",
+      "type": "aws_api_gateway_rest_api",
+      "native_id": "abc123",
+      "name": "abc123",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:apigateway:us-east-1::/restapis/def456",
+      "type": "aws_api_gateway_rest_api",
+      "native_id": "def456",
+      "name": "def456",
+      "region": "us-east-1",
+      "config": {}
+    },
+    {
+      "uid": "arn:aws:apigateway:us-east-1::/restapis/def456/stages/prod",
+      "type": "aws_api_gateway_stage",
+      "native_id": "prod",
+      "name": "prod",
+      "region": "us-east-1",
+      "config": {
+        "rest_api_id": "def456",
+        "web_acl_arn": "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/edge/aaaa"
+      }
+    },
+    {
+      "uid": "arn:aws:apigateway:us-east-1::/restapis/abc123/stages/dev",
+      "type": "aws_api_gateway_stage",
+      "native_id": "dev",
+      "name": "dev",
+      "region": "us-east-1",
+      "config": {
+        "rest_api_id": "abc123",
+        "web_acl_arn": ""
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111",
+      "target": "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/edge/aaaa",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:apigateway:us-east-1::/restapis/abc123",
+      "target": "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/edge/aaaa",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:cloudfront::123456789012:distribution/E1",
+      "target": "arn:aws:wafv2:us-east-1:123456789012:global/webacl/cdn/bbbb",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:apigateway:us-east-1::/restapis/def456",
+      "target": "arn:aws:wafv2:us-east-1:123456789012:regional/webacl/edge/aaaa",
+      "attributes": {}
+    }
+  ]
+}

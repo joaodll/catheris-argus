@@ -1,0 +1,62 @@
+{
+  "about": "Source -> pipe -> enrichment and target. Near miss: a pipe without enrichment gives no enrichment edge.",
+  "resources": [
+    {
+      "uid": "arn:aws:pipes:us-east-1:123456789012:pipe/orders",
+      "type": "aws_pipes_pipe",
+      "native_id": "orders",
+      "name": "orders",
+      "region": "us-east-1",
+      "config": {
+        "source": "arn:aws:sqs:us-east-1:123456789012:orders",
+        "enrichment": "arn:aws:lambda:us-east-1:123456789012:function:enrich",
+        "target": "arn:aws:states:us-east-1:123456789012:stateMachine:fulfil"
+      }
+    },
+    {
+      "uid": "arn:aws:pipes:us-east-1:123456789012:pipe/plain",
+      "type": "aws_pipes_pipe",
+      "native_id": "plain",
+      "name": "plain",
+      "region": "us-east-1",
+      "config": {
+        "source": "arn:aws:sqs:us-east-1:123456789012:orders",
+        "enrichment": null,
+        "target": "arn:aws:lambda:us-east-1:123456789012:function:orders"
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:sqs:us-east-1:123456789012:orders",
+      "target": "arn:aws:pipes:us-east-1:123456789012:pipe/orders",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:pipes:us-east-1:123456789012:pipe/orders",
+      "target": "arn:aws:lambda:us-east-1:123456789012:function:enrich",
+      "attributes": {
+        "role": "enrichment"
+      }
+    },
+    {
+      "source": "arn:aws:pipes:us-east-1:123456789012:pipe/orders",
+      "target": "arn:aws:states:us-east-1:123456789012:stateMachine:fulfil",
+      "attributes": {
+        "role": "target"
+      }
+    },
+    {
+      "source": "arn:aws:sqs:us-east-1:123456789012:orders",
+      "target": "arn:aws:pipes:us-east-1:123456789012:pipe/plain",
+      "attributes": {}
+    },
+    {
+      "source": "arn:aws:pipes:us-east-1:123456789012:pipe/plain",
+      "target": "arn:aws:lambda:us-east-1:123456789012:function:orders",
+      "attributes": {
+        "role": "target"
+      }
+    }
+  ]
+}

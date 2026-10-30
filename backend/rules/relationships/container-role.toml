@@ -1,0 +1,15 @@
+id = "container-role"
+version = 1
+edge_type = "RUNS_AS"
+description = """Containers run as a role: an ECS service as its task definition's task role,
+an EKS node group (and the pods on it) as its node role."""
+sql = """
+SELECT svc.uid, td.config ->> 'task_role_arn', '{}'::jsonb
+FROM r svc
+JOIN r td ON td.type = 'aws_ecs_task_definition' AND td.uid = svc.config ->> 'task_definition'
+WHERE svc.type = 'aws_ecs_service' AND td.config ->> 'task_role_arn' LIKE 'arn%'
+UNION ALL
+SELECT ng.uid, ng.config ->> 'node_role', '{}'::jsonb
+FROM r ng
+WHERE ng.type = 'aws_eks_node_group' AND ng.config ->> 'node_role' LIKE 'arn%'
+"""

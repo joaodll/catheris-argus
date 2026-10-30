@@ -1,0 +1,16 @@
+id = "eventbridge-target"
+version = 1
+edge_type = "TRIGGERS"
+description = """An EventBridge rule triggers each of its targets (functions, queues, topics,
+state machines, other event buses)."""
+sql = """
+SELECT DISTINCT ru.uid,
+       COALESCE(substring(t ->> 'Arn'
+                  from '^(arn[:]aws[a-z-]*[:]lambda[:][a-z0-9-]+[:][0-9]{12}[:]function[:][A-Za-z0-9_-]+)'),
+                t ->> 'Arn'),
+       '{}'::jsonb
+FROM r ru
+CROSS JOIN LATERAL jsonb_array_elements(
+  CASE WHEN jsonb_typeof(ru.config -> 'targets') = 'array' THEN ru.config -> 'targets' ELSE '[]' END) AS t
+WHERE ru.type = 'aws_eventbridge_rule' AND t ->> 'Arn' LIKE 'arn%'
+"""

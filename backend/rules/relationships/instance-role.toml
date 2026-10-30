@@ -1,0 +1,13 @@
+id = "instance-role"
+version = 1
+edge_type = "RUNS_AS"
+description = "An EC2 instance runs as the IAM role in its instance profile."
+sql = """
+SELECT i.uid, role.uid, '{}'::jsonb
+FROM r i
+JOIN r ip ON ip.type = 'aws_iam_instance_profile'
+         AND ip.uid = i.config ->> 'iam_instance_profile_arn'
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ip.config -> 'roles', '[]')) AS pr
+JOIN r role ON role.type = 'aws_iam_role' AND role.uid = pr ->> 'Arn'
+WHERE i.type = 'aws_ec2_instance'
+"""
