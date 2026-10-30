@@ -1,3 +1,0 @@
-{{- /* Renders nothing: fails the install when every pod's pool together cannot fit in Postgres
-(argus.connectionBudget). Checked for an external database too. */ -}}
-{{- include "argus.connectionBudget" . }}

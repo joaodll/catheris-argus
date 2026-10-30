@@ -1,9 +1,0 @@
-{{- /* The scheduler's one fixed Job template (ADR-0039), submitted byte for byte. */ -}}
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: {{ include "argus.fullname" . }}-job-templates
-  labels:
-    {{- include "argus.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
-data:
-  scan.json: {{ include "argus.scanJob" . | fromYaml | toJson | quote }}

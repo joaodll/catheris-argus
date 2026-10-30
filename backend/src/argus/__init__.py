@@ -1,1 +1,0 @@
-"""CatherIs Argus."""
