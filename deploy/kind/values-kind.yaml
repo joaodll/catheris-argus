@@ -1,0 +1,30 @@
+# The chart on kind (run.sh). Every control stays on; only sizes, the registry and the
+# addresses differ from production. run.sh adds the local registry, the image digests it pushed
+# and the Kubernetes API's endpoint address.
+secrets:
+  existingSecret: argus-secrets
+api:
+  # kind's pod network: web's pods.
+  trustedProxies: 10.244.0.0/16
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 256Mi}
+# No cloud identity on kind: scan Jobs answer the identity test there and run no scans.
+identity:
+  mode: none
+postgres:
+  storage: {size: 2Gi}
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+scheduler:
+  maxRunJobs: 2
+scanJobs:
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 2Gi}
+  tmpSize: 512Mi
+  scratch: {size: 2Gi}
+networkPolicy:
+  # Link-local, the pod and Service networks, and the kind nodes' Docker network.
+  scanEgressExcept: [169.254.0.0/16, 10.244.0.0/16, 10.96.0.0/12, 172.16.0.0/12]

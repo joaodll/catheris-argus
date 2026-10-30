@@ -1,0 +1,17 @@
+# gitleaks: the default rules, plus allowlisted paths. Each entry says why it cannot hold a secret.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored third-party reference data"
+paths = [
+  # Prowler 5.45.0 check metadata and framework text (Apache-2.0, see catalog/NOTICE). Its
+  # prose ("credential spraying ...") trips generic-api-key; it holds no credentials.
+  '''backend/src/argus/collection/synthetic/catalog/prowler_aws_5\.45\.0\.json''',
+  # The emulator harness's output (docker compose --profile emulate run --rm emulate): CloudFox
+  # and Steampipe run against moto, whose access key ids are random placeholders. Git-ignored,
+  # never committed; it never holds output from a real account (ADR-0037).
+  # The repository root's emulated/ only: `gitleaks dir` reports /repo/emulated/..., `gitleaks
+  # git` emulated/... (it is never committed, so the history scan should not see it at all).
+  '''^(/repo/)?emulated/''',
+]
