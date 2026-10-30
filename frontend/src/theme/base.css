@@ -1,0 +1,1153 @@
+/* Base elements and the shared component classes of docs/ui/design-system.md. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  /* A theme change cross-fades the page (design-system.md, Motion); instant with reduced motion. */
+  transition:
+    background-color 300ms ease,
+    color 300ms ease;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--link);
+}
+
+a:hover {
+  color: var(--link-hover);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+h1 {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+h1:focus {
+  outline: none;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Text roles (CatherIs Platform's scale, design-system.md "Type") */
+.h2 {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+
+.page-subtitle {
+  margin: 2px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.eyebrow,
+.lbl {
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.cap {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+.sub {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* Card, panel, glass tile (design-system.md "Card") */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--card-border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-card);
+  padding: var(--s-20);
+  min-width: 0;
+}
+
+.card-sm {
+  padding: var(--s-14) var(--s-16);
+}
+
+.card-accent {
+  border-left: 3px solid var(--accent);
+}
+
+.card-glass {
+  position: relative;
+  background: var(--glass-fill);
+  backdrop-filter: var(--glass-blur);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-panel);
+}
+
+.card-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  border-radius: var(--r-card) var(--r-card) 0 0;
+  background: var(--lit-edge);
+  pointer-events: none;
+}
+
+/* Stat tile: CatherIs Platform's stat-card (design-system.md, Card → Stat tile). Set --tone. */
+.stat-card {
+  --tone: var(--border-control);
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: var(--s-18);
+  overflow: hidden;
+  background: var(--glass-fill);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-panel);
+}
+
+.stat-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--lit-edge);
+  pointer-events: none;
+}
+
+.stat-card::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--tone);
+}
+
+.stat-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-8);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.stat-value {
+  margin: 9px 0 2px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 34px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+}
+
+.stat-sub {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+.stat-card.skeleton {
+  height: 94px;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.stat-card.skeleton::before,
+.stat-card.skeleton::after {
+  display: none;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--s-14);
+}
+
+@media (max-width: 1150px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .stat-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A card that holds only a table (or a list with its own header): the table runs edge to edge. */
+.panel {
+  padding: 0;
+  overflow: hidden;
+  box-shadow: var(--shadow-panel);
+}
+
+.panel-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-12);
+  flex-wrap: wrap;
+  padding: 15px var(--s-18);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel .table th:first-child,
+.panel .table td:first-child {
+  padding-left: var(--s-18);
+}
+
+.panel .table th:last-child,
+.panel .table td:last-child {
+  padding-right: var(--s-18);
+}
+
+.panel-body {
+  padding: var(--s-16) var(--s-18);
+}
+
+.panel-foot {
+  padding: var(--s-12) var(--s-18);
+  border-top: 1px solid var(--border);
+}
+
+/* A detail page (design-system.md, Page header → detail page): a breadcrumb, then a header card
+   holding the h1, its badges and a row of emoji-led facts. A framework page, an attack path. */
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-6);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.breadcrumb a {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+  color: var(--link);
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+.breadcrumb .back-icon {
+  transform: rotate(180deg);
+}
+
+.breadcrumb .sep {
+  color: var(--text-3);
+}
+
+.detail-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-14);
+}
+
+.detail-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-8) var(--s-14);
+}
+
+.detail-title h1 {
+  margin: 0;
+}
+
+.detail-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-10);
+}
+
+.detail-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-12) var(--s-32);
+  margin: 0;
+}
+
+.detail-facts dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.detail-facts dd {
+  margin: 3px 0 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+/* Inside the footer bar the pagination needs no space of its own above it. */
+.panel-foot .pagination {
+  padding-top: 0;
+}
+
+.lnk {
+  font-size: 12px;
+  color: var(--link);
+  text-decoration: none;
+}
+
+.lnk:hover {
+  color: var(--link-hover);
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s-12);
+  flex-wrap: wrap;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-14);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-6);
+  height: var(--control-h);
+  padding: 0 var(--s-16);
+  border-radius: var(--r-control);
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background var(--ease), border-color var(--ease), color var(--ease), box-shadow var(--ease);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+  color: var(--on-accent);
+  box-shadow: var(--glow-accent);
+}
+
+.btn-primary:active {
+  background: var(--accent-active);
+}
+
+/* The Platform's ghost: no fill, a quiet border. */
+.btn-secondary {
+  background: transparent;
+  border-color: var(--border-strong);
+  color: var(--text-2);
+}
+
+.btn-secondary:hover {
+  background: var(--surface-raised);
+  border-color: var(--border-control);
+  color: var(--text);
+}
+
+.btn-secondary:active {
+  background: var(--surface-active);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--link);
+  font-weight: 500;
+  padding: 0 var(--s-8);
+}
+
+.btn-ghost:hover {
+  color: var(--link-hover);
+  text-decoration: underline;
+}
+
+.btn-danger {
+  background: color-mix(in srgb, var(--sev-critical) 12%, transparent);
+  border-color: color-mix(in srgb, var(--sev-critical) 30%, transparent);
+  color: var(--sev-critical-text);
+}
+
+.btn-danger:hover {
+  background: var(--sev-critical);
+  color: var(--on-accent);
+}
+
+.btn-sm {
+  height: var(--control-h-compact);
+  padding: 0 var(--s-10);
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.btn-lg {
+  height: var(--control-h-large);
+  padding: 0 var(--s-22);
+  font-size: 14px;
+}
+
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.icon-btn:hover {
+  background: var(--surface-raised);
+  color: var(--text);
+}
+
+/* Form fields */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-6);
+  min-width: 0;
+}
+
+.input,
+.select {
+  width: 100%;
+  height: calc(var(--control-h) + 4px);
+  padding: 0 13px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  border: 1px solid var(--border-control);
+  border-radius: var(--r-control);
+  font-size: 13px;
+  transition: border-color var(--ease), box-shadow var(--ease);
+}
+
+.select {
+  appearance: none;
+  padding-right: var(--s-32);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%239297a0' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  cursor: pointer;
+}
+
+.select option {
+  background: var(--surface-raised);
+}
+
+.input:hover,
+.select:hover {
+  border-color: var(--border-control-hover);
+}
+
+.input:focus,
+.select:focus {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.input::placeholder {
+  color: var(--text-3);
+}
+
+.input.mono {
+  font-family: var(--font-mono);
+}
+
+.input[aria-invalid='true'] {
+  border-color: var(--sev-critical);
+}
+
+.input:disabled,
+.select:disabled,
+.input:read-only {
+  border-color: var(--border);
+  color: var(--text-3);
+}
+
+.field-error {
+  display: flex;
+  gap: var(--s-6);
+  align-items: center;
+  font-size: 12px;
+  color: var(--sev-critical-text);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px var(--s-20);
+}
+
+@media (max-width: 700px) {
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.check {
+  display: flex;
+  gap: var(--s-10);
+  align-items: center;
+  min-height: 32px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+
+legend {
+  padding: 0;
+  margin-bottom: var(--s-6);
+}
+
+/* Chips and badges */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--r-chip);
+  background: var(--chip-fill);
+  color: var(--text-chip);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/*
+ * Signal Glow chart marks (design-system.md "Chart marks"). The element sets --series to its
+ * data colour; grey "no signal" marks add .no-glow. prefers-contrast: more gets flat colour.
+ */
+.mark-bar,
+.mark-col,
+.mark-line,
+.mark-dot {
+  --glow: color-mix(in srgb, var(--series) var(--glow-mix), transparent);
+}
+
+.mark-bar {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--series) 62%, var(--surface)), var(--series));
+  box-shadow: inset 0 1px 0 var(--sheen), 0 0 var(--glow-blur) var(--glow);
+}
+
+.mark-col {
+  background: linear-gradient(0deg, color-mix(in srgb, var(--series) 62%, var(--surface)), var(--series));
+  box-shadow: inset 0 1px 0 var(--sheen), 0 0 var(--glow-blur) var(--glow);
+}
+
+.mark-line {
+  filter: drop-shadow(0 0 var(--glow-blur-line) var(--glow));
+}
+
+.mark-dot {
+  background: var(--series);
+  box-shadow: 0 0 var(--glow-blur) var(--glow);
+}
+
+.mark-track {
+  background: var(--track);
+  box-shadow: var(--shadow-track);
+}
+
+.no-glow {
+  --glow-mix: 0%;
+}
+
+@media (prefers-contrast: more) {
+  .mark-bar,
+  .mark-col {
+    background: var(--series);
+    box-shadow: none;
+  }
+
+  .mark-line {
+    filter: none;
+  }
+
+  .mark-dot {
+    box-shadow: none;
+  }
+}
+
+/* Tables */
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th {
+  padding: var(--s-10) var(--s-14);
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.table td {
+  padding: 11px var(--s-14);
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+  transition: background 120ms ease;
+}
+
+.table tbody tr:last-child > td {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover > td {
+  background: var(--surface-raised);
+}
+
+.table .right {
+  text-align: right;
+}
+
+.table tr.is-off > td {
+  color: var(--text-3);
+}
+
+.row-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-link:hover {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+/* An Overview number's way to the list that holds it (docs/ui/screens.md, Overview drill-downs). */
+.drill-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.drill-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 600px) {
+  /* Tables become stacked rows: each cell shows its column name. */
+  .table.stackable thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .table.stackable tr {
+    display: block;
+    padding: var(--s-10) 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table.stackable td {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 2px var(--s-10); /* a cell's lines sit close; the label keeps its distance */
+    padding: var(--s-4) 0;
+    border: 0;
+  }
+
+  .table.stackable td::before {
+    content: attr(data-label);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .table.stackable td[data-label='']::before {
+    content: none;
+  }
+
+  /* Everything in a cell sits in the value column, however many lines it has (a name with its
+     type under it); the label keeps the first column. */
+  .table.stackable td > * {
+    grid-column: 2;
+    justify-self: start;
+    max-width: 100%;
+  }
+}
+
+/*
+ * A list table never scrolls sideways (design-system.md, Table; argus_v12): it merges secondary
+ * columns to fit its panel, and with .stack-narrow inside a .table-fit wrapper its rows stack
+ * whenever the panel itself is narrower than 900 px (a tablet, a narrow window), not only on a
+ * phone.
+ */
+.table-fit {
+  container-type: inline-size;
+}
+
+.table.dense th,
+.table.dense td {
+  padding-inline: var(--s-10);
+}
+
+@container (max-width: 900px) {
+  .table.stack-narrow thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .table.stack-narrow tr {
+    display: block;
+    padding: var(--s-10) var(--s-18);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table.stack-narrow td {
+    display: grid;
+    grid-template-columns: 110px minmax(0, 1fr);
+    gap: 2px var(--s-10); /* a cell's lines sit close; the label keeps its distance */
+    padding: var(--s-4) 0;
+    border: 0;
+    white-space: normal;
+  }
+
+  .table.stack-narrow td::before {
+    content: attr(data-label);
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+  }
+
+  .table.stack-narrow td[data-label='']::before {
+    content: none;
+  }
+
+  .table.stack-narrow td > * {
+    grid-column: 2;
+    justify-self: start;
+    max-width: 100%;
+  }
+
+  /* A stacked row carries the panel's gutter itself: its first and last cells add none. */
+  .panel .table.stack-narrow td:first-child,
+  .panel .table.stack-narrow td:last-child {
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
+
+/* Radio cards and segmented controls */
+.radio-card {
+  display: flex;
+  gap: var(--s-12);
+  align-items: flex-start;
+  padding: var(--s-14);
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
+  cursor: pointer;
+  transition: border-color var(--ease);
+}
+
+.radio-card:hover {
+  border-color: var(--tile-current);
+}
+
+.radio-card.is-selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.radio-card.is-disabled {
+  cursor: not-allowed;
+  color: var(--text-3);
+}
+
+.radio-card.is-disabled:hover {
+  border-color: var(--border);
+}
+
+.radio-card input {
+  margin: 3px 0 0;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid var(--border-control);
+  border-radius: var(--r-control);
+  overflow: hidden;
+}
+
+.segmented button {
+  height: calc(var(--control-h) - 2px);
+  padding: 0 var(--s-14);
+  border: 0;
+  background: var(--surface-sunken);
+  color: var(--text-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--border-control);
+}
+
+.segmented button[aria-pressed='true'] {
+  background: var(--surface-raised);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Code and logs */
+.code {
+  margin: 0;
+  padding: var(--s-12);
+  max-height: 320px;
+  overflow: auto;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre;
+}
+
+/* Skeleton: the Platform's shimmer (static with reduced motion, below). */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-raised) 50%, var(--surface) 75%);
+  background-size: 200%;
+  border-radius: var(--r-control);
+  animation: shimmer 1.6s ease infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* The Platform's ring spinner: inside buttons, and centred on a detail page with nothing yet. */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentcolor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  opacity: 0.6;
+  animation: spin 0.7s linear infinite;
+}
+
+.spinner-lg {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Ambient backdrop behind the content (design-system.md "Ambient decoration"). */
+.aurora {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.aurora::before,
+.aurora::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(8px);
+}
+
+.aurora::before {
+  top: -18%;
+  right: -12%;
+  width: 60vw;
+  height: 60vw;
+  background: radial-gradient(circle, var(--aurora-a) 0%, transparent 62%);
+}
+
+.aurora::after {
+  bottom: -24%;
+  left: -14%;
+  width: 52vw;
+  height: 52vw;
+  background: radial-gradient(circle, var(--aurora-b) 0%, transparent 66%);
+}
+
+.grid-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at 50% 40%, #000 30%, transparent 78%);
+}
+
+/* Scrollbars, as in the Platform */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-active);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-control);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    background: var(--surface-raised);
+  }
+}
+
+.dim {
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* Skeleton sizes (static inline styles are blocked by the CSP: style-src 'self'). */
+.sk-12 {
+  height: 12px;
+}
+
+.sk-14-60 {
+  height: 14px;
+  width: 60%;
+}
+
+.sk-28 {
+  height: 28px;
+}
+
+.sk-36-40 {
+  height: 36px;
+  width: 40%;
+}
+
+.sk-44 {
+  height: 44px;
+}
+
+.sk-48 {
+  height: 48px;
+}
+
+.sk-52 {
+  height: 52px;
+}
+
+.sk-120 {
+  height: 120px;
+}
+
+.sk-160 {
+  height: 160px;
+}
+
+.sk-190 {
+  height: 190px;
+}
+
+.sk-220 {
+  height: 220px;
+}
+
+.dot-aws {
+  --series: var(--provider-aws);
+
+  background: var(--provider-aws);
+}
+
+.dot-gcp {
+  --series: var(--provider-gcp);
+
+  background: var(--provider-gcp);
+}
+
+.dot-oci {
+  --series: var(--provider-oci);
+
+  background: var(--provider-oci);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
+}
