@@ -50,3 +50,31 @@ export function webUrl(value: string | null | undefined): string | null {
     return null
   }
 }
+
+/** A web link as short text (2026-10-31 review): its site and the start of its path,
+ * "docs.aws.amazon.com › lambda › …". The full address goes in the link's title. */
+export function shortLink(href: string): string {
+  try {
+    const url = new URL(href)
+    const host = url.hostname.replace(/^www\./, '')
+    const parts = url.pathname.split('/').filter(Boolean).map((p) => {
+      try {
+        return decodeURIComponent(p)
+      } catch {
+        return p
+      }
+    })
+    const shown = parts.slice(0, 2)
+    return [host, ...shown, ...(parts.length > 2 ? ['…'] : [])].join(' › ')
+  } catch {
+    return href
+  }
+}
+
+/** What a finding row leads with: Prowler's result for this resource ("Root account does not
+ * have a hardware MFA device enabled"), not the check's passing condition. Other tools, and a
+ * finding with no result sentence, keep the title. `check` is the title when the result leads. */
+export function findingLine(f: { tool: string; title: string; detail?: string | null }): { lead: string; check: string | null } {
+  const detail = f.detail?.trim()
+  return f.tool === 'prowler' && detail ? { lead: detail, check: f.title } : { lead: f.title, check: null }
+}

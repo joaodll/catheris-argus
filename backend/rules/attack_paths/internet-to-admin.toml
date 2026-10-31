@@ -4,13 +4,13 @@ name = "From the internet to administrator"
 category = "IAM privilege escalation"
 severity = "high"
 technique = "T1078.004"  # Valid Accounts: Cloud Accounts
+# Version 2 (ADR-0037, second amendment, wave 3): an escalation Argus matches by permission name
+# (CAN_ESCALATE_TO, from Steampipe's policies), a user's administrator policy (principal-admin).
 description = """From something the internet reaches, a chain of steps (routing, triggers, the
-role a workload runs as, roles it can assume) ends at a role CloudFox reports as an
-administrator or able to escalate to one. Whoever controls the first step can act as the
-account's administrator. Argus rules supply the routing and the roles, CloudFox the
-escalation, Prowler the failing checks on the way.
-Version 2 (ADR-0037, second amendment, wave 3): an escalation Argus matches by permission name
-(CAN_ESCALATE_TO, from Steampipe's policies), a user's administrator policy (principal-admin)."""
+role a workload runs as, roles it can assume) ends at an administrator of the account, or at a
+role that can make itself one. Whoever controls the first step can act as the account's
+administrator. Argus finds the routing and the roles, CloudFox the escalation, and Prowler the
+failing checks on the way."""
 remediation = """Break the cheapest link: require authentication at the front door (an
 authorizer on the API, a WAF rule, a private load balancer, a closed security group), or give
 the workload a role with only the permissions it needs and remove the escalation permissions

@@ -4,12 +4,16 @@ import {
   categoryLabel,
   emptyFilters,
   filtersToQuery,
+  groupFilters,
   isFiltered,
+  keptChecks,
   parseFilters,
   parseFinding,
   parseOrder,
   parsePage,
+  parseView,
   secondaryCount,
+  viewToQuery,
 } from './findingFilters'
 
 describe('Findings filters in the URL', () => {
@@ -92,5 +96,30 @@ describe('Findings filters in the URL', () => {
     expect(parseFinding({ finding: 'x' })).toBeNull()
     expect(parseFinding({ finding: '-3' })).toBeNull()
     expect(parseFinding({})).toBeNull()
+  })
+})
+
+describe('Findings by check', () => {
+  it('reads the view and leaves the list out of the URL', () => {
+    expect(parseView({ view: 'checks' })).toBe('checks')
+    expect(parseView({ view: 'other' })).toBe('list')
+    expect(parseView({})).toBe('list')
+    expect(viewToQuery('list')).toBeUndefined()
+    expect(viewToQuery('checks')).toBe('checks')
+  })
+
+  it('opens a group as the list filtered to its check and tool, other filters kept', () => {
+    const f = { ...emptyFilters(), severity: ['critical' as const], check: ['old'] }
+    const next = groupFilters(f, { tool: 'prowler', check_id: 'iam_root_hardware_mfa_enabled' })
+    expect(next.check).toEqual(['iam_root_hardware_mfa_enabled'])
+    expect(next.tool).toEqual(['prowler'])
+    expect(next.severity).toEqual(['critical'])
+  })
+
+  it("keeps an Inspector check the facets do not offer, only with the tool on Inspector alone", () => {
+    const cve = { ...emptyFilters(), tool: ['inspector' as const], check: ['CVE-2024-1234'] }
+    expect(keptChecks(cve, [])).toEqual(['CVE-2024-1234'])
+    expect(keptChecks({ ...cve, tool: ['inspector', 'prowler'] }, [])).toEqual([])
+    expect(keptChecks({ ...cve, tool: [], check: ['a', 'b'] }, ['b'])).toEqual(['b'])
   })
 })

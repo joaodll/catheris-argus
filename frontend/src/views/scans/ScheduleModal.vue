@@ -1,28 +1,45 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import CronField from '@/components/CronField.vue'
 import AppModal from '@/components/AppModal.vue'
 import SwitchToggle from '@/components/SwitchToggle.vue'
-import { COLLECTORS, type Collector } from '@/tools'
+import { COLLECTORS, defaultTools, type Collector } from '@/tools'
 
 type Tool = Collector
-const props = defineProps<{ schedule: Schemas['ScheduleOut'] | null; connections: Schemas['ConnectionOut'][]; minInterval: number | null }>()
+const props = defineProps<{
+  schedule: Schemas['ScheduleOut'] | null
+  connections: Schemas['ConnectionOut'][]
+  lastRuns: Schemas['LastRun'][] | null
+  minInterval: number | null
+}>()
 const emit = defineEmits<{ close: []; saved: [message: string] }>()
 
 const TOOLS = COLLECTORS.map((c) => ({ id: c.id as Tool, label: c.name }))
 
 const s = props.schedule
 const name = ref(s?.name ?? '')
-// Every tool by default: one schedule covers the account; each run is one tool.
-const initialTools = (s?.tools as Tool[] | undefined) ?? TOOLS.map((t) => t.id)
-const tools = ref<Tool[]>([...initialTools])
 const cron = ref(s?.cron ?? '0 2 * * *')
 const allConnections = ref(s ? s.all_connections : true)
 const initialChosen = s && !s.all_connections ? [...s.connection_ids].sort((a, b) => a - b) : []
 const chosen = ref<number[]>([...initialChosen])
+// A new schedule ticks the tools Run now does over its connections (defaultTools: Inspector
+// only where it has run), following them until a tick is changed by hand.
+const scope = (): number[] => (allConnections.value ? props.connections.filter((c) => c.enabled).map((c) => c.id) : chosen.value)
+const initialTools = (s?.tools as Tool[] | undefined) ?? defaultTools(props.lastRuns ?? [], scope())
+const tools = ref<Tool[]>([...initialTools])
+const toolsTouched = ref(false)
+if (!s) {
+  watch(
+    [allConnections, chosen, () => props.lastRuns, () => props.connections],
+    () => {
+      if (!toolsTouched.value) tools.value = defaultTools(props.lastRuns ?? [], scope())
+    },
+    { deep: true },
+  )
+}
 const enabled = ref(s?.enabled ?? true)
 const cronValid = ref(true)
 const saving = ref(false)
@@ -31,7 +48,7 @@ const error = ref<string | null>(null)
 const dirty = computed(
   () =>
     name.value !== (s?.name ?? '') ||
-    orderedTools().join() !== initialTools.join() ||
+    (s ? orderedTools().join() !== initialTools.join() : toolsTouched.value) ||
     cron.value !== (s?.cron ?? '0 2 * * *') ||
     enabled.value !== (s?.enabled ?? true) ||
     allConnections.value !== (s ? s.all_connections : true) ||
@@ -83,12 +100,12 @@ async function save(): Promise<void> {
         <fieldset class="tools" aria-describedby="s-tools-help">
           <legend class="lbl">Tools</legend>
           <label v-for="t in TOOLS" :key="t.id" class="check">
-            <input v-model="tools" type="checkbox" :value="t.id">
+            <input v-model="tools" type="checkbox" :value="t.id" @change="toolsTouched = true">
             {{ t.label }}
           </label>
         </fieldset>
         <span v-if="tools.length === 0" class="field-error"><AppIcon name="warning" :size="14" :stroke="2.2" />Choose at least one tool.</span>
-        <span id="s-tools-help" class="cap">Each tool is its own run. On the same account they run one at a time, in this order.</span>
+        <span id="s-tools-help" class="cap">Each tool is its own run. On the same account they run one at a time, in this order.<template v-if="!s"> Inspector starts ticked only where it has already run.</template></span>
       </div>
       <CronField v-model="cron" :min-interval="props.minInterval" @valid="(ok) => (cronValid = ok)" />
       <fieldset class="scope">

@@ -38,7 +38,7 @@ import {
   pathFiltersToQuery,
   toggleDate,
 } from './pathFilters'
-import { pathLine } from './pathWords'
+import { pathSubline, pathTitle } from './pathWords'
 
 const PAGE = 20
 const route = useRoute()
@@ -71,6 +71,10 @@ function clearFilters(): void {
 const connections = useResource(() => unwrap(api.GET('/api/v1/connections')))
 function connectionName(id: number): string {
   return connections.data.value?.find((c) => c.id === id)?.name ?? `Connection ${id}`
+}
+/** The connection of an account, for a path that ends at its administrator. */
+function connectionOf(account: string): string | null {
+  return connections.data.value?.find((c) => c.account_id === account)?.name ?? null
 }
 const facets = useResource(() => unwrap(api.GET('/api/v1/attack-paths/facets', { params: { query: { connection_id: filters.value.connection } } })), {
   watch: [() => filters.value.connection],
@@ -261,8 +265,8 @@ const dataThrough = computed(() => list.data.value?.data_through ?? null)
               <tr v-for="p in list.data.value.items" :key="p.id">
                 <td data-label="Severity"><SeverityTag :severity="p.severity" /></td>
                 <td data-label="Path" class="path-cell">
-                  <RouterLink class="path-link" :to="{ query: { ...route.query, path: String(p.id) } }">{{ p.rule_name ?? p.rule_id }}</RouterLink>
-                  <span class="mono summary">{{ pathLine(p) }}</span>
+                  <RouterLink class="path-link" :to="{ query: { ...route.query, path: String(p.id) } }">{{ pathTitle(p, connectionOf) }}</RouterLink>
+                  <span class="summary">{{ pathSubline(p) }}</span>
                 </td>
                 <td data-label="Confidence">
                   <ConfidenceBadge v-if="p.confidence" :level="p.confidence" :why="CONFIDENCE_MEANING[p.confidence]" />
@@ -309,6 +313,7 @@ const dataThrough = computed(() => list.data.value?.data_through ?? null)
 .path-link {
   font-size: 13px;
   font-weight: 500;
+  overflow-wrap: anywhere;
   color: var(--text);
   text-decoration: underline;
   text-decoration-color: var(--border-control);
@@ -326,9 +331,10 @@ const dataThrough = computed(() => list.data.value?.data_through ?? null)
   overflow-wrap: anywhere;
 }
 
+/* The evidence chips stay on one line (2026-10-31 review). */
 .chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--s-6);
   margin-top: var(--s-4);
 }

@@ -15,7 +15,7 @@ import ToolChip from '@/components/ToolChip.vue'
 import { useResource } from '@/composables/useResource'
 import { COLLECTORS, type Collector } from '@/tools'
 import { duration, elapsed, relative, utc, utcTime } from '@/format'
-import { commandLabel, encryptionLabel, partialReason, partialTables, regionsLabel, shortRunId, storedWithoutKms, triggerLabel } from './runNotes'
+import { commandLabel, encryptionLabel, partialReason, partialTables, partialTablesNote, regionsLabel, shortRunId, storedWithoutKms, triggerLabel } from './runNotes'
 
 type Tool = Collector
 type Status = 'complete' | 'partial' | 'failed' | 'running'
@@ -295,8 +295,7 @@ function fromSelect(value: string): string | null {
               <td colspan="8">
                 <div class="detail-body">
                   <AlertBanner v-if="r.status === 'partial' && partialTables(r).length" kind="warn">
-                    Partial: {{ partialTables(r).length }} of the tables failed, were denied or were throttled. Their resources
-                    were carried forward from the previous scan; every other table is up to date. A partial run is not retried.
+                    {{ partialTablesNote(r.tool, partialTables(r).length) }}
                     <details class="tables">
                       <summary>Show the {{ partialTables(r).length }} table{{ partialTables(r).length === 1 ? '' : 's' }}</summary>
                       <ul class="denied mono">

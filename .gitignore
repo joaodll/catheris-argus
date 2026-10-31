@@ -33,3 +33,4 @@ scrub-mapping*.json
 .DS_Store
 .admin-password.local
 CLAUDE.md
+docs/adr/

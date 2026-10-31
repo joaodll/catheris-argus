@@ -7,6 +7,7 @@ Public interface:
     parse_prowler()     the Prowler adapter: one run's raw files -> ProwlerBatch (pure)
     load_prowler()      lifecycle + day snapshots for one connection and day
     list_findings(), finding_facets(), open_finding_counts()   the read side (Findings page)
+    finding_groups()    the Findings list by check
     open_finding_counts_by_tool()   per-tool counts for the Resource map
     open_exposure_counts()   open Prowler exposure findings per resource (the front doors)
     framework_catalog(), list_requirements()                   the read side (Compliance page)
@@ -56,6 +57,7 @@ from argus.findings.queries import (
     FindingState,
     MutedFilter,
     finding_facets,
+    finding_groups,
     get_finding,
     list_findings,
     open_exposure_counts,
@@ -111,6 +113,7 @@ __all__ = [
     "carry_forward_compliance",
     "commands_for_resource",
     "finding_facets",
+    "finding_groups",
     "framework_catalog",
     "get_finding",
     "list_findings",

@@ -3,18 +3,24 @@ import { computed, ref, watch } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
-import { COLLECTOR_IDS, COLLECTORS, collectorName, type Collector } from '@/tools'
+import { COLLECTOR_IDS, COLLECTORS, collectorName, defaultTools, type Collector } from '@/tools'
 import { cooldownNote, refusedBecause } from './runNotes'
 
 type Tool = Collector
-const props = defineProps<{ connections: Schemas['ConnectionOut'][] | null; cooldown: number | null }>()
+const props = defineProps<{
+  connections: Schemas['ConnectionOut'][] | null
+  lastRuns: Schemas['LastRun'][] | null
+  cooldown: number | null
+}>()
 const emit = defineEmits<{ queued: [] }>()
 
 // Until settings load, the default cooldown (settings/topics.py).
 const cooldown = computed(() => props.cooldown ?? 60)
 const enabledConnections = computed(() => (props.connections ?? []).filter((c) => c.enabled))
 const chosen = ref<number[]>([])
-const tools = ref<Tool[]>([...COLLECTOR_IDS])
+const tools = ref<Tool[]>(defaultTools([], []))
+// The ticks follow the chosen connections (defaultTools) until a tick is changed by hand.
+const toolsTouched = ref(false)
 const busy = ref(false)
 const queued = ref<string | null>(null)
 const refused = ref<string | null>(null)
@@ -23,6 +29,13 @@ const error = ref<string | null>(null)
 watch(enabledConnections, (list) => {
   if (chosen.value.length === 0 && list.length === 1 && list[0]) chosen.value = [list[0].id]
 })
+watch(
+  [chosen, () => props.lastRuns],
+  () => {
+    if (!toolsTouched.value) tools.value = defaultTools(props.lastRuns ?? [], chosen.value)
+  },
+  { deep: true },
+)
 
 function describe(items: { connection_id: number; tool: string }[]): string {
   return items
@@ -66,10 +79,11 @@ async function run(): Promise<void> {
       <span v-if="props.connections && enabledConnections.length === 0" class="cap">No enabled connections.</span>
       <button v-if="enabledConnections.length > 1" type="button" class="btn btn-ghost btn-sm select-all" @click="chosen = enabledConnections.map((c) => c.id)">Select all</button>
     </fieldset>
-    <fieldset>
+    <fieldset aria-describedby="rn-tools-help">
       <legend class="lbl">Tools, in run order</legend>
+      <span id="rn-tools-help" class="cap">Inspector starts ticked only where it has already run.</span>
       <div class="tools">
-        <label v-for="c in COLLECTORS" :key="c.id" class="check"><input v-model="tools" type="checkbox" :value="c.id">{{ c.name }}</label>
+        <label v-for="c in COLLECTORS" :key="c.id" class="check"><input v-model="tools" type="checkbox" :value="c.id" @change="toolsTouched = true">{{ c.name }}</label>
       </div>
     </fieldset>
     <div class="go">

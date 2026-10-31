@@ -21,6 +21,7 @@ import SortHeader from '@/components/SortHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ToolChip from '@/components/ToolChip.vue'
 import { useResource } from '@/composables/useResource'
+import { int } from '@/format'
 import { PROVIDERS, type Provider } from '@/providers'
 import { SEVERITIES, SEVERITY_LABEL, type Severity } from '@/views/overview/severity'
 import {
@@ -29,19 +30,24 @@ import {
   type Order,
   type Result,
   type Tool,
+  type View,
   apiFilters,
   categoryLabel,
   emptyFilters,
   filtersToQuery,
+  groupFilters,
   isFiltered,
+  keptChecks,
   parseFilters,
   parseFinding,
   parseOrder,
   parsePage,
+  parseView,
   secondaryCount,
+  viewToQuery,
 } from './findingFilters'
 import FindingDetail from './FindingDetail.vue'
-import { type FindingState, regionLabel, uidTail } from './labels'
+import { type FindingState, findingLine, regionLabel, uidTail } from './labels'
 import ReachBadge from './ReachBadge.vue'
 import { FINDING_REACHES, FINDING_REACH_LABEL, type FindingReach } from './reachReason'
 
@@ -54,11 +60,13 @@ const filters = computed(() => parseFilters(route.query))
 const order = computed(() => parseOrder(route.query))
 // One finding's own link (?finding=): it shows alone, expanded; the filters do not apply.
 const single = computed(() => parseFinding(route.query))
+// List, or by check (?view=checks): a finding's own link is always the list.
+const view = computed<View>(() => (single.value != null ? 'list' : parseView(route.query)))
 
 /** A new filter set: a history entry (typing in the search box replaces it), page 1. */
 function navigate(next: FindingFilters, how: 'push' | 'replace' = 'push'): void {
   const sort = order.value === 'severity' ? undefined : order.value
-  void router[how]({ query: { ...filtersToQuery(next), order: sort } })
+  void router[how]({ query: { ...filtersToQuery(next), order: sort, view: viewToQuery(view.value) } })
 }
 
 function set<K extends keyof FindingFilters>(key: K, value: FindingFilters[K]): void {
@@ -107,7 +115,7 @@ watch(
       category: keep(f.category, data.categories),
       service: keep(f.service, data.services),
       type: keep(f.type, data.resource_types),
-      check: keep(f.check, data.checks.map((c) => c.check_id)),
+      check: keptChecks(f, data.checks.map((c) => c.check_id)),
       region: keep(f.region, data.regions),
     }
     if (JSON.stringify(next) !== JSON.stringify(f)) navigate(next, 'replace')
@@ -136,9 +144,12 @@ const typeOptions = computed(() => mono(facets.data.value?.resource_types))
 const regionOptions = computed(() => mono(facets.data.value?.regions, regionLabel))
 const checkOptions = computed<MultiOption[]>(() => {
   const seen = new Set<string>()
-  return (facets.data.value?.checks ?? [])
+  const offered = (facets.data.value?.checks ?? [])
     .filter((c) => !seen.has(c.check_id) && seen.add(c.check_id))
     .map((c) => ({ value: c.check_id, label: c.check_id, mono: true, tool: c.tool }))
+  // An Inspector check (a CVE) is not a facet: chosen from its group, it is offered too.
+  const chosen = filters.value.check.filter((c) => !seen.has(c)).map((c) => ({ value: c, label: c, mono: true, tool: 'inspector' }))
+  return [...chosen, ...offered]
 })
 const MUTED_CHOICES: { value: Muted; label: string }[] = [
   { value: 'any', label: 'Show' },
@@ -153,6 +164,11 @@ watch(moreCount, (n) => {
 })
 
 const findings = shallowRef<Schemas['FindingOut'][]>([])
+const groups = shallowRef<Schemas['FindingGroupOut'][]>([])
+// The view the rows on screen were loaded for: until a switch has loaded, the old rows stay
+// (never a flash of "No open findings.").
+const shown = ref<View>(view.value)
+const rows = computed(() => (shown.value === 'checks' ? groups.value.length : findings.value.length))
 const total = ref(0)
 const capped = ref(false)
 const dataThrough = ref<string | null>(null)
@@ -165,7 +181,7 @@ const error = ref<string | null>(null)
 const open = ref<Set<number>>(new Set())
 let generation = 0
 
-const requestKey = (target: number): string => JSON.stringify([apiFilters(filters.value), order.value, target, single.value])
+const requestKey = (target: number): string => JSON.stringify([apiFilters(filters.value), order.value, target, single.value, view.value])
 let loadedKey = ''
 
 // The finding of its own link, with the tool's text: its details row needs no second request.
@@ -176,6 +192,7 @@ async function loadOne(id: number, mine: number): Promise<void> {
   if (mine !== generation) return
   singleDetail.value = one
   findings.value = [one]
+  shown.value = 'list'
   total.value = 1
   capped.value = false
   dataThrough.value = one.last_seen // the scan time this finding reflects
@@ -194,11 +211,11 @@ async function load(target: number, how: 'push' | 'replace' = 'replace'): Promis
       await loadOne(single.value, mine)
       return
     }
-    const result = await unwrap(
-      api.GET('/api/v1/findings', {
-        params: { query: { limit: PAGE, offset: (target - 1) * PAGE, order: order.value, ...apiFilters(filters.value) } },
-      }),
-    )
+    const query = { limit: PAGE, offset: (target - 1) * PAGE, order: order.value, ...apiFilters(filters.value) }
+    const byCheck = view.value === 'checks'
+    const result = byCheck
+      ? { ...(await unwrap(api.GET('/api/v1/findings/groups', { params: { query } }))), total_capped: false }
+      : await unwrap(api.GET('/api/v1/findings', { params: { query } }))
     if (mine !== generation) return
     const last = Math.max(1, Math.ceil(result.total / PAGE))
     if (target > last) {
@@ -206,7 +223,14 @@ async function load(target: number, how: 'push' | 'replace' = 'replace'): Promis
       void load(last)
       return
     }
-    findings.value = result.items
+    if (byCheck) {
+      groups.value = result.items as Schemas['FindingGroupOut'][]
+      findings.value = []
+    } else {
+      findings.value = result.items as Schemas['FindingOut'][]
+      groups.value = []
+    }
+    shown.value = byCheck ? 'checks' : 'list'
     total.value = result.total
     capped.value = result.total_capped
     dataThrough.value = result.data_through ?? null
@@ -247,7 +271,24 @@ async function goTo(target: number): Promise<void> {
 }
 
 function setOrder(next: Order): void {
-  void router.push({ query: { ...filtersToQuery(filters.value), order: next === 'severity' ? undefined : next } })
+  void router.push({ query: { ...filtersToQuery(filters.value), order: next === 'severity' ? undefined : next, view: viewToQuery(view.value) } })
+}
+
+/** List or by check: the filters and the order stay, the page goes back to 1. */
+function setView(next: View): void {
+  if (next === view.value) return
+  void router.push({ query: { ...filtersToQuery(filters.value), order: route.query.order, view: viewToQuery(next) } })
+}
+
+/** A check's group opens the list filtered to it (the Check and Tool filters show it). */
+function openGroup(g: Schemas['FindingGroupOut']): void {
+  void router.push({ query: { ...filtersToQuery(groupFilters(filters.value, g)), order: route.query.order } })
+}
+
+function onGroupClick(event: MouseEvent, g: Schemas['FindingGroupOut']): void {
+  if ((event.target as Element).closest('a, button, input, select, label, summary')) return
+  if (window.getSelection()?.toString()) return
+  openGroup(g)
 }
 
 function sortBySeverity(): void {
@@ -304,6 +345,16 @@ const resourceChip = computed(() => {
   return r ? (r.name ?? r.native_id) : `#${resourceId.value}`
 })
 const noData = computed(() => loaded.value && dataThrough.value == null)
+const GROUP_ORDER_NOTE: Record<Order, string> = {
+  severity: 'Worst first, then the most findings.',
+  severity_asc: 'Least severe first.',
+  last_seen_desc: 'Most recently seen first.',
+  last_seen_asc: 'Least recently seen first.',
+}
+const VIEWS: { value: View; label: string }[] = [
+  { value: 'list', label: 'List' },
+  { value: 'checks', label: 'By check' },
+]
 </script>
 
 <template>
@@ -446,11 +497,15 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
 
   <!-- The Platform's list panel: a header bar, the table edge to edge, a footer bar. -->
   <section class="card panel" aria-labelledby="findings-h">
-    <div class="panel-h">
+    <div class="panel-h view-h">
       <div class="titles">
-        <h2 id="findings-h" class="h2">Prowler, CloudFox and Inspector findings</h2>
+        <h2 id="findings-h" class="h2">{{ shown === 'checks' ? 'Checks with findings' : 'Prowler, CloudFox and Inspector findings' }}</h2>
         <span v-if="single != null" class="cap">One finding, from its own link. Read-only.</span>
+        <span v-else-if="shown === 'checks'" class="cap">{{ GROUP_ORDER_NOTE[order] }} Read-only.</span>
         <span v-else class="cap">{{ ORDER_NOTE[order] }} Read-only.</span>
+      </div>
+      <div v-if="single == null" class="segmented" role="group" aria-label="View">
+        <button v-for="v in VIEWS" :key="v.value" type="button" :aria-pressed="view === v.value" @click="setView(v.value)">{{ v.label }}</button>
       </div>
     </div>
 
@@ -464,15 +519,50 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
     <EmptyState v-else-if="noData" icon="flag" title="No findings yet." text="Findings appear after a Prowler, CloudFox or Inspector scan is ingested.">
       <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
     </EmptyState>
-    <EmptyState v-else-if="findings.length === 0 && filtered" icon="info" title="No findings match these filters.">
+    <EmptyState v-else-if="rows === 0 && filtered" icon="info" :title="shown === 'checks' ? 'No checks match these filters.' : 'No findings match these filters.'">
       <button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button>
     </EmptyState>
     <EmptyState
-      v-else-if="findings.length === 0"
+      v-else-if="rows === 0"
       icon="check"
       title="No open findings."
       text="Every check that ran passed, or its findings were resolved."
     />
+    <div v-else-if="shown === 'checks'" ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="findings-h" :aria-busy="loading">
+      <table class="table stackable stack-narrow dense findings-table groups-table">
+        <thead>
+          <tr>
+            <SortHeader
+              label="Severity"
+              :direction="order === 'severity' ? 'desc' : order === 'severity_asc' ? 'asc' : null"
+              desc-text="worst first"
+              asc-text="least severe first"
+              @toggle="sortBySeverity"
+            /><th scope="col">Check</th><th scope="col" class="right">Findings</th><th scope="col" class="right">Accounts</th>
+            <SortHeader
+              label="Last seen"
+              class="right"
+              :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
+              desc-text="newest first"
+              asc-text="oldest first"
+              @toggle="toggleLastSeen"
+            />
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="g in groups" :key="`${g.tool}|${g.check_id}`" class="row" @click="onGroupClick($event, g)">
+            <td data-label="Severity"><SeverityTag :severity="g.severity" /></td>
+            <td data-label="Check" class="finding">
+              <button type="button" class="title group-link" :title="g.title" :aria-label="`Show the ${int(g.findings)} findings of ${g.title}`" @click="openGroup(g)">{{ g.title }}</button>
+              <span class="meta"><ToolChip :tool="g.tool" /><span class="mono check">{{ g.check_id }}</span></span>
+            </td>
+            <td data-label="Findings" class="right mono">{{ int(g.findings) }}</td>
+            <td data-label="Accounts" class="right mono">{{ int(g.connections) }}</td>
+            <td data-label="Last seen" class="right mono">{{ g.last_seen }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
     <div v-else ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="findings-h" :aria-busy="loading">
       <table class="table stackable stack-narrow dense findings-table">
         <thead>
@@ -498,10 +588,15 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
           <template v-for="f in findings" :key="f.id">
             <tr class="row" :class="{ expanded: open.has(f.id) }" @click="onRowClick($event, f.id)">
               <td data-label="Severity"><SeverityTag :severity="f.severity" /></td>
+              <!-- Two lines (2026-10-31 review): Prowler's result for this resource leads, the
+                   check's title (its passing condition) follows; other tools keep their title. -->
               <td data-label="Finding" class="finding">
-                <span class="title" :title="f.title">{{ f.title }}</span>
-                <span class="meta"><ToolChip :tool="f.tool" /><span class="mono check">{{ f.check_id }}</span></span>
-                <ReachBadge :reach="f.reach" :reason="f.reach_reason" />
+                <span class="title" :title="findingLine(f).lead">{{ findingLine(f).lead }}</span>
+                <span class="meta">
+                  <ToolChip :tool="f.tool" />
+                  <span v-if="findingLine(f).check" class="check-title" :title="findingLine(f).check!">Check: {{ findingLine(f).check }}</span>
+                  <ReachBadge :reach="f.reach" :reason="f.reach_reason" />
+                </span>
               </td>
               <td data-label="Resource" class="resource">
                 <span class="mono" :title="f.resource_uid">{{ resourceCell(f) }}</span>
@@ -520,7 +615,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
               </td>
               <td data-label="Last seen" class="right mono">{{ f.last_seen }}</td>
               <td data-label="">
-                <button type="button" class="icon-btn chev" :aria-expanded="open.has(f.id)" :aria-label="`${open.has(f.id) ? 'Hide' : 'Show'} details of ${f.title}`" @click="toggle(f.id)">
+                <button type="button" class="icon-btn chev" :aria-expanded="open.has(f.id)" :aria-label="`${open.has(f.id) ? 'Hide' : 'Show'} details of ${findingLine(f).lead}`" @click="toggle(f.id)">
                   <AppIcon name="chevron" :size="16" :stroke="2" />
                 </button>
               </td>
@@ -534,8 +629,8 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
         </tbody>
       </table>
     </div>
-    <div v-if="findings.length && single == null" class="panel-foot">
-      <AppPagination :total="total" :capped="capped" :page="page" :limit="PAGE" @change="goTo" />
+    <div v-if="rows && single == null" class="panel-foot">
+      <AppPagination :total="total" :capped="capped" :page="page" :limit="PAGE" :noun="shown === 'checks' ? 'check' : undefined" @change="goTo" />
     </div>
   </section>
 </template>
@@ -661,6 +756,59 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
   overflow-wrap: anywhere;
 }
 
+/* The check's title after the tool chip: one line, the whole title on hover. A clamp, not
+   nowrap: an unbreakable line would set the table's minimum width and scroll it sideways. */
+.check-title {
+  display: -webkit-box;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  font-size: 12px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+/* A row's second line stays one line on a wide panel: the check's title shrinks between the
+   tool chip and the reach badge. */
+.finding .meta {
+  flex-wrap: nowrap;
+}
+
+.finding .meta > :not(.check-title) {
+  flex-shrink: 0;
+}
+
+/* The panel header holds the view toggle on its right; it wraps under the titles. */
+.view-h {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: var(--s-12);
+}
+
+.group-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border-control);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.group-link:hover {
+  color: var(--link);
+  text-decoration-color: currentcolor;
+}
+
 .region {
   display: block;
   margin-top: 2px;
@@ -746,6 +894,15 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
   .finding,
   .resource .mono {
     max-width: none;
+  }
+
+  .finding .meta {
+    flex-wrap: wrap;
+  }
+
+  .check-title {
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
   }
 }
 </style>

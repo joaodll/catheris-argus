@@ -509,6 +509,13 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "findings, Prowler exposure counts for a page of doors": lambda c: (
         findings.open_exposure_counts(c, list(range(1, 2000, 100)))
     ),
+    "findings by check, no filter": lambda c: findings.finding_groups(c, limit=20, offset=0),
+    "findings by check, past the last page": lambda c: findings.finding_groups(
+        c, limit=20, offset=10000
+    ),
+    "findings by check, one account": lambda c: findings.finding_groups(
+        c, limit=20, offset=0, filters=findings.FindingFilters(connection_ids=(7,))
+    ),
     "findings, facets": findings.finding_facets,
     "findings, facets, two accounts": lambda c: findings.finding_facets(c, connection_ids=(7, 8)),
     "findings, counts for a page of resources": lambda c: findings.open_finding_counts(

@@ -1,7 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import SeverityTag from '@/components/SeverityTag.vue'
-import { originLabel, regionLabel, typesByService, uidTail, webUrl } from './labels'
+import { findingLine, originLabel, regionLabel, shortLink, typesByService, uidTail, webUrl } from './labels'
 
 describe('investigate labels', () => {
   it('groups resource types by service for the type filter', () => {
@@ -41,5 +41,24 @@ describe('SeverityTag', () => {
   it('always carries the word, never colour alone', () => {
     expect(mount(SeverityTag, { props: { severity: 'critical' } }).text()).toBe('Critical')
     expect(mount(SeverityTag, { props: { severity: 'informational', compact: true } }).text()).toBe('Info')
+  })
+})
+
+describe('Short links and finding lines (2026-10-31 review)', () => {
+  it('shows a link as its site and the start of its path', () => {
+    expect(shortLink('https://docs.aws.amazon.com/lambda/latest/dg/configuration-envvars.html')).toBe('docs.aws.amazon.com › lambda › latest › …')
+    expect(shortLink('https://www.trendmicro.com/cloudoneconformity/')).toBe('trendmicro.com › cloudoneconformity')
+    expect(shortLink('https://example.com')).toBe('example.com')
+    expect(shortLink('https://example.com/a%20b/c')).toBe('example.com › a b › c')
+    expect(shortLink('not a url')).toBe('not a url')
+  })
+
+  it("leads a Prowler row with its result, every other with its title", () => {
+    const title = 'Ensure root account has a hardware MFA device enabled'
+    const detail = 'Root account does not have a hardware MFA device enabled.'
+    expect(findingLine({ tool: 'prowler', title, detail })).toEqual({ lead: detail, check: title })
+    expect(findingLine({ tool: 'prowler', title, detail: '  ' })).toEqual({ lead: title, check: null })
+    expect(findingLine({ tool: 'prowler', title, detail: null })).toEqual({ lead: title, check: null })
+    expect(findingLine({ tool: 'cloudfox', title, detail })).toEqual({ lead: title, check: null })
   })
 })

@@ -59,6 +59,9 @@ function clearSearch(): void {
 }
 const connections = useResource(() => unwrap(api.GET('/api/v1/connections')))
 const settings = useResource(() => unwrap(api.GET('/api/v1/settings')))
+// Each tool's last run per connection: Run now and a new schedule tick Inspector only where it ran.
+const context = useResource(() => unwrap(api.GET('/api/v1/context', { params: { query: { connection_id: 0 } } })))
+const lastRuns = computed(() => context.data.value?.last_runs ?? null)
 
 const editing = ref<Schemas['ScheduleOut'] | 'new' | null>(null)
 const deleting = ref<number | null>(null)
@@ -219,6 +222,7 @@ async function onSaved(message: string): Promise<void> {
     <RunNowCard
       v-if="operator"
       :connections="connections.data.value"
+      :last-runs="lastRuns"
       :cooldown="settings.data.value?.collection.run_now_cooldown_minutes ?? null"
       @queued="queue?.reload()"
     />
@@ -229,6 +233,7 @@ async function onSaved(message: string): Promise<void> {
     v-if="editing"
     :schedule="editing === 'new' ? null : editing"
     :connections="connections.data.value ?? []"
+    :last-runs="lastRuns"
     :min-interval="settings.data.value?.collection.schedule_min_interval_minutes ?? null"
     @close="editing = null"
     @saved="onSaved"

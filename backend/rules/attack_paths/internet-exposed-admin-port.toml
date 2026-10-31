@@ -4,12 +4,13 @@ name = "Exposed on an administrative or data port"
 category = "Internet exposure"
 severity = "high"
 technique = "T1133"  # External Remote Services
+# The ports are those of Prowler 5.44.0's ec2_instance_port_* checks.
 description = """The internet reaches a resource on a port meant for administrators or for
 data: remote access (SSH, RDP, Telnet, FTP), directories (Kerberos, LDAP), file sharing (SMB),
 or a database or cache (PostgreSQL, MySQL, SQL Server, Oracle, MongoDB, Redis, Memcached,
-Cassandra, Elasticsearch, Kafka), or on every port. These are the ports of Prowler 5.44.0's
-ec2_instance_port_* checks. Anyone on the internet can try a password, a key or an exploit on
-it. On a Restricted door the path is latent: one change would open it."""
+Cassandra, Elasticsearch, Kafka), or on every port. Anyone on the internet can try a password,
+a key or an exploit on it. When something already keeps the internet out, the path is latent:
+one change would open it."""
 remediation = """Close the port to 0.0.0.0/0 and ::/0 in its security groups. Reach the resource
 through Session Manager, a VPN or a bastion, and keep databases and caches in private subnets
 with no public address."""

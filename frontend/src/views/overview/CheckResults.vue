@@ -43,6 +43,8 @@ const rows = computed(() => {
 })
 
 const months = computed(() => props.data?.check_results.monthly_pass_rate ?? [])
+// One month of pass rates has no change to show ("±0 pts since Oct"): the framework page's words.
+const enoughMonths = computed(() => months.value.filter((m) => m.pass_rate != null).length >= 2)
 const monthChange = computed(() => {
   const m = months.value
   const a = m[0]?.pass_rate
@@ -92,7 +94,8 @@ const monthChange = computed(() => {
     <div class="history">
       <div class="history-head">
         <span class="sub">Pass rate by month · last 6 months</span>
-        <span v-if="monthChange != null" class="mono change" :style="{ color: deltaColor(monthChange, true) }">
+        <span v-if="data && !enoughMonths" class="sub">Needs two months of history</span>
+        <span v-else-if="monthChange != null" class="mono change" :style="{ color: deltaColor(monthChange, true) }">
           {{ signed(monthChange, 1) }} pts since {{ monthName(months[0]?.month ?? '') }}
         </span>
       </div>

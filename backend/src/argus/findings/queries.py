@@ -74,7 +74,7 @@ _SELECT = f"""
                f.region, f.resource_uid, f.resource_id, f.severity, f.status, f.muted, f.title,
                f.remediation_text, f.remediation_url, f.service, f.resource_type, f.categories,
                f.state, f.first_seen, f.last_seen, f.resolved_on, f.reach, f.reach_reason,
-               f.resource_name AS reported_resource_name
+               f.resource_name AS reported_resource_name, f.detail
         FROM finding f JOIN ({DIRECTORY_SQL}) c ON c.id = f.connection_id"""  # noqa: S608
 
 
@@ -106,18 +106,9 @@ def _any(values: tuple[Any, ...]) -> list[Any] | None:
     return list(values) if values else None
 
 
-def list_findings(
-    conn: Connection,
-    *,
-    limit: int,
-    offset: int,
-    filters: FindingFilters | None = None,
-    order: FindingOrder = "severity",
-) -> tuple[list[dict[str, Any]], int]:
-    """One page of findings matching the filters, in `order`, and how many match (with a
-    search, at most SEARCH_COUNT_CAP + 1)."""
-    filters = filters or FindingFilters()
-    params = {
+def _params(filters: FindingFilters) -> dict[str, Any]:
+    """The bind parameters of _FILTERS."""
+    return {
         "states": _STATES[filters.state],
         "c": _any(filters.connection_ids),
         "sev": _any(filters.severities),
@@ -135,6 +126,20 @@ def list_findings(
         "res": filters.resource_id,
         "p": like_contains(filters.q) if filters.q else None,
     }
+
+
+def list_findings(
+    conn: Connection,
+    *,
+    limit: int,
+    offset: int,
+    filters: FindingFilters | None = None,
+    order: FindingOrder = "severity",
+) -> tuple[list[dict[str, Any]], int]:
+    """One page of findings matching the filters, in `order`, and how many match (with a
+    search, at most SEARCH_COUNT_CAP + 1)."""
+    filters = filters or FindingFilters()
+    params = _params(filters)
     rows = conn.execute(
         text(f"""
         {_SELECT}
@@ -151,13 +156,75 @@ def list_findings(
     return [dict(r._mapping) for r in rows], int(total)
 
 
+# Findings by check: worst first, then the checks with the most findings. Over `per`, the
+# findings grouped by check and connection.
+_GROUP_ORDERS: dict[str, str] = {
+    "severity": "min(per.rank), sum(per.n) DESC, per.tool, per.check_id",
+    "severity_asc": "min(per.rank) DESC, sum(per.n), per.tool, per.check_id",
+    "last_seen_desc": "max(per.last_seen) DESC, min(per.rank), per.tool, per.check_id",
+    "last_seen_asc": "max(per.last_seen), min(per.rank), per.tool, per.check_id",
+}
+
+
+def finding_groups(
+    conn: Connection,
+    *,
+    limit: int,
+    offset: int,
+    filters: FindingFilters | None = None,
+    order: FindingOrder = "severity",
+) -> tuple[list[dict[str, Any]], int]:
+    """The Findings list by check: one row per (tool, check id) of the findings matching the
+    filters, with its worst severity, how many findings and connections it has, and when it
+    was last seen; and how many checks match.
+
+    Findings, not distinct resources: counting distinct resource uids over every open finding
+    sorts them all (about 3 s on the budget estate); grouping by connection first keeps every
+    aggregate a hash and the connection count exact (owner's decision, 2026-10-31)."""
+    filters = filters or FindingFilters()
+    params = _params(filters)
+    rows = conn.execute(
+        text(f"""
+        WITH per AS (
+          SELECT f.tool, f.check_id, f.connection_id, min(f.title) AS title, count(*) AS n,
+                 min({_SEVERITY_RANK}) AS rank, max(f.last_seen) AS last_seen
+          FROM finding f
+          {_FILTERS}
+          GROUP BY f.tool, f.check_id, f.connection_id
+        )
+        SELECT per.tool, per.check_id, min(per.title) AS title,
+               (ARRAY['critical','high','medium','low','informational'])[min(per.rank)]
+                 AS severity,
+               sum(per.n) AS findings, count(*) AS connections, max(per.last_seen) AS last_seen,
+               count(*) OVER () AS total
+        FROM per
+        GROUP BY per.tool, per.check_id
+        ORDER BY {_GROUP_ORDERS[order]}
+        LIMIT :l OFFSET :o
+    """),  # noqa: S608 - constant SQL only
+        {**params, "l": limit, "o": offset},
+    ).all()
+    if rows:
+        total = int(rows[0].total)
+    elif offset == 0:
+        total = 0
+    else:  # past the last page: the count alone
+        total = conn.execute(
+            text(f"""
+            SELECT count(*) FROM (SELECT 1 FROM finding f {_FILTERS} GROUP BY f.tool, f.check_id) g
+        """),  # noqa: S608 - constant SQL only
+            params,
+        ).scalar_one()
+    return [{k: v for k, v in r._mapping.items() if k != "total"} for r in rows], int(total)
+
+
 def get_finding(conn: Connection, finding_id: int) -> dict[str, Any] | None:
     """One finding, whatever its state, with what the tool says about the resource (detail)
     and about the check (description, risk, links, remediation code): the finding's own link,
     and the list's details row."""
     row = conn.execute(
         text(f"""
-        SELECT x.*, f.detail, fc.description, fc.risk, fc.links, fc.code_cli,
+        SELECT x.*, fc.description, fc.risk, fc.links, fc.code_cli,
                fc.code_native_iac, fc.code_terraform, fc.code_other, fc.notes
         FROM ({_SELECT} WHERE f.id = :i) x
         JOIN finding f ON f.id = x.id

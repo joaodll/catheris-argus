@@ -15,7 +15,7 @@ import SeverityTag from '@/components/SeverityTag.vue'
 import ToolChip from '@/components/ToolChip.vue'
 import { useResource } from '@/composables/useResource'
 import EdgeList from './EdgeList.vue'
-import { regionLabel } from './labels'
+import { findingLine, regionLabel } from './labels'
 import DoorEvidence from './map/DoorEvidence.vue'
 import { doorOfEdge, doorWhy } from './map/doorWhy'
 import ReachBadge from './ReachBadge.vue'
@@ -159,8 +159,9 @@ function step(path: Schemas['PathOut']): string {
         <ul class="rows">
           <li v-for="f in findings[t.tool].data.value!.items" :key="f.id" class="finding-row">
             <SeverityTag :severity="f.severity" />
-            <RouterLink class="one-line finding-link" :to="{ name: 'findings', query: { finding: String(f.id) } }" target="_blank" :title="f.title">
-              {{ f.title }}<span class="sr-only"> (opens in a new tab)</span>
+            <!-- Prowler's result leads, as on Findings (2026-10-31 review). -->
+            <RouterLink class="one-line finding-link" :to="{ name: 'findings', query: { finding: String(f.id) } }" target="_blank" :title="findingLine(f).lead">
+              {{ findingLine(f).lead }}<span class="sr-only"> (opens in a new tab)</span>
             </RouterLink>
             <span class="new-tab" aria-hidden="true">↗</span>
             <ReachBadge :reach="f.reach" :reason="f.reach_reason" class="reach" />

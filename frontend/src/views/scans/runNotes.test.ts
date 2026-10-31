@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commandLabel, cooldownNote, encryptionLabel, partialReason, partialTables, refusedBecause, regionsLabel, shortRunId, storedWithoutKms, triggerLabel } from './runNotes'
+import { commandLabel, cooldownNote, encryptionLabel, partialReason, partialTables, partialTablesNote, refusedBecause, regionsLabel, shortRunId, storedWithoutKms, triggerLabel } from './runNotes'
 
 describe('run notes', () => {
   it('flags raw output stored without KMS only', () => {
@@ -61,5 +61,14 @@ describe('run notes', () => {
       }),
     ).toEqual(['aws_ec2_instance'])
     expect(partialTables({ incomplete_tables: ['aws_ec2_instance'] })).toEqual(['aws_ec2_instance'])
+  })
+})
+
+describe('a partial run, per tool', () => {
+  it("says what Inspector's failed export means, and keeps Steampipe's sentence", () => {
+    expect(partialTablesNote('inspector', 1)).toBe(
+      "Partial: Inspector's findings export failed, was denied or was throttled. No vulnerability was resolved by this run, and those already open stay open.",
+    )
+    expect(partialTablesNote('steampipe', 3)).toMatch(/^Partial: 3 of the tables failed, were denied or were throttled\. Their resources were carried forward/)
   })
 })
