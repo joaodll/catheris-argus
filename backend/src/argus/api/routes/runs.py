@@ -84,7 +84,7 @@ def list_runs(
     limit: Limit = 20,
     offset: Annotated[int, Query(ge=0)] = 0,
     connection_id: int | None = None,
-    tool: Literal["steampipe", "prowler", "cloudfox"] | None = None,
+    tool: Literal["steampipe", "prowler", "cloudfox", "inspector"] | None = None,
     status: Literal["complete", "partial", "failed", "running"] | None = None,
     missing_permissions: bool = False,
     order: Literal["started_desc", "started_asc"] = "started_desc",

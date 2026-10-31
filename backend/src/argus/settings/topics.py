@@ -70,6 +70,7 @@ class ToolPrefixes(BaseModel):
     steampipe: KeyPrefix = "raw/steampipe"
     prowler: KeyPrefix = "raw/prowler"
     cloudfox: KeyPrefix = "raw/cloudfox"
+    inspector: KeyPrefix = "raw/inspector"
 
 
 class RawStorageSettings(BaseModel):

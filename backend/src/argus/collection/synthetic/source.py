@@ -1,4 +1,5 @@
-"""SyntheticSource: writes what Prowler, CloudFox or Steampipe would write for a demo account.
+"""SyntheticSource: writes what Prowler, CloudFox, Steampipe or the Inspector collector would
+write for a demo account.
 
 Run outcomes are deterministic per (account, tool, day):
 - Throttling: a share of runs (an administration setting) reports ThrottlingException lines
@@ -13,14 +14,14 @@ from typing import Literal
 from uuid import UUID
 
 from argus.collection.collect import CollectOptions, CollectTarget, Outcome
-from argus.collection.synthetic import cloudfox, prowler, steampipe
+from argus.collection.synthetic import cloudfox, inspector, prowler, steampipe
 from argus.collection.synthetic.estate import Estate, day_number
 from argus.collection.synthetic.model import h, u
 from argus.collection.tables import steampipe_tables
 from argus.core.manifest import Tool
 
 FAIL_EVERY_DAYS = 47
-SECONDS_PER_ROW = {"steampipe": 0.02, "prowler": 0.05, "cloudfox": 0.03}
+SECONDS_PER_ROW = {"steampipe": 0.02, "prowler": 0.05, "cloudfox": 0.03, "inspector": 0.01}
 
 
 class SyntheticSource:
@@ -79,6 +80,11 @@ class SyntheticSource:
                 failed=failed,
             )
             version = prowler.TOOL_VERSION
+        elif tool == "inspector":
+            # A throttled run loses the findings table: it resolves nothing.
+            rows = inspector.write(out_dir, estate, keep_findings=not throttled)
+            incomplete = [inspector.FINDINGS_TABLE] if throttled else []
+            version = inspector.TOOL_VERSION
         else:
             rows = cloudfox.write(out_dir, estate, keep_modules=3 if throttled else None)
             version = cloudfox.TOOL_VERSION

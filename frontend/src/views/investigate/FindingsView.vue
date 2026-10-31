@@ -120,6 +120,7 @@ const providerOptions: MultiOption[] = PROVIDERS.map((p) => ({ value: p.id, labe
 const toolOptions: MultiOption[] = [
   { value: 'prowler', label: 'Prowler' },
   { value: 'cloudfox', label: 'CloudFox' },
+  { value: 'inspector', label: 'Inspector' },
 ]
 const reachOptions: MultiOption[] = FINDING_REACHES.map((r) => ({ value: r, label: FINDING_REACH_LABEL[r] }))
 const resultOptions: MultiOption[] = [
@@ -447,7 +448,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
   <section class="card panel" aria-labelledby="findings-h">
     <div class="panel-h">
       <div class="titles">
-        <h2 id="findings-h" class="h2">Prowler and CloudFox findings</h2>
+        <h2 id="findings-h" class="h2">Prowler, CloudFox and Inspector findings</h2>
         <span v-if="single != null" class="cap">One finding, from its own link. Read-only.</span>
         <span v-else class="cap">{{ ORDER_NOTE[order] }} Read-only.</span>
       </div>
@@ -460,7 +461,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
       </AlertBanner>
     </div>
     <div v-else-if="!loaded" aria-busy="true" class="panel-body loading"><div v-for="n in 5" :key="n" class="skeleton sk-44"></div></div>
-    <EmptyState v-else-if="noData" icon="flag" title="No findings yet." text="Findings appear after a Prowler or CloudFox scan is ingested.">
+    <EmptyState v-else-if="noData" icon="flag" title="No findings yet." text="Findings appear after a Prowler, CloudFox or Inspector scan is ingested.">
       <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
     </EmptyState>
     <EmptyState v-else-if="findings.length === 0 && filtered" icon="info" title="No findings match these filters.">

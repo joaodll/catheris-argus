@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { COLLECTOR_IDS } from '@/tools'
 import { computed } from 'vue'
 import type { Schemas } from '@/api/client'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -12,7 +13,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ selectConnection: [id: number] }>()
 
-const TOOLS = ['steampipe', 'prowler', 'cloudfox']
+const TOOLS = COLLECTOR_IDS
 
 /** The latest run of each tool for the selection (across connections when "all"). */
 const lastRuns = computed(() =>

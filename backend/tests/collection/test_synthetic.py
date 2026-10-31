@@ -29,7 +29,7 @@ from argus.collection.synthetic.estate import (
     regression_bucket,
 )
 from argus.collection.synthetic.source import FAIL_EVERY_DAYS
-from argus.collection.tables import TABLE_OPTIONS
+from argus.collection.tables import INSPECTOR_TABLES, TABLE_OPTIONS, inspector_table_options
 from argus.core.rawstore import RawRunError
 
 DAY = date(2026, 10, 2)
@@ -137,6 +137,20 @@ def test_steampipe_columns_exist_in_the_pinned_plugin(tmp_path: Path) -> None:
         for line in (run_dir / f"{table}.jsonl").read_text().splitlines():
             unknown = set(json.loads(line)) - allowed
             assert not unknown, f"{table}: {unknown}"
+
+
+def test_inspector_columns_are_selected_and_exist_in_the_pinned_plugin(tmp_path: Path) -> None:
+    """The Inspector collector's --select names real columns (finding_account_id and
+    source_account_id were checked against the binary, 2026-10-30, ADR-0042), and the Demo
+    source writes only what it selects."""
+    common = {"partition", "region", "account_id"}
+    run_dir = _run(tmp_path, PROD, "inspector")
+    for table in INSPECTOR_TABLES:
+        options = inspector_table_options(table, PROD.account_id)
+        selected = set(options[options.index("--select") + 1].split(","))
+        assert not selected - set(COLUMNS["tables"][table]) - common, table
+        for line in (run_dir / f"{table}.jsonl").read_text().splitlines():
+            assert not set(json.loads(line)) - selected, table
 
 
 def test_prowler_ocsf_and_compliance_follow_5_44_0(tmp_path: Path) -> None:

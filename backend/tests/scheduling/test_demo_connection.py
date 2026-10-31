@@ -34,8 +34,9 @@ def test_creates_connection_backfill_and_audit_in_one_go(engine: Engine) -> None
         ).all()
         audit = conn.execute(text("SELECT action, target_id FROM audit_log")).all()
     # Oldest day first, tools in the throttling order within each day.
-    assert [r.snapshot_date for r in requests[:3]] == [date(2026, 9, 30)] * 3
-    assert [r.tool for r in requests[:3]] == list(TOOL_ORDER)
+    tools = len(TOOL_ORDER)
+    assert [r.snapshot_date for r in requests[:tools]] == [date(2026, 9, 30)] * tools
+    assert [r.tool for r in requests[:tools]] == list(TOOL_ORDER)
     assert requests[-1].snapshot_date == TODAY
     assert audit == [("connection.create", str(connection.id))]
 

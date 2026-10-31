@@ -18,6 +18,7 @@ from argus.inventory.metrics import INVENTORY_METRICS, put_inventory_metrics
 from argus.inventory.queries import (
     RESOURCE_NODES_SQL,
     RESOURCES_ON_DAY_SQL,
+    ResourceFilters,
     ResourceOrder,
     effective_day,
     list_resources,
@@ -43,6 +44,7 @@ __all__ = [
     "SUPPORTED_VERSIONS",
     "InventoryBatch",
     "InventoryResource",
+    "ResourceFilters",
     "ResourceOrder",
     "delete_orphan_configs",
     "effective_day",

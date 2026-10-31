@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { COLLECTOR_IDS } from '@/tools'
 import { computed, ref } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
@@ -16,7 +17,7 @@ import { relative, utc } from '@/format'
 import AddConnectionModal from './AddConnectionModal.vue'
 import EditConnectionModal from './EditConnectionModal.vue'
 
-const TOOLS = ['steampipe', 'prowler', 'cloudfox']
+const TOOLS = COLLECTOR_IDS
 
 const list = useResource(() => unwrap(api.GET('/api/v1/connections')))
 const context = useResource(() => unwrap(api.GET('/api/v1/context', { params: { query: { connection_id: 0 } } })))

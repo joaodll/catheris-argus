@@ -1,4 +1,5 @@
-"""Runs Steampipe export, Prowler and CloudFox, unmodified (ADR-0001), against one account.
+"""Runs Steampipe export, Prowler and CloudFox, unmodified (ADR-0001), against one account; and
+the same Steampipe export over AWS Inspector's findings (ADR-0042).
 
 Read-only by construction: each command line below is the complete set of flags. Never add a
 Prowler --fixer, --security-hub, --scan-secrets-validate, --shodan or --slack, or a CloudFox
@@ -18,7 +19,7 @@ import shutil
 import signal
 import subprocess
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -26,7 +27,12 @@ from datetime import timedelta
 from pathlib import Path
 from typing import IO
 
-from argus.collection.tables import steampipe_tables, table_options
+from argus.collection.tables import (
+    INSPECTOR_TABLES,
+    inspector_table_options,
+    steampipe_tables,
+    table_options,
+)
 from argus.core.aws import SessionCredentials
 from argus.core.manifest import MAX_DENIED_ACTIONS
 
@@ -389,6 +395,33 @@ def run_steampipe(
     Completeness is per table (decided 2026-10-08, argus_v8): a table that failed, or whose
     export logged a denied call or throttling, is listed in `incomplete_tables` and resolves
     nothing; the run is partial, and every other table is complete."""
+    return _export_tables(out_dir, env, regions, steampipe_tables(), table_options, parallel_tables)
+
+
+def run_inspector(
+    out_dir: Path, env: dict[str, str], regions: list[str], account_id: str
+) -> ToolResult:
+    """AWS Inspector's open findings and its coverage for this account (ADR-0042), by the same
+    export binary, one JSONL file per table. Judged as Steampipe tables are: the adapter
+    resolves nothing unless the findings table is complete."""
+    return _export_tables(
+        out_dir,
+        env,
+        regions,
+        INSPECTOR_TABLES,
+        lambda table: inspector_table_options(table, account_id),
+        len(INSPECTOR_TABLES),
+    )
+
+
+def _export_tables(
+    out_dir: Path,
+    env: dict[str, str],
+    regions: list[str],
+    tables: Sequence[str],
+    options: Callable[[str], tuple[str, ...]],
+    parallel_tables: int,
+) -> ToolResult:
     home = Path(env["HOME"])
     config_dir = home / "steampipe" / "config"
     config_dir.mkdir(parents=True)
@@ -397,12 +430,12 @@ def run_steampipe(
         f'connection "aws" {{\n  plugin  = "aws"\n  profile = "{PROFILE}"\n'
         f"  regions = [{region_list}]\n}}\n"
     )
-    tables = steampipe_tables()
 
     def export(table: str) -> _TableRun:
         out, err = out_dir / f"{table}.jsonl", home / f"{table}.err"
+        command = _table_command(table, config_dir, options(table))
         with out.open("wb") as rows:
-            rc = _run_table(table, config_dir, env, rows, err)
+            rc = _run_table(command, env, rows, err)
         return _TableRun(table, rc, err.read_text(errors="replace") if err.exists() else "")
 
     with ThreadPoolExecutor(max_workers=max(1, parallel_tables)) as pool:
@@ -423,7 +456,17 @@ def run_steampipe(
         status = "complete"
     version = _version([STEAMPIPE, "--version"], env)
     denied_list = _denied_list(denials.denied)
-    ran = command_line(_table_command("<table>", Path("<config>")), out_dir)
+    if options is table_options:  # the inventory: hundreds of tables, one line for all
+        ran = command_line(_table_command("<table>", Path("<config>"), ()), out_dir)
+        described = (
+            f"{ran}  (for each of {len(tables)} tables, {parallel_tables} at a time; "
+            f"regions = [{region_list}])"
+        )
+    else:  # a few tables, each with its own filter: every command as run
+        ran = "; ".join(
+            command_line(_table_command(t, Path("<config>"), options(t)), out_dir) for t in tables
+        )
+        described = f"{ran}  (regions = [{region_list}])"
     return ToolResult(
         status,
         1 if failed else 0,
@@ -431,8 +474,7 @@ def run_steampipe(
         _with_denied(lines, denied_list),
         throttled,
         denied_list,
-        f"{ran}  (for each of {len(tables)} tables, {parallel_tables} at a time; "
-        f"regions = [{region_list}])",
+        described,
         incomplete_tables=sorted(incomplete),
         refused_actions=_denied_list(denials.refused),
         not_applicable_tables=sorted(not_applicable),
@@ -440,7 +482,7 @@ def run_steampipe(
     )
 
 
-def _table_command(table: str, config_dir: Path) -> list[str]:
+def _table_command(table: str, config_dir: Path, options: tuple[str, ...]) -> list[str]:
     return [
         STEAMPIPE,
         table,
@@ -450,16 +492,14 @@ def _table_command(table: str, config_dir: Path) -> list[str]:
         str(config_dir),
         "--output",
         "jsonl",
-        *table_options(table),
+        *options,
     ]
 
 
-def _run_table(
-    table: str, config_dir: Path, env: dict[str, str], rows: IO[bytes], err: Path
-) -> int:
+def _run_table(command: list[str], env: dict[str, str], rows: IO[bytes], err: Path) -> int:
     with err.open("wb") as errors:
         process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-            _table_command(table, config_dir),
+            command,
             env=env,
             cwd=env["HOME"],
             stdout=rows,

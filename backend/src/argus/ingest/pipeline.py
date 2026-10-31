@@ -3,6 +3,7 @@
     steampipe  inventory -> relationship rules -> inventory metrics
     prowler    findings lifecycle + compliance -> findings metrics
     cloudfox   cloudfox edges + attacker findings -> attack paths -> path metrics
+    inspector  CVE findings lifecycle + vulnerability facts + coverage (ADR-0042)
 
 A run that failed collection, or whose raw output cannot be trusted (no manifest, files that
 do not match it, an unsupported tool version), is recorded as failed, resolves nothing, and
@@ -41,12 +42,15 @@ from argus.findings import (
     FINDING_ADDITIVE_METRICS,
     PROWLER_EXPOSURE_CHECKS,
     carry_forward_compliance,
+    load_inspector,
     load_prowler,
+    parse_inspector,
     parse_prowler,
     put_findings_metrics,
     rederive_scores,
     set_reach,
 )
+from argus.findings.inspector import UnsupportedVersionError as InspectorVersionError
 from argus.findings.prowler import UnsupportedVersionError as ProwlerVersionError
 from argus.inventory import (
     INVENTORY_METRICS,
@@ -67,11 +71,18 @@ log = logging.getLogger("argus.ingest")
 # Held shared by every ingest and exclusive by a re-derive after a rule upgrade (rederive.py),
 # so the two never interleave on one connection's edges, flows and paths (ADR-0039).
 REDERIVE_LOCK = "argus.rederive"
-VERSION_ERRORS = (SteampipeVersionError, ProwlerVersionError, CloudFoxVersionError)
+VERSION_ERRORS = (
+    SteampipeVersionError,
+    ProwlerVersionError,
+    CloudFoxVersionError,
+    InspectorVersionError,
+)
 TOOL_METRICS = {
     "steampipe": INVENTORY_METRICS,
     "prowler": FINDING_ADDITIVE_METRICS,
     "cloudfox": PATH_METRICS,
+    # No metric yet: the Overview does not show vulnerabilities (ADR-0042).
+    "inspector": [],
 }
 
 
@@ -353,6 +364,20 @@ def _cloudfox(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[s
     )
 
 
+def _inspector(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
+    """CVEs touch no edge, path or metric (ADR-0042): one transaction, nothing re-evaluated."""
+    batch = parse_inspector(raw)
+    with engine.begin() as conn:
+        return load_inspector(
+            conn,
+            batch=batch,
+            connection_id=run.connection_id,
+            day=run.day,
+            account_id=run.account_id,
+            scan_run_id=run.scan_run_id,
+        )
+
+
 def ingest_run(
     engine: Engine, *, store: RawStore, scan_run_id: int, rules_dir: Path
 ) -> IngestOutcome:
@@ -386,8 +411,12 @@ def _ingest(engine: Engine, *, store: RawStore, scan_run_id: int, rules_dir: Pat
             loaded = _steampipe(engine, run, raw, rules_dir)
         elif run.tool == "prowler":
             loaded = _prowler(engine, run, raw, rules_dir)
-        else:
+        elif run.tool == "cloudfox":
             loaded = _cloudfox(engine, run, raw, rules_dir)
+        elif run.tool == "inspector":
+            loaded = _inspector(engine, run, raw)
+        else:
+            raise ValueError(f"no adapter for the tool {run.tool!r}")
     except VERSION_ERRORS as exc:
         return _fail(engine, run, str(exc))
     except Exception as exc:  # any other ingest error: the run must not stay "complete"

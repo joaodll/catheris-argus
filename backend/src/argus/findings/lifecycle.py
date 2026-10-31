@@ -151,6 +151,9 @@ def _upsert_findings(
 # A region in an executed (check, region) pair meaning "every region": a tool that scans every
 # enabled region and does not list them (CloudFox) covers all of a connection's findings.
 ANY_REGION = "*"
+# A check meaning "every check": a tool that reports everything it knows about the account on
+# every run (Inspector, ADR-0042), so a complete run covers each of its open findings.
+ANY_CHECK = "*"
 
 
 def _resolve_missing(
@@ -163,7 +166,8 @@ def _resolve_missing(
     scan_run_id: int,
 ) -> int:
     """Resolves the tool's open findings for this connection that the run did not report,
-    within the (check, region) pairs the run evaluated (ANY_REGION matches every region)."""
+    within the (check, region) pairs the run evaluated (ANY_CHECK and ANY_REGION match every
+    check and region)."""
     resolved = (
         conn.execute(
             text("""
@@ -172,7 +176,7 @@ def _resolve_missing(
           AND last_seen < :d
           AND EXISTS (SELECT 1 FROM unnest(CAST(:checks AS text[]), CAST(:regions AS text[]))
                       AS e(check_id, region)
-                      WHERE e.check_id = finding.check_id
+                      WHERE (e.check_id = finding.check_id OR e.check_id = :any)
                         AND (e.region = finding.region OR e.region = :any))
         RETURNING id
     """),
@@ -300,7 +304,9 @@ def load_tool_findings(
 
 def _refresh_facets(conn: Connection, *, connection_id: int) -> None:
     """Rebuilds the connection's Findings filter options from its findings (migration 0009):
-    the list reads these instead of a DISTINCT over every finding."""
+    the list reads these instead of a DISTINCT over every finding. Inspector's check ids are
+    left out: one per CVE, thousands on a real account, too many for a list of options; the
+    search matches a CVE id instead (ADR-0042)."""
     conn.execute(text("DELETE FROM finding_facet WHERE connection_id = :c"), {"c": connection_id})
     conn.execute(
         text("""
@@ -311,6 +317,7 @@ def _refresh_facets(conn: Connection, *, connection_id: int) -> None:
                              ('resource_type', f.resource_type), ('check', f.check_id)
                       UNION ALL SELECT 'category', unnest(f.categories)) v(facet, value)
         WHERE f.connection_id = :c AND v.value IS NOT NULL
+          AND NOT (f.tool = 'inspector' AND v.facet = 'check')
     """),
         {"c": connection_id},
     )

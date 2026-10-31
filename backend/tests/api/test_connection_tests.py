@@ -158,7 +158,8 @@ def test_the_identity_signs_in_and_writes_to_each_raw_folder(
     second = _result(signed_in, queued.json()["id"])
     assert second["status"] == "passed"
     assert sorted(bucket.keys) == [
-        f"raw/{tool}/{connection_checks.MARKER}" for tool in ("cloudfox", "prowler", "steampipe")
+        f"raw/{tool}/{connection_checks.MARKER}"
+        for tool in ("cloudfox", "inspector", "prowler", "steampipe")
     ]
     assert "encryption: AES256; SSE-KMS is recommended" in second["message"]
 

@@ -12,14 +12,14 @@ from argus.scheduling import check_cron
 from argus.settings import read_collection
 
 router = APIRouter(tags=["schedules"])
-Tool = Literal["steampipe", "prowler", "cloudfox"]
+Tool = Literal["steampipe", "prowler", "cloudfox", "inspector"]
 
 
 class ScheduleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=100)
     # Each run is still one tool on one account; the schedule queues them in tool order.
-    tools: list[Tool] = Field(min_length=1, max_length=3)
+    tools: list[Tool] = Field(min_length=1, max_length=4)
     cron: str = Field(min_length=9, max_length=100)
     connection_ids: list[int] | None = None  # None or empty: every connection
     enabled: bool = True
@@ -52,7 +52,7 @@ class CronOut(BaseModel):
 class RunNowIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     connection_ids: list[int] = Field(min_length=1, max_length=200)
-    tools: list[Tool] | None = None  # None: all three, in order
+    tools: list[Tool] | None = None  # None: every tool, in order
 
 
 class RunNowItem(BaseModel):

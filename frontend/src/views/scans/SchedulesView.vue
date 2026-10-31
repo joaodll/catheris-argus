@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import type { Collector } from '@/tools'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
@@ -83,7 +84,7 @@ async function setEnabled(s: Schemas['ScheduleOut'], enabled: boolean): Promise<
         params: { path: { schedule_id: s.id } },
         body: {
           name: s.name,
-          tools: s.tools as ('steampipe' | 'prowler' | 'cloudfox')[],
+          tools: s.tools as Collector[],
           cron: s.cron,
           connection_ids: s.all_connections ? null : s.connection_ids,
           enabled,

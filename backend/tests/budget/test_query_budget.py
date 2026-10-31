@@ -9,6 +9,8 @@ group: `internet` reaching 5,000 resources of one account, a VPC holding 20,000,
 AWS-managed policy attached to 10,000 principals across accounts.
 Compliance as real Prowler on AWS: 40 frameworks of 100 requirements, 180 days of scores and
 counts per account, and two days of requirement results per account plus their rollup.
+Inspector (ADR-0042): 50,000 CVE findings on connection 1's instances and functions (15 each,
+one in five resolved), with their vulnerability facts and coverage (one in seven not scanned).
 """
 
 import math
@@ -163,7 +165,53 @@ def _generate(conn: Connection) -> None:
     )
     _generate_edges(conn)
     _generate_compliance(conn)
+    _generate_vulnerabilities(conn)
     conn.execute(text("ANALYZE"))
+
+
+def _generate_vulnerabilities(conn: Connection) -> None:
+    conn.execute(
+        text("""
+        INSERT INTO finding (finding_uid, tool, check_id, connection_id, region, resource_uid,
+                             resource_id, severity, status, muted, title, service,
+                             resource_type, categories, state, first_seen, last_seen,
+                             resolved_on)
+        SELECT 'insp-' || r.id || '-' || k, 'inspector', 'CVE-2024-' || (1000 + k * 37 % 900),
+               1, 'us-east-1', r.resource_uid, r.id,
+               (ARRAY['critical','high','medium','low','informational'])[1 + (random()*4)::int],
+               'FAIL', k % 11 = 0, 'CVE ' || k, 'ec2', 'AwsEc2Instance', ARRAY['vulnerability'],
+               CASE WHEN k % 5 = 0 THEN 'resolved' ELSE 'open' END, :d - k, :d,
+               CASE WHEN k % 5 = 0 THEN CAST(:d AS date) END
+        FROM (SELECT id, resource_uid FROM resource WHERE connection_id = 1
+                AND type IN ('aws_ec2_instance', 'aws_lambda_function') ORDER BY id) r,
+             generate_series(1, 15) k
+        LIMIT 50000
+    """),
+        {"d": TODAY},
+    )
+    conn.execute(
+        text("""
+        INSERT INTO finding_vulnerability (finding_id, finding_type, vulnerability_id,
+                                           package_name, installed_version, fixed_version,
+                                           cvss_score, epss_score, exploit_available,
+                                           fix_available)
+        SELECT id, 'PACKAGE_VULNERABILITY', check_id, 'pkg', '1.0', '1.1',
+               round((random() * 10)::numeric, 1), random(), id % 4 = 0, 'YES'
+        FROM finding WHERE tool = 'inspector'
+    """)
+    )
+    conn.execute(
+        text("""
+        INSERT INTO vulnerability_coverage (resource_id, scan_type, connection_id, status_code,
+                                            status_reason, last_scanned_at)
+        SELECT DISTINCT resource_id, 'PACKAGE', 1,
+               CASE WHEN resource_id % 7 = 0 THEN 'INACTIVE' ELSE 'ACTIVE' END,
+               CASE WHEN resource_id % 7 = 0 THEN 'UNMANAGED_EC2_INSTANCE' ELSE 'SUCCESSFUL' END,
+               CAST(:d AS timestamptz)
+        FROM finding WHERE tool = 'inspector'
+    """),
+        {"d": TODAY},
+    )
 
 
 HUB_VPC = "arn:aws:ec2:us-east-1:200000000001:vpc/vpc-hub"
@@ -175,6 +223,16 @@ MAP_SCOPE = {"scope": relationships.MapScope(31, "200000000031")}
 HUB_SCOPE = {"scope": relationships.MapScope(1, "200000000001")}
 FLOWS: dict[str, float] = {}
 PATHS: dict[str, float] = {}
+# Connection 1's instances (resource ids are the generator's g; g % 36 == 0, g % 5 == 0): one
+# page of the Resources list, each with 15 CVEs.
+VULNERABLE_PAGE = [180 * i for i in range(1, 21)]
+
+
+def _vulnerability_cells(c: Connection) -> Any:
+    return (
+        findings.vulnerability_counts(c, VULNERABLE_PAGE),
+        findings.scanned_resources(c, VULNERABLE_PAGE),
+    )
 
 
 def _a_flow(c: Connection) -> Any:
@@ -481,14 +539,23 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     ),
     "resources, first page and count": lambda c: inventory.list_resources(c, limit=20, offset=0),
     "resources, one type": lambda c: inventory.list_resources(
-        c, limit=20, offset=0, connection_id=7, resource_type="aws_s3_bucket"
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(connection_id=7, resource_type="aws_s3_bucket"),
     ),
-    "resources, search": lambda c: inventory.list_resources(c, limit=20, offset=0, q="i-4242"),
+    "resources, search": lambda c: inventory.list_resources(
+        c, limit=20, offset=0, filters=inventory.ResourceFilters(q="i-4242")
+    ),
     "resources, search matching a third": lambda c: inventory.list_resources(
-        c, limit=20, offset=0, q="i-1"
+        c, limit=20, offset=0, filters=inventory.ResourceFilters(q="i-1")
     ),
     "resources, last seen, a later page": lambda c: inventory.list_resources(
-        c, limit=20, offset=2000, order="last_seen_desc", include_deleted=True
+        c,
+        limit=20,
+        offset=2000,
+        order="last_seen_desc",
+        filters=inventory.ResourceFilters(include_deleted=True),
     ),
     "resources, facets": lambda c: inventory.resource_facets(c, connection_id=None),
     "resources, names for a page": lambda c: inventory.resource_names(c, list(range(1000, 1020))),
@@ -550,6 +617,28 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         c, connection_id=1, day=TODAY, limit=20, offset=0, q="s3"
     ),
     "map: a flow": _a_flow,
+    "resources: the Vulnerabilities cells of a page": _vulnerability_cells,
+    "resources: with an exploitable CVE, one account": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(
+            connection_id=1, within=findings.VULNERABLE_RESOURCES_SQL["exploitable"]
+        ),
+    ),
+    "resources: with a critical or high CVE, all accounts": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(within=findings.VULNERABLE_RESOURCES_SQL["high"]),
+    ),
+    "resource: its Inspector section": lambda c: (
+        findings.resource_vulnerabilities(c, VULNERABLE_PAGE[0]),
+        findings.resource_coverage(c, VULNERABLE_PAGE[0]),
+    ),
+    "findings: Inspector's only": lambda c: findings.list_findings(
+        c, limit=20, offset=0, filters=findings.FindingFilters(tools=("inspector",))
+    ),
 }
 
 

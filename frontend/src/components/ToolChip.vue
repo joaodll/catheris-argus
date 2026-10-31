@@ -1,7 +1,9 @@
 <script setup lang="ts">
 /** Which tool a finding, run or schedule comes from: its name, tinted in the tool's colour
  * (design-system.md, Tool chip). The name carries the meaning; the colour helps scanning. */
-const NAMES: Record<string, string> = { steampipe: 'Steampipe', prowler: 'Prowler', cloudfox: 'CloudFox' }
+import { COLLECTORS } from '@/tools'
+
+const NAMES: Record<string, string> = Object.fromEntries(COLLECTORS.map((c) => [c.id, c.name]))
 defineProps<{ tool: string }>()
 </script>
 
@@ -22,6 +24,10 @@ defineProps<{ tool: string }>()
 
 .tool-cloudfox {
   --tool: var(--tool-cloudfox);
+}
+
+.tool-inspector {
+  --tool: var(--tool-inspector);
 }
 
 .tool[class*='tool-'] {

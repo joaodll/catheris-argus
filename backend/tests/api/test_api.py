@@ -192,10 +192,13 @@ def test_create_demo_connection_queues_its_backfill(signed_in: TestClient, owner
     )
     assert response.status_code == 201 and response.json()["kind"] == "demo"
     with owner.connect() as conn:
-        assert conn.execute(text("SELECT count(*) FROM run_request")).scalar_one() == 6
+        queued = conn.execute(text("SELECT count(*) FROM run_request")).scalar_one()
+        assert queued == 2 * len(TOOL_ORDER)
     queue = signed_in.get("/api/v1/run-requests").json()
-    assert queue["total"] == 6
-    assert [(b["connection"], b["left"]) for b in queue["backfills"]] == [("demo-ui", 6)]
+    assert queue["total"] == 2 * len(TOOL_ORDER)
+    assert [(b["connection"], b["left"]) for b in queue["backfills"]] == [
+        ("demo-ui", 2 * len(TOOL_ORDER))
+    ]
     duplicate = signed_in.post(
         "/api/v1/connections",
         headers=csrf(signed_in),
@@ -381,7 +384,7 @@ def test_run_now_and_its_cooldown(signed_in: TestClient, owner: Engine) -> None:
         headers=csrf(signed_in),
         json={"connection_ids": [target.connection_id]},
     )
-    assert first.status_code == 202 and len(first.json()["queued"]) == 3
+    assert first.status_code == 202 and len(first.json()["queued"]) == len(TOOL_ORDER)
     again = signed_in.post(
         "/api/v1/run-requests",
         headers=csrf(signed_in),
@@ -389,7 +392,8 @@ def test_run_now_and_its_cooldown(signed_in: TestClient, owner: Engine) -> None:
     )
     assert again.status_code == 409
     queue = signed_in.get("/api/v1/run-requests").json()
-    assert len(queue["items"]) == 3 and queue["total"] == 3 and queue["backfills"] == []
+    tools = len(TOOL_ORDER)
+    assert len(queue["items"]) == tools and queue["total"] == tools and queue["backfills"] == []
 
 
 def test_settings_and_their_environment_bound(signed_in: TestClient) -> None:
@@ -417,11 +421,17 @@ def test_raw_storage_setting(signed_in: TestClient, owner: Engine) -> None:
         "steampipe": "raw/steampipe",
         "prowler": "raw/prowler",
         "cloudfox": "raw/cloudfox",
+        "inspector": "raw/inspector",
     }
     body = {
         "bucket": "argus-raw-example",
         "region": "eu-west-1",
-        "prefixes": {"steampipe": "inventory", "prowler": "scans/prowler", "cloudfox": "cf"},
+        "prefixes": {
+            "steampipe": "inventory",
+            "prowler": "scans/prowler",
+            "cloudfox": "cf",
+            "inspector": "scans/inspector",
+        },
     }
     saved = signed_in.put("/api/v1/settings/raw-storage", headers=csrf(signed_in), json=body)
     assert saved.status_code == 200 and saved.json()["raw_storage"] == body
@@ -444,7 +454,7 @@ def test_lists_are_paginated(
     for tool in TOOL_ORDER:
         run_tool(worker, store, target, tool, today)
     runs = signed_in.get("/api/v1/runs", params={"limit": 2}).json()
-    assert len(runs["items"]) == 2 and runs["total"] == 3
+    assert len(runs["items"]) == 2 and runs["total"] == len(TOOL_ORDER)
     newest = [r["started_at"] for r in runs["items"]]
     assert newest == sorted(newest, reverse=True)
     # The run id names the run's folder in the raw archive.
@@ -454,7 +464,7 @@ def test_lists_are_paginated(
     assert [r["id"] for r in oldest["items"]] == sorted(r["id"] for r in oldest["items"])
     assert oldest["items"][0]["started_at"] <= oldest["items"][-1]["started_at"]
     beyond = signed_in.get("/api/v1/runs", params={"limit": 2, "offset": 10}).json()
-    assert beyond == {"items": [], "total": 3}  # the UI moves to the last page
+    assert beyond == {"items": [], "total": len(TOOL_ORDER)}  # the UI moves to the last page
     assert signed_in.get("/api/v1/runs", params={"order": "tool"}).status_code == 422
     findings = signed_in.get("/api/v1/findings", params={"limit": 5, "severity": "critical"}).json()
     assert findings["items"] and all(f["severity"] == "critical" for f in findings["items"])
@@ -506,7 +516,7 @@ def test_findings_filter_search_sort_and_count(
     items = every["items"]
     assert items and every["total"] >= len(items)
     assert {f["state"] for f in items} <= {"open", "reopened"}  # the default: still to fix
-    assert {f["tool"] for f in items} == {"prowler", "cloudfox"}
+    assert {f["tool"] for f in items} == {"prowler", "cloudfox", "inspector"}
     ranks = [SEVERITY_RANK.index(f["severity"]) for f in items]
     assert ranks == sorted(ranks)  # worst first by default
     least = [SEVERITY_RANK.index(f["severity"]) for f in get(order="severity_asc")["items"]]

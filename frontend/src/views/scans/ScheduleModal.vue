@@ -6,16 +6,13 @@ import AppIcon from '@/components/AppIcon.vue'
 import CronField from '@/components/CronField.vue'
 import AppModal from '@/components/AppModal.vue'
 import SwitchToggle from '@/components/SwitchToggle.vue'
+import { COLLECTORS, type Collector } from '@/tools'
 
-type Tool = 'steampipe' | 'prowler' | 'cloudfox'
+type Tool = Collector
 const props = defineProps<{ schedule: Schemas['ScheduleOut'] | null; connections: Schemas['ConnectionOut'][]; minInterval: number | null }>()
 const emit = defineEmits<{ close: []; saved: [message: string] }>()
 
-const TOOLS: { id: Tool; label: string }[] = [
-  { id: 'steampipe', label: 'Steampipe' },
-  { id: 'prowler', label: 'Prowler' },
-  { id: 'cloudfox', label: 'CloudFox' },
-]
+const TOOLS = COLLECTORS.map((c) => ({ id: c.id as Tool, label: c.name }))
 
 const s = props.schedule
 const name = ref(s?.name ?? '')

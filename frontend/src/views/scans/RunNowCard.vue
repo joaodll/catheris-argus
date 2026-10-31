@@ -3,18 +3,18 @@ import { computed, ref, watch } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
+import { COLLECTOR_IDS, COLLECTORS, collectorName, type Collector } from '@/tools'
 import { cooldownNote, refusedBecause } from './runNotes'
 
-type Tool = 'steampipe' | 'prowler' | 'cloudfox'
+type Tool = Collector
 const props = defineProps<{ connections: Schemas['ConnectionOut'][] | null; cooldown: number | null }>()
 const emit = defineEmits<{ queued: [] }>()
 
-const TOOL_LABEL: Record<string, string> = { steampipe: 'Steampipe', prowler: 'Prowler', cloudfox: 'CloudFox' }
 // Until settings load, the default cooldown (settings/topics.py).
 const cooldown = computed(() => props.cooldown ?? 60)
 const enabledConnections = computed(() => (props.connections ?? []).filter((c) => c.enabled))
 const chosen = ref<number[]>([])
-const tools = ref<Tool[]>(['steampipe', 'prowler', 'cloudfox'])
+const tools = ref<Tool[]>([...COLLECTOR_IDS])
 const busy = ref(false)
 const queued = ref<string | null>(null)
 const refused = ref<string | null>(null)
@@ -26,7 +26,7 @@ watch(enabledConnections, (list) => {
 
 function describe(items: { connection_id: number; tool: string }[]): string {
   return items
-    .map((i) => `${TOOL_LABEL[i.tool] ?? i.tool} on ${props.connections?.find((c) => c.id === i.connection_id)?.name ?? `#${i.connection_id}`}`)
+    .map((i) => `${collectorName(i.tool)} on ${props.connections?.find((c) => c.id === i.connection_id)?.name ?? `#${i.connection_id}`}`)
     .join(', ')
 }
 
@@ -34,7 +34,7 @@ async function run(): Promise<void> {
   busy.value = true
   queued.value = refused.value = error.value = null
   try {
-    const order: Tool[] = ['steampipe', 'prowler', 'cloudfox']
+    const order = COLLECTOR_IDS
     const result = await unwrap(
       api.POST('/api/v1/run-requests', { body: { connection_ids: chosen.value, tools: order.filter((t) => tools.value.includes(t)) } }),
     )
@@ -69,9 +69,7 @@ async function run(): Promise<void> {
     <fieldset>
       <legend class="lbl">Tools, in run order</legend>
       <div class="tools">
-        <label class="check"><input v-model="tools" type="checkbox" value="steampipe">Steampipe</label>
-        <label class="check"><input v-model="tools" type="checkbox" value="prowler">Prowler</label>
-        <label class="check"><input v-model="tools" type="checkbox" value="cloudfox">CloudFox</label>
+        <label v-for="c in COLLECTORS" :key="c.id" class="check"><input v-model="tools" type="checkbox" :value="c.id">{{ c.name }}</label>
       </div>
     </fieldset>
     <div class="go">

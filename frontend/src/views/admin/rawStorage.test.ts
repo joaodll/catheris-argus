@@ -4,7 +4,7 @@ import { bucketName, checkRawStorage, folderName, normalized, type RawStorageFor
 const ok: RawStorageForm = {
   bucket: 'argus-raw',
   region: 'eu-west-1',
-  prefixes: { steampipe: 'raw/steampipe', prowler: 'raw/prowler', cloudfox: 'raw/cloudfox' },
+  prefixes: { steampipe: 'raw/steampipe', prowler: 'raw/prowler', cloudfox: 'raw/cloudfox', inspector: 'raw/inspector' },
 }
 
 describe('raw output storage checks', () => {
@@ -24,7 +24,7 @@ describe('raw output storage checks', () => {
     const errors = checkRawStorage({
       bucket: 'Argus_Raw',
       region: 'us-east-1a',
-      prefixes: { steampipe: 'raw/steam pipe', prowler: '', cloudfox: 'raw/../x' },
+      prefixes: { steampipe: 'raw/steam pipe', prowler: '', cloudfox: 'raw/../x', inspector: 'raw/inspector' },
     })
     expect(Object.keys(errors).sort()).toEqual(['bucket', 'cloudfox', 'prowler', 'region', 'steampipe'])
     expect(checkRawStorage({ ...ok, bucket: 'argus-raw/raw' }).bucket).toMatch(/bucket name only/)

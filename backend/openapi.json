@@ -723,6 +723,50 @@
         "title": "Context",
         "type": "object"
       },
+      "CoverageOut": {
+        "description": "Inspector's own words for one scan type: PACKAGE or CODE; ACTIVE or INACTIVE, with a\nreason such as UNMANAGED_EC2_INSTANCE.",
+        "properties": {
+          "last_scanned_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scanned At"
+          },
+          "scan_type": {
+            "title": "Scan Type",
+            "type": "string"
+          },
+          "status_code": {
+            "title": "Status Code",
+            "type": "string"
+          },
+          "status_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Reason"
+          }
+        },
+        "required": [
+          "scan_type",
+          "status_code",
+          "status_reason",
+          "last_scanned_at"
+        ],
+        "title": "CoverageOut",
+        "type": "object"
+      },
       "CronIn": {
         "properties": {
           "cron": {
@@ -1247,6 +1291,16 @@
           "tool": {
             "title": "Tool",
             "type": "string"
+          },
+          "vulnerability": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VulnerabilityOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1520,6 +1574,16 @@
           "tool": {
             "title": "Tool",
             "type": "string"
+          },
+          "vulnerability": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VulnerabilityOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2432,6 +2496,44 @@
           "secret_set"
         ],
         "title": "IdentityOut",
+        "type": "object"
+      },
+      "InspectorSection": {
+        "description": "The resource's Inspector vulnerabilities, as of the connection's last Inspector run.",
+        "properties": {
+          "by_severity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Severity",
+            "type": "object"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/CoverageOut"
+            },
+            "title": "Coverage",
+            "type": "array"
+          },
+          "suppressed": {
+            "title": "Suppressed",
+            "type": "integer"
+          },
+          "top": {
+            "items": {
+              "$ref": "#/components/schemas/TopVulnerabilityOut"
+            },
+            "title": "Top",
+            "type": "array"
+          }
+        },
+        "required": [
+          "by_severity",
+          "suppressed",
+          "top",
+          "coverage"
+        ],
+        "title": "InspectorSection",
         "type": "object"
       },
       "Inventory": {
@@ -4153,6 +4255,16 @@
             "title": "Id",
             "type": "integer"
           },
+          "inspector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InspectorSection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "last_seen": {
             "format": "date",
             "title": "Last Seen",
@@ -4240,7 +4352,8 @@
           "config",
           "edges",
           "scanned",
-          "commands"
+          "commands",
+          "inspector"
         ],
         "title": "ResourceDetail",
         "type": "object"
@@ -4386,6 +4499,16 @@
             ],
             "title": "Vpc Id"
           },
+          "vulnerabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VulnerabilitySummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "worst_severity": {
             "anyOf": [
               {
@@ -4412,7 +4535,8 @@
           "last_seen",
           "deleted_on",
           "open_findings",
-          "worst_severity"
+          "worst_severity",
+          "vulnerabilities"
         ],
         "title": "ResourceRow",
         "type": "object"
@@ -4456,7 +4580,8 @@
                   "enum": [
                     "steampipe",
                     "prowler",
-                    "cloudfox"
+                    "cloudfox",
+                    "inspector"
                   ],
                   "type": "string"
                 },
@@ -4854,11 +4979,12 @@
               "enum": [
                 "steampipe",
                 "prowler",
-                "cloudfox"
+                "cloudfox",
+                "inspector"
               ],
               "type": "string"
             },
-            "maxItems": 3,
+            "maxItems": 4,
             "minItems": 1,
             "title": "Tools",
             "type": "array"
@@ -5430,6 +5556,13 @@
             "title": "Cloudfox",
             "type": "string"
           },
+          "inspector": {
+            "default": "raw/inspector",
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$",
+            "title": "Inspector",
+            "type": "string"
+          },
           "prowler": {
             "default": "raw/prowler",
             "maxLength": 200,
@@ -5463,6 +5596,18 @@
             ],
             "title": "Cloudfox"
           },
+          "inspector": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inspector"
+          },
           "prowler": {
             "anyOf": [
               {
@@ -5491,9 +5636,37 @@
         "required": [
           "steampipe",
           "prowler",
-          "cloudfox"
+          "cloudfox",
+          "inspector"
         ],
         "title": "ToolScans",
+        "type": "object"
+      },
+      "TopVulnerabilityOut": {
+        "properties": {
+          "finding_id": {
+            "title": "Finding Id",
+            "type": "integer"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "vulnerability": {
+            "$ref": "#/components/schemas/VulnerabilityOut"
+          }
+        },
+        "required": [
+          "finding_id",
+          "title",
+          "severity",
+          "vulnerability"
+        ],
+        "title": "TopVulnerabilityOut",
         "type": "object"
       },
       "TypeCount": {
@@ -5723,6 +5896,210 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "VulnerabilityOut": {
+        "description": "What an Inspector finding adds (ADR-0042): the vulnerable package and its fix. A code\nvulnerability has no CVE and no package.",
+        "properties": {
+          "cvss_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cvss Score"
+          },
+          "epss_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Epss Score"
+          },
+          "exploit_available": {
+            "title": "Exploit Available",
+            "type": "boolean"
+          },
+          "finding_type": {
+            "enum": [
+              "PACKAGE_VULNERABILITY",
+              "CODE_VULNERABILITY"
+            ],
+            "title": "Finding Type",
+            "type": "string"
+          },
+          "fix_available": {
+            "anyOf": [
+              {
+                "enum": [
+                  "YES",
+                  "NO",
+                  "PARTIAL"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fix Available"
+          },
+          "fixed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fixed Version"
+          },
+          "image_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Digest"
+          },
+          "image_tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Image Tags",
+            "type": "array"
+          },
+          "inspector_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inspector Score"
+          },
+          "installed_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed Version"
+          },
+          "package_manager": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package Manager"
+          },
+          "package_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Package Name"
+          },
+          "reference_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Url"
+          },
+          "vulnerability_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vulnerability Id"
+          }
+        },
+        "required": [
+          "finding_type",
+          "vulnerability_id",
+          "package_name",
+          "package_manager",
+          "installed_version",
+          "fixed_version",
+          "cvss_score",
+          "epss_score",
+          "inspector_score",
+          "exploit_available",
+          "fix_available",
+          "image_digest",
+          "image_tags",
+          "reference_url"
+        ],
+        "title": "VulnerabilityOut",
+        "type": "object"
+      },
+      "VulnerabilitySummary": {
+        "description": "A resource's open Inspector CVEs (ADR-0042), suppressed ones left out.",
+        "properties": {
+          "exploitable": {
+            "title": "Exploitable",
+            "type": "integer"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "scanned": {
+            "title": "Scanned",
+            "type": "boolean"
+          },
+          "worst": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst"
+          }
+        },
+        "required": [
+          "open",
+          "worst",
+          "exploitable",
+          "scanned"
+        ],
+        "title": "VulnerabilitySummary",
         "type": "object"
       }
     }
@@ -7725,7 +8102,8 @@
               "items": {
                 "enum": [
                   "prowler",
-                  "cloudfox"
+                  "cloudfox",
+                  "inspector"
                 ],
                 "type": "string"
               },
@@ -9153,6 +9531,27 @@
             }
           },
           {
+            "in": "query",
+            "name": "vulnerabilities",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "any",
+                    "high",
+                    "exploitable"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Vulnerabilities"
+            }
+          },
+          {
             "in": "header",
             "name": "X-Argus-CSRF",
             "required": false,
@@ -9741,7 +10140,8 @@
                   "enum": [
                     "steampipe",
                     "prowler",
-                    "cloudfox"
+                    "cloudfox",
+                    "inspector"
                   ],
                   "type": "string"
                 },

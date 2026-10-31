@@ -550,7 +550,8 @@ aws_workspaces_workspace
 # Activity, metrics, cost and other tools' findings: CloudWatch metrics, Cost Explorer,
 # pricing, billing reservations, Health and Shield events, GuardDuty/Security Hub/Inspector/
 # Macie/Access Analyzer findings, Well-Architected reviews. Not configuration; detection is a
-# v1 non-goal.
+# v1 non-goal. aws_inspector2_finding and aws_inspector2_coverage are exported by the Inspector
+# collector in a run of its own (ADR-0042, collection/tables.py INSPECTOR_TABLES), never here.
 #   aws_accessanalyzer_finding aws_auditmanager_evidence aws_auditmanager_evidence_folder
 #   aws_backup_job aws_budgets_budget aws_ce_anomaly_monitor aws_ce_cost_allocation_tags
 #   aws_cloudwatch_log_metric_filter aws_cloudwatch_metric aws_cloudwatch_metric_data_point

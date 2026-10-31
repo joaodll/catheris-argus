@@ -6,26 +6,23 @@ import AppIcon from '@/components/AppIcon.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useDirtyGuard } from '@/composables/useDirtyGuard'
 import { toast } from '@/composables/useToasts'
+import { COLLECTOR_IDS, COLLECTORS } from '@/tools'
 import SettingsCard from './SettingsCard.vue'
 import { checkRawStorage, normalized, type FieldErrors, type Tool } from './rawStorage'
 
-const TOOLS: { tool: Tool; name: string }[] = [
-  { tool: 'steampipe', name: 'Steampipe' },
-  { tool: 'prowler', name: 'Prowler' },
-  { tool: 'cloudfox', name: 'CloudFox' },
-]
+const TOOLS = COLLECTORS.map((c) => ({ tool: c.id as Tool, name: c.name }))
 
 const props = defineProps<{ settings: Schemas['SettingsOut'] }>()
 const emit = defineEmits<{ saved: [settings: Schemas['SettingsOut']] }>()
 
 function fromSettings(): { bucket: string; region: string; prefixes: Record<Tool, string> } {
   const { bucket, region, prefixes } = props.settings.raw_storage
-  // The API always returns all three; the schema marks them optional because they have defaults.
+  // The API always returns every tool; the schema marks them optional because they have defaults.
   const folder = (tool: Tool): string => prefixes?.[tool] ?? ''
   return {
     bucket: bucket ?? '',
     region: region ?? '',
-    prefixes: { steampipe: folder('steampipe'), prowler: folder('prowler'), cloudfox: folder('cloudfox') },
+    prefixes: Object.fromEntries(COLLECTOR_IDS.map((t) => [t, folder(t)])) as Record<Tool, string>,
   }
 }
 

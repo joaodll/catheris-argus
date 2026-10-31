@@ -346,7 +346,9 @@ storage first (above). Then:
 3. In **Settings → Collection**, set **AWS regions to scan** to the regions in use, for example
    `eu-west-1, us-east-1`. Fewer regions make the first run faster. CloudFox ignores this and scans
    every region.
-4. In **Scans → Schedules → Run now**, run the three tools on the new connection. Steampipe goes first.
+4. In **Scans → Schedules → Run now**, run the tools on the new connection. Steampipe goes first;
+   Inspector last, after the inventory its vulnerabilities attach to. Leave Inspector out if the
+   account does not use AWS Inspector: its run would end Partial or Failed.
    While testing, set **Settings → Collection → Run now cooldown** to `0`: Run now then skips a
    tool only while it is already queued or running on that account. Set it back (the default is
    60 minutes) before scanning accounts other people depend on. **Minimum schedule interval**

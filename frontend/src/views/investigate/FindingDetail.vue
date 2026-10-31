@@ -19,6 +19,7 @@ import ToolText from './ToolText.vue'
 import { CODE_KINDS, codeBody } from './toolText'
 import ReachBadge from './ReachBadge.vue'
 import { hasEvidence, reasonWords, toolNote } from './reachReason'
+import { epssPercent, shortDigest } from './vulnerability'
 
 const props = defineProps<{
   finding: Schemas['FindingOut']
@@ -46,6 +47,9 @@ const code = computed(() =>
   }),
 )
 const consoleSteps = computed(() => detail.value?.remediation_code.other ?? null)
+// An Inspector finding's vulnerability (ADR-0042); null on every other tool's.
+const vuln = computed(() => f.value.vulnerability ?? null)
+const reference = computed(() => webUrl(vuln.value?.reference_url))
 // Argus's verdict on the resource: its reason in words, why the tools differ, where the evidence is.
 const verdict = computed(() => {
   const reach = f.value.reach
@@ -87,8 +91,38 @@ const verdict = computed(() => {
     </section>
 
     <dl class="facts">
-      <div><dt class="lbl">Check</dt><dd class="mono">{{ f.check_id }}</dd></div>
-      <div><dt class="lbl">Result</dt><dd class="mono">{{ f.status }}</dd></div>
+      <template v-if="vuln">
+        <div>
+          <dt class="lbl">Vulnerability</dt>
+          <dd v-if="vuln.vulnerability_id" class="mono">
+            <a v-if="reference" :href="reference" target="_blank" rel="noopener noreferrer">{{ vuln.vulnerability_id }} ↗<span class="sr-only"> (opens in a new tab)</span></a>
+            <template v-else>{{ vuln.vulnerability_id }}</template>
+          </dd>
+          <dd v-else>Code vulnerability</dd>
+        </div>
+        <div v-if="vuln.package_name">
+          <dt class="lbl">Package</dt>
+          <dd><span class="mono">{{ [vuln.package_name, vuln.installed_version].filter(Boolean).join(' ') }}</span><span v-if="vuln.package_manager" class="cap"> ({{ vuln.package_manager }})</span></dd>
+        </div>
+        <div v-if="vuln.finding_type === 'PACKAGE_VULNERABILITY'">
+          <dt class="lbl">Fixed in</dt>
+          <dd :class="{ mono: vuln.fixed_version }">{{ vuln.fixed_version ?? 'No fix yet' }}</dd>
+        </div>
+        <div v-if="vuln.cvss_score != null"><dt class="lbl">CVSS</dt><dd class="mono">{{ vuln.cvss_score.toFixed(1) }}</dd></div>
+        <div v-if="vuln.epss_score != null">
+          <dt class="lbl">EPSS</dt>
+          <dd><span class="mono">{{ epssPercent(vuln.epss_score) }}</span> <span class="cap">chance of exploitation in the next 30 days</span></dd>
+        </div>
+        <div><dt class="lbl">Public exploit</dt><dd>{{ vuln.exploit_available ? 'Yes' : 'No' }}</dd></div>
+        <div v-if="vuln.image_digest" class="wide">
+          <dt class="lbl">Image</dt>
+          <dd><span class="mono">{{ shortDigest(vuln.image_digest) }}</span><span v-for="t in vuln.image_tags" :key="t" class="chip mono">{{ t }}</span></dd>
+        </div>
+      </template>
+      <template v-else>
+        <div><dt class="lbl">Check</dt><dd class="mono">{{ f.check_id }}</dd></div>
+        <div><dt class="lbl">Result</dt><dd class="mono">{{ f.status }}</dd></div>
+      </template>
       <div>
         <dt class="lbl">Service</dt>
         <dd v-if="f.service" class="mono">{{ f.service }}</dd>

@@ -4919,6 +4919,7 @@
 ],
 "aws_inspector2_coverage": [
 "resource_id",
+"source_account_id",
 "resource_type",
 "scan_type",
 "last_scanned_at",
@@ -4943,6 +4944,7 @@
 ],
 "aws_inspector2_finding": [
 "description",
+"finding_account_id",
 "exploit_available",
 "arn",
 "status",
