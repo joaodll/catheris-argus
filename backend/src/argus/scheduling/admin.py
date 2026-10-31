@@ -16,7 +16,7 @@ from argus.scheduling.claims import ORIGIN_SQL, cancel, cancel_queued, recently_
 from argus.scheduling.schedules import check_cron
 from argus.settings import read_collection
 
-Tool = Literal["steampipe", "prowler", "cloudfox"]
+Tool = Literal["steampipe", "prowler", "cloudfox", "inspector"]
 
 
 @dataclass(frozen=True)
@@ -235,7 +235,7 @@ def run_now(
     client_ip: str | None = None,
     today: date | None = None,
 ) -> RunNowResult:
-    """Queues the tools (default: all three, in order) for each connection, except where the
+    """Queues the tools (default: every tool, in order) for each connection, except where the
     same tool and account is queued, running, or finished within the cooldown."""
     cooldown = read_collection(conn).run_now_cooldown_minutes
     day = today or datetime.now(UTC).date()

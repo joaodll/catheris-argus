@@ -13,10 +13,11 @@ import SortHeader from '@/components/SortHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ToolChip from '@/components/ToolChip.vue'
 import { useResource } from '@/composables/useResource'
+import { COLLECTORS, type Collector } from '@/tools'
 import { duration, elapsed, relative, utc, utcTime } from '@/format'
 import { commandLabel, encryptionLabel, partialReason, partialTables, regionsLabel, shortRunId, storedWithoutKms, triggerLabel } from './runNotes'
 
-type Tool = 'steampipe' | 'prowler' | 'cloudfox'
+type Tool = Collector
 type Status = 'complete' | 'partial' | 'failed' | 'running'
 const PAGE = 20
 
@@ -202,9 +203,7 @@ function fromSelect(value: string): string | null {
       <label class="lbl" for="f-tool">Tool</label>
       <select id="f-tool" class="select" :value="tool ?? ''" @change="tool = fromSelect(($event.target as HTMLSelectElement).value) as Tool | null">
         <option value="">All tools</option>
-        <option value="steampipe">Steampipe</option>
-        <option value="prowler">Prowler</option>
-        <option value="cloudfox">CloudFox</option>
+        <option v-for="c in COLLECTORS" :key="c.id" :value="c.id">{{ c.name }}</option>
       </select>
     </div>
     <div class="field">

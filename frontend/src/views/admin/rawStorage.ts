@@ -1,7 +1,9 @@
 /** The raw output storage form's checks: the API's own rules (settings/topics.py), said per field
  *  before anything is sent, so a typo never comes back as a bare 422. */
 
-export type Tool = 'steampipe' | 'prowler' | 'cloudfox'
+import { COLLECTOR_IDS, type Collector } from '@/tools'
+
+export type Tool = Collector
 export interface RawStorageForm {
   bucket: string
   region: string
@@ -28,11 +30,7 @@ export function normalized(form: RawStorageForm): RawStorageForm {
   return {
     bucket: bucketName(form.bucket),
     region: form.region.trim(),
-    prefixes: {
-      steampipe: folderName(form.prefixes.steampipe),
-      prowler: folderName(form.prefixes.prowler),
-      cloudfox: folderName(form.prefixes.cloudfox),
-    },
+    prefixes: Object.fromEntries(COLLECTOR_IDS.map((t) => [t, folderName(form.prefixes[t])])) as Record<Tool, string>,
   }
 }
 

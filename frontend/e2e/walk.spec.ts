@@ -391,6 +391,19 @@ test('investigate: findings and resources, read-only', async ({ page }) => {
   await axe(page, 'resource sheet commands')
   await shot(page, '73b-resource-sheet-commands')
   await page.keyboard.press('Escape')
+  // Inspector's CVEs (ADR-0042): the Vulnerabilities filter, then a resource's Inspector block.
+  await page.goto('/investigate/resources')
+  await page.getByLabel('Vulnerabilities').selectOption('exploitable')
+  await expect(resources.locator('tbody tr').first().getByText('Exploit')).toBeVisible()
+  await axe(page, 'resources with an exploitable CVE')
+  await shot(page, '73c-resources-vulnerabilities')
+  await resources.locator('tbody tr').first().getByRole('link').click()
+  const inspector = sheet.getByRole('region', { name: /^Inspector/ })
+  await expect(inspector.getByRole('heading', { level: 3, name: /^Inspector/ })).toBeVisible()
+  await expect(inspector.getByRole('link', { name: /^See all \d+ Inspector findings?/ })).toBeVisible()
+  await axe(page, 'resource sheet inspector')
+  await shot(page, '73d-resource-sheet-inspector')
+  await page.keyboard.press('Escape')
 })
 
 test('investigate: resource map and attack paths, read-only', async ({ page }) => {
@@ -754,10 +767,12 @@ test('users and roles: a viewer and an operator, each limited to their role', as
     await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Sign out' }).click()
   }
 
-  // Clean up: deactivate, then delete each one.
+  // Clean up: deactivate, then delete each one. Signed in first: leaving the page before the
+  // sign-in answers would cancel it.
   await page.getByLabel('Username').fill('admin')
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Overview', exact: true })).toBeVisible()
   await page.goto('/admin/users')
   page.on('dialog', (d) => void d.accept())
   for (const p of people) {

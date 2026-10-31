@@ -12,10 +12,12 @@ from argus.core.db import count_sql, like_contains
 from argus.findings.prowler import EXPOSURE_CHECKS
 
 # Exported SQL: the view attack-path rules read as `f`. One connection's failing findings now.
+# Inspector's CVEs are left out (ADR-0042): any CVE would raise nearly every path through an
+# instance or a function; a path kind built for them joins them on purpose.
 FAILING_FINDINGS_SQL = """
   SELECT resource_uid, check_id, severity FROM finding
   WHERE connection_id = :connection_id AND state IN ('open', 'reopened') AND NOT muted
-    AND status = 'FAIL'
+    AND status = 'FAIL' AND tool <> 'inspector'
 """
 
 FindingState = Literal["open", "reopened", "resolved", "accepted_risk"]
@@ -248,8 +250,9 @@ def open_exposure_counts(conn: Connection, resource_ids: list[int]) -> dict[int,
 
 
 def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, tuple[int, str]]:
-    """For each of these resources with open or reopened findings: how many, and the worst
-    severity among them. Called with one page of resources, so the input is bounded."""
+    """For each of these resources with open or reopened Prowler or CloudFox findings: how many,
+    and the worst severity among them. Inspector's CVEs are counted apart (vulnerabilities,
+    ADR-0042). Called with one page of resources, so the input is bounded."""
     if not resource_ids:
         return {}
     rows = conn.execute(
@@ -259,6 +262,7 @@ def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, 
                  AS worst
         FROM finding f
         WHERE f.resource_id = ANY(CAST(:ids AS bigint[])) AND f.state IN ('open', 'reopened')
+          AND f.tool <> 'inspector'
         GROUP BY f.resource_id
     """),  # noqa: S608 - fixed fragment
         {"ids": resource_ids},

@@ -1,6 +1,7 @@
 """Read side of inventory: the Resources list and its filter options, and a resource as it
 was on a given day."""
 
+from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Literal
 
@@ -80,39 +81,51 @@ _FILTERS = f"""
 """
 
 
+@dataclass(frozen=True)
+class ResourceFilters:
+    """What the Resources list is narrowed to; None does not filter. Deleted resources are left
+    out unless asked for. `within`: parameter-free SQL exported by another module, selecting
+    the resource ids to keep (the Vulnerabilities filter, findings.VULNERABLE_RESOURCES_SQL)."""
+
+    connection_id: int | None = None
+    resource_type: str | None = None
+    region: str | None = None
+    q: str | None = None
+    include_deleted: bool = False
+    within: str | None = None
+
+
 def list_resources(
     conn: Connection,
     *,
     limit: int,
     offset: int,
-    connection_id: int | None = None,
-    resource_type: str | None = None,
-    region: str | None = None,
-    q: str | None = None,
-    include_deleted: bool = False,
+    filters: ResourceFilters = ResourceFilters(),  # noqa: B008 - frozen, never mutated
     order: ResourceOrder = "name_asc",
 ) -> tuple[list[dict[str, Any]], int]:
     """One page of resources matching the filters, in `order`, and how many match (with a
-    search, at most SEARCH_COUNT_CAP + 1). Deleted resources are left out unless asked for."""
+    search, at most SEARCH_COUNT_CAP + 1)."""
+    f = filters
+    where = f"{_FILTERS} AND r.id IN ({f.within})" if f.within else _FILTERS
     params = {
-        "c": connection_id,
-        "t": resource_type,
-        "rg": region,
-        "deleted": include_deleted,
-        "p": like_contains(q) if q else None,
+        "c": f.connection_id,
+        "t": f.resource_type,
+        "rg": f.region,
+        "deleted": f.include_deleted,
+        "p": like_contains(f.q) if f.q else None,
     }
     rows = conn.execute(
         text(f"""
         SELECT r.id, r.resource_uid, r.connection_id, r.provider, r.region, r.type, r.native_id,
                r.name, r.vpc_id, r.first_seen, r.last_seen, r.deleted_on
         FROM resource r
-        {_FILTERS}
+        {where}
         ORDER BY {_ORDERS[order]} LIMIT :l OFFSET :o
     """),  # noqa: S608 - fixed fragments only
         {**params, "l": limit, "o": offset},
     )
     total = conn.execute(
-        text(count_sql(f"FROM resource r {_FILTERS}", search=bool(q))),
+        text(count_sql(f"FROM resource r {where}", search=bool(f.q))),
         params,
     ).scalar_one()
     return [dict(r._mapping) for r in rows], int(total)

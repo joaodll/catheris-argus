@@ -474,3 +474,26 @@ def test_not_applicable_wordings_match_only_as_the_error_code(line: str) -> None
     # A resource named after the wording is not the error.
     named = "[ERROR] table x: api error AccessDenied: on resource AWSOrganizationsNotInUseException"
     assert not aws_tools.NOT_APPLICABLE.search(named)
+
+
+def test_inspector_exports_this_accounts_open_findings_and_its_coverage(fakes: Path) -> None:
+    """The Inspector collector (ADR-0042): the same export binary, two tables, each filtered to
+    the connection's account; one failing table makes the run partial and is named."""
+    _, manifest = _run(fakes, "inspector")
+    assert manifest.tool == "inspector" and manifest.tool_version == "1.34.0"
+    assert manifest.status == "complete"
+    assert sorted(f.path for f in manifest.files) == [
+        "aws_inspector2_coverage.jsonl",
+        "aws_inspector2_finding.jsonl",
+    ]
+    lines = (fakes / "homes" / "argv.txt").read_text().splitlines()
+    findings = next(line for line in lines if line.startswith("aws_inspector2_finding"))
+    assert f"--where finding_account_id = '{TARGET.account_id}'" in findings
+    assert "--where status <> 'CLOSED'" in findings
+    assert "aws_inspector2_finding --connection aws" in manifest.command
+    assert manifest.command.endswith('(regions = ["*"])')
+
+    _control(fakes / "homes", "failing.txt", "aws_inspector2_finding\n")
+    _, failing = _run(fakes, "inspector")
+    assert failing.status == "partial"
+    assert failing.incomplete_tables == ["aws_inspector2_finding"]

@@ -1,6 +1,7 @@
 """The versioned list of Steampipe AWS tables collected for the inventory (ADR-0012, amended
 2026-10-08), and the options some of them are exported with."""
 
+import re
 from functools import cache
 from importlib import resources
 
@@ -132,3 +133,42 @@ TABLE_OPTIONS: dict[str, tuple[str, ...]] = {
 
 def table_options(table: str) -> tuple[str, ...]:
     return TABLE_OPTIONS.get(table, ())
+
+
+# The Inspector collector (ADR-0042): two tables of the same plugin, exported by the same binary
+# in their own run. Not on the Steampipe list: they are another tool's findings, not
+# configuration.
+INSPECTOR_FINDINGS = "aws_inspector2_finding"
+INSPECTOR_COVERAGE = "aws_inspector2_coverage"
+INSPECTOR_TABLES = (INSPECTOR_FINDINGS, INSPECTOR_COVERAGE)
+_ACCOUNT_ID = re.compile(r"^[0-9]{12}$")
+
+
+def inspector_table_options(table: str, account_id: str) -> tuple[str, ...]:
+    """Only this account's open findings: `finding_account_id` and `status` are key columns,
+    pushed down to ListFindings' filter, so a delegated administrator's connection never
+    exports its member accounts' findings. Closed findings are left out: a complete run
+    resolves what it no longer reports. Coverage is filtered by account in the adapter (its
+    account column is not a documented key column). Only the columns the adapter reads."""
+    if not _ACCOUNT_ID.match(account_id):
+        raise ValueError("an account id is 12 digits")
+    if table == INSPECTOR_FINDINGS:
+        return (
+            "--where",
+            f"finding_account_id = '{account_id}'",
+            "--where",
+            "status <> 'CLOSED'",
+            *_select(
+                f"""arn finding_account_id status type severity title description
+                vulnerability_id exploit_available fix_available inspector_score epss_score
+                vulnerable_packages cvss remediation_recommendation_text
+                remediation_recommendation_url source_url resources first_observed_at
+                last_observed_at updated_at {_REGIONAL}"""
+            ),
+        )
+    if table == INSPECTOR_COVERAGE:
+        return _select(
+            f"""resource_id resource_type scan_type scan_status_code scan_status_reason
+            last_scanned_at source_account_id ecr_repository_name {_REGIONAL}"""
+        )
+    raise ValueError(f"not an Inspector table: {table}")

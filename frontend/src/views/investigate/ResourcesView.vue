@@ -17,10 +17,18 @@ import SeverityTag from '@/components/SeverityTag.vue'
 import SortHeader from '@/components/SortHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useResource } from '@/composables/useResource'
+import ExploitMark from './ExploitMark.vue'
 import { fromSelect, regionLabel, typesByService } from './labels'
 import ResourceSheet from './ResourceSheet.vue'
 
 type Order = 'name_asc' | 'name_desc' | 'last_seen_desc' | 'last_seen_asc'
+// Open Inspector CVEs (ADR-0042): any, critical or high, or with a public exploit.
+type Vulnerabilities = 'any' | 'high' | 'exploitable'
+const VULNERABILITY_OPTIONS: { value: Vulnerabilities; label: string }[] = [
+  { value: 'any', label: 'Any open vulnerability' },
+  { value: 'high', label: 'Critical or high' },
+  { value: 'exploitable', label: 'Public exploit' },
+]
 const PAGE = 20
 
 const route = useRoute()
@@ -36,6 +44,7 @@ if (route.query.type !== undefined || route.query.connection !== undefined) {
   void router.replace({ query: { ...route.query, type: undefined, connection: undefined } })
 }
 const region = ref<string | null>(null)
+const vulnerabilities = ref<Vulnerabilities | null>(null)
 const includeDeleted = ref(false)
 const search = ref('') // what is typed
 const query = ref('') // what is searched, 300 ms after typing stops
@@ -57,7 +66,9 @@ const dataThrough = ref<string | null>(null)
 const loaded = ref(false)
 const page = ref(1)
 const order = ref<Order>('name_asc')
-const filtered = computed(() => Boolean(connectionId.value || rtype.value || region.value || query.value || includeDeleted.value))
+const filtered = computed(() =>
+  Boolean(connectionId.value || rtype.value || region.value || vulnerabilities.value || query.value || includeDeleted.value),
+)
 const table = ref<HTMLElement | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -80,6 +91,7 @@ async function load(target: number): Promise<void> {
             region: region.value,
             q: query.value || null,
             include_deleted: includeDeleted.value,
+            vulnerabilities: vulnerabilities.value,
           },
         },
       }),
@@ -105,7 +117,7 @@ async function load(target: number): Promise<void> {
 }
 
 // A filter or the order changes the list: back to page 1.
-watch([connectionId, rtype, region, query, includeDeleted, order], () => void load(1), { immediate: true })
+watch([connectionId, rtype, region, vulnerabilities, query, includeDeleted, order], () => void load(1), { immediate: true })
 // Type and region lists follow the connection; a value it no longer has is dropped.
 watch(
   () => facets.data.value,
@@ -135,6 +147,7 @@ function clearFilters(): void {
   connectionId.value = null
   rtype.value = null
   region.value = null
+  vulnerabilities.value = null
   includeDeleted.value = false
   search.value = ''
   query.value = ''
@@ -211,6 +224,18 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
         <option v-for="r in facets.data.value?.regions ?? []" :key="r" :value="r">{{ regionLabel(r) }}</option>
       </select>
     </div>
+    <div class="field">
+      <label class="lbl" for="r-vuln">Vulnerabilities</label>
+      <select
+        id="r-vuln"
+        class="select"
+        :value="vulnerabilities ?? ''"
+        @change="vulnerabilities = fromSelect(($event.target as HTMLSelectElement).value) as Vulnerabilities | null"
+      >
+        <option value="">All resources</option>
+        <option v-for="o in VULNERABILITY_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+      </select>
+    </div>
     <label class="check">
       <input v-model="includeDeleted" type="checkbox">
       Include deleted
@@ -256,7 +281,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
               desc-text="Z to A"
               asc-text="A to Z"
               @toggle="toggleName"
-            /><th scope="col">Connection</th><th scope="col">VPC</th><th scope="col" class="right">Open findings</th>
+            /><th scope="col">Connection</th><th scope="col">VPC</th><th scope="col" class="right">Open findings</th><th scope="col" class="right">Vulnerabilities</th>
             <SortHeader
               label="Last seen"
               class="right"
@@ -295,6 +320,23 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
                 <span class="mono">{{ r.open_findings }}</span>
               </span>
               <span v-else class="mono soft">0</span>
+            </td>
+            <td data-label="Vulnerabilities" class="right">
+              <span v-if="r.vulnerabilities == null" class="soft" title="Inspector does not cover this resource">—</span>
+              <template v-else>
+                <span v-if="r.vulnerabilities.open > 0" class="count">
+                  <SeverityTag v-if="r.vulnerabilities.worst" :severity="r.vulnerabilities.worst" compact />
+                  <span class="mono">{{ r.vulnerabilities.open }}</span>
+                  <ExploitMark v-if="r.vulnerabilities.exploitable > 0" :count="r.vulnerabilities.exploitable" />
+                </span>
+                <span v-else-if="r.vulnerabilities.scanned" class="mono soft">0</span>
+                <span
+                  v-if="!r.vulnerabilities.scanned"
+                  class="soft not-scanned"
+                  :class="{ sub: r.vulnerabilities.open > 0 }"
+                  title="Inspector does not scan this resource; open it for the reason"
+                >Not scanned</span>
+              </template>
             </td>
             <td data-label="Last seen" class="right mono">{{ r.last_seen }}</td>
           </tr>
@@ -403,6 +445,10 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
 
 .soft {
   color: var(--text-3);
+}
+
+.not-scanned {
+  font-size: 12px;
 }
 
 .resources-table td {

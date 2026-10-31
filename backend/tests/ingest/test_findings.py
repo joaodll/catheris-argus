@@ -233,7 +233,8 @@ def test_each_finding_says_what_is_wrong_and_each_check_how_to_fix_it(
         missing = conn.execute(
             text("SELECT count(*) FROM finding WHERE detail IS NULL OR resource_name IS NULL")
         ).scalar_one()
-        checks = conn.execute(text("SELECT * FROM finding_check_text")).all()
+        # The check texts outlive a test's connections: only Prowler's are this run's.
+        checks = conn.execute(text("SELECT * FROM finding_check_text WHERE tool = 'prowler'")).all()
         unexplained = conn.execute(
             text(
                 "SELECT count(*) FROM finding f WHERE NOT EXISTS (SELECT 1 "

@@ -9,7 +9,7 @@ import { SEVERITIES, type Severity } from '@/views/overview/severity'
 import type { FindingState } from './labels'
 import { FINDING_REACHES, type FindingReach } from './reachReason'
 
-export type Tool = 'prowler' | 'cloudfox'
+export type Tool = 'prowler' | 'cloudfox' | 'inspector'
 export type Result = 'FAIL' | 'MANUAL'
 export type Muted = 'any' | 'hide' | 'only'
 export type Order = 'severity' | 'severity_asc' | 'last_seen_desc' | 'last_seen_asc'
@@ -37,7 +37,7 @@ export interface FindingFilters {
 /** The filters in row 2 (More filters): how many are set, for the button's count. */
 export const SECONDARY: (keyof FindingFilters)[] = ['service', 'type', 'check', 'reach', 'region', 'result', 'muted', 'new']
 
-const TOOLS: Tool[] = ['prowler', 'cloudfox']
+const TOOLS: Tool[] = ['prowler', 'cloudfox', 'inspector']
 const PROVIDER_IDS: Provider[] = PROVIDERS.map((p) => p.id)
 const RESULTS: Result[] = ['FAIL', 'MANUAL']
 const MUTED: Muted[] = ['any', 'hide', 'only']

@@ -55,7 +55,7 @@ function mix(fg: string, bg: string, alpha: number): string {
 }
 
 const SURFACES = ['bg', 'surface', 'surface-raised', 'surface-sunken', 'tile']
-const TEXT = ['text', 'text-2', 'text-3', 'text-chip', 'link', 'pass', 'delta-worse', 'delta-better', 'delta-flat', 'score-good', 'score-fair', 'score-weak', 'score-poor', 'tool-prowler', 'tool-steampipe', 'tool-cloudfox']
+const TEXT = ['text', 'text-2', 'text-3', 'text-chip', 'link', 'pass', 'delta-worse', 'delta-better', 'delta-flat', 'score-good', 'score-fair', 'score-weak', 'score-poor', 'tool-prowler', 'tool-steampipe', 'tool-cloudfox', 'tool-inspector']
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info']
 const GRAPHICS = ['border-control', 'muted', 'accent', 'pass', 'provider-aws', 'provider-gcp', 'provider-oci', 'type-compute', 'type-identity', 'type-storage', 'type-network', 'type-other', ...SEVERITIES.map((s) => `sev-${s}`)]
 

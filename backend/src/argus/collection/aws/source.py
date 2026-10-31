@@ -5,7 +5,13 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
-from argus.collection.aws.tools import run_cloudfox, run_prowler, run_steampipe, tool_profile
+from argus.collection.aws.tools import (
+    run_cloudfox,
+    run_inspector,
+    run_prowler,
+    run_steampipe,
+    tool_profile,
+)
 from argus.collection.collect import CollectOptions, CollectTarget, Outcome
 from argus.core.manifest import Tool
 
@@ -33,6 +39,8 @@ class AwsSource:
                 result = run_steampipe(out_dir, env, regions, options.steampipe_parallel_tables)
             elif tool == "prowler":
                 result = run_prowler(out_dir, env, regions)
+            elif tool == "inspector":
+                result = run_inspector(out_dir, env, regions, target.account_id)
             else:
                 result = run_cloudfox(
                     out_dir, env, target.account_id, options.cloudfox_max_goroutines

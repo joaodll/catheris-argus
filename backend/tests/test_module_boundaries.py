@@ -30,6 +30,8 @@ OWNERS: dict[str, set[str]] = {
         "finding_command",
         "finding_check_text",
         "finding_facet",
+        "finding_vulnerability",
+        "vulnerability_coverage",
         "finding_snapshot",
         "finding_event",
         "compliance_requirement",

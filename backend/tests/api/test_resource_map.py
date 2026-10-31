@@ -298,7 +298,12 @@ def test_a_resource_says_which_tools_scanned_its_account(signed_in: TestClient, 
     one = signed_in.get("/api/v1/resources", params={"limit": 1}).json()["items"][0]
     detail = signed_in.get(f"/api/v1/resources/{one['id']}").json()
     today = datetime.now(UTC).date().isoformat()
-    assert detail["scanned"] == {"steampipe": today, "prowler": today, "cloudfox": today}
+    assert detail["scanned"] == {
+        "steampipe": today,
+        "prowler": today,
+        "cloudfox": today,
+        "inspector": today,
+    }
 
 
 def test_the_front_door_chain_is_an_attack_path(signed_in: TestClient, prod: int) -> None:
