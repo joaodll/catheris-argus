@@ -353,7 +353,7 @@ export interface paths {
         };
         /**
          * Finding Facets
-         * @description The options of the Findings filters that come from the data.
+         * @description The options of the Misconfigurations filters that come from the data.
          */
         get: operations["finding_facets_api_v1_findings_facets_get"];
         put?: never;
@@ -373,8 +373,8 @@ export interface paths {
         };
         /**
          * Finding Groups
-         * @description The Findings list by check, with the list's filters: one row per tool and check id,
-         *     worst severity first, then the checks with the most findings.
+         * @description The Misconfigurations list by check, with the list's filters: one row per tool and check
+         *     id, worst severity first, then the checks with the most findings.
          */
         get: operations["finding_groups_api_v1_findings_groups_get"];
         put?: never;
@@ -887,6 +887,67 @@ export interface paths {
         put?: never;
         /** Unlock */
         post: operations["unlock_api_v1_users__user_id__unlock_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vulnerabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Vulnerabilities
+         * @description One page of CVE findings; each item carries its `vulnerability`.
+         */
+        get: operations["list_vulnerabilities_api_v1_vulnerabilities_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vulnerabilities/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Vulnerability Facets
+         * @description The options of the Vulnerabilities filters that come from the data.
+         */
+        get: operations["vulnerability_facets_api_v1_vulnerabilities_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vulnerabilities/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Vulnerability Groups
+         * @description The Vulnerabilities list by CVE, with the list's filters: one row per CVE, worst
+         *     severity first, then the CVEs with the most findings.
+         */
+        get: operations["vulnerability_groups_api_v1_vulnerabilities_groups_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2803,6 +2864,13 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /** VulnerabilityFacets */
+        VulnerabilityFacets: {
+            /** Regions */
+            regions: string[];
+            /** Resource Types */
+            resource_types: string[];
+        };
         /**
          * VulnerabilityOut
          * @description What a vulnerability finding adds (ADR-0042): the vulnerable package and its fix. A code
@@ -3556,7 +3624,7 @@ export interface operations {
                 offset?: number;
                 connection_id?: number[];
                 severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
-                tool?: ("prowler" | "cloudfox" | "vulnerabilities")[];
+                tool?: ("prowler" | "cloudfox")[];
                 provider?: ("aws" | "gcp" | "oci")[];
                 state?: "open" | "reopened" | "resolved" | "accepted_risk";
                 region?: string[];
@@ -3646,7 +3714,7 @@ export interface operations {
                 offset?: number;
                 connection_id?: number[];
                 severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
-                tool?: ("prowler" | "cloudfox" | "vulnerabilities")[];
+                tool?: ("prowler" | "cloudfox")[];
                 provider?: ("aws" | "gcp" | "oci")[];
                 state?: "open" | "reopened" | "resolved" | "accepted_risk";
                 region?: string[];
@@ -4854,6 +4922,144 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_vulnerabilities_api_v1_vulnerabilities_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                connection_id?: number[];
+                severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
+                provider?: ("aws" | "gcp" | "oci")[];
+                state?: "open" | "reopened" | "resolved" | "accepted_risk";
+                region?: string[];
+                resource_type?: string[];
+                check_id?: string[];
+                muted?: "any" | "hide" | "only";
+                new?: boolean;
+                exploitable?: boolean;
+                fix?: "any" | "available" | "none";
+                resource_id?: number | null;
+                q?: string | null;
+                order?: "severity" | "severity_asc" | "last_seen_desc" | "last_seen_asc";
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindingPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    vulnerability_facets_api_v1_vulnerabilities_facets_get: {
+        parameters: {
+            query?: {
+                connection_id?: number[];
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VulnerabilityFacets"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    vulnerability_groups_api_v1_vulnerabilities_groups_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                connection_id?: number[];
+                severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
+                provider?: ("aws" | "gcp" | "oci")[];
+                state?: "open" | "reopened" | "resolved" | "accepted_risk";
+                region?: string[];
+                resource_type?: string[];
+                check_id?: string[];
+                muted?: "any" | "hide" | "only";
+                new?: boolean;
+                exploitable?: boolean;
+                fix?: "any" | "available" | "none";
+                resource_id?: number | null;
+                q?: string | null;
+                order?: "severity" | "severity_asc" | "last_seen_desc" | "last_seen_asc";
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindingGroupPage"];
+                };
             };
             /** @description Validation Error */
             422: {

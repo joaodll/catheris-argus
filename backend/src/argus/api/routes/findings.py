@@ -1,5 +1,7 @@
-"""Investigate -> Findings: Prowler checks, CloudFox attacker findings and the vulnerabilities
-tool's CVEs (ADR-0042) in one list. Read-only: changing a finding's state waits for roles."""
+"""Investigate -> Misconfigurations: Prowler checks and CloudFox attacker findings in one list.
+The vulnerabilities tool's CVEs are findings too, listed apart (routes/vulnerabilities.py,
+ADR-0042 amended 2026-10-31); a finding's own link (/findings/{id}) opens either. Read-only:
+changing a finding's state waits for roles."""
 
 from datetime import date
 from typing import Annotated, Any, Literal
@@ -14,7 +16,8 @@ from argus.core.db import SEARCH_COUNT_CAP
 
 router = APIRouter(tags=["findings"])
 
-TOOLS = ["prowler", "cloudfox", "vulnerabilities"]
+# The tools of the Misconfigurations list: every finding but a CVE.
+TOOLS = ("prowler", "cloudfox")
 
 
 class VulnerabilityOut(BaseModel):
@@ -180,7 +183,7 @@ class FindingQuery(BaseModel):
     offset: int = Field(0, ge=0)
     connection_id: list[int] = _many()
     severity: list[Severity] = _many()
-    tool: list[Literal["prowler", "cloudfox", "vulnerabilities"]] = _many()
+    tool: list[Literal["prowler", "cloudfox"]] = _many()
     provider: list[Provider] = Field(default_factory=list, max_length=3)
     # open = open and reopened, the findings still to fix.
     state: findings.FindingState = "open"
@@ -205,7 +208,7 @@ def _filters(query: FindingQuery) -> findings.FindingFilters:
     return findings.FindingFilters(
         connection_ids=tuple(query.connection_id),
         severities=tuple(query.severity),
-        tools=tuple(query.tool),
+        tools=tuple(query.tool) or TOOLS,
         providers=tuple(query.provider),
         state=query.state,
         regions=tuple(query.region),
@@ -224,11 +227,25 @@ def _filters(query: FindingQuery) -> findings.FindingFilters:
 
 @router.get("/findings")
 def list_findings(conn: Db, _user: Viewer, query: Annotated[FindingQuery, Query()]) -> FindingPage:
+    filters = _filters(query)
+    return finding_page(conn, filters, limit=query.limit, offset=query.offset, order=query.order)
+
+
+def finding_page(
+    conn: Db,
+    filters: findings.FindingFilters,
+    *,
+    limit: int,
+    offset: int,
+    order: findings.FindingOrder,
+) -> FindingPage:
+    """One page of findings with their resources' names and, for CVEs, their vulnerability;
+    as of the newest day the filters' tools ingested."""
     rows, total = findings.list_findings(
-        conn, limit=query.limit, offset=query.offset, filters=_filters(query), order=query.order
+        conn, limit=limit, offset=offset, filters=filters, order=order
     )
     # Only a search count is capped (core.db.count_sql); any other count is exact.
-    capped = bool(query.q) and total > SEARCH_COUNT_CAP
+    capped = bool(filters.q) and total > SEARCH_COUNT_CAP
     linked = sorted({r["resource_id"] for r in rows if r["resource_id"] is not None})
     names = inventory.resource_names(conn, linked)
     facts = findings.vulnerability_facts(
@@ -239,7 +256,7 @@ def list_findings(conn: Db, _user: Viewer, query: Annotated[FindingQuery, Query(
         total=SEARCH_COUNT_CAP if capped else total,
         total_capped=capped,
         data_through=ingest.data_through(
-            conn, connection_ids=query.connection_id, tools=query.tool or TOOLS
+            conn, connection_ids=list(filters.connection_ids), tools=list(filters.tools)
         ),
     )
 
@@ -249,16 +266,28 @@ def list_findings(conn: Db, _user: Viewer, query: Annotated[FindingQuery, Query(
 def finding_groups(
     conn: Db, _user: Viewer, query: Annotated[FindingQuery, Query()]
 ) -> FindingGroupPage:
-    """The Findings list by check, with the list's filters: one row per tool and check id,
-    worst severity first, then the checks with the most findings."""
+    """The Misconfigurations list by check, with the list's filters: one row per tool and check
+    id, worst severity first, then the checks with the most findings."""
+    filters = _filters(query)
+    return group_page(conn, filters, limit=query.limit, offset=query.offset, order=query.order)
+
+
+def group_page(
+    conn: Db,
+    filters: findings.FindingFilters,
+    *,
+    limit: int,
+    offset: int,
+    order: findings.FindingOrder,
+) -> FindingGroupPage:
     rows, total = findings.finding_groups(
-        conn, limit=query.limit, offset=query.offset, filters=_filters(query), order=query.order
+        conn, limit=limit, offset=offset, filters=filters, order=order
     )
     return FindingGroupPage(
         items=[FindingGroupOut.model_validate(r) for r in rows],
         total=total,
         data_through=ingest.data_through(
-            conn, connection_ids=query.connection_id, tools=query.tool or TOOLS
+            conn, connection_ids=list(filters.connection_ids), tools=list(filters.tools)
         ),
     )
 
@@ -269,8 +298,8 @@ def finding_facets(
     _user: Viewer,
     connection_id: Annotated[list[int], Query(max_length=50)] = [],  # noqa: B006 - FastAPI copies
 ) -> FindingFacets:
-    """The options of the Findings filters that come from the data."""
-    facets = findings.finding_facets(conn, connection_ids=tuple(connection_id))
+    """The options of the Misconfigurations filters that come from the data."""
+    facets = findings.finding_facets(conn, tools=TOOLS, connection_ids=tuple(connection_id))
     return FindingFacets(
         regions=facets.regions,
         services=facets.services,

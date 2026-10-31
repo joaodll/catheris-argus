@@ -516,7 +516,8 @@ def test_findings_filter_search_sort_and_count(
     items = every["items"]
     assert items and every["total"] >= len(items)
     assert {f["state"] for f in items} <= {"open", "reopened"}  # the default: still to fix
-    assert {f["tool"] for f in items} == {"prowler", "cloudfox", "vulnerabilities"}
+    # Misconfigurations: CVEs are listed apart (/vulnerabilities).
+    assert {f["tool"] for f in items} == {"prowler", "cloudfox"}
     ranks = [SEVERITY_RANK.index(f["severity"]) for f in items]
     assert ranks == sorted(ranks)  # worst first by default
     least = [SEVERITY_RANK.index(f["severity"]) for f in get(order="severity_asc")["items"]]

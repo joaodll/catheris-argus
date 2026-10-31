@@ -66,8 +66,17 @@ _FILTERS = f"""
     AND (NOT :new OR f.first_seen = f.last_seen)
     AND (CAST(:res AS bigint) IS NULL OR f.resource_id = :res)
     AND (CAST(:p AS text) IS NULL OR {_SEARCH} ILIKE :p ESCAPE '\\')
+    AND (NOT :expl OR EXISTS (SELECT 1 FROM finding_vulnerability v
+                              WHERE v.finding_id = f.id AND v.exploit_available))
+    AND (CAST(:fix AS text[]) IS NULL OR EXISTS (
+      SELECT 1 FROM finding_vulnerability v
+      WHERE v.finding_id = f.id AND v.fix_available = ANY(CAST(:fix AS text[]))))
 """  # noqa: S608 - exported SQL constants only
 _MUTED: dict[str, bool | None] = {"any": None, "hide": False, "only": True}
+# Whether a vulnerability has a fix: any; available (a fixed version for every or some of its
+# packages); none yet.
+FixFilter = Literal["any", "available", "none"]
+_FIX: dict[str, list[str] | None] = {"any": None, "available": ["YES", "PARTIAL"], "none": ["NO"]}
 # What the list and a single finding return. Exported SQL constants only.
 _SELECT = f"""
         SELECT f.id, f.finding_uid, f.tool, f.check_id, f.connection_id, c.name AS connection,
@@ -101,6 +110,9 @@ class FindingFilters:
     new: bool = False
     resource_id: int | None = None
     q: str | None = None
+    # Vulnerabilities only (finding_vulnerability): a public exploit exists; a fix exists or not.
+    exploitable: bool = False
+    fix: FixFilter = "any"
 
 
 def _any(values: tuple[Any, ...]) -> list[Any] | None:
@@ -126,6 +138,8 @@ def _params(filters: FindingFilters) -> dict[str, Any]:
         "new": filters.new,
         "res": filters.resource_id,
         "p": like_contains(filters.q) if filters.q else None,
+        "expl": filters.exploitable,
+        "fix": _FIX[filters.fix],
     }
 
 
@@ -245,17 +259,20 @@ class FindingFacets:
     checks: list[tuple[str, str]]  # (tool, check_id)
 
 
-def finding_facets(conn: Connection, *, connection_ids: tuple[int, ...] = ()) -> FindingFacets:
-    """The values the data-driven filters offer, over these connections (all when empty), from
-    finding_facet, which ingest rebuilds after each load. Empty values (rows not rescanned
-    since migration 0009) are not there."""
+def finding_facets(
+    conn: Connection, *, tools: tuple[str, ...], connection_ids: tuple[int, ...] = ()
+) -> FindingFacets:
+    """The values the data-driven filters offer, for these tools' findings over these
+    connections (all when empty), from finding_facet, which ingest rebuilds after each load.
+    Empty values (rows not rescanned since migration 0009) are not there."""
     rows = conn.execute(
         text("""
         SELECT DISTINCT facet, tool, value FROM finding_facet
-        WHERE CAST(:c AS bigint[]) IS NULL OR connection_id = ANY(CAST(:c AS bigint[]))
+        WHERE tool = ANY(CAST(:t AS text[]))
+          AND (CAST(:c AS bigint[]) IS NULL OR connection_id = ANY(CAST(:c AS bigint[])))
         ORDER BY facet, value, tool
     """),
-        {"c": _any(connection_ids)},
+        {"t": list(tools), "c": _any(connection_ids)},
     ).all()
     values: dict[str, list[str]] = {}
     checks: list[tuple[str, str]] = []

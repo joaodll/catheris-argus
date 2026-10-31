@@ -116,10 +116,9 @@ describe('Findings by check', () => {
     expect(next.severity).toEqual(['critical'])
   })
 
-  it("keeps a CVE check the facets do not offer, only with the tool on Vulnerabilities alone", () => {
-    const cve = { ...emptyFilters(), tool: ['vulnerabilities' as const], check: ['CVE-2024-1234'] }
-    expect(keptChecks(cve, [])).toEqual(['CVE-2024-1234'])
-    expect(keptChecks({ ...cve, tool: ['vulnerabilities', 'prowler'] }, [])).toEqual([])
-    expect(keptChecks({ ...cve, tool: [], check: ['a', 'b'] }, ['b'])).toEqual(['b'])
+  it("drops a chosen check the facets do not offer", () => {
+    const cve = { ...emptyFilters(), check: ['CVE-2024-1234'] }
+    expect(keptChecks(cve, [])).toEqual([])
+    expect(keptChecks({ ...cve, check: ['a', 'b'] }, ['b'])).toEqual(['b'])
   })
 })

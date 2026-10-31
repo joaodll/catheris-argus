@@ -281,7 +281,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
               desc-text="Z to A"
               asc-text="A to Z"
               @toggle="toggleName"
-            /><th scope="col">Connection</th><th scope="col">VPC</th><th scope="col" class="right">Open findings</th><th scope="col" class="right">Vulnerabilities</th>
+            /><th scope="col">Connection</th><th scope="col">VPC</th><th scope="col" class="right">Misconfigurations</th><th scope="col" class="right">Vulnerabilities</th>
             <SortHeader
               label="Last seen"
               class="right"
@@ -314,7 +314,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
               <span class="mono sub">{{ regionLabel(r.region) }}</span>
             </td>
             <td data-label="VPC" class="mono" :class="{ soft: !r.vpc_id }">{{ r.vpc_id ?? '—' }}</td>
-            <td data-label="Open findings" class="right">
+            <td data-label="Misconfigurations" class="right">
               <span v-if="r.open_findings > 0" class="count">
                 <SeverityTag v-if="r.worst_severity" :severity="r.worst_severity" compact />
                 <span class="mono">{{ r.open_findings }}</span>

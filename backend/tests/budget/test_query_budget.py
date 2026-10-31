@@ -417,6 +417,9 @@ def _p95_ms(engine: Engine, query: Callable[[Connection], Any]) -> float:
     return sorted(timings)[math.ceil(0.95 * len(timings)) - 1]
 
 
+# The Misconfigurations list's tools: every finding but a CVE (api/routes/findings.TOOLS).
+MISCONFIGURATIONS = ("prowler", "cloudfox")
+
 QUERIES: dict[str, Callable[[Connection], Any]] = {
     "overview, all accounts": lambda c: metrics.build_overview(c, connection_id=0, as_of=TODAY),
     "overview, one account": lambda c: metrics.build_overview(c, connection_id=7, as_of=TODAY),
@@ -517,8 +520,16 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "findings by check, one account": lambda c: findings.finding_groups(
         c, limit=20, offset=0, filters=findings.FindingFilters(connection_ids=(7,))
     ),
-    "findings, facets": findings.finding_facets,
-    "findings, facets, two accounts": lambda c: findings.finding_facets(c, connection_ids=(7, 8)),
+    "findings, facets": lambda c: findings.finding_facets(c, tools=MISCONFIGURATIONS),
+    "findings, facets, two accounts": lambda c: findings.finding_facets(
+        c, tools=MISCONFIGURATIONS, connection_ids=(7, 8)
+    ),
+    "misconfigurations: the default list": lambda c: findings.list_findings(
+        c, limit=20, offset=0, filters=findings.FindingFilters(tools=MISCONFIGURATIONS)
+    ),
+    "misconfigurations: by check": lambda c: findings.finding_groups(
+        c, limit=20, offset=0, filters=findings.FindingFilters(tools=MISCONFIGURATIONS)
+    ),
     "findings, counts for a page of resources": lambda c: findings.open_finding_counts(
         c, list(range(1000, 1020))
     ),
@@ -647,6 +658,19 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "findings: vulnerabilities only": lambda c: findings.list_findings(
         c, limit=20, offset=0, filters=findings.FindingFilters(tools=("vulnerabilities",))
     ),
+    "vulnerabilities: with a public exploit": lambda c: findings.list_findings(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(tools=("vulnerabilities",), exploitable=True),
+    ),
+    "vulnerabilities: by CVE, no fix yet": lambda c: findings.finding_groups(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(tools=("vulnerabilities",), fix="none"),
+    ),
+    "vulnerabilities: facets": lambda c: findings.finding_facets(c, tools=("vulnerabilities",)),
 }
 
 

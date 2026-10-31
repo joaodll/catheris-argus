@@ -74,6 +74,11 @@ export function shortLink(href: string): string {
 /** What a finding row leads with: Prowler's result for this resource ("Root account does not
  * have a hardware MFA device enabled"), not the check's passing condition. Other tools, and a
  * finding with no result sentence, keep the title. `check` is the title when the result leads. */
+/** The list a finding belongs to: a CVE's is Vulnerabilities, any other's Misconfigurations. */
+export function findingRoute(tool: string): 'vulnerabilities' | 'misconfigurations' {
+  return tool === 'vulnerabilities' ? 'vulnerabilities' : 'misconfigurations'
+}
+
 export function findingLine(f: { tool: string; title: string; detail?: string | null }): { lead: string; check: string | null } {
   const detail = f.detail?.trim()
   return f.tool === 'prowler' && detail ? { lead: detail, check: f.title } : { lead: f.title, check: null }

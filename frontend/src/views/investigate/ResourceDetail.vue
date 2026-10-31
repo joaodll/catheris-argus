@@ -163,7 +163,7 @@ function step(path: Schemas['PathOut']): string {
           <li v-for="f in findings[t.tool].data.value!.items" :key="f.id" class="finding-row">
             <SeverityTag :severity="f.severity" />
             <!-- Prowler's result leads, as on Findings (2026-10-31 review). -->
-            <RouterLink class="one-line finding-link" :to="{ name: 'findings', query: { finding: String(f.id) } }" target="_blank" :title="findingLine(f).lead">
+            <RouterLink class="one-line finding-link" :to="{ name: 'misconfigurations', query: { finding: String(f.id) } }" target="_blank" :title="findingLine(f).lead">
               {{ findingLine(f).lead }}<span class="sr-only"> (opens in a new tab)</span>
             </RouterLink>
             <span class="new-tab" aria-hidden="true">↗</span>
@@ -172,7 +172,7 @@ function step(path: Schemas['PathOut']): string {
         </ul>
         <RouterLink
           class="btn btn-ghost btn-sm see-all"
-          :to="{ name: 'findings', query: { resource: String(resourceId), tool: t.tool } }"
+          :to="{ name: 'misconfigurations', query: { resource: String(resourceId), tool: t.tool } }"
           :target="target"
         >
           See all {{ findings[t.tool].data.value!.total }} {{ t.name }} findings
@@ -218,7 +218,7 @@ function step(path: Schemas['PathOut']): string {
                 <RouterLink
                   class="one-line finding-link"
                   :class="{ mono: v.vulnerability.vulnerability_id }"
-                  :to="{ name: 'findings', query: { finding: String(v.finding_id) } }"
+                  :to="{ name: 'vulnerabilities', query: { finding: String(v.finding_id) } }"
                   target="_blank"
                   :title="v.title"
                 >
@@ -235,7 +235,7 @@ function step(path: Schemas['PathOut']): string {
           </ul>
           <RouterLink
             class="btn btn-ghost btn-sm see-all"
-            :to="{ name: 'findings', query: { resource: String(resourceId), tool: 'vulnerabilities' } }"
+            :to="{ name: 'vulnerabilities', query: { resource: String(resourceId) } }"
             :target="target"
           >
             See all {{ vulns.open + vulns.suppressed }} vulnerabilit{{ vulns.open + vulns.suppressed === 1 ? 'y' : 'ies' }}

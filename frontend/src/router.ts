@@ -1,6 +1,13 @@
 import { nextTick } from 'vue'
-import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
+import { createRouter, createWebHistory, type LocationQuery, type RouteLocationNormalized } from 'vue-router'
 import { can, refreshSession, session, type Role } from '@/composables/useSession'
+
+/** Where a link to the Findings screen from before the split lands: a CVE's (the tool filter on
+ * vulnerabilities) on Vulnerabilities, any other on Misconfigurations. */
+export function findingsRedirect(query: LocationQuery): 'vulnerabilities' | 'misconfigurations' {
+  const tool = query.tool
+  return (Array.isArray(tool) ? tool : [tool]).includes('vulnerabilities') ? 'vulnerabilities' : 'misconfigurations'
+}
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -33,9 +40,14 @@ export const router = createRouter({
     {
       path: '/investigate',
       component: () => import('@/views/ShellLayout.vue'),
-      redirect: { name: 'findings' },
+      redirect: { name: 'misconfigurations' },
       children: [
-        { path: 'findings', name: 'findings', component: () => import('@/views/investigate/FindingsView.vue'), meta: { title: 'Findings · Investigate' } },
+        // Prowler's and CloudFox's findings (ADR-0042, amended 2026-10-31: the screen was named
+        // Findings, and also listed CVEs).
+        { path: 'misconfigurations', name: 'misconfigurations', component: () => import('@/views/investigate/FindingsView.vue'), meta: { title: 'Misconfigurations · Investigate' } },
+        { path: 'vulnerabilities', name: 'vulnerabilities', component: () => import('@/views/investigate/VulnerabilitiesView.vue'), meta: { title: 'Vulnerabilities · Investigate' } },
+        // A link or bookmark from before the split: a CVE's goes to Vulnerabilities.
+        { path: 'findings', redirect: (to) => ({ name: findingsRedirect(to.query), query: to.query }) },
         { path: 'resources', name: 'resources', component: () => import('@/views/investigate/ResourcesView.vue'), meta: { title: 'Resources · Investigate' } },
         { path: 'map', name: 'resource-map', component: () => import('@/views/investigate/map/MapView.vue'), meta: { title: 'Resource map · Investigate' } },
         // An open path adds its rule name in front of the title (AttackPathsView).

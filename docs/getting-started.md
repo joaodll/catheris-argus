@@ -77,15 +77,17 @@ that produced it, and the bar at the top says how old each tool's data is.
 Every framework Prowler evaluates, with its pass rate. A framework page shows its requirements,
 their results per account, and how each account moved month over month.
 
-### Investigate → Findings and Resources
+### Investigate → Misconfigurations, Vulnerabilities and Resources
 
 ![Findings](images/findings.png)
 
-**Findings** lists failing checks with severity, the resource, when it was first seen, and
+**Misconfigurations** (named Findings until 2026-10-31) lists failing checks with severity, the resource, when it was first seen, and
 whether it came back after being fixed (a regression). A finding opens to Prowler's own
 explanation and the remediation steps and code. On Prowler's exposure checks it also shows
-Argus's own verdict on whether the resource is really reachable from the internet, and why. **Resources** is the inventory, with each resource's configuration as of any
-past day.
+Argus's own verdict on whether the resource is really reachable from the internet, and why.
+**Vulnerabilities** lists the CVEs each provider's own scanner reports (AWS Inspector on AWS), with
+the vulnerable package, its fixed version, whether a public exploit exists and EPSS, as a list or
+by CVE. **Resources** is the inventory, with each resource's configuration as of any past day.
 
 ![Resources](images/resources.png)
 

@@ -14,7 +14,7 @@ import CopyButton from '@/components/CopyButton.vue'
 import CommandsBlock from './CommandsBlock.vue'
 import { useResource } from '@/composables/useResource'
 import { categoryLabel } from './findingFilters'
-import { regionLabel, shortLink, webUrl } from './labels'
+import { findingRoute, regionLabel, shortLink, webUrl } from './labels'
 import ToolText from './ToolText.vue'
 import { CODE_KINDS, codeBody } from './toolText'
 import ReachBadge from './ReachBadge.vue'
@@ -70,7 +70,7 @@ const verdict = computed(() => {
     <RouterLink
       v-if="ownLink"
       class="btn btn-ghost btn-sm own-link"
-      :to="{ name: 'findings', query: { finding: String(f.id) } }"
+      :to="{ name: findingRoute(f.tool), query: { finding: String(f.id) } }"
       target="_blank"
       :aria-label="`Open ${f.title} in a new tab`"
     >

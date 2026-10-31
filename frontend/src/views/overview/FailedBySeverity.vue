@@ -37,7 +37,7 @@ const total = computed(() => rows.value.reduce((n, r) => n + (r.value ?? 0), 0))
           <tr v-for="r in rows" :key="r.severity">
             <th scope="row">
               <span class="dot mark-dot" :style="{ '--series': r.color }"></span>
-              <RouterLink class="row-link sev" :to="r.to" :aria-label="`${r.name}: ${int(r.value)} open, show in Findings`">{{ r.name }}</RouterLink>
+              <RouterLink class="row-link sev" :to="r.to" :aria-label="`${r.name}: ${int(r.value)} open, show in Misconfigurations`">{{ r.name }}</RouterLink>
             </th>
             <td><span class="track mark-track"><span class="fill mark-bar" :style="{ width: r.width, '--series': r.color }"></span></span></td>
             <td class="r mono count">{{ int(r.value) }}</td>

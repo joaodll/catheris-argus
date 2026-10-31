@@ -23,7 +23,8 @@ own resource id, so the three tools land on the same resource, every day.
 | | |
 | --- | --- |
 | **Compliance** | Every framework Prowler maps, with Prowler's ThreatScore, per account and month over month |
-| **Findings** | Failing checks with what each tool found on the resource, their history (new, resolved, reopened) and remediation, as a list or grouped by check |
+| **Misconfigurations** | Failing Prowler checks and CloudFox's attacker findings, with what each tool found on the resource, their history (new, resolved, reopened) and remediation, as a list or grouped by check |
+| **Vulnerabilities** | The CVEs each provider's own scanner reports (AWS Inspector on AWS), with package, fix, public exploit and EPSS, as a list or grouped by CVE |
 | **Resources** | The inventory Steampipe collects, with each resource's configuration on any past day, and the vulnerabilities each provider's own scanner reports (AWS Inspector on AWS) on instances, functions and container repositories |
 | **Resource map** | How resources connect: from the internet through DNS, load balancers and gateways to compute, roles and data |
 | **Attack paths** | Paths from an internet entry, an outside principal or a leaked key to administrator or data, each step with its evidence and fix |

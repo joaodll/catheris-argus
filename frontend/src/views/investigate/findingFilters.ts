@@ -1,5 +1,5 @@
 /**
- * The Findings filters and the URL (docs/ui/screens.md, E7): every filter lives in the query
+ * The Misconfigurations filters and the URL (docs/ui/screens.md, E7): every filter lives in the query
  * string, repeated for several values, defaults left out, so a filtered list can be bookmarked,
  * shared and restored by Back. A value the page does not know is ignored, never sent.
  */
@@ -9,7 +9,7 @@ import { SEVERITIES, type Severity } from '@/views/overview/severity'
 import type { FindingState } from './labels'
 import { FINDING_REACHES, type FindingReach } from './reachReason'
 
-export type Tool = 'prowler' | 'cloudfox' | 'vulnerabilities'
+export type Tool = 'prowler' | 'cloudfox'
 export type Result = 'FAIL' | 'MANUAL'
 export type Muted = 'any' | 'hide' | 'only'
 export type Order = 'severity' | 'severity_asc' | 'last_seen_desc' | 'last_seen_asc'
@@ -37,7 +37,7 @@ export interface FindingFilters {
 /** The filters in row 2 (More filters): how many are set, for the button's count. */
 export const SECONDARY: (keyof FindingFilters)[] = ['service', 'type', 'check', 'reach', 'region', 'result', 'muted', 'new']
 
-const TOOLS: Tool[] = ['prowler', 'cloudfox', 'vulnerabilities']
+const TOOLS: Tool[] = ['prowler', 'cloudfox']
 const PROVIDER_IDS: Provider[] = PROVIDERS.map((p) => p.id)
 const RESULTS: Result[] = ['FAIL', 'MANUAL']
 const MUTED: Muted[] = ['any', 'hide', 'only']
@@ -188,9 +188,10 @@ export function groupFilters(f: FindingFilters, group: { tool: string; check_id:
   return { ...f, check: [group.check_id], tool: tool ? [tool] : f.tool }
 }
 
-/** The chosen checks the facets keep: those they offer, and with the Tool filter on
- * Vulnerabilities alone, any (its check ids, CVEs, are not facets; a group links to one). */
+/** The chosen checks the facets keep: those they offer. */
 export function keptChecks(f: FindingFilters, offered: string[]): string[] {
-  const vulnerabilitiesOnly = f.tool.length === 1 && f.tool[0] === 'vulnerabilities'
-  return f.check.filter((c) => vulnerabilitiesOnly || offered.includes(c))
+  return f.check.filter((c) => offered.includes(c))
 }
+
+/** Query-string readers the Vulnerabilities filters share. */
+export { ids, known, oneOf, strings }

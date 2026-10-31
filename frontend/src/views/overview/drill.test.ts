@@ -4,9 +4,9 @@ import { attackPaths, failedFindings, framework, resources, threatScore } from '
 const defined = (q: unknown) => Object.fromEntries(Object.entries(q as Record<string, unknown>).filter(([, v]) => v !== undefined))
 
 describe('Overview drill-downs', () => {
-  it('opens Findings with the filters that reproduce a failed-findings count', () => {
+  it('opens Misconfigurations with the filters that reproduce a failed-findings count', () => {
     const to = failedFindings(7, 'high') as { name: string; query: Record<string, unknown> }
-    expect(to.name).toBe('findings')
+    expect(to.name).toBe('misconfigurations')
     expect(defined(to.query)).toEqual({ severity: ['high'], tool: ['prowler'], result: ['FAIL'], muted: 'hide', connection: ['7'] })
     expect(defined((failedFindings(0, 'critical') as { query: object }).query)).not.toHaveProperty('connection')
   })
