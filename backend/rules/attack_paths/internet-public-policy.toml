@@ -4,11 +4,14 @@ name = "Public by its own policy"
 category = "Public data exposure"
 severity = "high"
 technique = "T1530"  # Data from Cloud Storage
-description = """A resource's own policy lets anyone in: an Allow statement for any principal
-(`*`) on a bucket, queue, topic, function, KMS key, secret or ECR repository. Whoever finds it
-can read or write its data, send to it or invoke it, with the actions the statement names, no
-network in the way. On a Restricted door (Block Public Access) the path is latent: one change
-would open it; on an Unknown one, the statement has a condition Argus does not evaluate."""
+# The statement is an Allow for "*". Restricted: Block Public Access; Unknown: a condition
+# Argus does not evaluate.
+description = """A resource's own policy lets anyone in: it allows any principal on a
+bucket, queue, topic, function, encryption key, secret or container repository. Whoever finds
+it can read or write its data, send to it or invoke it, with the actions the policy names, and
+no network is in the way. When Block Public Access keeps it closed, the path is latent: one
+change would open it. When the policy has a condition Argus does not evaluate, whether anyone
+gets in is unknown."""
 remediation = """Remove the statement for "*" from the resource's policy, or name the accounts or
 principals that need access. For a bucket, keep Block Public Access on, at the account level
 too."""

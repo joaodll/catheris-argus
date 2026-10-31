@@ -109,14 +109,6 @@ export function outsiderName(uid: string): string {
   return uidTail(uid)
 }
 
-/** "<entry name>" for a one-step path (the door is the path), else "entry → … → target · N
- * steps". */
-export function whereItGoes(entry: string, target: string, nodes: number, sameEnds: boolean): string {
-  if (sameEnds && nodes <= 2) return entry
-  const steps = Math.max(0, nodes - 1)
-  return `${entry} → … → ${target} · ${steps} ${steps === 1 ? 'step' : 'steps'}`
-}
-
 interface ListedPath {
   entry_uid: string
   target_uid: string
@@ -136,14 +128,21 @@ function kindOf(uid: string): MapNode['kind'] {
 const endName = (uid: string, name: string | null, inbound: StepEdge | null): string =>
   name ?? stepLabel({ uid, kind: kindOf(uid), name: null, type: null, resource_id: null }, inbound).name
 
-/** The list's path line: how it gets in, then where it goes. A path listed without its first
- * step keeps the line from before 2026-10-23. */
-export function pathLine(p: ListedPath): string {
+/** The list's title: where the path goes, in words (2026-10-31 review): "prod-orders-http →
+ * administrator of demo-prod". An administrator is named by the connection of its account
+ * (`connectionOf`), else by the account. A one-step path (the door is the path) is its entry. */
+export function pathTitle(p: ListedPath, connectionOf: (account: string) => string | null): string {
   const entry = endName(p.entry_uid, p.entry_name, p.entry_step)
-  const target = endName(p.target_uid, p.target_name, null)
-  const way = wayIn(p.entry_step)
-  const where = whereItGoes(entry, target, p.node_uids.length, p.entry_uid === p.target_uid)
-  return way ? `${way} · ${where}` : whereItGoes(entry, target, p.node_uids.length, false)
+  if (p.entry_uid === p.target_uid && p.node_uids.length <= 2) return entry
+  const admin = /^admin:(.+)$/.exec(p.target_uid)
+  const target = admin ? `administrator of ${connectionOf(admin[1]!) ?? `account ${admin[1]}`}` : endName(p.target_uid, p.target_name, null)
+  return `${entry} → ${target}`
+}
+
+/** The list's second line: the path type, how it gets in, and how many steps. */
+export function pathSubline(p: ListedPath & { rule_id: string; rule_name: string | null }): string {
+  const steps = Math.max(0, p.node_uids.length - 1)
+  return [p.rule_name ?? p.rule_id, wayIn(p.entry_step), `${steps} ${steps === 1 ? 'step' : 'steps'}`].filter(Boolean).join(' · ')
 }
 
 // Escalation methods in AWS's own case (privilege-escalation.toml matches them lower-cased).

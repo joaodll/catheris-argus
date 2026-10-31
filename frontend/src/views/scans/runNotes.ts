@@ -72,3 +72,12 @@ export function partialTables(run: { incomplete_tables: string[]; not_applicable
   const apart = new Set([...(run.not_applicable_tables ?? []), ...(run.refused_tables ?? [])])
   return run.incomplete_tables.filter((t) => !apart.has(t))
 }
+
+/** What a partial run's failed tables mean, per tool (2026-10-31 review): Steampipe carries
+ *  the resources forward; Inspector's one table is its findings export, so nothing resolves. */
+export function partialTablesNote(tool: string, count: number): string {
+  if (tool === 'inspector') {
+    return "Partial: Inspector's findings export failed, was denied or was throttled. No vulnerability was resolved by this run, and those already open stay open."
+  }
+  return `Partial: ${count} of the tables failed, were denied or were throttled. Their resources were carried forward from the previous scan; every other table is up to date. A partial run is not retried.`
+}

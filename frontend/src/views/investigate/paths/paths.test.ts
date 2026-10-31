@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { isPathFiltered, parsePathFilters, parsePathId, parsePathOrder, pathApiFilters, pathFiltersToQuery, toggleDate } from './pathFilters'
 import { confidenceLine } from './confidence'
 import { breakLink, severityLine } from './pathText'
-import { doorPorts, factsOf, moveWords, outsiderName, pathLine, stepLabel, wayIn, type ChainEdge } from './pathWords'
+import { doorPorts, factsOf, moveWords, outsiderName, pathSubline, pathTitle, stepLabel, wayIn, type ChainEdge } from './pathWords'
 import { portLabel, sortPorts } from './ports'
 import type { MapNode } from '../map/mapGraph'
 
@@ -149,16 +149,27 @@ describe('Attack paths: how a path gets in (the path line)', () => {
     expect(wayIn(step)).toBe(expected)
   })
 
-  it('joins how it gets in with where it goes', () => {
+  it('titles a path by where it goes, and says how on the line below', () => {
     const door = 'arn:aws:ec2:us-east-1:111122223333:instance/i-1'
-    const base = { entry_uid: door, target_uid: door, entry_name: 'bastion-1', target_name: 'bastion-1', node_uids: ['internet', door] }
-    expect(pathLine({ ...base, entry_step: edge('ROUTES_TO', { open: ['tcp/22'] }) })).toBe('Exposed: tcp/22 (SSH) · bastion-1')
+    const rule = { rule_id: 'internet-to-admin', rule_name: 'From the internet to administrator' }
+    const base = { ...rule, entry_uid: door, target_uid: door, entry_name: 'bastion-1', target_name: 'bastion-1', node_uids: ['internet', door] }
+    const named = (account: string): string | null => (account === '111122223333' ? 'demo-prod' : null)
+    // A one-step path: the door is the path.
+    const exposed = { ...base, entry_step: edge('ROUTES_TO', { open: ['tcp/22'] }) }
+    expect(pathTitle(exposed, named)).toBe('bastion-1')
+    expect(pathSubline(exposed)).toBe('From the internet to administrator · Exposed: tcp/22 (SSH) · 1 step')
     const chain = { ...base, target_uid: 'admin:111122223333', target_name: null, node_uids: ['internet', door, 'r', 'admin:111122223333'] }
-    expect(pathLine({ ...chain, entry_step: edge('ROUTES_TO', { open: ['tcp/443'] }) })).toBe('Exposed: tcp/443 (HTTPS) · bastion-1 → … → Admin · 111122223333 · 3 steps')
-    // A path listed without its first step keeps the line from before.
-    expect(pathLine({ ...base, entry_step: null })).toBe('bastion-1 → … → bastion-1 · 1 step')
+    const https = { ...chain, entry_step: edge('ROUTES_TO', { open: ['tcp/443'] }) }
+    expect(pathTitle(https, named)).toBe('bastion-1 → administrator of demo-prod')
+    expect(pathSubline(https)).toBe('From the internet to administrator · Exposed: tcp/443 (HTTPS) · 3 steps')
+    // An account with no connection, and a path listed without its first step.
+    expect(pathTitle({ ...https, target_uid: 'admin:999988887777' }, named)).toBe('bastion-1 → administrator of account 999988887777')
+    expect(pathSubline({ ...chain, entry_step: null, rule_name: null })).toBe('internet-to-admin · 3 steps')
     const outside = { ...chain, entry_uid: 'arn:aws:iam::210987654321:root', entry_name: null, entry_step: edge('OUTSIDER', { kind: 'other_account', account: '210987654321' }) }
-    expect(pathLine(outside)).toBe('Outsider: account 210987654321 · Account 210987654321 → … → Admin · 111122223333 · 3 steps')
+    expect(pathTitle(outside, named)).toBe('Account 210987654321 → administrator of demo-prod')
+    expect(pathSubline(outside)).toContain('Outsider: account 210987654321')
+    // A data store at the end keeps its name.
+    expect(pathTitle({ ...https, target_uid: 'arn:aws:s3:::orders', target_name: 'orders' }, named)).toBe('bastion-1 → orders')
   })
 
   it('names an outsider', () => {

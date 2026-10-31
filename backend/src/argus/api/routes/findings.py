@@ -81,6 +81,10 @@ class FindingOut(BaseModel):
     resolved_on: date | None
     # Inspector findings only; null on every other tool's.
     vulnerability: VulnerabilityOut | None = None
+    # What the tool says about this resource: Prowler's status_extended ("Root account does
+    # not have a hardware MFA device enabled"). Null or empty when the tool gives none, or for
+    # a finding not rescanned since 2026-10-07.
+    detail: str | None = None
 
 
 class RemediationCode(BaseModel):
@@ -102,11 +106,9 @@ class CommandOut(BaseModel):
 
 
 class FindingDetail(FindingOut):
-    """One finding with what the tool says about it. `detail` is about this resource (Prowler's
-    status_extended); the rest is about the check and is the same for each of its findings.
-    Null or empty when the tool gives none, or for a finding not rescanned since 2026-10-07."""
+    """One finding with what the tool says about it: about the check, the same for each of its
+    findings (`detail`, about this resource, is in the list too)."""
 
-    detail: str | None
     description: str | None
     risk: str | None
     links: list[str]  # http(s) only
@@ -122,6 +124,27 @@ class FindingPage(BaseModel):
     # True when a text search matched more than `total` (the count stops at 10,000): the UI
     # says "10,000+ records".
     total_capped: bool
+    # The scan time the list reflects (newest day ingested); null when nothing is ingested.
+    data_through: date | None
+
+
+class FindingGroupOut(BaseModel):
+    """One check of the findings matching the filters (the Findings list by check)."""
+
+    tool: str
+    check_id: str
+    title: str
+    severity: str  # the worst of its findings
+    # Findings, not distinct resources (a check rarely fires twice on one resource): the
+    # exact count of distinct resources is too slow over every open finding.
+    findings: int
+    connections: int
+    last_seen: date
+
+
+class FindingGroupPage(BaseModel):
+    items: list[FindingGroupOut]
+    total: int  # checks matching the filters, for the page count
     # The scan time the list reflects (newest day ingested); null when nothing is ingested.
     data_through: date | None
 
@@ -177,31 +200,31 @@ class FindingQuery(BaseModel):
     order: findings.FindingOrder = "severity"
 
 
+def _filters(query: FindingQuery) -> findings.FindingFilters:
+    return findings.FindingFilters(
+        connection_ids=tuple(query.connection_id),
+        severities=tuple(query.severity),
+        tools=tuple(query.tool),
+        providers=tuple(query.provider),
+        state=query.state,
+        regions=tuple(query.region),
+        services=tuple(query.service),
+        resource_types=tuple(query.resource_type),
+        check_ids=tuple(query.check_id),
+        categories=tuple(query.category),
+        statuses=tuple(query.status),
+        reaches=tuple(query.reach),
+        muted=query.muted,
+        new=query.new,
+        resource_id=query.resource_id,
+        q=query.q or None,
+    )
+
+
 @router.get("/findings")
 def list_findings(conn: Db, _user: Viewer, query: Annotated[FindingQuery, Query()]) -> FindingPage:
     rows, total = findings.list_findings(
-        conn,
-        limit=query.limit,
-        offset=query.offset,
-        filters=findings.FindingFilters(
-            connection_ids=tuple(query.connection_id),
-            severities=tuple(query.severity),
-            tools=tuple(query.tool),
-            providers=tuple(query.provider),
-            state=query.state,
-            regions=tuple(query.region),
-            services=tuple(query.service),
-            resource_types=tuple(query.resource_type),
-            check_ids=tuple(query.check_id),
-            categories=tuple(query.category),
-            statuses=tuple(query.status),
-            reaches=tuple(query.reach),
-            muted=query.muted,
-            new=query.new,
-            resource_id=query.resource_id,
-            q=query.q or None,
-        ),
-        order=query.order,
+        conn, limit=query.limit, offset=query.offset, filters=_filters(query), order=query.order
     )
     # Only a search count is capped (core.db.count_sql); any other count is exact.
     capped = bool(query.q) and total > SEARCH_COUNT_CAP
@@ -212,6 +235,25 @@ def list_findings(conn: Db, _user: Viewer, query: Annotated[FindingQuery, Query(
         items=[FindingOut.model_validate(_named(r, names, facts)) for r in rows],
         total=SEARCH_COUNT_CAP if capped else total,
         total_capped=capped,
+        data_through=ingest.data_through(
+            conn, connection_ids=query.connection_id, tools=query.tool or TOOLS
+        ),
+    )
+
+
+# Before /findings/{finding_id}, which would otherwise take "groups" as an id.
+@router.get("/findings/groups")
+def finding_groups(
+    conn: Db, _user: Viewer, query: Annotated[FindingQuery, Query()]
+) -> FindingGroupPage:
+    """The Findings list by check, with the list's filters: one row per tool and check id,
+    worst severity first, then the checks with the most findings."""
+    rows, total = findings.finding_groups(
+        conn, limit=query.limit, offset=query.offset, filters=_filters(query), order=query.order
+    )
+    return FindingGroupPage(
+        items=[FindingGroupOut.model_validate(r) for r in rows],
+        total=total,
         data_through=ingest.data_through(
             conn, connection_ids=query.connection_id, tools=query.tool or TOOLS
         ),

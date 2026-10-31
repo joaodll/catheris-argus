@@ -48,6 +48,8 @@ const shown = computed(() => (chosen.value && detail.data.value?.framework === c
 const strip = computed(() => (chosen.value ? (shown.value?.month_table ?? []) : (props.data?.threatscore.strip ?? [])))
 const first = computed(() => (chosen.value ? shown.value?.change_since : strip.value[0]?.month))
 const change = computed(() => (chosen.value ? (shown.value?.change ?? null) : (props.data?.threatscore.change_since_first ?? null)))
+// One scored month has no change to show (2026-10-31 review): the framework page's words.
+const enoughMonths = computed(() => strip.value.filter((m) => m.score != null).length >= 2)
 const loadingFramework = computed(() => Boolean(chosen.value) && !shown.value && !detail.error.value)
 const link = computed(() => frameworkLink(props.connectionId, chosen.value || THREATSCORE_FRAMEWORK))
 </script>
@@ -92,7 +94,10 @@ const link = computed(() => frameworkLink(props.connectionId, chosen.value || TH
       <span v-else-if="props.data" class="sub">No ThreatScore yet: it appears after the first Prowler scan.</span>
       <div v-else class="skeleton sk-52"></div>
     </div>
-    <div class="since">
+    <div v-if="strip.length && !enoughMonths && !loadingFramework" class="since">
+      <span class="sub">Needs two months of history</span>
+    </div>
+    <div v-else class="since">
       <span class="sub">Since {{ first ? monthName(first) : '…' }}</span>
       <b class="mono total" :style="{ color: deltaColor(change, true) }">{{ change == null ? '—' : `${signed(change, 1)} pts` }}</b>
     </div>

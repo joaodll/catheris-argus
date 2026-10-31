@@ -99,6 +99,11 @@ test('overview: every block, current state only', async ({ page }) => {
   await expect(page.getByRole('list', { name: 'AWS assets by type' })).toBeVisible()
   await expect(page.getByText('not covered')).not.toHaveCount(0)
   await shot(page, '10-overview-now')
+  // Before two points of history (a new install's first month), words instead of lone dots, and
+  // no "±0 pts" (2026-10-31 review).
+  const notYet = page.getByText(/^Not enough history yet:/)
+  await expect(notYet.or(page.getByRole('img', { name: /Open failed findings by severity over/ }))).toBeVisible()
+  if (await notYet.isVisible()) await expect(page.getByText('Needs two months of history').first()).toBeVisible()
 
   // The strip's framework (2026-10-15): ThreatScore by default; a framework is kept in the URL
   // and in this browser, and its link opens that framework.
@@ -209,6 +214,20 @@ test('administration and scans: connections, schedules, runs, settings', async (
   await navLink(page, 'Schedules')
   await expect(page).toHaveURL(/\/scans\/schedules$/)
   await expect(page.getByRole('heading', { level: 2, name: 'Run now' })).toBeVisible()
+  // Run now ticks Inspector only where it has run (owner's decision, 2026-10-31): with no
+  // connection chosen it is not ticked; every Demo connection has run it; a hand-made change
+  // stays when the connections change.
+  const runNow = page.getByRole('region', { name: 'Run now' })
+  const inspectorTick = runNow.getByRole('checkbox', { name: 'Inspector' })
+  await expect(runNow.getByRole('checkbox', { name: 'Steampipe' })).toBeChecked()
+  await expect(inspectorTick).not.toBeChecked()
+  await runNow.getByRole('button', { name: 'Select all' }).click()
+  await expect(inspectorTick).toBeChecked()
+  await runNow.getByRole('checkbox', { name: 'CloudFox' }).uncheck()
+  await runNow.getByRole('checkbox').first().uncheck()
+  await expect(runNow.getByRole('checkbox', { name: 'CloudFox' })).not.toBeChecked()
+  await shot(page, '29-run-now-ticks')
+  await page.reload()
   await page.getByLabel('Search', { exact: true }).fill('no such schedule')
   await expect(page.getByText('No schedules match "no such schedule".')).toBeVisible()
   await page.getByRole('button', { name: 'Clear filters' }).first().click()
@@ -357,6 +376,23 @@ test('investigate: findings and resources, read-only', async ({ page }) => {
   await shot(page, '74-findings-filters')
   await page.getByRole('button', { name: 'Clear filters' }).first().click()
   await expect(page).not.toHaveURL(/severity=/)
+  // By check (2026-10-31): each check once, with its findings; a group opens the list
+  // filtered to its check, as many findings as it counted.
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'By check' }).click()
+  await expect(page).toHaveURL(/view=checks/)
+  await expect(page.getByRole('heading', { level: 2, name: 'Checks with findings' })).toBeVisible()
+  const byCheck = page.getByRole('table')
+  await expect(byCheck.getByRole('columnheader', { name: 'Accounts' })).toBeVisible()
+  await axe(page, 'findings by check')
+  await shot(page, '75-findings-by-check')
+  const group = byCheck.locator('tbody tr').first()
+  const counted = (await group.locator('td[data-label="Findings"]').innerText()).trim()
+  await group.locator('.group-link').click()
+  await expect(page).not.toHaveURL(/view=checks/)
+  await expect(page).toHaveURL(/check=/)
+  await expect(page.locator('.panel-foot')).toContainText(new RegExp(`(^|\\D)${counted} records?`))
+  await page.getByRole('button', { name: 'Clear filters' }).first().click()
+  await expect(page).not.toHaveURL(/check=/)
 
   await navLink(page, 'Resources')
   await expect(page).toHaveURL(/\/investigate\/resources/)
@@ -536,6 +572,8 @@ test('investigate: resource map and attack paths, read-only', async ({ page }) =
   await expect(paths.locator('tbody tr').first()).toBeVisible()
   // One search (ADR-0037): every path says how sure Argus is; the filter narrows to one level.
   await expect(paths.getByRole('columnheader', { name: 'Confidence' })).toBeVisible()
+  // Each row says where the path goes; the line below, its type, way in and steps.
+  await expect(paths.locator('tbody tr').first().locator('.summary')).toHaveText(/ · \d+ steps?$/)
   await expect(page.locator('#ap-rule')).toHaveCount(0)
   await axe(page, 'attack paths')
   await shot(page, '94-attack-paths')
@@ -555,6 +593,9 @@ test('investigate: resource map and attack paths, read-only', async ({ page }) =
   await page.getByRole('button', { name: 'Evidence and fix' }).first().click()
   const evidence = page.getByRole('region', { name: /^Evidence and fix for the link: / })
   await expect(evidence).toBeVisible()
+  // The codes behind the words sit in a closed Technical details (2026-10-31 review).
+  await expect(evidence.getByText(/^rule internet-unverified@/)).toBeHidden()
+  await evidence.getByText('Technical details').click()
   await expect(evidence.getByText(/^rule internet-unverified@/)).toBeVisible()
   await expect(evidence.getByText(/^Break this link:/)).toBeVisible()
   await axe(page, 'attack path')

@@ -53,7 +53,7 @@ async function onSaved(message: string): Promise<void> {
       <div class="titles">
         <h2 id="users-h" class="h2">Users</h2>
         <span class="cap">
-          <template v-if="list.data.value">{{ list.data.value.total }} users · {{ activeCount }} active · </template>roles decide what each can change
+          <template v-if="list.data.value">{{ list.data.value.total }} user{{ list.data.value.total === 1 ? '' : 's' }} · {{ activeCount }} active · </template>roles decide what each can change
         </span>
       </div>
       <button type="button" class="btn btn-primary" @click="adding = true"><AppIcon name="plus" :size="16" :stroke="2.2" />Add user</button>
@@ -97,7 +97,9 @@ async function onSaved(message: string): Promise<void> {
         </tbody>
       </table>
     </div>
-    <AppPagination v-if="list.data.value" :total="list.data.value.total" :page="page" :limit="PAGE" noun="user" @change="goTo" />
+    <div v-if="list.data.value" class="panel-foot">
+      <AppPagination :total="list.data.value.total" :page="page" :limit="PAGE" noun="user" @change="goTo" />
+    </div>
     <p class="panel-foot cap foot">Viewer reads. Operator also runs connections and schedules. Admin also changes Settings and Users.</p>
   </section>
 

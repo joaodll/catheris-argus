@@ -364,6 +364,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/findings/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finding Groups
+         * @description The Findings list by check, with the list's filters: one row per tool and check id,
+         *     worst severity first, then the checks with the most findings.
+         */
+        get: operations["finding_groups_api_v1_findings_groups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/findings/{finding_id}": {
         parameters: {
             query?: never;
@@ -1229,9 +1250,8 @@ export interface components {
         };
         /**
          * FindingDetail
-         * @description One finding with what the tool says about it. `detail` is about this resource (Prowler's
-         *     status_extended); the rest is about the check and is the same for each of its findings.
-         *     Null or empty when the tool gives none, or for a finding not rescanned since 2026-10-07.
+         * @description One finding with what the tool says about it: about the check, the same for each of its
+         *     findings (`detail`, about this resource, is in the list too).
          */
         FindingDetail: {
             /** Categories */
@@ -1247,7 +1267,7 @@ export interface components {
             /** Description */
             description: string | null;
             /** Detail */
-            detail: string | null;
+            detail?: string | null;
             /** Finding Uid */
             finding_uid: string;
             /**
@@ -1323,6 +1343,38 @@ export interface components {
             /** Services */
             services: string[];
         };
+        /**
+         * FindingGroupOut
+         * @description One check of the findings matching the filters (the Findings list by check).
+         */
+        FindingGroupOut: {
+            /** Check Id */
+            check_id: string;
+            /** Connections */
+            connections: number;
+            /** Findings */
+            findings: number;
+            /**
+             * Last Seen
+             * Format: date
+             */
+            last_seen: string;
+            /** Severity */
+            severity: string;
+            /** Title */
+            title: string;
+            /** Tool */
+            tool: string;
+        };
+        /** FindingGroupPage */
+        FindingGroupPage: {
+            /** Data Through */
+            data_through: string | null;
+            /** Items */
+            items: components["schemas"]["FindingGroupOut"][];
+            /** Total */
+            total: number;
+        };
         /** FindingOut */
         FindingOut: {
             /** Categories */
@@ -1333,6 +1385,8 @@ export interface components {
             connection: string;
             /** Connection Id */
             connection_id: number;
+            /** Detail */
+            detail?: string | null;
             /** Finding Uid */
             finding_uid: string;
             /**
@@ -3560,6 +3614,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FindingFacets"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finding_groups_api_v1_findings_groups_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                connection_id?: number[];
+                severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
+                tool?: ("prowler" | "cloudfox" | "inspector")[];
+                provider?: ("aws" | "gcp" | "oci")[];
+                state?: "open" | "reopened" | "resolved" | "accepted_risk";
+                region?: string[];
+                service?: string[];
+                resource_type?: string[];
+                check_id?: string[];
+                category?: string[];
+                status?: ("FAIL" | "MANUAL")[];
+                reach?: ("confirmed" | "restricted" | "unknown" | "not_covered")[];
+                muted?: "any" | "hide" | "only";
+                new?: boolean;
+                resource_id?: number | null;
+                q?: string | null;
+                order?: "severity" | "severity_asc" | "last_seen_desc" | "last_seen_asc";
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindingGroupPage"];
                 };
             };
             /** @description Validation Error */

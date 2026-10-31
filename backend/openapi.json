@@ -1045,7 +1045,7 @@
         "type": "object"
       },
       "FindingDetail": {
-        "description": "One finding with what the tool says about it. `detail` is about this resource (Prowler's\nstatus_extended); the rest is about the check and is the same for each of its findings.\nNull or empty when the tool gives none, or for a finding not rescanned since 2026-10-07.",
+        "description": "One finding with what the tool says about it: about the check, the same for each of its\nfindings (`detail`, about this resource, is in the list too).",
         "properties": {
           "categories": {
             "items": {
@@ -1330,7 +1330,6 @@
           "first_seen",
           "last_seen",
           "resolved_on",
-          "detail",
           "description",
           "risk",
           "links",
@@ -1389,6 +1388,85 @@
         "title": "FindingFacets",
         "type": "object"
       },
+      "FindingGroupOut": {
+        "description": "One check of the findings matching the filters (the Findings list by check).",
+        "properties": {
+          "check_id": {
+            "title": "Check Id",
+            "type": "string"
+          },
+          "connections": {
+            "title": "Connections",
+            "type": "integer"
+          },
+          "findings": {
+            "title": "Findings",
+            "type": "integer"
+          },
+          "last_seen": {
+            "format": "date",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "check_id",
+          "title",
+          "severity",
+          "findings",
+          "connections",
+          "last_seen"
+        ],
+        "title": "FindingGroupOut",
+        "type": "object"
+      },
+      "FindingGroupPage": {
+        "properties": {
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/FindingGroupOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "data_through"
+        ],
+        "title": "FindingGroupPage",
+        "type": "object"
+      },
       "FindingOut": {
         "properties": {
           "categories": {
@@ -1409,6 +1487,17 @@
           "connection_id": {
             "title": "Connection Id",
             "type": "integer"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
           },
           "finding_uid": {
             "title": "Finding Uid",
@@ -8499,6 +8588,381 @@
           }
         },
         "summary": "Finding Facets",
+        "tags": [
+          "findings"
+        ]
+      }
+    },
+    "/api/v1/findings/groups": {
+      "get": {
+        "description": "The Findings list by check, with the list's filters: one row per tool and check id,\nworst severity first, then the checks with the most findings.",
+        "operationId": "finding_groups_api_v1_findings_groups_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low",
+                  "informational"
+                ],
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Severity",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tool",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "prowler",
+                  "cloudfox",
+                  "inspector"
+                ],
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Tool",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "aws",
+                  "gcp",
+                  "oci"
+                ],
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Provider",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "enum": [
+                "open",
+                "reopened",
+                "resolved",
+                "accepted_risk"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "region",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Region",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "service",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Service",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_type",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Resource Type",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "check_id",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Check Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Category",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "FAIL",
+                  "MANUAL"
+                ],
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Status",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "reach",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "confirmed",
+                  "restricted",
+                  "unknown",
+                  "not_covered"
+                ],
+                "type": "string"
+              },
+              "maxItems": 4,
+              "title": "Reach",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "muted",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "enum": [
+                "any",
+                "hide",
+                "only"
+              ],
+              "title": "Muted",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "new",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "New",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "severity",
+              "enum": [
+                "severity",
+                "severity_asc",
+                "last_seen_desc",
+                "last_seen_asc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingGroupPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finding Groups",
         "tags": [
           "findings"
         ]

@@ -14,7 +14,7 @@ import CopyButton from '@/components/CopyButton.vue'
 import CommandsBlock from './CommandsBlock.vue'
 import { useResource } from '@/composables/useResource'
 import { categoryLabel } from './findingFilters'
-import { regionLabel, webUrl } from './labels'
+import { regionLabel, shortLink, webUrl } from './labels'
 import ToolText from './ToolText.vue'
 import { CODE_KINDS, codeBody } from './toolText'
 import ReachBadge from './ReachBadge.vue'
@@ -194,7 +194,7 @@ const verdict = computed(() => {
       <ul v-if="guide || links.length" class="links">
         <li v-if="guide"><a :href="guide" target="_blank" rel="noopener noreferrer">Remediation guide ↗</a></li>
         <li v-for="l in links" :key="l">
-          <a :href="l" target="_blank" rel="noopener noreferrer" class="mono">{{ l }} ↗</a>
+          <a :href="l" target="_blank" rel="noopener noreferrer" :title="l">{{ shortLink(l) }} ↗<span class="sr-only"> (opens in a new tab)</span></a>
         </li>
       </ul>
       <p v-if="detail?.notes" class="cap">{{ detail.notes }}</p>
@@ -326,10 +326,6 @@ const verdict = computed(() => {
 
 .links a:hover {
   color: var(--link-hover);
-}
-
-.links .mono {
-  font-size: 12px;
 }
 
 .block .cap {

@@ -32,6 +32,14 @@ const series = computed<LineSeries[]>(() =>
     values: points.value.map((p) => p[s]),
   })),
 )
+// Before two points, a line has nothing to join (2026-10-31 review): a sentence instead.
+const emptyText = computed(() => {
+  if (points.value.length >= 2) return null
+  if (points.value.length === 0) return 'No findings history yet.'
+  return props.range === '1M'
+    ? 'Not enough history yet: the trend starts with the next scan.'
+    : 'Not enough history yet: the trend starts with the next month-end. The 1M range shows daily points.'
+})
 const aria = computed(() => {
   const last = points.value[points.value.length - 1]
   if (!last) return 'No findings history yet'
@@ -45,8 +53,9 @@ const aria = computed(() => {
       <div class="titles"><span class="lbl">Findings severity over time</span><span class="sub">Open failed findings · {{ RANGES.find((r) => r.id === props.range)?.label }}</span></div>
       <RangeToggle :range="props.range" @select="emit('selectRange', $event)" />
     </div>
-    <LineChart :dates="points.map((p) => p.date)" :series="series" :format="int" :label="aria" />
-    <div role="group" aria-label="Severities shown" class="legend">
+    <p v-if="props.data && emptyText" class="sub empty-trend">{{ emptyText }}</p>
+    <LineChart v-else :dates="points.map((p) => p.date)" :series="series" :format="int" :label="aria" />
+    <div v-if="!(props.data && emptyText)" role="group" aria-label="Severities shown" class="legend">
       <button
         v-for="s in SEVERITIES"
         :key="s"
@@ -81,6 +90,19 @@ const aria = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* The chart's height (LineChart), so the card keeps its size. */
+.empty-trend {
+  display: grid;
+  place-items: center;
+  min-height: 270px;
+  margin: 0;
+  padding: var(--s-16);
+  text-align: center;
+  background: var(--tile);
+  border: 1px dashed var(--border);
+  border-radius: var(--r-tile);
 }
 
 .legend {

@@ -4,14 +4,14 @@ name = "From the internet to a data store"
 category = "Public data exposure"
 severity = "medium"
 technique = "T1530"  # Data from Cloud Storage
-description = """The internet reaches a data store, behind something it reaches (a bucket
-behind a distribution) or through a workload whose role can read or write it, a store by name
-or every store of a service (a grant on "*": any:s3, any:dynamodb, any:secretsmanager). Anyone
-who controls the first step can reach the data behind it.
-Version 2 (ADR-0037, second amendment): never the door itself, which is an exposure path
-(internet-exposed-admin-port, internet-exposed); a grant on every store of a service counts."""
-remediation = """Remove public access (publicly_accessible=false, Block Public Access on
-buckets, a private origin), or narrow the workload's role to the data it needs and require
+# Version 2 (ADR-0037, second amendment): never the door itself, which is an exposure path
+# (internet-exposed-admin-port, internet-exposed); a grant on every store of a service counts
+# (any:s3, any:dynamodb, any:secretsmanager).
+description = """The internet reaches a data store: one behind something it reaches (a bucket
+behind a distribution), or one a workload's role can read or write, by name or through a grant
+on every store of a service. Anyone who controls the first step can reach the data behind it."""
+remediation = """Remove public access (turn off a database's public accessibility, keep Block
+Public Access on buckets, use a private origin), or narrow the workload's role to the data it needs and require
 authentication in front of it."""
 sql = """
 SELECT r.uid FROM r

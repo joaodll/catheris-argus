@@ -4,12 +4,12 @@ name = "Exposed to the internet"
 category = "Internet exposure"
 severity = "low"
 technique = "T1190"  # Exploit Public-Facing Application
+# Version 2 (ADR-0037, second amendment, wave 2): a resource public by its own policy is
+# internet-public-policy's.
 description = """The internet reaches a resource: a web port, an API, a distribution, a
-function URL, or a door whose ports no rule names. It is the entry to every other path from
-it; on its own it is an application anyone can probe. On a Restricted door the path is latent:
-one change would open it.
-Version 2 (ADR-0037, second amendment, wave 2): a resource public by its own policy is
-internet-public-policy's."""
+function URL, or a door on a port no other path type names. Every other path from it starts
+here; on its own it is an application anyone can probe. When something already keeps the
+internet out, the path is latent: one change would open it."""
 remediation = """Confirm the resource is meant to be public. If it is, put authentication, a WAF
 or a narrower source range in front of it; if not, remove its public address or route and close
 its security groups to the internet."""

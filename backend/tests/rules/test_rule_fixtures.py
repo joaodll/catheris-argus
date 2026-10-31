@@ -13,6 +13,7 @@ one, with at least one near-miss that must not match.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -112,3 +113,14 @@ def test_path_kind_targets(kind: Any, migrated: Engine) -> None:
     with migrated.connect() as conn:
         rows = _run(conn, "ref", kind.sql, fixture)
     assert sorted(uid for (uid,) in rows) == sorted(fixture["expected"])
+
+
+# What a path page shows must read as words (the 2026-10-31 review): no ADR, rule version, edge
+# type (CAN_ESCALATE_TO), pseudo-node (any:s3) or code span. Those go in the file's comments.
+_CODE_WORDS = re.compile(r"ADR-\d|\bVersion \d|\b[A-Z]+_[A-Z_]+\b|\b[a-z]+:[a-z0-9]+\b|`|_[a-z]+_")
+
+
+@pytest.mark.parametrize("kind", load_path_kinds(RULES_DIR), ids=lambda k: k.id)
+def test_path_kind_text_is_plain(kind: Any) -> None:
+    for field in (kind.description, kind.remediation):
+        assert not _CODE_WORDS.search(field), f"{kind.id}: {_CODE_WORDS.search(field)}"

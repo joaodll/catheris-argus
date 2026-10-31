@@ -573,6 +573,58 @@ def test_findings_filter_search_sort_and_count(
         assert signed_in.get("/api/v1/findings", params=bad).status_code == 422
 
 
+def test_findings_by_check_match_the_list(
+    signed_in: TestClient,
+    client: TestClient,
+    owner: Engine,
+    worker: Engine,
+    store: FilesystemRawStore,
+) -> None:
+    """The list by check: one row per tool and check id, whose counts are those of the list
+    filtered to that check, worst first, then the most findings; the list's filters apply."""
+    target = make_demo(owner)
+    today = datetime.now(UTC).date()
+    for tool in TOOL_ORDER:
+        run_tool(worker, store, target, tool, today)
+
+    def get(path: str, **params: object) -> dict:
+        response = signed_in.get(path, params={"limit": 200, **params})
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    groups = get("/api/v1/findings/groups")
+    items = groups["items"]
+    assert items and groups["total"] == len(items) and groups["data_through"] == today.isoformat()
+    assert len({(g["tool"], g["check_id"]) for g in items}) == len(items)
+    keys = [(SEVERITY_RANK.index(g["severity"]), -g["findings"]) for g in items]
+    assert keys == sorted(keys)
+    assert sum(g["findings"] for g in items) == get("/api/v1/findings", limit=1)["total"]
+    for g in [g for g in items if g["findings"] <= 200][:8]:
+        listed = get("/api/v1/findings", tool=g["tool"], check_id=g["check_id"])
+        rows = listed["items"]
+        assert listed["total"] == g["findings"] == len(rows)
+        assert g["connections"] == len({f["connection_id"] for f in rows})
+        assert g["severity"] == min((f["severity"] for f in rows), key=SEVERITY_RANK.index)
+        assert g["last_seen"] == max(f["last_seen"] for f in rows)
+
+    critical = get("/api/v1/findings/groups", severity="critical")["items"]
+    assert critical and all(g["severity"] == "critical" for g in critical)
+    first = get("/api/v1/findings/groups", limit=2)
+    assert len(first["items"]) == 2 and first["total"] == groups["total"]
+    beyond = get("/api/v1/findings/groups", offset=groups["total"] + 5)
+    assert beyond["items"] == [] and beyond["total"] == groups["total"]  # the UI moves back
+    assert signed_in.get("/api/v1/findings/groups", params={"order": "count"}).status_code == 422
+
+    # The list says what the tool found about each resource: Prowler's result sentence.
+    prowler = get("/api/v1/findings", tool="prowler")["items"]
+    assert any(f["detail"] for f in prowler)
+    one = signed_in.get(f"/api/v1/findings/{prowler[0]['id']}").json()
+    assert one["detail"] == prowler[0]["detail"]
+
+    client.post("/api/v1/auth/sign-out", headers=csrf(client))
+    assert client.get("/api/v1/findings/groups").status_code == 401
+
+
 def test_findings_filters_take_several_values_and_match_both_tools(
     signed_in: TestClient, owner: Engine, worker: Engine, store: FilesystemRawStore
 ) -> None:

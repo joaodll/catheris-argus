@@ -204,7 +204,6 @@ const mapLink = computed(() => (path.value ? { name: 'resource-map', query: { fo
       <div v-if="opened" id="break-link" class="break" role="region" :aria-label="`Evidence and fix for the link: ${opened.move.short}`">
         <p class="sentence">{{ opened.move.sentence }}</p>
         <p class="body evidence">
-          <span class="mono edge-type">{{ opened.edge.type }}</span>
           <ConfidenceBadge :level="opened.edge.confidence" :why="opened.edge.confidence_why" />
           <span>{{ opened.edge.confidence_why }}</span>
         </p>
@@ -213,7 +212,6 @@ const mapLink = computed(() => (path.value ? { name: 'resource-map', query: { fo
           <DoorEvidence v-if="opened.door.network.length || opened.door.state" :network="opened.door.network" :state="opened.door.state" />
         </template>
         <dl class="attrs">
-          <div><dt class="lbl">Source</dt><dd class="mono">{{ opened.edge.source }}</dd></div>
           <div><dt class="lbl">Seen</dt><dd class="mono">{{ opened.edge.first_seen }} to {{ opened.edge.last_seen }}</dd></div>
           <div v-for="f in opened.facts" :key="f.label">
             <dt class="lbl">{{ f.label }}</dt>
@@ -221,6 +219,14 @@ const mapLink = computed(() => (path.value ? { name: 'resource-map', query: { fo
           </div>
         </dl>
         <p class="body"><strong>Break this link:</strong> {{ opened.sentence }}</p>
+        <!-- The codes behind the words, for whoever checks a rule (2026-10-31 review). -->
+        <details class="tech">
+          <summary>Technical details</summary>
+          <dl class="attrs">
+            <div><dt class="lbl">Link type</dt><dd class="mono">{{ opened.edge.type }}</dd></div>
+            <div><dt class="lbl">Source</dt><dd class="mono">{{ opened.edge.source }}</dd></div>
+          </dl>
+        </details>
       </div>
     </section>
 
@@ -419,10 +425,18 @@ const mapLink = computed(() => (path.value ? { name: 'resource-map', query: { fo
   color: var(--text);
 }
 
-.edge-type {
-  font-size: 11px;
+.tech summary {
+  cursor: pointer;
+  font-size: 12px;
   color: var(--text-3);
-  overflow-wrap: anywhere;
+}
+
+.tech summary:hover {
+  color: var(--link);
+}
+
+.tech .attrs {
+  margin-top: var(--s-8);
 }
 
 .arrow {

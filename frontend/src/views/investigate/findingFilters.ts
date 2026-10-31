@@ -168,3 +168,29 @@ export function categoryLabel(slug: string): string {
   const words = slug.replace(/[-_]+/g, ' ').trim()
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : slug
 }
+
+/** ?view=checks: the list by check (2026-10-31). The list is the default and is left out. */
+export type View = 'list' | 'checks'
+const VIEWS: View[] = ['list', 'checks']
+
+export function parseView(query: LocationQuery): View {
+  return oneOf(query.view, VIEWS, 'list')
+}
+
+export function viewToQuery(view: View): string | undefined {
+  return view === 'checks' ? 'checks' : undefined
+}
+
+/** A check's group opens the list filtered to it: its check id and its tool, the other filters
+ * kept. */
+export function groupFilters(f: FindingFilters, group: { tool: string; check_id: string }): FindingFilters {
+  const tool = TOOLS.find((t) => t === group.tool)
+  return { ...f, check: [group.check_id], tool: tool ? [tool] : f.tool }
+}
+
+/** The chosen checks the facets keep: those they offer, and with the Tool filter on Inspector
+ * alone, any (Inspector's check ids, its CVEs, are not facets; a group links to one). */
+export function keptChecks(f: FindingFilters, offered: string[]): string[] {
+  const inspectorOnly = f.tool.length === 1 && f.tool[0] === 'inspector'
+  return f.check.filter((c) => inspectorOnly || offered.includes(c))
+}
