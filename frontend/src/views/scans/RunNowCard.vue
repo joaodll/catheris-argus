@@ -81,7 +81,7 @@ async function run(): Promise<void> {
     </fieldset>
     <fieldset aria-describedby="rn-tools-help">
       <legend class="lbl">Tools, in run order</legend>
-      <span id="rn-tools-help" class="cap">Inspector starts ticked only where it has already run.</span>
+      <span id="rn-tools-help" class="cap">Vulnerabilities starts ticked only where it has already run.</span>
       <div class="tools">
         <label v-for="c in COLLECTORS" :key="c.id" class="check"><input v-model="tools" type="checkbox" :value="c.id" @change="toolsTouched = true">{{ c.name }}</label>
       </div>

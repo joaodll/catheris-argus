@@ -26,8 +26,8 @@ defineProps<{ tool: string }>()
   --tool: var(--tool-cloudfox);
 }
 
-.tool-inspector {
-  --tool: var(--tool-inspector);
+.tool-vulnerabilities {
+  --tool: var(--tool-vulnerabilities);
 }
 
 .tool[class*='tool-'] {

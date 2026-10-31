@@ -116,10 +116,10 @@ describe('Findings by check', () => {
     expect(next.severity).toEqual(['critical'])
   })
 
-  it("keeps an Inspector check the facets do not offer, only with the tool on Inspector alone", () => {
-    const cve = { ...emptyFilters(), tool: ['inspector' as const], check: ['CVE-2024-1234'] }
+  it("keeps a CVE check the facets do not offer, only with the tool on Vulnerabilities alone", () => {
+    const cve = { ...emptyFilters(), tool: ['vulnerabilities' as const], check: ['CVE-2024-1234'] }
     expect(keptChecks(cve, [])).toEqual(['CVE-2024-1234'])
-    expect(keptChecks({ ...cve, tool: ['inspector', 'prowler'] }, [])).toEqual([])
+    expect(keptChecks({ ...cve, tool: ['vulnerabilities', 'prowler'] }, [])).toEqual([])
     expect(keptChecks({ ...cve, tool: [], check: ['a', 'b'] }, ['b'])).toEqual(['b'])
   })
 })

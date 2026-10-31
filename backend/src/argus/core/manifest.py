@@ -11,7 +11,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 MANIFEST_NAME = "manifest.json"
-Tool = Literal["steampipe", "prowler", "cloudfox", "inspector"]
+Tool = Literal["steampipe", "prowler", "cloudfox", "vulnerabilities"]
 RunStatus = Literal["complete", "partial", "failed"]
 MAX_DENIED_ACTIONS = 200
 

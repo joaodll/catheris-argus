@@ -2,7 +2,7 @@
 as of a day."""
 
 from datetime import UTC, date, datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
@@ -31,21 +31,22 @@ class ResourceOut(BaseModel):
 
 
 class VulnerabilitySummary(BaseModel):
-    """A resource's open Inspector CVEs (ADR-0042), suppressed ones left out."""
+    """A resource's open CVEs (ADR-0042), suppressed ones left out."""
 
     open: int
     worst: str | None  # null when there are none
     exploitable: int  # of the open ones, with a public exploit
-    # Inspector scans the resource (an active scan); false: "Not scanned".
+    # The provider's scanner scans the resource (an active scan); false: "Not scanned".
     scanned: bool
 
 
 class ResourceRow(ResourceOut):
     # Open and reopened Prowler and CloudFox findings on the resource, and the worst severity
-    # among them (null when there are none). Inspector's CVEs are counted apart.
+    # among them (null when there are none). CVEs are counted apart.
     open_findings: int
     worst_severity: str | None
-    # Null when Inspector does not scan this type, or never ran for the connection.
+    # Null when no scanner scans this provider and type, or the vulnerabilities tool never ran
+    # for the connection.
     vulnerabilities: VulnerabilitySummary | None
 
 
@@ -87,14 +88,17 @@ class ToolScans(BaseModel):
     steampipe: date | None
     prowler: date | None
     cloudfox: date | None
-    inspector: date | None
+    vulnerabilities: date | None
 
 
 class CoverageOut(BaseModel):
-    """Inspector's own words for one scan type: PACKAGE or CODE; ACTIVE or INACTIVE, with a
-    reason such as UNMANAGED_EC2_INSTANCE."""
+    """Whether the scanner scans the resource, for one scan type. `active` is the verdict; the
+    status code and reason are the scanner's own words (AWS Inspector: ACTIVE or INACTIVE, with
+    a reason such as UNMANAGED_EC2_INSTANCE)."""
 
-    scan_type: str
+    scanner: str
+    scan_type: Literal["package", "code"]
+    active: bool
     status_code: str
     status_reason: str | None
     last_scanned_at: datetime | None
@@ -107,15 +111,16 @@ class TopVulnerabilityOut(BaseModel):
     vulnerability: VulnerabilityOut
 
 
-class InspectorSection(BaseModel):
-    """The resource's Inspector vulnerabilities, as of the connection's last Inspector run."""
+class VulnerabilitySection(BaseModel):
+    """The resource's vulnerabilities, as of the connection's last vulnerabilities run."""
 
+    scanner: str  # the provider's scanner that scans this type (aws-inspector)
     # Open, unmuted CVEs per severity (a severity with none is absent).
     by_severity: dict[str, int]
-    suppressed: int  # open but suppressed in Inspector
+    suppressed: int  # open but suppressed in the scanner
     # The worst open ones: severity, then a public exploit, then EPSS.
     top: list[TopVulnerabilityOut]
-    # Empty when Inspector reports no coverage for the resource.
+    # Empty when the scanner reports no coverage for the resource.
     coverage: list[CoverageOut]
 
 
@@ -128,8 +133,8 @@ class ResourceDetail(ResourceOut):
     scanned: ToolScans
     # CloudFox's loot commands for this resource (ADR-0038); empty when it has none.
     commands: list[CommandOut]
-    # Null when Inspector does not scan this type of resource.
-    inspector: InspectorSection | None
+    # Null when no scanner scans this provider and type of resource.
+    vulnerabilities: VulnerabilitySection | None
 
 
 class ResourceQuery(BaseModel):
@@ -143,7 +148,7 @@ class ResourceQuery(BaseModel):
     q: str | None = Field(None, max_length=200)
     include_deleted: bool = False
     order: inventory.ResourceOrder = "name_asc"
-    # Only resources with open Inspector CVEs: any, critical or high, or with a public exploit.
+    # Only resources with open CVEs: any, critical or high, or with a public exploit.
     vulnerabilities: findings.VulnerabilityLevel | None = None
 
 
@@ -196,15 +201,16 @@ def list_resources(
 
 
 def _vulnerabilities(conn: Db, rows: list[dict[str, Any]]) -> dict[int, VulnerabilitySummary]:
-    """For one page of resources: the Vulnerabilities cell of those Inspector scans the type of,
-    on connections with an Inspector run."""
-    scannable = [r for r in rows if r["type"] in findings.SCANNED_TYPES]
-    inspected = {
+    """For one page of resources: the Vulnerabilities cell of those a scanner scans the provider
+    and type of, on connections with a vulnerabilities run."""
+    scannable = [r for r in rows if findings.scanner_for(r["provider"], r["type"])]
+    tool = [findings.VULNERABILITY_TOOL]
+    collected = {
         c
         for c in {r["connection_id"] for r in scannable}
-        if ingest.data_through(conn, connection_id=c, tools=["inspector"]) is not None
+        if ingest.data_through(conn, connection_id=c, tools=tool) is not None
     }
-    ids = [r["id"] for r in scannable if r["connection_id"] in inspected]
+    ids = [r["id"] for r in scannable if r["connection_id"] in collected]
     counts = findings.vulnerability_counts(conn, ids)
     scanned = findings.scanned_resources(conn, ids)
     empty = findings.VulnerabilityCount(0, None, 0)
@@ -219,11 +225,13 @@ def _vulnerabilities(conn: Db, rows: list[dict[str, Any]]) -> dict[int, Vulnerab
     }
 
 
-def _inspector(conn: Db, found: dict[str, Any]) -> InspectorSection | None:
-    if found["type"] not in findings.SCANNED_TYPES:
+def _vulnerability_section(conn: Db, found: dict[str, Any]) -> VulnerabilitySection | None:
+    scanner = findings.scanner_for(found["provider"], found["type"])
+    if scanner is None:
         return None
     section = findings.resource_vulnerabilities(conn, found["id"])
-    return InspectorSection(
+    return VulnerabilitySection(
+        scanner=scanner,
         by_severity=section.by_severity,
         suppressed=section.suppressed,
         top=[
@@ -265,13 +273,13 @@ def resource(
     names = inventory.resource_names(conn, sorted(ends))
     scanned = {
         tool: ingest.data_through(conn, connection_id=found["connection_id"], tools=[tool])
-        for tool in ("steampipe", "prowler", "cloudfox", "inspector")
+        for tool in ("steampipe", "prowler", "cloudfox", findings.VULNERABILITY_TOOL)
     }
     return ResourceDetail.model_validate(
         {
             **found,
             "scanned": scanned,
-            "inspector": _inspector(conn, found),
+            "vulnerabilities": _vulnerability_section(conn, found),
             "commands": [
                 vars(c)
                 for c in findings.commands_for_resource(

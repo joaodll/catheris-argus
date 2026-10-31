@@ -1,5 +1,5 @@
-"""Investigate -> Findings: Prowler checks, CloudFox attacker findings and Inspector's CVEs
-(ADR-0042) in one list. Read-only: changing a finding's state waits for roles."""
+"""Investigate -> Findings: Prowler checks, CloudFox attacker findings and the vulnerabilities
+tool's CVEs (ADR-0042) in one list. Read-only: changing a finding's state waits for roles."""
 
 from datetime import date
 from typing import Annotated, Any, Literal
@@ -14,14 +14,15 @@ from argus.core.db import SEARCH_COUNT_CAP
 
 router = APIRouter(tags=["findings"])
 
-TOOLS = ["prowler", "cloudfox", "inspector"]
+TOOLS = ["prowler", "cloudfox", "vulnerabilities"]
 
 
 class VulnerabilityOut(BaseModel):
-    """What an Inspector finding adds (ADR-0042): the vulnerable package and its fix. A code
+    """What a vulnerability finding adds (ADR-0042): the vulnerable package and its fix. A code
     vulnerability has no CVE and no package."""
 
-    finding_type: Literal["PACKAGE_VULNERABILITY", "CODE_VULNERABILITY"]
+    scanner: str  # the provider's scanner that reported it (aws-inspector)
+    kind: Literal["package", "code"]
     vulnerability_id: str | None  # the CVE
     package_name: str | None
     package_manager: str | None
@@ -29,10 +30,10 @@ class VulnerabilityOut(BaseModel):
     fixed_version: str | None  # null: no fixed version yet
     cvss_score: float | None
     epss_score: float | None  # 0 to 1: the chance of exploitation in the next 30 days
-    inspector_score: float | None
+    scanner_score: float | None  # the scanner's own 0-10 score, when it has one
     exploit_available: bool
     fix_available: Literal["YES", "NO", "PARTIAL"] | None
-    image_digest: str | None  # an ECR finding's image (it is shown on its repository)
+    image_digest: str | None  # a container finding's image (it is shown on its repository)
     image_tags: list[str]
     reference_url: str | None  # http(s) only
 
@@ -79,7 +80,7 @@ class FindingOut(BaseModel):
     first_seen: date
     last_seen: date
     resolved_on: date | None
-    # Inspector findings only; null on every other tool's.
+    # Vulnerability findings only; null on every other tool's.
     vulnerability: VulnerabilityOut | None = None
     # What the tool says about this resource: Prowler's status_extended ("Root account does
     # not have a hardware MFA device enabled"). Null or empty when the tool gives none, or for
@@ -179,7 +180,7 @@ class FindingQuery(BaseModel):
     offset: int = Field(0, ge=0)
     connection_id: list[int] = _many()
     severity: list[Severity] = _many()
-    tool: list[Literal["prowler", "cloudfox", "inspector"]] = _many()
+    tool: list[Literal["prowler", "cloudfox", "vulnerabilities"]] = _many()
     provider: list[Provider] = Field(default_factory=list, max_length=3)
     # open = open and reopened, the findings still to fix.
     state: findings.FindingState = "open"
@@ -230,7 +231,9 @@ def list_findings(conn: Db, _user: Viewer, query: Annotated[FindingQuery, Query(
     capped = bool(query.q) and total > SEARCH_COUNT_CAP
     linked = sorted({r["resource_id"] for r in rows if r["resource_id"] is not None})
     names = inventory.resource_names(conn, linked)
-    facts = findings.vulnerability_facts(conn, [r["id"] for r in rows if r["tool"] == "inspector"])
+    facts = findings.vulnerability_facts(
+        conn, [r["id"] for r in rows if r["tool"] == findings.VULNERABILITY_TOOL]
+    )
     return FindingPage(
         items=[FindingOut.model_validate(_named(r, names, facts)) for r in rows],
         total=SEARCH_COUNT_CAP if capped else total,
@@ -285,7 +288,8 @@ def get_finding(finding_id: int, conn: Db, _user: Viewer) -> FindingDetail:
     if row is None:
         raise LookupError(finding_id)
     names = inventory.resource_names(conn, [row["resource_id"]] if row["resource_id"] else [])
-    facts = findings.vulnerability_facts(conn, [finding_id] if row["tool"] == "inspector" else [])
+    ids = [finding_id] if row["tool"] == findings.VULNERABILITY_TOOL else []
+    facts = findings.vulnerability_facts(conn, ids)
     return FindingDetail.model_validate(
         {
             **_named(row, names, facts),
@@ -312,7 +316,7 @@ def _named(
     facts: dict[int, findings.VulnerabilityFacts],
 ) -> dict[str, Any]:
     """The row with its resource's name (the inventory's, else the one the tool reported) and,
-    for an Inspector finding, its vulnerability."""
+    for a vulnerability finding, its vulnerability."""
     name = names.get(row["resource_id"]) if row["resource_id"] is not None else None
     vulnerability = facts.get(row["id"])
     return {

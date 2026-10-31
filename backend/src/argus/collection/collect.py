@@ -24,9 +24,9 @@ if TYPE_CHECKING:
     from argus.collection.aws.access import AwsAccess
 
 # Throttling layer 1: Steampipe first (cheapest, and it tells us which regions are in use),
-# then Prowler, then CloudFox, then Inspector's findings (ADR-0042), after the inventory its
+# then Prowler, then CloudFox, then the vulnerabilities (ADR-0042), after the inventory their
 # CVEs attach to.
-TOOL_ORDER: tuple[Tool, ...] = ("steampipe", "prowler", "cloudfox", "inspector")
+TOOL_ORDER: tuple[Tool, ...] = ("steampipe", "prowler", "cloudfox", "vulnerabilities")
 LOG_TAIL_CHARS = 4000
 MAX_COMMAND_CHARS = 1000
 

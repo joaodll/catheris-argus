@@ -25,8 +25,8 @@ const cron = ref(s?.cron ?? '0 2 * * *')
 const allConnections = ref(s ? s.all_connections : true)
 const initialChosen = s && !s.all_connections ? [...s.connection_ids].sort((a, b) => a - b) : []
 const chosen = ref<number[]>([...initialChosen])
-// A new schedule ticks the tools Run now does over its connections (defaultTools: Inspector
-// only where it has run), following them until a tick is changed by hand.
+// A new schedule ticks the tools Run now does over its connections (defaultTools:
+// Vulnerabilities only where it has run), following them until a tick is changed by hand.
 const scope = (): number[] => (allConnections.value ? props.connections.filter((c) => c.enabled).map((c) => c.id) : chosen.value)
 const initialTools = (s?.tools as Tool[] | undefined) ?? defaultTools(props.lastRuns ?? [], scope())
 const tools = ref<Tool[]>([...initialTools])
@@ -105,7 +105,7 @@ async function save(): Promise<void> {
           </label>
         </fieldset>
         <span v-if="tools.length === 0" class="field-error"><AppIcon name="warning" :size="14" :stroke="2.2" />Choose at least one tool.</span>
-        <span id="s-tools-help" class="cap">Each tool is its own run. On the same account they run one at a time, in this order.<template v-if="!s"> Inspector starts ticked only where it has already run.</template></span>
+        <span id="s-tools-help" class="cap">Each tool is its own run. On the same account they run one at a time, in this order.<template v-if="!s"> Vulnerabilities starts ticked only where it has already run.</template></span>
       </div>
       <CronField v-model="cron" :min-interval="props.minInterval" @valid="(ok) => (cronValid = ok)" />
       <fieldset class="scope">

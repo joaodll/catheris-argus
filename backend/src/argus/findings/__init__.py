@@ -15,8 +15,9 @@ Public interface:
     set_reach()         CloudFox's public endpoints and Prowler's exposure checks
                         (PROWLER_EXPOSURE_CHECKS), checked against Argus's rules (ADR-0035)
     remove_compliance_items()   migration 0023: findings read from Prowler's compliance OCSF
-    parse_inspector(), load_inspector()   AWS Inspector's CVEs (ADR-0042)
-    vulnerability_counts(), scanned_resources(), resource_vulnerabilities(),
+    parse_vulnerabilities(), load_vulnerabilities()   the vulnerabilities tool's CVEs, from
+                        each provider's scanner (AWS Inspector today; ADR-0042)
+    scanner_for(), vulnerability_counts(), scanned_resources(), resource_vulnerabilities(),
     resource_coverage(), vulnerability_facts()   their read side (Resources, Findings)
     VULNERABLE_RESOURCES_SQL   resource ids with open CVEs, for the Resources filter
 """
@@ -34,7 +35,6 @@ from argus.findings.compliance import (
     framework_catalog,
     list_requirements,
 )
-from argus.findings.inspector import InspectorBatch, parse_inspector
 from argus.findings.lifecycle import (
     ANY_CHECK,
     ANY_REGION,
@@ -45,7 +45,12 @@ from argus.findings.lifecycle import (
 )
 from argus.findings.metrics import ADDITIVE as FINDING_ADDITIVE_METRICS
 from argus.findings.metrics import put_findings_metrics, rederive_scores
-from argus.findings.model import SEVERITIES, FindingResult
+from argus.findings.model import (
+    SEVERITIES,
+    VULNERABILITY_TOOL,
+    FindingResult,
+    VulnerabilityBatch,
+)
 from argus.findings.prowler import EXPOSURE_CHECKS as PROWLER_EXPOSURE_CHECKS
 from argus.findings.prowler import SUPPORTED_VERSIONS, ProwlerBatch, parse_prowler
 from argus.findings.queries import (
@@ -66,17 +71,18 @@ from argus.findings.queries import (
 )
 from argus.findings.repair import remove_compliance_items
 from argus.findings.vulnerabilities import (
-    SCANNED_TYPES,
     VULNERABLE_RESOURCES_SQL,
     CoverageRow,
     ResourceVulnerabilities,
     VulnerabilityCount,
     VulnerabilityFacts,
     VulnerabilityLevel,
-    load_inspector,
+    load_vulnerabilities,
+    parse_vulnerabilities,
     resource_coverage,
     resource_vulnerabilities,
     scanned_resources,
+    scanner_for,
     vulnerability_counts,
     vulnerability_facts,
 )
@@ -87,9 +93,9 @@ __all__ = [
     "FAILING_FINDINGS_SQL",
     "FINDING_ADDITIVE_METRICS",
     "PROWLER_EXPOSURE_CHECKS",
-    "SCANNED_TYPES",
     "SEVERITIES",
     "SUPPORTED_VERSIONS",
+    "VULNERABILITY_TOOL",
     "VULNERABLE_RESOURCES_SQL",
     "CoverageRow",
     "FindingFacets",
@@ -99,7 +105,6 @@ __all__ = [
     "FindingResult",
     "FindingState",
     "Framework",
-    "InspectorBatch",
     "MutedFilter",
     "ProwlerBatch",
     "RequirementPage",
@@ -107,6 +112,7 @@ __all__ = [
     "ResolvedCommand",
     "ResourceCommand",
     "ResourceVulnerabilities",
+    "VulnerabilityBatch",
     "VulnerabilityCount",
     "VulnerabilityFacts",
     "VulnerabilityLevel",
@@ -119,20 +125,21 @@ __all__ = [
     "list_findings",
     "list_requirements",
     "load_commands",
-    "load_inspector",
     "load_prowler",
     "load_tool_findings",
+    "load_vulnerabilities",
     "open_exposure_counts",
     "open_finding_counts",
     "open_finding_counts_by_tool",
-    "parse_inspector",
     "parse_prowler",
+    "parse_vulnerabilities",
     "put_findings_metrics",
     "rederive_scores",
     "remove_compliance_items",
     "resource_coverage",
     "resource_vulnerabilities",
     "scanned_resources",
+    "scanner_for",
     "set_reach",
     "vulnerability_counts",
     "vulnerability_facts",

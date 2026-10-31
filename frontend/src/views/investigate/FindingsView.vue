@@ -128,7 +128,7 @@ const providerOptions: MultiOption[] = PROVIDERS.map((p) => ({ value: p.id, labe
 const toolOptions: MultiOption[] = [
   { value: 'prowler', label: 'Prowler' },
   { value: 'cloudfox', label: 'CloudFox' },
-  { value: 'inspector', label: 'Inspector' },
+  { value: 'vulnerabilities', label: 'Vulnerabilities' },
 ]
 const reachOptions: MultiOption[] = FINDING_REACHES.map((r) => ({ value: r, label: FINDING_REACH_LABEL[r] }))
 const resultOptions: MultiOption[] = [
@@ -147,8 +147,8 @@ const checkOptions = computed<MultiOption[]>(() => {
   const offered = (facets.data.value?.checks ?? [])
     .filter((c) => !seen.has(c.check_id) && seen.add(c.check_id))
     .map((c) => ({ value: c.check_id, label: c.check_id, mono: true, tool: c.tool }))
-  // An Inspector check (a CVE) is not a facet: chosen from its group, it is offered too.
-  const chosen = filters.value.check.filter((c) => !seen.has(c)).map((c) => ({ value: c, label: c, mono: true, tool: 'inspector' }))
+  // A vulnerability's check (a CVE) is not a facet: chosen from its group, it is offered too.
+  const chosen = filters.value.check.filter((c) => !seen.has(c)).map((c) => ({ value: c, label: c, mono: true, tool: 'vulnerabilities' }))
   return [...chosen, ...offered]
 })
 const MUTED_CHOICES: { value: Muted; label: string }[] = [
@@ -499,7 +499,7 @@ const VIEWS: { value: View; label: string }[] = [
   <section class="card panel" aria-labelledby="findings-h">
     <div class="panel-h view-h">
       <div class="titles">
-        <h2 id="findings-h" class="h2">{{ shown === 'checks' ? 'Checks with findings' : 'Prowler, CloudFox and Inspector findings' }}</h2>
+        <h2 id="findings-h" class="h2">{{ shown === 'checks' ? 'Checks with findings' : 'Prowler and CloudFox findings, and vulnerabilities' }}</h2>
         <span v-if="single != null" class="cap">One finding, from its own link. Read-only.</span>
         <span v-else-if="shown === 'checks'" class="cap">{{ GROUP_ORDER_NOTE[order] }} Read-only.</span>
         <span v-else class="cap">{{ ORDER_NOTE[order] }} Read-only.</span>
@@ -516,7 +516,7 @@ const VIEWS: { value: View; label: string }[] = [
       </AlertBanner>
     </div>
     <div v-else-if="!loaded" aria-busy="true" class="panel-body loading"><div v-for="n in 5" :key="n" class="skeleton sk-44"></div></div>
-    <EmptyState v-else-if="noData" icon="flag" title="No findings yet." text="Findings appear after a Prowler, CloudFox or Inspector scan is ingested.">
+    <EmptyState v-else-if="noData" icon="flag" title="No findings yet." text="Findings appear after a Prowler, CloudFox or Vulnerabilities scan is ingested.">
       <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
     </EmptyState>
     <EmptyState v-else-if="rows === 0 && filtered" icon="info" :title="shown === 'checks' ? 'No checks match these filters.' : 'No findings match these filters.'">

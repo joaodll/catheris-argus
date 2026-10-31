@@ -3,7 +3,8 @@
     steampipe  inventory -> relationship rules -> inventory metrics
     prowler    findings lifecycle + compliance -> findings metrics
     cloudfox   cloudfox edges + attacker findings -> attack paths -> path metrics
-    inspector  CVE findings lifecycle + vulnerability facts + coverage (ADR-0042)
+    vulnerabilities  CVE findings lifecycle + vulnerability facts + coverage, from the
+               provider's own scanner (ADR-0042)
 
 A run that failed collection, or whose raw output cannot be trusted (no manifest, files that
 do not match it, an unsupported tool version), is recorded as failed, resolves nothing, and
@@ -41,11 +42,12 @@ from argus.core.redaction import redact_text
 from argus.findings import (
     FINDING_ADDITIVE_METRICS,
     PROWLER_EXPOSURE_CHECKS,
+    VULNERABILITY_TOOL,
     carry_forward_compliance,
-    load_inspector,
     load_prowler,
-    parse_inspector,
+    load_vulnerabilities,
     parse_prowler,
+    parse_vulnerabilities,
     put_findings_metrics,
     rederive_scores,
     set_reach,
@@ -82,7 +84,7 @@ TOOL_METRICS = {
     "prowler": FINDING_ADDITIVE_METRICS,
     "cloudfox": PATH_METRICS,
     # No metric yet: the Overview does not show vulnerabilities (ADR-0042).
-    "inspector": [],
+    VULNERABILITY_TOOL: [],
 }
 
 
@@ -364,11 +366,11 @@ def _cloudfox(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[s
     )
 
 
-def _inspector(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
+def _vulnerabilities(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
     """CVEs touch no edge, path or metric (ADR-0042): one transaction, nothing re-evaluated."""
-    batch = parse_inspector(raw)
+    batch = parse_vulnerabilities(raw)
     with engine.begin() as conn:
-        return load_inspector(
+        return load_vulnerabilities(
             conn,
             batch=batch,
             connection_id=run.connection_id,
@@ -413,8 +415,8 @@ def _ingest(engine: Engine, *, store: RawStore, scan_run_id: int, rules_dir: Pat
             loaded = _prowler(engine, run, raw, rules_dir)
         elif run.tool == "cloudfox":
             loaded = _cloudfox(engine, run, raw, rules_dir)
-        elif run.tool == "inspector":
-            loaded = _inspector(engine, run, raw)
+        elif run.tool == VULNERABILITY_TOOL:
+            loaded = _vulnerabilities(engine, run, raw)
         else:
             raise ValueError(f"no adapter for the tool {run.tool!r}")
     except VERSION_ERRORS as exc:

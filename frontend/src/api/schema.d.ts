@@ -1141,14 +1141,22 @@ export interface components {
         };
         /**
          * CoverageOut
-         * @description Inspector's own words for one scan type: PACKAGE or CODE; ACTIVE or INACTIVE, with a
-         *     reason such as UNMANAGED_EC2_INSTANCE.
+         * @description Whether the scanner scans the resource, for one scan type. `active` is the verdict; the
+         *     status code and reason are the scanner's own words (AWS Inspector: ACTIVE or INACTIVE, with
+         *     a reason such as UNMANAGED_EC2_INSTANCE).
          */
         CoverageOut: {
+            /** Active */
+            active: boolean;
             /** Last Scanned At */
             last_scanned_at: string | null;
-            /** Scan Type */
-            scan_type: string;
+            /**
+             * Scan Type
+             * @enum {string}
+             */
+            scan_type: "package" | "code";
+            /** Scanner */
+            scanner: string;
             /** Status Code */
             status_code: string;
             /** Status Reason */
@@ -1693,22 +1701,6 @@ export interface components {
             mode: string;
             /** Secret Set */
             secret_set: boolean;
-        };
-        /**
-         * InspectorSection
-         * @description The resource's Inspector vulnerabilities, as of the connection's last Inspector run.
-         */
-        InspectorSection: {
-            /** By Severity */
-            by_severity: {
-                [key: string]: number;
-            };
-            /** Coverage */
-            coverage: components["schemas"]["CoverageOut"][];
-            /** Suppressed */
-            suppressed: number;
-            /** Top */
-            top: components["schemas"]["TopVulnerabilityOut"][];
         };
         /** Inventory */
         Inventory: {
@@ -2261,7 +2253,6 @@ export interface components {
             first_seen: string;
             /** Id */
             id: number;
-            inspector: components["schemas"]["InspectorSection"] | null;
             /**
              * Last Seen
              * Format: date
@@ -2288,6 +2279,7 @@ export interface components {
             type: string;
             /** Vpc Id */
             vpc_id: string | null;
+            vulnerabilities: components["schemas"]["VulnerabilitySection"] | null;
         };
         /** ResourceFacets */
         ResourceFacets: {
@@ -2363,7 +2355,7 @@ export interface components {
             /** Connection Ids */
             connection_ids: number[];
             /** Tools */
-            tools?: ("steampipe" | "prowler" | "cloudfox" | "inspector")[] | null;
+            tools?: ("steampipe" | "prowler" | "cloudfox" | "vulnerabilities")[] | null;
         };
         /** RunNowItem */
         RunNowItem: {
@@ -2503,7 +2495,7 @@ export interface components {
             /** Name */
             name: string;
             /** Tools */
-            tools: ("steampipe" | "prowler" | "cloudfox" | "inspector")[];
+            tools: ("steampipe" | "prowler" | "cloudfox" | "vulnerabilities")[];
         };
         /** ScheduleOut */
         ScheduleOut: {
@@ -2691,11 +2683,6 @@ export interface components {
              */
             cloudfox: string;
             /**
-             * Inspector
-             * @default raw/inspector
-             */
-            inspector: string;
-            /**
              * Prowler
              * @default raw/prowler
              */
@@ -2705,6 +2692,11 @@ export interface components {
              * @default raw/steampipe
              */
             steampipe: string;
+            /**
+             * Vulnerabilities
+             * @default raw/vulnerabilities
+             */
+            vulnerabilities: string;
         };
         /**
          * ToolScans
@@ -2714,12 +2706,12 @@ export interface components {
         ToolScans: {
             /** Cloudfox */
             cloudfox: string | null;
-            /** Inspector */
-            inspector: string | null;
             /** Prowler */
             prowler: string | null;
             /** Steampipe */
             steampipe: string | null;
+            /** Vulnerabilities */
+            vulnerabilities: string | null;
         };
         /** TopVulnerabilityOut */
         TopVulnerabilityOut: {
@@ -2813,7 +2805,7 @@ export interface components {
         };
         /**
          * VulnerabilityOut
-         * @description What an Inspector finding adds (ADR-0042): the vulnerable package and its fix. A code
+         * @description What a vulnerability finding adds (ADR-0042): the vulnerable package and its fix. A code
          *     vulnerability has no CVE and no package.
          */
         VulnerabilityOut: {
@@ -2823,11 +2815,6 @@ export interface components {
             epss_score: number | null;
             /** Exploit Available */
             exploit_available: boolean;
-            /**
-             * Finding Type
-             * @enum {string}
-             */
-            finding_type: "PACKAGE_VULNERABILITY" | "CODE_VULNERABILITY";
             /** Fix Available */
             fix_available: ("YES" | "NO" | "PARTIAL") | null;
             /** Fixed Version */
@@ -2836,22 +2823,47 @@ export interface components {
             image_digest: string | null;
             /** Image Tags */
             image_tags: string[];
-            /** Inspector Score */
-            inspector_score: number | null;
             /** Installed Version */
             installed_version: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "package" | "code";
             /** Package Manager */
             package_manager: string | null;
             /** Package Name */
             package_name: string | null;
             /** Reference Url */
             reference_url: string | null;
+            /** Scanner */
+            scanner: string;
+            /** Scanner Score */
+            scanner_score: number | null;
             /** Vulnerability Id */
             vulnerability_id: string | null;
         };
         /**
+         * VulnerabilitySection
+         * @description The resource's vulnerabilities, as of the connection's last vulnerabilities run.
+         */
+        VulnerabilitySection: {
+            /** By Severity */
+            by_severity: {
+                [key: string]: number;
+            };
+            /** Coverage */
+            coverage: components["schemas"]["CoverageOut"][];
+            /** Scanner */
+            scanner: string;
+            /** Suppressed */
+            suppressed: number;
+            /** Top */
+            top: components["schemas"]["TopVulnerabilityOut"][];
+        };
+        /**
          * VulnerabilitySummary
-         * @description A resource's open Inspector CVEs (ADR-0042), suppressed ones left out.
+         * @description A resource's open CVEs (ADR-0042), suppressed ones left out.
          */
         VulnerabilitySummary: {
             /** Exploitable */
@@ -3544,7 +3556,7 @@ export interface operations {
                 offset?: number;
                 connection_id?: number[];
                 severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
-                tool?: ("prowler" | "cloudfox" | "inspector")[];
+                tool?: ("prowler" | "cloudfox" | "vulnerabilities")[];
                 provider?: ("aws" | "gcp" | "oci")[];
                 state?: "open" | "reopened" | "resolved" | "accepted_risk";
                 region?: string[];
@@ -3634,7 +3646,7 @@ export interface operations {
                 offset?: number;
                 connection_id?: number[];
                 severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
-                tool?: ("prowler" | "cloudfox" | "inspector")[];
+                tool?: ("prowler" | "cloudfox" | "vulnerabilities")[];
                 provider?: ("aws" | "gcp" | "oci")[];
                 state?: "open" | "reopened" | "resolved" | "accepted_risk";
                 region?: string[];
@@ -4189,7 +4201,7 @@ export interface operations {
                 limit?: number;
                 offset?: number;
                 connection_id?: number | null;
-                tool?: ("steampipe" | "prowler" | "cloudfox" | "inspector") | null;
+                tool?: ("steampipe" | "prowler" | "cloudfox" | "vulnerabilities") | null;
                 status?: ("complete" | "partial" | "failed" | "running") | null;
                 missing_permissions?: boolean;
                 order?: "started_desc" | "started_asc";

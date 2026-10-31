@@ -91,15 +91,15 @@ secret values, parameter values, decryption, object and table contents, and bulk
 container images and log content ([ADR-0018](adr/0018-scanner-role-denies-code-images-logs.md)).
 The Deny stays in force even if AWS widens a managed policy.
 
-**AWS Inspector** ([ADR-0042](adr/0042-inspector-vulnerabilities.md)). The Inspector collector lists
-findings and coverage (`inspector2:ListFindings`, `inspector2:ListCoverage`), which the template does
+**AWS Inspector** ([ADR-0042](adr/0042-inspector-vulnerabilities.md)). On AWS, the Vulnerabilities
+collector reads AWS Inspector. It lists findings and coverage (`inspector2:ListFindings`, `inspector2:ListCoverage`), which the template does
 not grant on its own: they are expected to come from `SecurityAudit`, as Prowler's own Inspector
-check expects. If an Inspector run reports those actions as denied, add them to the role. Each
+check expects. If a Vulnerabilities run reports those actions as denied, add them to the role. Each
 connection collects only its own account's findings, so connect every account whose vulnerabilities
 you want to see, including when Inspector is managed from a delegated administrator account. That a
 member account can list its own findings under a delegated administrator is an assumption still to
 be confirmed on a real account (ADR-0042, Context). Turn the collector on per schedule
-(**Scans → Schedules**, tool **Inspector**). Argus's build fails if the template
+(**Scans → Schedules**, tool **Vulnerabilities**). Argus's build fails if the template
 gains any action that is not a read: you can run the same check yourself, and print the policies
 it contains:
 

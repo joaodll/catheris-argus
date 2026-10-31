@@ -65,9 +65,9 @@ describe('run notes', () => {
 })
 
 describe('a partial run, per tool', () => {
-  it("says what Inspector's failed export means, and keeps Steampipe's sentence", () => {
-    expect(partialTablesNote('inspector', 1)).toBe(
-      "Partial: Inspector's findings export failed, was denied or was throttled. No vulnerability was resolved by this run, and those already open stay open.",
+  it("says what a failed vulnerabilities export means, and keeps Steampipe's sentence", () => {
+    expect(partialTablesNote('vulnerabilities', 1)).toBe(
+      "Partial: the vulnerability scanner's findings export failed, was denied or was throttled. No vulnerability was resolved by this run, and those already open stay open.",
     )
     expect(partialTablesNote('steampipe', 3)).toMatch(/^Partial: 3 of the tables failed, were denied or were throttled\. Their resources were carried forward/)
   })

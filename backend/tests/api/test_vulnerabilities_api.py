@@ -1,5 +1,6 @@
-"""Inspector's CVEs on the API (ADR-0042): the Resources list's Vulnerabilities cell and
-filter, the resource's Inspector section, and the vulnerability on a finding."""
+"""The vulnerabilities tool on the API (ADR-0042): the Resources list's Vulnerabilities cell and
+filter, the resource's Vulnerabilities section and its scanner, and the vulnerability on a
+finding."""
 
 from datetime import date
 from typing import Any
@@ -18,7 +19,7 @@ def test_resources_show_vulnerabilities_and_filter_by_them(
 ) -> None:
     target = make_demo(owner)
     run_tool(worker, store, target, "steampipe", DAY)
-    run_tool(worker, store, target, "inspector", DAY)
+    run_tool(worker, store, target, "vulnerabilities", DAY)
 
     def page(**params: Any) -> list[dict[str, Any]]:
         response = signed_in.get("/api/v1/resources", params={"limit": 200, **params})
@@ -40,14 +41,16 @@ def test_resources_show_vulnerabilities_and_filter_by_them(
 
     worst = max(exploitable, key=lambda r: r["vulnerabilities"]["open"])
     detail = signed_in.get(f"/api/v1/resources/{worst['id']}").json()
-    section = detail["inspector"]
-    assert detail["scanned"]["inspector"] == DAY.isoformat()
+    section = detail["vulnerabilities"]
+    assert detail["scanned"]["vulnerabilities"] == DAY.isoformat()
     assert sum(section["by_severity"].values()) == worst["vulnerabilities"]["open"]
     assert 0 < len(section["top"]) <= 5 and section["coverage"]
     top = section["top"][0]["vulnerability"]
-    assert top["finding_type"] in ("PACKAGE_VULNERABILITY", "CODE_VULNERABILITY")
+    assert top["kind"] in ("package", "code") and top["scanner"] == "aws-inspector"
+    assert section["scanner"] == "aws-inspector"
+    assert {c["scan_type"] for c in section["coverage"]} <= {"package", "code"}
     bucket = signed_in.get(f"/api/v1/resources/{buckets[0]['id']}").json()
-    assert bucket["inspector"] is None
+    assert bucket["vulnerabilities"] is None
 
 
 def test_findings_list_and_detail_carry_the_vulnerability(
@@ -56,10 +59,10 @@ def test_findings_list_and_detail_carry_the_vulnerability(
     target = make_demo(owner)
     run_tool(worker, store, target, "steampipe", DAY)
     run_tool(worker, store, target, "prowler", DAY)
-    run_tool(worker, store, target, "inspector", DAY)
-    found = signed_in.get("/api/v1/findings", params={"tool": "inspector", "limit": 50}).json()[
-        "items"
-    ]
+    run_tool(worker, store, target, "vulnerabilities", DAY)
+    found = signed_in.get(
+        "/api/v1/findings", params={"tool": "vulnerabilities", "limit": 50}
+    ).json()["items"]
     assert found and all(f["vulnerability"] is not None for f in found)
     prowler = signed_in.get("/api/v1/findings", params={"tool": "prowler", "limit": 5}).json()
     assert all(f["vulnerability"] is None for f in prowler["items"])

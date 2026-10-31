@@ -1,5 +1,6 @@
-"""Synthetic AWS Inspector output (ADR-0042): what the Inspector collector's Steampipe export
-writes for a demo account, aws_inspector2_finding.jsonl and aws_inspector2_coverage.jsonl.
+"""Synthetic AWS Inspector output (ADR-0042): what the vulnerabilities collector's Steampipe
+export of Inspector writes for a demo account, aws_inspector2_finding.jsonl and
+aws_inspector2_coverage.jsonl.
 
 Columns are the collector's --select (collection/tables.py). Nested AWS structures are in the
 SDK's field names, as the plugin serialises them. Deterministic per (account, day):

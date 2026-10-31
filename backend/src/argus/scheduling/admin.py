@@ -16,7 +16,7 @@ from argus.scheduling.claims import ORIGIN_SQL, cancel, cancel_queued, recently_
 from argus.scheduling.schedules import check_cron
 from argus.settings import read_collection
 
-Tool = Literal["steampipe", "prowler", "cloudfox", "inspector"]
+Tool = Literal["steampipe", "prowler", "cloudfox", "vulnerabilities"]
 
 
 @dataclass(frozen=True)

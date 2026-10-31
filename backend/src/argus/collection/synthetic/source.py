@@ -1,5 +1,5 @@
-"""SyntheticSource: writes what Prowler, CloudFox, Steampipe or the Inspector collector would
-write for a demo account.
+"""SyntheticSource: writes what Prowler, CloudFox, Steampipe or the vulnerabilities collector
+(AWS Inspector's export, on a demo AWS account) would write for a demo account.
 
 Run outcomes are deterministic per (account, tool, day):
 - Throttling: a share of runs (an administration setting) reports ThrottlingException lines
@@ -21,7 +21,7 @@ from argus.collection.tables import steampipe_tables
 from argus.core.manifest import Tool
 
 FAIL_EVERY_DAYS = 47
-SECONDS_PER_ROW = {"steampipe": 0.02, "prowler": 0.05, "cloudfox": 0.03, "inspector": 0.01}
+SECONDS_PER_ROW = {"steampipe": 0.02, "prowler": 0.05, "cloudfox": 0.03, "vulnerabilities": 0.01}
 
 
 class SyntheticSource:
@@ -80,7 +80,7 @@ class SyntheticSource:
                 failed=failed,
             )
             version = prowler.TOOL_VERSION
-        elif tool == "inspector":
+        elif tool == "vulnerabilities":
             # A throttled run loses the findings table: it resolves nothing.
             rows = inspector.write(out_dir, estate, keep_findings=not throttled)
             incomplete = [inspector.FINDINGS_TABLE] if throttled else []

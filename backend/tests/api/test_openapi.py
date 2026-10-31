@@ -20,3 +20,25 @@ def test_every_route_but_health_requires_a_session() -> None:
         for method, operation in methods.items():
             names = {p["name"] for p in operation.get("parameters", [])}
             assert "argus_session" in names, f"{method.upper()} {path} has no session check"
+
+
+def test_the_contract_names_no_provider_scanner() -> None:
+    """The vulnerabilities tool is provider-neutral (ADR-0042, amended 2026-10-31): no path,
+    schema, field or enum value names one cloud's scanner; a description may."""
+    spec = json.loads(render())
+    names: list[str] = list(spec["paths"])
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            names.extend(str(k) for k in node if k not in ("description", "title"))
+            for key, value in node.items():
+                if key == "enum":
+                    names.extend(str(v) for v in value)
+                elif key not in ("description", "title"):
+                    walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    walk(spec)
+    assert not [n for n in names if "inspector" in n.lower()]

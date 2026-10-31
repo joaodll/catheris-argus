@@ -421,7 +421,7 @@ def test_raw_storage_setting(signed_in: TestClient, owner: Engine) -> None:
         "steampipe": "raw/steampipe",
         "prowler": "raw/prowler",
         "cloudfox": "raw/cloudfox",
-        "inspector": "raw/inspector",
+        "vulnerabilities": "raw/vulnerabilities",
     }
     body = {
         "bucket": "argus-raw-example",
@@ -430,7 +430,7 @@ def test_raw_storage_setting(signed_in: TestClient, owner: Engine) -> None:
             "steampipe": "inventory",
             "prowler": "scans/prowler",
             "cloudfox": "cf",
-            "inspector": "scans/inspector",
+            "vulnerabilities": "scans/vulnerabilities",
         },
     }
     saved = signed_in.put("/api/v1/settings/raw-storage", headers=csrf(signed_in), json=body)
@@ -516,7 +516,7 @@ def test_findings_filter_search_sort_and_count(
     items = every["items"]
     assert items and every["total"] >= len(items)
     assert {f["state"] for f in items} <= {"open", "reopened"}  # the default: still to fix
-    assert {f["tool"] for f in items} == {"prowler", "cloudfox", "inspector"}
+    assert {f["tool"] for f in items} == {"prowler", "cloudfox", "vulnerabilities"}
     ranks = [SEVERITY_RANK.index(f["severity"]) for f in items]
     assert ranks == sorted(ranks)  # worst first by default
     least = [SEVERITY_RANK.index(f["severity"]) for f in get(order="severity_asc")["items"]]

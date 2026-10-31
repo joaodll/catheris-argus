@@ -90,7 +90,7 @@
   --tool-prowler: #afb7fe;
   --tool-steampipe: #bdc581;
   --tool-cloudfox: #f8b6fe;
-  --tool-inspector: #86d9cf; /* ADR-0042: teal, apart from the other three */
+  --tool-vulnerabilities: #86d9cf; /* ADR-0042: teal, apart from the other three */
 
   /* Signal Glow chart marks (design-system.md "Chart marks"): a mark sets --series */
   --track: #191b1f;
@@ -252,7 +252,7 @@
   --tool-prowler: #4650c2;
   --tool-steampipe: #59641a;
   --tool-cloudfox: #9a35a3;
-  --tool-inspector: #17706a;
+  --tool-vulnerabilities: #17706a;
 
   --track: #e3e7eb;
   --shadow-track: inset 0 1px 2px rgb(0 0 0 / 10%);

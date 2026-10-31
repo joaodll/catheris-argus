@@ -214,15 +214,15 @@ test('administration and scans: connections, schedules, runs, settings', async (
   await navLink(page, 'Schedules')
   await expect(page).toHaveURL(/\/scans\/schedules$/)
   await expect(page.getByRole('heading', { level: 2, name: 'Run now' })).toBeVisible()
-  // Run now ticks Inspector only where it has run (owner's decision, 2026-10-31): with no
+  // Run now ticks Vulnerabilities only where it has run (owner's decision, 2026-10-31): with no
   // connection chosen it is not ticked; every Demo connection has run it; a hand-made change
   // stays when the connections change.
   const runNow = page.getByRole('region', { name: 'Run now' })
-  const inspectorTick = runNow.getByRole('checkbox', { name: 'Inspector' })
+  const vulnerabilitiesTick = runNow.getByRole('checkbox', { name: 'Vulnerabilities' })
   await expect(runNow.getByRole('checkbox', { name: 'Steampipe' })).toBeChecked()
-  await expect(inspectorTick).not.toBeChecked()
+  await expect(vulnerabilitiesTick).not.toBeChecked()
   await runNow.getByRole('button', { name: 'Select all' }).click()
-  await expect(inspectorTick).toBeChecked()
+  await expect(vulnerabilitiesTick).toBeChecked()
   await runNow.getByRole('checkbox', { name: 'CloudFox' }).uncheck()
   await runNow.getByRole('checkbox').first().uncheck()
   await expect(runNow.getByRole('checkbox', { name: 'CloudFox' })).not.toBeChecked()
@@ -427,18 +427,20 @@ test('investigate: findings and resources, read-only', async ({ page }) => {
   await axe(page, 'resource sheet commands')
   await shot(page, '73b-resource-sheet-commands')
   await page.keyboard.press('Escape')
-  // Inspector's CVEs (ADR-0042): the Vulnerabilities filter, then a resource's Inspector block.
+  // CVEs (ADR-0042): the Vulnerabilities filter, then a resource's Vulnerabilities block, which
+  // names the provider's scanner (AWS Inspector on the Demo estate).
   await page.goto('/investigate/resources')
   await page.getByLabel('Vulnerabilities').selectOption('exploitable')
   await expect(resources.locator('tbody tr').first().getByText('Exploit')).toBeVisible()
   await axe(page, 'resources with an exploitable CVE')
   await shot(page, '73c-resources-vulnerabilities')
   await resources.locator('tbody tr').first().getByRole('link').click()
-  const inspector = sheet.getByRole('region', { name: /^Inspector/ })
-  await expect(inspector.getByRole('heading', { level: 3, name: /^Inspector/ })).toBeVisible()
-  await expect(inspector.getByRole('link', { name: /^See all \d+ Inspector findings?/ })).toBeVisible()
-  await axe(page, 'resource sheet inspector')
-  await shot(page, '73d-resource-sheet-inspector')
+  const vulns = sheet.getByRole('region', { name: /^Vulnerabilities/ })
+  await expect(vulns.getByRole('heading', { level: 3, name: /^Vulnerabilities/ })).toBeVisible()
+  await expect(vulns.getByText(/by AWS Inspector/).first()).toBeVisible()
+  await expect(vulns.getByRole('link', { name: /^See all \d+ vulnerabilit(y|ies)/ })).toBeVisible()
+  await axe(page, 'resource sheet vulnerabilities')
+  await shot(page, '73d-resource-sheet-vulnerabilities')
   await page.keyboard.press('Escape')
 })
 
