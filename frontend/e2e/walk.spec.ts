@@ -156,12 +156,12 @@ test('overview: every block, current state only', async ({ page }) => {
   await shot(page, '13-overview-one-connection')
 
   // Numbers lead to the list that holds them, with the filters that reproduce them.
-  await page.getByRole('link', { name: /^High: .* open, show in Findings$/ }).click()
-  await expect(page).toHaveURL(/\/investigate\/findings\?severity=high&connection=\d+&tool=prowler&result=FAIL&muted=hide$/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Findings' })).toBeVisible()
+  await page.getByRole('link', { name: /^High: .* open, show in Misconfigurations$/ }).click()
+  await expect(page).toHaveURL(/\/investigate\/misconfigurations\?severity=high&connection=\d+&tool=prowler&result=FAIL&muted=hide$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Misconfigurations' })).toBeVisible()
   await page.goBack()
   await expect(page.getByRole('heading', { level: 1, name: 'Overview', exact: true })).toBeVisible()
-  await expect(page.getByRole('link', { name: /^Open critical findings: .* Show in Findings$/ })).toHaveAttribute('href', /severity=critical/)
+  await expect(page.getByRole('link', { name: /^Open critical findings: .* Show in Misconfigurations$/ })).toHaveAttribute('href', /severity=critical/)
   // An inventory group opens in place to its largest types; a type opens Resources.
   const compute = page.getByRole('button', { name: /^Compute: / })
   await compute.click()
@@ -214,15 +214,15 @@ test('administration and scans: connections, schedules, runs, settings', async (
   await navLink(page, 'Schedules')
   await expect(page).toHaveURL(/\/scans\/schedules$/)
   await expect(page.getByRole('heading', { level: 2, name: 'Run now' })).toBeVisible()
-  // Run now ticks Inspector only where it has run (owner's decision, 2026-10-31): with no
+  // Run now ticks Vulnerabilities only where it has run (owner's decision, 2026-10-31): with no
   // connection chosen it is not ticked; every Demo connection has run it; a hand-made change
   // stays when the connections change.
   const runNow = page.getByRole('region', { name: 'Run now' })
-  const inspectorTick = runNow.getByRole('checkbox', { name: 'Inspector' })
+  const vulnerabilitiesTick = runNow.getByRole('checkbox', { name: 'Vulnerabilities' })
   await expect(runNow.getByRole('checkbox', { name: 'Steampipe' })).toBeChecked()
-  await expect(inspectorTick).not.toBeChecked()
+  await expect(vulnerabilitiesTick).not.toBeChecked()
   await runNow.getByRole('button', { name: 'Select all' }).click()
-  await expect(inspectorTick).toBeChecked()
+  await expect(vulnerabilitiesTick).toBeChecked()
   await runNow.getByRole('checkbox', { name: 'CloudFox' }).uncheck()
   await runNow.getByRole('checkbox').first().uncheck()
   await expect(runNow.getByRole('checkbox', { name: 'CloudFox' })).not.toBeChecked()
@@ -326,11 +326,11 @@ test('settings: saving one card keeps the edits in another; leaving asks once', 
   expect(questions).toHaveLength(1)
 })
 
-test('investigate: findings and resources, read-only', async ({ page }) => {
+test('investigate: misconfigurations, vulnerabilities and resources, read-only', async ({ page }) => {
   await signIn(page)
-  await navLink(page, 'Findings')
-  await expect(page).toHaveURL(/\/investigate\/findings/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Findings' })).toBeVisible()
+  await navLink(page, 'Misconfigurations')
+  await expect(page).toHaveURL(/\/investigate\/misconfigurations/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Misconfigurations' })).toBeVisible()
   const findings = page.getByRole('table')
   await expect(findings).toBeVisible()
   await axe(page, 'findings')
@@ -427,19 +427,58 @@ test('investigate: findings and resources, read-only', async ({ page }) => {
   await axe(page, 'resource sheet commands')
   await shot(page, '73b-resource-sheet-commands')
   await page.keyboard.press('Escape')
-  // Inspector's CVEs (ADR-0042): the Vulnerabilities filter, then a resource's Inspector block.
+  // CVEs (ADR-0042): the Vulnerabilities filter, then a resource's Vulnerabilities block, which
+  // names the provider's scanner (AWS Inspector on the Demo estate).
   await page.goto('/investigate/resources')
   await page.getByLabel('Vulnerabilities').selectOption('exploitable')
   await expect(resources.locator('tbody tr').first().getByText('Exploit')).toBeVisible()
   await axe(page, 'resources with an exploitable CVE')
   await shot(page, '73c-resources-vulnerabilities')
   await resources.locator('tbody tr').first().getByRole('link').click()
-  const inspector = sheet.getByRole('region', { name: /^Inspector/ })
-  await expect(inspector.getByRole('heading', { level: 3, name: /^Inspector/ })).toBeVisible()
-  await expect(inspector.getByRole('link', { name: /^See all \d+ Inspector findings?/ })).toBeVisible()
-  await axe(page, 'resource sheet inspector')
-  await shot(page, '73d-resource-sheet-inspector')
-  await page.keyboard.press('Escape')
+  const vulns = sheet.getByRole('region', { name: /^Vulnerabilities/ })
+  await expect(vulns.getByRole('heading', { level: 3, name: /^Vulnerabilities/ })).toBeVisible()
+  await expect(vulns.getByText(/by AWS Inspector/).first()).toBeVisible()
+  await expect(vulns.getByRole('link', { name: /^See all \d+ vulnerabilit(y|ies)/ })).toBeVisible()
+  await axe(page, 'resource sheet vulnerabilities')
+  await shot(page, '73d-resource-sheet-vulnerabilities')
+  // Its "See all" opens Vulnerabilities on the resource.
+  await vulns.getByRole('link', { name: /^See all \d+ vulnerabilit(y|ies)/ }).click()
+  await expect(page).toHaveURL(/\/investigate\/vulnerabilities\?resource=\d+$/)
+  await expect(page.getByRole('button', { name: 'Remove resource filter' })).toBeVisible()
+
+  // Vulnerabilities (owner's decision, 2026-10-31): CVEs apart from Misconfigurations.
+  await navLink(page, 'Vulnerabilities')
+  await expect(page).toHaveURL(/\/investigate\/vulnerabilities$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Vulnerabilities' })).toBeVisible()
+  const cves = page.getByRole('table')
+  await expect(cves.locator('tbody tr.row').first()).toContainText(/CVE-\d{4}-\d+|CWE-/)
+  await axe(page, 'vulnerabilities')
+  await shot(page, '75-vulnerabilities')
+  // A row's details name the scanner and the vulnerable package.
+  await cves.locator('tbody tr.row').first().locator('.lead').click()
+  await expect(page.getByText('Scanner', { exact: true })).toBeVisible()
+  await expect(page.getByText('AWS Inspector', { exact: true }).first()).toBeVisible()
+  await axe(page, 'vulnerability details')
+  await shot(page, '75b-vulnerability-details')
+  // Public exploit and Fix filter on the vulnerability's own facts, kept in the URL.
+  await page.getByLabel('Public exploit').check()
+  await expect(page).toHaveURL(/exploit=1/)
+  await expect(cves.locator('tbody tr.row').first().getByText('Exploit')).toBeVisible()
+  await page.getByRole('group', { name: 'Fix' }).getByRole('button', { name: 'Available' }).click()
+  await expect(page).toHaveURL(/fix=available/)
+  // By CVE: each CVE once; a CVE opens the list filtered to it.
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'By CVE' }).click()
+  await expect(page.getByRole('heading', { level: 2, name: 'CVEs with findings' })).toBeVisible()
+  await axe(page, 'vulnerabilities by CVE')
+  await shot(page, '75c-vulnerabilities-by-cve')
+  await page.getByRole('button', { name: /^Show the \d+ findings? of / }).first().click()
+  await expect(page).toHaveURL(/check=/)
+  await expect(page.getByRole('button', { name: 'Remove CVE filter' })).toBeVisible()
+  // A link from before the split lands on the right list.
+  await page.goto('/investigate/findings?tool=vulnerabilities')
+  await expect(page).toHaveURL(/\/investigate\/vulnerabilities\?tool=vulnerabilities$/)
+  await page.goto('/investigate/findings')
+  await expect(page).toHaveURL(/\/investigate\/misconfigurations$/)
 })
 
 test('investigate: resource map and attack paths, read-only', async ({ page }) => {
@@ -706,7 +745,8 @@ test('light theme: every screen passes axe, and the toggle cycles', async ({ pag
     ['/', 'Overview', 'L10-overview'],
     ['/posture/compliance', 'Compliance', 'L80-compliance'],
     ['/posture/compliance/cis_6.0_aws', 'CIS Amazon Web Services Foundations Benchmark v6.0.0', 'L81-framework'],
-    ['/investigate/findings', 'Findings', 'L70-findings'],
+    ['/investigate/misconfigurations', 'Misconfigurations', 'L70-misconfigurations'],
+    ['/investigate/vulnerabilities', 'Vulnerabilities', 'L75-vulnerabilities'],
     ['/investigate/resources', 'Resources', 'L72-resources'],
     ['/investigate/attack-paths', 'Attack paths', 'L94-attack-paths'],
     ['/scans/schedules', 'Schedules', 'L30-schedules'],

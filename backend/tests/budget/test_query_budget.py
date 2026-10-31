@@ -9,8 +9,9 @@ group: `internet` reaching 5,000 resources of one account, a VPC holding 20,000,
 AWS-managed policy attached to 10,000 principals across accounts.
 Compliance as real Prowler on AWS: 40 frameworks of 100 requirements, 180 days of scores and
 counts per account, and two days of requirement results per account plus their rollup.
-Inspector (ADR-0042): 50,000 CVE findings on connection 1's instances and functions (15 each,
-one in five resolved), with their vulnerability facts and coverage (one in seven not scanned).
+Vulnerabilities (ADR-0042, in AWS Inspector's shape): 50,000 CVE findings on connection 1's
+instances and functions (15 each, one in five resolved), with their vulnerability facts and
+coverage (one in seven not scanned).
 """
 
 import math
@@ -176,7 +177,7 @@ def _generate_vulnerabilities(conn: Connection) -> None:
                              resource_id, severity, status, muted, title, service,
                              resource_type, categories, state, first_seen, last_seen,
                              resolved_on)
-        SELECT 'insp-' || r.id || '-' || k, 'inspector', 'CVE-2024-' || (1000 + k * 37 % 900),
+        SELECT 'insp-' || r.id || '-' || k, 'vulnerabilities', 'CVE-2024-' || (1000 + k * 37 % 900),
                1, 'us-east-1', r.resource_uid, r.id,
                (ARRAY['critical','high','medium','low','informational'])[1 + (random()*4)::int],
                'FAIL', k % 11 = 0, 'CVE ' || k, 'ec2', 'AwsEc2Instance', ARRAY['vulnerability'],
@@ -191,24 +192,24 @@ def _generate_vulnerabilities(conn: Connection) -> None:
     )
     conn.execute(
         text("""
-        INSERT INTO finding_vulnerability (finding_id, finding_type, vulnerability_id,
+        INSERT INTO finding_vulnerability (finding_id, scanner, kind, vulnerability_id,
                                            package_name, installed_version, fixed_version,
                                            cvss_score, epss_score, exploit_available,
                                            fix_available)
-        SELECT id, 'PACKAGE_VULNERABILITY', check_id, 'pkg', '1.0', '1.1',
+        SELECT id, 'aws-inspector', 'package', check_id, 'pkg', '1.0', '1.1',
                round((random() * 10)::numeric, 1), random(), id % 4 = 0, 'YES'
-        FROM finding WHERE tool = 'inspector'
+        FROM finding WHERE tool = 'vulnerabilities'
     """)
     )
     conn.execute(
         text("""
-        INSERT INTO vulnerability_coverage (resource_id, scan_type, connection_id, status_code,
-                                            status_reason, last_scanned_at)
-        SELECT DISTINCT resource_id, 'PACKAGE', 1,
+        INSERT INTO vulnerability_coverage (resource_id, scanner, scan_type, connection_id,
+                                            active, status_code, status_reason, last_scanned_at)
+        SELECT DISTINCT resource_id, 'aws-inspector', 'package', 1, resource_id % 7 <> 0,
                CASE WHEN resource_id % 7 = 0 THEN 'INACTIVE' ELSE 'ACTIVE' END,
                CASE WHEN resource_id % 7 = 0 THEN 'UNMANAGED_EC2_INSTANCE' ELSE 'SUCCESSFUL' END,
                CAST(:d AS timestamptz)
-        FROM finding WHERE tool = 'inspector'
+        FROM finding WHERE tool = 'vulnerabilities'
     """),
         {"d": TODAY},
     )
@@ -416,6 +417,9 @@ def _p95_ms(engine: Engine, query: Callable[[Connection], Any]) -> float:
     return sorted(timings)[math.ceil(0.95 * len(timings)) - 1]
 
 
+# The Misconfigurations list's tools: every finding but a CVE (api/routes/findings.TOOLS).
+MISCONFIGURATIONS = ("prowler", "cloudfox")
+
 QUERIES: dict[str, Callable[[Connection], Any]] = {
     "overview, all accounts": lambda c: metrics.build_overview(c, connection_id=0, as_of=TODAY),
     "overview, one account": lambda c: metrics.build_overview(c, connection_id=7, as_of=TODAY),
@@ -516,8 +520,16 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "findings by check, one account": lambda c: findings.finding_groups(
         c, limit=20, offset=0, filters=findings.FindingFilters(connection_ids=(7,))
     ),
-    "findings, facets": findings.finding_facets,
-    "findings, facets, two accounts": lambda c: findings.finding_facets(c, connection_ids=(7, 8)),
+    "findings, facets": lambda c: findings.finding_facets(c, tools=MISCONFIGURATIONS),
+    "findings, facets, two accounts": lambda c: findings.finding_facets(
+        c, tools=MISCONFIGURATIONS, connection_ids=(7, 8)
+    ),
+    "misconfigurations: the default list": lambda c: findings.list_findings(
+        c, limit=20, offset=0, filters=findings.FindingFilters(tools=MISCONFIGURATIONS)
+    ),
+    "misconfigurations: by check": lambda c: findings.finding_groups(
+        c, limit=20, offset=0, filters=findings.FindingFilters(tools=MISCONFIGURATIONS)
+    ),
     "findings, counts for a page of resources": lambda c: findings.open_finding_counts(
         c, list(range(1000, 1020))
     ),
@@ -639,13 +651,26 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         offset=0,
         filters=inventory.ResourceFilters(within=findings.VULNERABLE_RESOURCES_SQL["high"]),
     ),
-    "resource: its Inspector section": lambda c: (
+    "resource: its Vulnerabilities section": lambda c: (
         findings.resource_vulnerabilities(c, VULNERABLE_PAGE[0]),
         findings.resource_coverage(c, VULNERABLE_PAGE[0]),
     ),
-    "findings: Inspector's only": lambda c: findings.list_findings(
-        c, limit=20, offset=0, filters=findings.FindingFilters(tools=("inspector",))
+    "findings: vulnerabilities only": lambda c: findings.list_findings(
+        c, limit=20, offset=0, filters=findings.FindingFilters(tools=("vulnerabilities",))
     ),
+    "vulnerabilities: with a public exploit": lambda c: findings.list_findings(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(tools=("vulnerabilities",), exploitable=True),
+    ),
+    "vulnerabilities: by CVE, no fix yet": lambda c: findings.finding_groups(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(tools=("vulnerabilities",), fix="none"),
+    ),
+    "vulnerabilities: facets": lambda c: findings.finding_facets(c, tools=("vulnerabilities",)),
 }
 
 

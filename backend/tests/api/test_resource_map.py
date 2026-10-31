@@ -302,7 +302,7 @@ def test_a_resource_says_which_tools_scanned_its_account(signed_in: TestClient, 
         "steampipe": today,
         "prowler": today,
         "cloudfox": today,
-        "inspector": today,
+        "vulnerabilities": today,
     }
 
 

@@ -9,16 +9,17 @@ from sqlalchemy import Connection, text
 
 from argus.connections import DIRECTORY_SQL
 from argus.core.db import count_sql, like_contains
+from argus.findings.model import VULNERABILITY_TOOL
 from argus.findings.prowler import EXPOSURE_CHECKS
 
 # Exported SQL: the view attack-path rules read as `f`. One connection's failing findings now.
-# Inspector's CVEs are left out (ADR-0042): any CVE would raise nearly every path through an
-# instance or a function; a path kind built for them joins them on purpose.
-FAILING_FINDINGS_SQL = """
+# CVEs are left out (ADR-0042): any CVE would raise nearly every path through an instance or a
+# function; a path kind built for them joins them on purpose.
+FAILING_FINDINGS_SQL = f"""
   SELECT resource_uid, check_id, severity FROM finding
   WHERE connection_id = :connection_id AND state IN ('open', 'reopened') AND NOT muted
-    AND status = 'FAIL' AND tool <> 'inspector'
-"""
+    AND status = 'FAIL' AND tool <> '{VULNERABILITY_TOOL}'
+"""  # noqa: S608 - a fixed constant
 
 FindingState = Literal["open", "reopened", "resolved", "accepted_risk"]
 FindingOrder = Literal["severity", "severity_asc", "last_seen_desc", "last_seen_asc"]
@@ -65,8 +66,17 @@ _FILTERS = f"""
     AND (NOT :new OR f.first_seen = f.last_seen)
     AND (CAST(:res AS bigint) IS NULL OR f.resource_id = :res)
     AND (CAST(:p AS text) IS NULL OR {_SEARCH} ILIKE :p ESCAPE '\\')
+    AND (NOT :expl OR EXISTS (SELECT 1 FROM finding_vulnerability v
+                              WHERE v.finding_id = f.id AND v.exploit_available))
+    AND (CAST(:fix AS text[]) IS NULL OR EXISTS (
+      SELECT 1 FROM finding_vulnerability v
+      WHERE v.finding_id = f.id AND v.fix_available = ANY(CAST(:fix AS text[]))))
 """  # noqa: S608 - exported SQL constants only
 _MUTED: dict[str, bool | None] = {"any": None, "hide": False, "only": True}
+# Whether a vulnerability has a fix: any; available (a fixed version for every or some of its
+# packages); none yet.
+FixFilter = Literal["any", "available", "none"]
+_FIX: dict[str, list[str] | None] = {"any": None, "available": ["YES", "PARTIAL"], "none": ["NO"]}
 # What the list and a single finding return. Exported SQL constants only.
 _SELECT = f"""
         SELECT f.id, f.finding_uid, f.tool, f.check_id, f.connection_id, c.name AS connection,
@@ -100,6 +110,9 @@ class FindingFilters:
     new: bool = False
     resource_id: int | None = None
     q: str | None = None
+    # Vulnerabilities only (finding_vulnerability): a public exploit exists; a fix exists or not.
+    exploitable: bool = False
+    fix: FixFilter = "any"
 
 
 def _any(values: tuple[Any, ...]) -> list[Any] | None:
@@ -125,6 +138,8 @@ def _params(filters: FindingFilters) -> dict[str, Any]:
         "new": filters.new,
         "res": filters.resource_id,
         "p": like_contains(filters.q) if filters.q else None,
+        "expl": filters.exploitable,
+        "fix": _FIX[filters.fix],
     }
 
 
@@ -244,17 +259,20 @@ class FindingFacets:
     checks: list[tuple[str, str]]  # (tool, check_id)
 
 
-def finding_facets(conn: Connection, *, connection_ids: tuple[int, ...] = ()) -> FindingFacets:
-    """The values the data-driven filters offer, over these connections (all when empty), from
-    finding_facet, which ingest rebuilds after each load. Empty values (rows not rescanned
-    since migration 0009) are not there."""
+def finding_facets(
+    conn: Connection, *, tools: tuple[str, ...], connection_ids: tuple[int, ...] = ()
+) -> FindingFacets:
+    """The values the data-driven filters offer, for these tools' findings over these
+    connections (all when empty), from finding_facet, which ingest rebuilds after each load.
+    Empty values (rows not rescanned since migration 0009) are not there."""
     rows = conn.execute(
         text("""
         SELECT DISTINCT facet, tool, value FROM finding_facet
-        WHERE CAST(:c AS bigint[]) IS NULL OR connection_id = ANY(CAST(:c AS bigint[]))
+        WHERE tool = ANY(CAST(:t AS text[]))
+          AND (CAST(:c AS bigint[]) IS NULL OR connection_id = ANY(CAST(:c AS bigint[])))
         ORDER BY facet, value, tool
     """),
-        {"c": _any(connection_ids)},
+        {"t": list(tools), "c": _any(connection_ids)},
     ).all()
     values: dict[str, list[str]] = {}
     checks: list[tuple[str, str]] = []
@@ -318,8 +336,8 @@ def open_exposure_counts(conn: Connection, resource_ids: list[int]) -> dict[int,
 
 def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, tuple[int, str]]:
     """For each of these resources with open or reopened Prowler or CloudFox findings: how many,
-    and the worst severity among them. Inspector's CVEs are counted apart (vulnerabilities,
-    ADR-0042). Called with one page of resources, so the input is bounded."""
+    and the worst severity among them. CVEs are counted apart (vulnerabilities, ADR-0042).
+    Called with one page of resources, so the input is bounded."""
     if not resource_ids:
         return {}
     rows = conn.execute(
@@ -329,7 +347,7 @@ def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, 
                  AS worst
         FROM finding f
         WHERE f.resource_id = ANY(CAST(:ids AS bigint[])) AND f.state IN ('open', 'reopened')
-          AND f.tool <> 'inspector'
+          AND f.tool <> '{VULNERABILITY_TOOL}'
         GROUP BY f.resource_id
     """),  # noqa: S608 - fixed fragment
         {"ids": resource_ids},

@@ -30,6 +30,8 @@ export type IconName =
   | 'reopen'
   | 'graph'
   | 'route'
+  // Investigate -> Vulnerabilities.
+  | 'bug'
   | 'globe'
   | 'expand'
   | 'minus'

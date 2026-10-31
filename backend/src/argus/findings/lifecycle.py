@@ -23,7 +23,7 @@ from sqlalchemy import Connection, text
 
 from argus import connections, metrics
 from argus.core.resolver import record_unresolved, resolve
-from argus.findings.model import SEVERITIES, CheckText, FindingResult
+from argus.findings.model import SEVERITIES, VULNERABILITY_TOOL, CheckText, FindingResult
 from argus.findings.prowler import ProwlerBatch
 from argus.inventory import RESOURCES_ON_DAY_SQL, resource_id_sql
 
@@ -152,7 +152,8 @@ def _upsert_findings(
 # enabled region and does not list them (CloudFox) covers all of a connection's findings.
 ANY_REGION = "*"
 # A check meaning "every check": a tool that reports everything it knows about the account on
-# every run (Inspector, ADR-0042), so a complete run covers each of its open findings.
+# every run (a vulnerability scanner, ADR-0042), so a complete run covers each of its open
+# findings.
 ANY_CHECK = "*"
 
 
@@ -304,12 +305,12 @@ def load_tool_findings(
 
 def _refresh_facets(conn: Connection, *, connection_id: int) -> None:
     """Rebuilds the connection's Findings filter options from its findings (migration 0009):
-    the list reads these instead of a DISTINCT over every finding. Inspector's check ids are
-    left out: one per CVE, thousands on a real account, too many for a list of options; the
+    the list reads these instead of a DISTINCT over every finding. CVE check ids are left out:
+    one per CVE, thousands on a real account, too many for a list of options; the
     search matches a CVE id instead (ADR-0042)."""
     conn.execute(text("DELETE FROM finding_facet WHERE connection_id = :c"), {"c": connection_id})
     conn.execute(
-        text("""
+        text(f"""
         INSERT INTO finding_facet (connection_id, facet, tool, value)
         SELECT DISTINCT f.connection_id, v.facet, f.tool, v.value
         FROM finding f,
@@ -317,8 +318,8 @@ def _refresh_facets(conn: Connection, *, connection_id: int) -> None:
                              ('resource_type', f.resource_type), ('check', f.check_id)
                       UNION ALL SELECT 'category', unnest(f.categories)) v(facet, value)
         WHERE f.connection_id = :c AND v.value IS NOT NULL
-          AND NOT (f.tool = 'inspector' AND v.facet = 'check')
-    """),
+          AND NOT (f.tool = '{VULNERABILITY_TOOL}' AND v.facet = 'check')
+    """),  # noqa: S608 - a fixed constant
         {"c": connection_id},
     )
 

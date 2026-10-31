@@ -144,7 +144,7 @@ def test_inspector_columns_are_selected_and_exist_in_the_pinned_plugin(tmp_path:
     source_account_id were checked against the binary, 2026-10-30, ADR-0042), and the Demo
     source writes only what it selects."""
     common = {"partition", "region", "account_id"}
-    run_dir = _run(tmp_path, PROD, "inspector")
+    run_dir = _run(tmp_path, PROD, "vulnerabilities")
     for table in INSPECTOR_TABLES:
         options = inspector_table_options(table, PROD.account_id)
         selected = set(options[options.index("--select") + 1].split(","))

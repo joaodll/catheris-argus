@@ -1,7 +1,8 @@
 <script setup lang="ts">
 /**
- * Investigate -> Findings (docs/ui/screens.md, E7): Prowler checks and CloudFox attacker findings
- * in one read-only list. Every filter, the order and the page live in the URL (findingFilters.ts),
+ * Investigate -> Misconfigurations (docs/ui/screens.md, E7; named Findings until 2026-10-31):
+ * Prowler checks and CloudFox attacker findings in one read-only list. CVEs are findings too,
+ * listed apart on Vulnerabilities. Every filter, the order and the page live in the URL (findingFilters.ts),
  * so a filtered list can be bookmarked or shared, Back restores it, and the resource sheet links
  * here with ?resource=.
  */
@@ -128,7 +129,6 @@ const providerOptions: MultiOption[] = PROVIDERS.map((p) => ({ value: p.id, labe
 const toolOptions: MultiOption[] = [
   { value: 'prowler', label: 'Prowler' },
   { value: 'cloudfox', label: 'CloudFox' },
-  { value: 'inspector', label: 'Inspector' },
 ]
 const reachOptions: MultiOption[] = FINDING_REACHES.map((r) => ({ value: r, label: FINDING_REACH_LABEL[r] }))
 const resultOptions: MultiOption[] = [
@@ -144,12 +144,9 @@ const typeOptions = computed(() => mono(facets.data.value?.resource_types))
 const regionOptions = computed(() => mono(facets.data.value?.regions, regionLabel))
 const checkOptions = computed<MultiOption[]>(() => {
   const seen = new Set<string>()
-  const offered = (facets.data.value?.checks ?? [])
+  return (facets.data.value?.checks ?? [])
     .filter((c) => !seen.has(c.check_id) && seen.add(c.check_id))
     .map((c) => ({ value: c.check_id, label: c.check_id, mono: true, tool: c.tool }))
-  // An Inspector check (a CVE) is not a facet: chosen from its group, it is offered too.
-  const chosen = filters.value.check.filter((c) => !seen.has(c)).map((c) => ({ value: c, label: c, mono: true, tool: 'inspector' }))
-  return [...chosen, ...offered]
 })
 const MUTED_CHOICES: { value: Muted; label: string }[] = [
   { value: 'any', label: 'Show' },
@@ -358,16 +355,16 @@ const VIEWS: { value: View; label: string }[] = [
 </script>
 
 <template>
-  <PageHeader title="Findings">
+  <PageHeader title="Misconfigurations">
     <template v-if="dataThrough">Data through <span class="mono strong">{{ dataThrough }}</span></template>
     <template v-else-if="loaded">No scan yet</template>
   </PageHeader>
 
   <AlertBanner v-if="single != null" kind="info">
     Showing one finding from its link.
-    <template #action><RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'findings' }">Show all findings</RouterLink></template>
+    <template #action><RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'misconfigurations' }">Show all misconfigurations</RouterLink></template>
   </AlertBanner>
-  <FilterBar v-else label="Filter findings" :active="filtered" @clear="clearFilters">
+  <FilterBar v-else label="Filter misconfigurations" :active="filtered" @clear="clearFilters">
     <span v-if="resourceId" class="filter-chip" :title="resource.data.value?.resource_uid">
       Resource: <span class="mono">{{ resourceChip }}</span>
       <button type="button" class="icon-btn chip-x" aria-label="Remove resource filter" @click="removeResource">
@@ -499,7 +496,7 @@ const VIEWS: { value: View; label: string }[] = [
   <section class="card panel" aria-labelledby="findings-h">
     <div class="panel-h view-h">
       <div class="titles">
-        <h2 id="findings-h" class="h2">{{ shown === 'checks' ? 'Checks with findings' : 'Prowler, CloudFox and Inspector findings' }}</h2>
+        <h2 id="findings-h" class="h2">{{ shown === 'checks' ? 'Checks with findings' : 'Prowler and CloudFox findings' }}</h2>
         <span v-if="single != null" class="cap">One finding, from its own link. Read-only.</span>
         <span v-else-if="shown === 'checks'" class="cap">{{ GROUP_ORDER_NOTE[order] }} Read-only.</span>
         <span v-else class="cap">{{ ORDER_NOTE[order] }} Read-only.</span>
@@ -516,7 +513,7 @@ const VIEWS: { value: View; label: string }[] = [
       </AlertBanner>
     </div>
     <div v-else-if="!loaded" aria-busy="true" class="panel-body loading"><div v-for="n in 5" :key="n" class="skeleton sk-44"></div></div>
-    <EmptyState v-else-if="noData" icon="flag" title="No findings yet." text="Findings appear after a Prowler, CloudFox or Inspector scan is ingested.">
+    <EmptyState v-else-if="noData" icon="flag" title="No misconfigurations yet." text="They appear after a Prowler or CloudFox scan is ingested.">
       <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
     </EmptyState>
     <EmptyState v-else-if="rows === 0 && filtered" icon="info" :title="shown === 'checks' ? 'No checks match these filters.' : 'No findings match these filters.'">

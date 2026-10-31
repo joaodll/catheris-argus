@@ -724,8 +724,12 @@
         "type": "object"
       },
       "CoverageOut": {
-        "description": "Inspector's own words for one scan type: PACKAGE or CODE; ACTIVE or INACTIVE, with a\nreason such as UNMANAGED_EC2_INSTANCE.",
+        "description": "Whether the scanner scans the resource, for one scan type. `active` is the verdict; the\nstatus code and reason are the scanner's own words (AWS Inspector: ACTIVE or INACTIVE, with\na reason such as UNMANAGED_EC2_INSTANCE).",
         "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
           "last_scanned_at": {
             "anyOf": [
               {
@@ -739,7 +743,15 @@
             "title": "Last Scanned At"
           },
           "scan_type": {
+            "enum": [
+              "package",
+              "code"
+            ],
             "title": "Scan Type",
+            "type": "string"
+          },
+          "scanner": {
+            "title": "Scanner",
             "type": "string"
           },
           "status_code": {
@@ -759,7 +771,9 @@
           }
         },
         "required": [
+          "scanner",
           "scan_type",
+          "active",
           "status_code",
           "status_reason",
           "last_scanned_at"
@@ -2587,44 +2601,6 @@
         "title": "IdentityOut",
         "type": "object"
       },
-      "InspectorSection": {
-        "description": "The resource's Inspector vulnerabilities, as of the connection's last Inspector run.",
-        "properties": {
-          "by_severity": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "title": "By Severity",
-            "type": "object"
-          },
-          "coverage": {
-            "items": {
-              "$ref": "#/components/schemas/CoverageOut"
-            },
-            "title": "Coverage",
-            "type": "array"
-          },
-          "suppressed": {
-            "title": "Suppressed",
-            "type": "integer"
-          },
-          "top": {
-            "items": {
-              "$ref": "#/components/schemas/TopVulnerabilityOut"
-            },
-            "title": "Top",
-            "type": "array"
-          }
-        },
-        "required": [
-          "by_severity",
-          "suppressed",
-          "top",
-          "coverage"
-        ],
-        "title": "InspectorSection",
-        "type": "object"
-      },
       "Inventory": {
         "properties": {
           "by_type": {
@@ -4344,16 +4320,6 @@
             "title": "Id",
             "type": "integer"
           },
-          "inspector": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/InspectorSection"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "last_seen": {
             "format": "date",
             "title": "Last Seen",
@@ -4420,6 +4386,16 @@
               }
             ],
             "title": "Vpc Id"
+          },
+          "vulnerabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VulnerabilitySection"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4442,7 +4418,7 @@
           "edges",
           "scanned",
           "commands",
-          "inspector"
+          "vulnerabilities"
         ],
         "title": "ResourceDetail",
         "type": "object"
@@ -4670,7 +4646,7 @@
                     "steampipe",
                     "prowler",
                     "cloudfox",
-                    "inspector"
+                    "vulnerabilities"
                   ],
                   "type": "string"
                 },
@@ -5069,7 +5045,7 @@
                 "steampipe",
                 "prowler",
                 "cloudfox",
-                "inspector"
+                "vulnerabilities"
               ],
               "type": "string"
             },
@@ -5645,13 +5621,6 @@
             "title": "Cloudfox",
             "type": "string"
           },
-          "inspector": {
-            "default": "raw/inspector",
-            "maxLength": 200,
-            "pattern": "^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$",
-            "title": "Inspector",
-            "type": "string"
-          },
           "prowler": {
             "default": "raw/prowler",
             "maxLength": 200,
@@ -5664,6 +5633,13 @@
             "maxLength": 200,
             "pattern": "^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$",
             "title": "Steampipe",
+            "type": "string"
+          },
+          "vulnerabilities": {
+            "default": "raw/vulnerabilities",
+            "maxLength": 200,
+            "pattern": "^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$",
+            "title": "Vulnerabilities",
             "type": "string"
           }
         },
@@ -5684,18 +5660,6 @@
               }
             ],
             "title": "Cloudfox"
-          },
-          "inspector": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Inspector"
           },
           "prowler": {
             "anyOf": [
@@ -5720,13 +5684,25 @@
               }
             ],
             "title": "Steampipe"
+          },
+          "vulnerabilities": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vulnerabilities"
           }
         },
         "required": [
           "steampipe",
           "prowler",
           "cloudfox",
-          "inspector"
+          "vulnerabilities"
         ],
         "title": "ToolScans",
         "type": "object"
@@ -5987,8 +5963,32 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VulnerabilityFacets": {
+        "properties": {
+          "regions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Regions",
+            "type": "array"
+          },
+          "resource_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Resource Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "regions",
+          "resource_types"
+        ],
+        "title": "VulnerabilityFacets",
+        "type": "object"
+      },
       "VulnerabilityOut": {
-        "description": "What an Inspector finding adds (ADR-0042): the vulnerable package and its fix. A code\nvulnerability has no CVE and no package.",
+        "description": "What a vulnerability finding adds (ADR-0042): the vulnerable package and its fix. A code\nvulnerability has no CVE and no package.",
         "properties": {
           "cvss_score": {
             "anyOf": [
@@ -6015,14 +6015,6 @@
           "exploit_available": {
             "title": "Exploit Available",
             "type": "boolean"
-          },
-          "finding_type": {
-            "enum": [
-              "PACKAGE_VULNERABILITY",
-              "CODE_VULNERABILITY"
-            ],
-            "title": "Finding Type",
-            "type": "string"
           },
           "fix_available": {
             "anyOf": [
@@ -6069,17 +6061,6 @@
             "title": "Image Tags",
             "type": "array"
           },
-          "inspector_score": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Inspector Score"
-          },
           "installed_version": {
             "anyOf": [
               {
@@ -6090,6 +6071,14 @@
               }
             ],
             "title": "Installed Version"
+          },
+          "kind": {
+            "enum": [
+              "package",
+              "code"
+            ],
+            "title": "Kind",
+            "type": "string"
           },
           "package_manager": {
             "anyOf": [
@@ -6124,6 +6113,21 @@
             ],
             "title": "Reference Url"
           },
+          "scanner": {
+            "title": "Scanner",
+            "type": "string"
+          },
+          "scanner_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanner Score"
+          },
           "vulnerability_id": {
             "anyOf": [
               {
@@ -6137,7 +6141,8 @@
           }
         },
         "required": [
-          "finding_type",
+          "scanner",
+          "kind",
           "vulnerability_id",
           "package_name",
           "package_manager",
@@ -6145,7 +6150,7 @@
           "fixed_version",
           "cvss_score",
           "epss_score",
-          "inspector_score",
+          "scanner_score",
           "exploit_available",
           "fix_available",
           "image_digest",
@@ -6155,8 +6160,51 @@
         "title": "VulnerabilityOut",
         "type": "object"
       },
+      "VulnerabilitySection": {
+        "description": "The resource's vulnerabilities, as of the connection's last vulnerabilities run.",
+        "properties": {
+          "by_severity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "By Severity",
+            "type": "object"
+          },
+          "coverage": {
+            "items": {
+              "$ref": "#/components/schemas/CoverageOut"
+            },
+            "title": "Coverage",
+            "type": "array"
+          },
+          "scanner": {
+            "title": "Scanner",
+            "type": "string"
+          },
+          "suppressed": {
+            "title": "Suppressed",
+            "type": "integer"
+          },
+          "top": {
+            "items": {
+              "$ref": "#/components/schemas/TopVulnerabilityOut"
+            },
+            "title": "Top",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scanner",
+          "by_severity",
+          "suppressed",
+          "top",
+          "coverage"
+        ],
+        "title": "VulnerabilitySection",
+        "type": "object"
+      },
       "VulnerabilitySummary": {
-        "description": "A resource's open Inspector CVEs (ADR-0042), suppressed ones left out.",
+        "description": "A resource's open CVEs (ADR-0042), suppressed ones left out.",
         "properties": {
           "exploitable": {
             "title": "Exploitable",
@@ -8191,8 +8239,7 @@
               "items": {
                 "enum": [
                   "prowler",
-                  "cloudfox",
-                  "inspector"
+                  "cloudfox"
                 ],
                 "type": "string"
               },
@@ -8499,7 +8546,7 @@
     },
     "/api/v1/findings/facets": {
       "get": {
-        "description": "The options of the Findings filters that come from the data.",
+        "description": "The options of the Misconfigurations filters that come from the data.",
         "operationId": "finding_facets_api_v1_findings_facets_get",
         "parameters": [
           {
@@ -8595,7 +8642,7 @@
     },
     "/api/v1/findings/groups": {
       "get": {
-        "description": "The Findings list by check, with the list's filters: one row per tool and check id,\nworst severity first, then the checks with the most findings.",
+        "description": "The Misconfigurations list by check, with the list's filters: one row per tool and check\nid, worst severity first, then the checks with the most findings.",
         "operationId": "finding_groups_api_v1_findings_groups_get",
         "parameters": [
           {
@@ -8662,8 +8709,7 @@
               "items": {
                 "enum": [
                   "prowler",
-                  "cloudfox",
-                  "inspector"
+                  "cloudfox"
                 ],
                 "type": "string"
               },
@@ -10605,7 +10651,7 @@
                     "steampipe",
                     "prowler",
                     "cloudfox",
-                    "inspector"
+                    "vulnerabilities"
                   ],
                   "type": "string"
                 },
@@ -12298,6 +12344,734 @@
         "summary": "Unlock",
         "tags": [
           "users"
+        ]
+      }
+    },
+    "/api/v1/vulnerabilities": {
+      "get": {
+        "description": "One page of CVE findings; each item carries its `vulnerability`.",
+        "operationId": "list_vulnerabilities_api_v1_vulnerabilities_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low",
+                  "informational"
+                ],
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Severity",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "aws",
+                  "gcp",
+                  "oci"
+                ],
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Provider",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "enum": [
+                "open",
+                "reopened",
+                "resolved",
+                "accepted_risk"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "region",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Region",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_type",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Resource Type",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "check_id",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Check Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "muted",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "enum": [
+                "any",
+                "hide",
+                "only"
+              ],
+              "title": "Muted",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "new",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "New",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "exploitable",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Exploitable",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "fix",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "enum": [
+                "any",
+                "available",
+                "none"
+              ],
+              "title": "Fix",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "severity",
+              "enum": [
+                "severity",
+                "severity_asc",
+                "last_seen_desc",
+                "last_seen_asc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Vulnerabilities",
+        "tags": [
+          "vulnerabilities"
+        ]
+      }
+    },
+    "/api/v1/vulnerabilities/facets": {
+      "get": {
+        "description": "The options of the Vulnerabilities filters that come from the data.",
+        "operationId": "vulnerability_facets_api_v1_vulnerabilities_facets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VulnerabilityFacets"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Vulnerability Facets",
+        "tags": [
+          "vulnerabilities"
+        ]
+      }
+    },
+    "/api/v1/vulnerabilities/groups": {
+      "get": {
+        "description": "The Vulnerabilities list by CVE, with the list's filters: one row per CVE, worst\nseverity first, then the CVEs with the most findings.",
+        "operationId": "vulnerability_groups_api_v1_vulnerabilities_groups_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low",
+                  "informational"
+                ],
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Severity",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "aws",
+                  "gcp",
+                  "oci"
+                ],
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Provider",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "enum": [
+                "open",
+                "reopened",
+                "resolved",
+                "accepted_risk"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "region",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Region",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_type",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Resource Type",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "check_id",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Check Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "muted",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "enum": [
+                "any",
+                "hide",
+                "only"
+              ],
+              "title": "Muted",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "new",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "New",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "exploitable",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Exploitable",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "fix",
+            "required": false,
+            "schema": {
+              "default": "any",
+              "enum": [
+                "any",
+                "available",
+                "none"
+              ],
+              "title": "Fix",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "severity",
+              "enum": [
+                "severity",
+                "severity_asc",
+                "last_seen_desc",
+                "last_seen_asc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingGroupPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Vulnerability Groups",
+        "tags": [
+          "vulnerabilities"
         ]
       }
     }

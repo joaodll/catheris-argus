@@ -14,12 +14,13 @@ import CopyButton from '@/components/CopyButton.vue'
 import CommandsBlock from './CommandsBlock.vue'
 import { useResource } from '@/composables/useResource'
 import { categoryLabel } from './findingFilters'
-import { regionLabel, shortLink, webUrl } from './labels'
+import { findingRoute, regionLabel, shortLink, webUrl } from './labels'
 import ToolText from './ToolText.vue'
 import { CODE_KINDS, codeBody } from './toolText'
 import ReachBadge from './ReachBadge.vue'
 import { hasEvidence, reasonWords, toolNote } from './reachReason'
 import { epssPercent, shortDigest } from './vulnerability'
+import { scannerName } from '@/tools'
 
 const props = defineProps<{
   finding: Schemas['FindingOut']
@@ -47,7 +48,7 @@ const code = computed(() =>
   }),
 )
 const consoleSteps = computed(() => detail.value?.remediation_code.other ?? null)
-// An Inspector finding's vulnerability (ADR-0042); null on every other tool's.
+// A vulnerability finding's facts (ADR-0042); null on every other tool's.
 const vuln = computed(() => f.value.vulnerability ?? null)
 const reference = computed(() => webUrl(vuln.value?.reference_url))
 // Argus's verdict on the resource: its reason in words, why the tools differ, where the evidence is.
@@ -69,7 +70,7 @@ const verdict = computed(() => {
     <RouterLink
       v-if="ownLink"
       class="btn btn-ghost btn-sm own-link"
-      :to="{ name: 'findings', query: { finding: String(f.id) } }"
+      :to="{ name: findingRoute(f.tool), query: { finding: String(f.id) } }"
       target="_blank"
       :aria-label="`Open ${f.title} in a new tab`"
     >
@@ -100,11 +101,12 @@ const verdict = computed(() => {
           </dd>
           <dd v-else>Code vulnerability</dd>
         </div>
+        <div><dt class="lbl">Scanner</dt><dd>{{ scannerName(vuln.scanner) }}</dd></div>
         <div v-if="vuln.package_name">
           <dt class="lbl">Package</dt>
           <dd><span class="mono">{{ [vuln.package_name, vuln.installed_version].filter(Boolean).join(' ') }}</span><span v-if="vuln.package_manager" class="cap"> ({{ vuln.package_manager }})</span></dd>
         </div>
-        <div v-if="vuln.finding_type === 'PACKAGE_VULNERABILITY'">
+        <div v-if="vuln.kind === 'package'">
           <dt class="lbl">Fixed in</dt>
           <dd :class="{ mono: vuln.fixed_version }">{{ vuln.fixed_version ?? 'No fix yet' }}</dd>
         </div>

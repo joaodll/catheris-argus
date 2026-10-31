@@ -45,7 +45,7 @@ const cards = computed(() => {
       context: 'Failed Prowler checks rated critical',
       meter: null,
       to: failedFindings(props.connectionId, 'critical'),
-      drill: 'Show in Findings',
+      drill: 'Show in Misconfigurations',
     },
     {
       tool: 'cloudfox',

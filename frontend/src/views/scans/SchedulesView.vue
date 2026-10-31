@@ -59,7 +59,7 @@ function clearSearch(): void {
 }
 const connections = useResource(() => unwrap(api.GET('/api/v1/connections')))
 const settings = useResource(() => unwrap(api.GET('/api/v1/settings')))
-// Each tool's last run per connection: Run now and a new schedule tick Inspector only where it ran.
+// Each tool's last run per connection: Run now and a new schedule tick Vulnerabilities only where it ran.
 const context = useResource(() => unwrap(api.GET('/api/v1/context', { params: { query: { connection_id: 0 } } })))
 const lastRuns = computed(() => context.data.value?.last_runs ?? null)
 

@@ -22,7 +22,7 @@ import { fromSelect, regionLabel, typesByService } from './labels'
 import ResourceSheet from './ResourceSheet.vue'
 
 type Order = 'name_asc' | 'name_desc' | 'last_seen_desc' | 'last_seen_asc'
-// Open Inspector CVEs (ADR-0042): any, critical or high, or with a public exploit.
+// Open CVEs (ADR-0042): any, critical or high, or with a public exploit.
 type Vulnerabilities = 'any' | 'high' | 'exploitable'
 const VULNERABILITY_OPTIONS: { value: Vulnerabilities; label: string }[] = [
   { value: 'any', label: 'Any open vulnerability' },
@@ -281,7 +281,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
               desc-text="Z to A"
               asc-text="A to Z"
               @toggle="toggleName"
-            /><th scope="col">Connection</th><th scope="col">VPC</th><th scope="col" class="right">Open findings</th><th scope="col" class="right">Vulnerabilities</th>
+            /><th scope="col">Connection</th><th scope="col">VPC</th><th scope="col" class="right">Misconfigurations</th><th scope="col" class="right">Vulnerabilities</th>
             <SortHeader
               label="Last seen"
               class="right"
@@ -314,7 +314,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
               <span class="mono sub">{{ regionLabel(r.region) }}</span>
             </td>
             <td data-label="VPC" class="mono" :class="{ soft: !r.vpc_id }">{{ r.vpc_id ?? '—' }}</td>
-            <td data-label="Open findings" class="right">
+            <td data-label="Misconfigurations" class="right">
               <span v-if="r.open_findings > 0" class="count">
                 <SeverityTag v-if="r.worst_severity" :severity="r.worst_severity" compact />
                 <span class="mono">{{ r.open_findings }}</span>
@@ -322,7 +322,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
               <span v-else class="mono soft">0</span>
             </td>
             <td data-label="Vulnerabilities" class="right">
-              <span v-if="r.vulnerabilities == null" class="soft" title="Inspector does not cover this resource">—</span>
+              <span v-if="r.vulnerabilities == null" class="soft" title="No vulnerability scanner covers this resource">—</span>
               <template v-else>
                 <span v-if="r.vulnerabilities.open > 0" class="count">
                   <SeverityTag v-if="r.vulnerabilities.worst" :severity="r.vulnerabilities.worst" compact />
@@ -334,7 +334,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
                   v-if="!r.vulnerabilities.scanned"
                   class="soft not-scanned"
                   :class="{ sub: r.vulnerabilities.open > 0 }"
-                  title="Inspector does not scan this resource; open it for the reason"
+                  title="The vulnerability scanner does not scan this resource; open it for the reason"
                 >Not scanned</span>
               </template>
             </td>

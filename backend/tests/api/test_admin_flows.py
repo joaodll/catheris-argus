@@ -299,6 +299,9 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
         "/api/v1/schedules",
         "/api/v1/settings",
         "/api/v1/users",
+        "/api/v1/vulnerabilities?limit=200&state=resolved",
+        "/api/v1/vulnerabilities/facets",
+        "/api/v1/vulnerabilities/groups?limit=200",
     ):
         response = signed_in.get(path)
         assert response.status_code == 200, (path, response.text)
@@ -313,14 +316,17 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
                 path = f"/api/v1/resources/{item['id']}?as_of={day}"
                 bodies[path] = signed_in.get(path).text
         offset, total = offset + 200, page["total"]
-    offset, total = 0, 1
-    while offset < total:  # every finding, each through its own link too
-        listing = f"/api/v1/findings?limit=200&state=open&offset={offset}"
-        page = signed_in.get(listing).json()
-        for item in page["items"]:
-            path = f"/api/v1/findings/{item['id']}"
-            bodies[path] = signed_in.get(path).text
-        offset, total = offset + 200, page["total"]
+    for listed in ("findings", "vulnerabilities"):  # every finding and CVE, each by its link too
+        offset, total = 0, 1
+        while offset < total:
+            listing = f"/api/v1/{listed}?limit=200&state=open&offset={offset}"
+            response = signed_in.get(listing)
+            bodies[listing] = response.text
+            page = response.json()
+            for item in page["items"]:
+                path = f"/api/v1/findings/{item['id']}"
+                bodies[path] = signed_in.get(path).text
+            offset, total = offset + 200, page["total"]
 
     _sweep_map(signed_in, bodies, target.connection_id)
 

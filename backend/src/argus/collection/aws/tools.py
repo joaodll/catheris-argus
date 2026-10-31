@@ -401,9 +401,9 @@ def run_steampipe(
 def run_inspector(
     out_dir: Path, env: dict[str, str], regions: list[str], account_id: str
 ) -> ToolResult:
-    """AWS Inspector's open findings and its coverage for this account (ADR-0042), by the same
-    export binary, one JSONL file per table. Judged as Steampipe tables are: the adapter
-    resolves nothing unless the findings table is complete."""
+    """The vulnerabilities tool on AWS: Inspector's open findings and its coverage for this
+    account (ADR-0042), by the same export binary, one JSONL file per table. Judged as
+    Steampipe tables are: the adapter resolves nothing unless the findings table is complete."""
     return _export_tables(
         out_dir,
         env,

@@ -23,6 +23,7 @@ import ExploitMark from './ExploitMark.vue'
 import { coverageReason, epssPercent, lastScanned, packageLine } from './vulnerability'
 import { SEVERITIES } from '@/views/overview/severity'
 import { utc } from '@/format'
+import { scannerName } from '@/tools'
 
 const props = defineProps<{
   resourceId: number
@@ -90,20 +91,22 @@ const TOOLS: { tool: Tool; name: string }[] = [
 ]
 const target = computed(() => (props.newTab ? '_blank' : undefined))
 
-// AWS Inspector's view of this resource (ADR-0042); null for a type Inspector does not scan.
-const inspector = computed(() => {
-  const section = current.value?.inspector
+// The provider's vulnerability scanner's view of this resource (ADR-0042, AWS Inspector on AWS);
+// null for a provider and type no scanner covers.
+const vulns = computed(() => {
+  const section = current.value?.vulnerabilities
   if (!section || !current.value) return null
   const open = Object.values(section.by_severity).reduce((sum, n) => sum + n, 0)
-  const active = section.coverage.filter((c) => c.status_code === 'ACTIVE')
-  const inactive = section.coverage.find((c) => c.status_code !== 'ACTIVE')
+  const inactive = section.coverage.find((c) => !c.active)
+  const scanner = scannerName(section.scanner)
   return {
     ...section,
     open,
-    collected: current.value.scanned.inspector != null,
-    scanned: active.length > 0,
+    scanner,
+    collected: current.value.scanned.vulnerabilities != null,
+    scanned: section.coverage.some((c) => c.active),
     lastScanned: lastScanned(section.coverage),
-    reason: coverageReason(inactive?.status_reason) ?? 'Inspector reports no coverage for it.',
+    reason: coverageReason(section.scanner, inactive?.status_reason) ?? `${scanner} reports no coverage for it.`,
     counts: SEVERITIES.flatMap((s) => (section.by_severity[s] ? [{ severity: s, count: section.by_severity[s]! }] : [])),
   }
 })
@@ -160,7 +163,7 @@ function step(path: Schemas['PathOut']): string {
           <li v-for="f in findings[t.tool].data.value!.items" :key="f.id" class="finding-row">
             <SeverityTag :severity="f.severity" />
             <!-- Prowler's result leads, as on Findings (2026-10-31 review). -->
-            <RouterLink class="one-line finding-link" :to="{ name: 'findings', query: { finding: String(f.id) } }" target="_blank" :title="findingLine(f).lead">
+            <RouterLink class="one-line finding-link" :to="{ name: 'misconfigurations', query: { finding: String(f.id) } }" target="_blank" :title="findingLine(f).lead">
               {{ findingLine(f).lead }}<span class="sr-only"> (opens in a new tab)</span>
             </RouterLink>
             <span class="new-tab" aria-hidden="true">↗</span>
@@ -169,7 +172,7 @@ function step(path: Schemas['PathOut']): string {
         </ul>
         <RouterLink
           class="btn btn-ghost btn-sm see-all"
-          :to="{ name: 'findings', query: { resource: String(resourceId), tool: t.tool } }"
+          :to="{ name: 'misconfigurations', query: { resource: String(resourceId), tool: t.tool } }"
           :target="target"
         >
           See all {{ findings[t.tool].data.value!.total }} {{ t.name }} findings
@@ -182,40 +185,40 @@ function step(path: Schemas['PathOut']): string {
       </template>
     </section>
 
-    <section v-if="inspector" class="block" aria-labelledby="rd-inspector">
-      <h3 id="rd-inspector" class="lbl tool-title">Inspector <ToolChip tool="inspector" /></h3>
-      <template v-if="!inspector.collected">
-        <p class="body">Not covered: Inspector findings are not collected for {{ connection }}.</p>
-        <p class="cap">Add Inspector to a schedule to collect them.</p>
+    <section v-if="vulns" class="block" aria-labelledby="rd-vulnerabilities">
+      <h3 id="rd-vulnerabilities" class="lbl tool-title">Vulnerabilities <ToolChip tool="vulnerabilities" /></h3>
+      <template v-if="!vulns.collected">
+        <p class="body">Not covered: vulnerabilities are not collected for {{ connection }}.</p>
+        <p class="cap">Add Vulnerabilities to a schedule to collect them from {{ vulns.scanner }}.</p>
       </template>
       <template v-else>
-        <template v-if="!inspector.scanned">
-          <p class="body">Inspector doesn't scan this resource.</p>
-          <p class="cap">{{ inspector.reason }}</p>
+        <template v-if="!vulns.scanned">
+          <p class="body">{{ vulns.scanner }} doesn't scan this resource.</p>
+          <p class="cap">{{ vulns.reason }}</p>
         </template>
-        <template v-else-if="inspector.open === 0">
+        <template v-else-if="vulns.open === 0">
           <p class="body">No open vulnerabilities on this resource.</p>
-          <p class="cap">Last scanned by Inspector: <span class="mono">{{ utc(inspector.lastScanned) }}</span></p>
+          <p class="cap">Last scanned by {{ vulns.scanner }}: <span class="mono">{{ utc(vulns.lastScanned) }}</span></p>
         </template>
-        <template v-if="inspector.open > 0">
-          <p v-if="!inspector.scanned" class="cap">From an earlier scan:</p>
+        <template v-if="vulns.open > 0">
+          <p v-if="!vulns.scanned" class="cap">From an earlier scan:</p>
           <div class="vuln-counts">
-            <span v-for="c in inspector.counts" :key="c.severity" class="vuln-count">
+            <span v-for="c in vulns.counts" :key="c.severity" class="vuln-count">
               <SeverityTag :severity="c.severity" compact /><span class="mono">{{ c.count }}</span>
             </span>
           </div>
           <p class="cap">
-            <template v-if="inspector.lastScanned">Last scanned by Inspector: <span class="mono">{{ utc(inspector.lastScanned) }}</span></template>
-            <template v-if="inspector.suppressed > 0">{{ inspector.lastScanned ? ' · ' : '' }}{{ inspector.suppressed }} suppressed in Inspector</template>
+            <template v-if="vulns.lastScanned">Last scanned by {{ vulns.scanner }}: <span class="mono">{{ utc(vulns.lastScanned) }}</span></template>
+            <template v-if="vulns.suppressed > 0">{{ vulns.lastScanned ? ' · ' : '' }}{{ vulns.suppressed }} suppressed in {{ vulns.scanner }}</template>
           </p>
           <ul class="rows">
-            <li v-for="v in inspector.top" :key="v.finding_id" class="vuln-row">
+            <li v-for="v in vulns.top" :key="v.finding_id" class="vuln-row">
               <span class="finding-row">
                 <SeverityTag :severity="v.severity" />
                 <RouterLink
                   class="one-line finding-link"
                   :class="{ mono: v.vulnerability.vulnerability_id }"
-                  :to="{ name: 'findings', query: { finding: String(v.finding_id) } }"
+                  :to="{ name: 'vulnerabilities', query: { finding: String(v.finding_id) } }"
                   target="_blank"
                   :title="v.title"
                 >
@@ -232,10 +235,10 @@ function step(path: Schemas['PathOut']): string {
           </ul>
           <RouterLink
             class="btn btn-ghost btn-sm see-all"
-            :to="{ name: 'findings', query: { resource: String(resourceId), tool: 'inspector' } }"
+            :to="{ name: 'vulnerabilities', query: { resource: String(resourceId) } }"
             :target="target"
           >
-            See all {{ inspector.open + inspector.suppressed }} Inspector finding{{ inspector.open + inspector.suppressed === 1 ? '' : 's' }}
+            See all {{ vulns.open + vulns.suppressed }} vulnerabilit{{ vulns.open + vulns.suppressed === 1 ? 'y' : 'ies' }}
           </RouterLink>
         </template>
       </template>

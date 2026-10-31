@@ -39,7 +39,7 @@ class AwsSource:
                 result = run_steampipe(out_dir, env, regions, options.steampipe_parallel_tables)
             elif tool == "prowler":
                 result = run_prowler(out_dir, env, regions)
-            elif tool == "inspector":
+            elif tool == "vulnerabilities":  # on AWS, Inspector is the scanner
                 result = run_inspector(out_dir, env, regions, target.account_id)
             else:
                 result = run_cloudfox(

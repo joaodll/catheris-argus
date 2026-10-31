@@ -1,9 +1,11 @@
-"""The Inspector adapter (ADR-0042): one Inspector run's Steampipe export -> typed records. Pure.
+"""The AWS Inspector adapter (ADR-0042): one AWS vulnerabilities run's Steampipe export ->
+typed records. Pure.
 
-Package and code vulnerabilities become findings of the tool "inspector", with what a
-vulnerability adds (the package and its fixed version, CVSS, EPSS, exploit and fix available)
-alongside. Network reachability findings are left out: exposure is Argus's own verdict (the
-internet rules), and two competing verdicts would confuse. They are counted in `skipped`.
+On AWS the vulnerabilities tool reads Inspector, the scanner `aws-inspector`. Package and code
+vulnerabilities become findings of the tool "vulnerabilities", with what a vulnerability adds
+(the package and its fixed version, CVSS, EPSS, exploit and fix available) alongside. Network
+reachability findings are left out: exposure is Argus's own verdict (the internet rules), and
+two competing verdicts would confuse. They are counted in `skipped`.
 
 The plugin fills `resource_id` and `resource_type` only from a query qualifier, so the
 resource is read from the first entry of `resources`:
@@ -20,19 +22,33 @@ account can hold tens of thousands of open CVEs.
 import json
 import math
 from collections.abc import Iterator
-from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
 from argus.core.rawstore import RawRun
 from argus.core.redaction import redact_text
-from argus.findings.model import SEVERITIES, CheckText, FindingResult
+from argus.findings.model import (
+    SEVERITIES,
+    CheckText,
+    Coverage,
+    FindingResult,
+    Vulnerability,
+    VulnerabilityBatch,
+    VulnerabilityKind,
+)
 
 # The Steampipe export binary's version (plugin 1.34.0), the same pin as the inventory's.
 SUPPORTED_VERSIONS = frozenset({"1.34.0"})
 FINDINGS_FILE = "aws_inspector2_finding.jsonl"
 COVERAGE_FILE = "aws_inspector2_coverage.jsonl"
-FINDING_TYPES = ("PACKAGE_VULNERABILITY", "CODE_VULNERABILITY")
+SCANNER = "aws-inspector"
+# Inspector's finding types and scan types -> the vulnerability kinds. Network reachability
+# (a finding type and a scan type) is left out: exposure is Argus's own verdict.
+_KINDS: dict[str, VulnerabilityKind] = {
+    "PACKAGE_VULNERABILITY": "package",
+    "CODE_VULNERABILITY": "code",
+}
+_SCAN_TYPES: dict[str, VulnerabilityKind] = {"PACKAGE": "package", "CODE": "code"}
 MAX_TEXT = 20000
 MAX_DETAIL = 4000
 MAX_TITLE = 1000
@@ -50,52 +66,6 @@ _RESOURCE_KINDS = {
 
 class UnsupportedVersionError(ValueError):
     pass
-
-
-@dataclass(frozen=True)
-class Vulnerability:
-    """What an Inspector finding adds to a finding (finding_vulnerability)."""
-
-    finding_type: str
-    vulnerability_id: str | None
-    package_name: str | None = None
-    package_manager: str | None = None
-    installed_version: str | None = None
-    fixed_version: str | None = None
-    cvss_score: float | None = None
-    epss_score: float | None = None
-    inspector_score: float | None = None
-    exploit_available: bool = False
-    fix_available: str | None = None
-    image_digest: str | None = None
-    image_tags: tuple[str, ...] = ()
-    reference_url: str | None = None
-
-
-@dataclass(frozen=True)
-class Coverage:
-    """Whether Inspector scans one resource, for one scan type (vulnerability_coverage)."""
-
-    resource_uid: str
-    region: str
-    scan_type: str
-    status_code: str
-    status_reason: str | None
-    last_scanned_at: datetime | None
-
-
-@dataclass
-class InspectorBatch:
-    findings: list[FindingResult]
-    vulnerabilities: dict[str, Vulnerability]  # by finding_uid
-    checks: dict[str, CheckText]
-    coverage: list[Coverage]
-    # Resolves only when the findings table is complete; replaces coverage only when the
-    # coverage table is.
-    complete: bool
-    coverage_complete: bool
-    tool_version: str
-    skipped: dict[str, int] = field(default_factory=dict)
 
 
 def _decode(value: Any) -> Any:
@@ -225,17 +195,17 @@ def _rows(run: RawRun, name: str) -> Iterator[dict[str, Any]]:
 def _finding(
     row: dict[str, Any], uid: str, resource: tuple[str, str, Any]
 ) -> tuple[FindingResult, Vulnerability, CheckText]:
-    finding_type = row["type"]
+    kind = _KINDS[row["type"]]
     title = _text(row.get("title"), MAX_TITLE) or uid
     cve = _text(row.get("vulnerability_id"), MAX_ID)
-    check_id = cve if finding_type == "PACKAGE_VULNERABILITY" and cve else f"code:{title}"[:MAX_ID]
-    resource_uid, kind, details = resource
-    service, resource_type = _RESOURCE_KINDS.get(kind, (None, None))
+    check_id = cve if kind == "package" and cve else f"code:{title}"[:MAX_ID]
+    resource_uid, resource_kind, details = resource
+    service, resource_type = _RESOURCE_KINDS.get(resource_kind, (None, None))
     packages = _decode(row.get("vulnerable_packages"))
     package = packages[0] if isinstance(packages, list) and packages else None
     name, installed = _text(_get(package, "Name"), MAX_ID), _text(_get(package, "Version"), MAX_ID)
     fixed = _version(_get(package, "FixedInVersion"))
-    digest, tags = _image(kind, details)
+    digest, tags = _image(resource_kind, details)
     severity = str(row.get("severity") or "").lower()
     remediation = _text(row.get("remediation_recommendation_text"), MAX_TEXT)
     detail = None
@@ -260,15 +230,15 @@ def _finding(
         resource_name=_get(_get(details, "AwsLambdaFunction"), "FunctionName"),
     )
     vulnerability = Vulnerability(
-        finding_type=finding_type,
-        vulnerability_id=cve if finding_type == "PACKAGE_VULNERABILITY" else None,
+        kind=kind,
+        vulnerability_id=cve if kind == "package" else None,
         package_name=name,
         package_manager=_text(_get(package, "PackageManager"), MAX_ID),
         installed_version=installed,
         fixed_version=fixed,
         cvss_score=_cvss(_decode(row.get("cvss"))),
         epss_score=_number(row.get("epss_score"), 1),
-        inspector_score=_number(row.get("inspector_score"), 10),
+        scanner_score=_number(row.get("inspector_score"), 10),
         exploit_available=row.get("exploit_available") == "YES",
         fix_available=row.get("fix_available")
         if row.get("fix_available") in ("YES", "NO", "PARTIAL")
@@ -289,16 +259,12 @@ def _finding(
 
 def _coverage(row: dict[str, Any]) -> Coverage | None:
     rid, kind = row.get("resource_id"), row.get("resource_type")
-    scan_type, status = row.get("scan_type"), row.get("scan_status_code")
-    if not (
-        isinstance(rid, str)
-        and isinstance(kind, str)
-        and isinstance(scan_type, str)
-        and isinstance(status, str)
-        and rid
-        and scan_type
-        and status
+    scan_type, status = _SCAN_TYPES.get(str(row.get("scan_type"))), row.get("scan_status_code")
+    if scan_type is None or not (
+        isinstance(rid, str) and isinstance(kind, str) and isinstance(status, str)
     ):
+        return None
+    if not (rid and status):
         return None
     if kind == "AWS_LAMBDA_FUNCTION" and rid.startswith("arn:"):
         uid: str | None = _lambda_uid(rid)
@@ -313,6 +279,7 @@ def _coverage(row: dict[str, Any]) -> Coverage | None:
         resource_uid=uid,
         region=str(row.get("region") or "global"),
         scan_type=scan_type,
+        active=status == "ACTIVE",
         status_code=status,
         status_reason=reason if isinstance(reason, str) and reason else None,
         last_scanned_at=_timestamp(row.get("last_scanned_at")),
@@ -326,9 +293,9 @@ def _merge(coverage: dict[tuple[str, str], Coverage], item: Coverage) -> None:
     seen = coverage.get(key)
     if (
         seen is None
-        or (seen.status_code != "ACTIVE" and item.status_code == "ACTIVE")
+        or (not seen.active and item.active)
         or (
-            item.status_code == seen.status_code
+            item.active == seen.active
             and (item.last_scanned_at or _NEVER) > (seen.last_scanned_at or _NEVER)
         )
     ):
@@ -344,15 +311,15 @@ def _left_out(row: dict[str, Any], account: str) -> str | None:
         return "another account"
     if row.get("status") == "CLOSED":
         return "closed"
-    if row.get("type") not in FINDING_TYPES:
+    if row.get("type") not in _KINDS:
         return f"type {str(row.get('type'))[:40]}"
     return None
 
 
-def parse_inspector(run: RawRun) -> InspectorBatch:
+def parse_inspector(run: RawRun) -> VulnerabilityBatch:
     manifest = run.manifest
-    if manifest.tool != "inspector":
-        raise ValueError(f"not an inspector run: {manifest.tool}")
+    if manifest.tool != "vulnerabilities" or manifest.provider != "aws":
+        raise ValueError(f"not an AWS vulnerabilities run: {manifest.tool} {manifest.provider}")
     if manifest.tool_version not in SUPPORTED_VERSIONS:
         raise UnsupportedVersionError(f"steampipe export {manifest.tool_version} not supported")
     files = {f.path for f in manifest.files}
@@ -385,7 +352,8 @@ def parse_inspector(run: RawRun) -> InspectorBatch:
             if item := _coverage(row):
                 _merge(coverage, item)
     incomplete = set(manifest.incomplete_tables)
-    return InspectorBatch(
+    return VulnerabilityBatch(
+        scanner=SCANNER,
         findings=findings,
         vulnerabilities=vulnerabilities,
         checks=checks,

@@ -98,7 +98,7 @@ function exposureLink(d: Schemas['FrontDoor']): { to: RouteLocationRaw; text: st
   if (!d.prowler_exposure || d.node.resource_id == null) return null
   const n = d.prowler_exposure
   return {
-    to: { name: 'findings', query: { resource: String(d.node.resource_id), tool: 'prowler', reach: FINDING_REACHES } },
+    to: { name: 'misconfigurations', query: { resource: String(d.node.resource_id), tool: 'prowler', reach: FINDING_REACHES } },
     text: `${n} exposure ${n === 1 ? 'check' : 'checks'} failing`,
   }
 }

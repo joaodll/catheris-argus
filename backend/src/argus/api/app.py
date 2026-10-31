@@ -19,6 +19,7 @@ from argus.api.routes import (
     schedules,
     settings,
     users,
+    vulnerabilities,
 )
 from argus.auth import UserRuleError
 from argus.connections import ConnectionError as ConnectionValueError
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
         runs.router,
         settings.router,
         findings.router,
+        vulnerabilities.router,
         attack_paths.router,
         compliance.router,
         resources.router,

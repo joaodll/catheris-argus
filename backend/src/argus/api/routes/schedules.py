@@ -12,7 +12,7 @@ from argus.scheduling import check_cron
 from argus.settings import read_collection
 
 router = APIRouter(tags=["schedules"])
-Tool = Literal["steampipe", "prowler", "cloudfox", "inspector"]
+Tool = Literal["steampipe", "prowler", "cloudfox", "vulnerabilities"]
 
 
 class ScheduleIn(BaseModel):

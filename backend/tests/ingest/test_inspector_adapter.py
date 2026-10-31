@@ -13,8 +13,7 @@ import pytest
 from argus.collection.tables import INSPECTOR_TABLES, inspector_table_options
 from argus.core.manifest import Manifest, ManifestFile
 from argus.core.rawstore import RawRun
-from argus.findings import parse_inspector
-from argus.findings.inspector import UnsupportedVersionError
+from argus.findings.inspector import UnsupportedVersionError, parse_inspector
 
 ACCOUNT = "123456789012"
 OTHER = "210987654321"
@@ -51,7 +50,7 @@ def _run(
     now = datetime.now(UTC)
     manifest = Manifest(
         run_uid=uuid4(),
-        tool="inspector",
+        tool="vulnerabilities",
         tool_version=version,
         account_id=ACCOUNT,
         source="aws",
@@ -191,7 +190,7 @@ def test_suppressed_untriaded_no_fix_and_a_code_finding(tmp_path: Path) -> None:
     assert untriaged.detail == "busybox 1.36.0 is affected."
     assert code.check_id == "code:CWE-117 - Log injection"
     facts = batch.vulnerabilities[code.finding_uid]
-    assert facts.finding_type == "CODE_VULNERABILITY" and facts.vulnerability_id is None
+    assert facts.kind == "code" and facts.vulnerability_id is None
 
 
 def test_rows_left_out_are_counted(tmp_path: Path) -> None:
@@ -240,11 +239,16 @@ def test_coverage_per_resource_and_scan_type(tmp_path: Path) -> None:
             last_scanned_at="2026-10-30T05:00:00Z",
         ),
         row("i-0fedcba9876543210", "AWS_EC2_INSTANCE", "ACTIVE", source_account_id=OTHER),
+        # Network reachability is not a vulnerability scan (the adapter leaves it out).
+        row("i-0123456789abcdef1", "AWS_EC2_INSTANCE", "ACTIVE", scan_type="NETWORK"),
     ]
     batch = parse_inspector(_run(tmp_path, {"aws_inspector2_coverage": coverage}))
     by_uid = {c.resource_uid: c for c in batch.coverage}
     assert set(by_uid) == {"i-0123456789abcdef0", FN, REPO}
     assert by_uid["i-0123456789abcdef0"].status_reason == "UNMANAGED_EC2_INSTANCE"
+    assert not by_uid["i-0123456789abcdef0"].active and by_uid[REPO].active
+    assert {c.scan_type for c in batch.coverage} == {"package"}
+    assert batch.scanner == "aws-inspector"
     assert by_uid[REPO].last_scanned_at == datetime(2026, 10, 30, 5, tzinfo=UTC)
     # No findings table: nothing may resolve; the coverage table alone is complete.
     assert not batch.complete and batch.coverage_complete

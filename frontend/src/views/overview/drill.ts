@@ -20,7 +20,7 @@ export function failedFindings(connectionId: number, severity: Severity): RouteL
     muted: 'hide',
     connection: connectionId ? [connectionId] : [],
   })
-  return { name: 'findings', query }
+  return { name: 'misconfigurations', query }
 }
 
 export function attackPaths(connectionId: number, filter: { severity?: Severity[]; category?: string }): RouteLocationRaw {
