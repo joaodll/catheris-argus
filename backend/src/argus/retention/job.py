@@ -37,6 +37,7 @@ def run_retention(
             conn.execute(text("SELECT argus_drop_partitions_before(:c)"), {"c": cutoff}).scalars()
         )
         configs = inventory.delete_orphan_configs(conn)
+        inventory.delete_loads_before(conn, cutoff=cutoff)
         relationships.delete_loads_before(conn, cutoff=cutoff)
         relationships.delete_orphan_flow_shapes(conn)
         demo_paths = ingest.synthetic_raw_paths_before(

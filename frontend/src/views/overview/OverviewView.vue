@@ -63,7 +63,7 @@ const scope = computed(() => {
   const chosen = connections.value.find((c) => c.id === connectionId.value)
   if (chosen) return `${chosen.name} · AWS account ${chosen.account_id}`
   const n = connections.value.length
-  return `${n} connection${n === 1 ? '' : 's'} · AWS · each account's latest scan, up to 31 days old`
+  return `${n} connection${n === 1 ? '' : 's'} · AWS · each account's latest scan`
 })
 const noData = computed(() => overview.data.value !== null && overview.data.value.data_through === null)
 </script>

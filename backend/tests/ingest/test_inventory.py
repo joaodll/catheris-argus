@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import Engine, text
 from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
+from argus import inventory, relationships
 from argus.collection import CollectOptions, FilesystemRawStore, collect, source_for
 from argus.collection.synthetic.estate import SCENARIO_INSTANCE, SCENARIO_ROLE, SCENARIO_SG
 from argus.ingest import ingest_run, register_run
@@ -143,7 +144,7 @@ def test_a_partial_run_is_complete_for_every_table_but_its_incomplete_ones(
     delete nothing; every other table is complete, so its churned resources are deleted."""
     target = make_demo(owner)
     run_tool(worker, store, target, "steampipe", DAY)
-    later = DAY + timedelta(days=30)  # inside the 31-day carry-forward window, with churn
+    later = DAY + timedelta(days=60)  # the previous scan however old (no window), with churn
     partial = run_tool(
         worker, store, target, "steampipe", later, CollectOptions(synthetic_throttle_share=1.0)
     )
@@ -205,3 +206,33 @@ def test_a_tampered_run_is_recorded_as_failed(
     with owner.connect() as conn:
         status, log_tail = conn.execute(text("SELECT status, log_tail FROM scan_run")).one()
     assert status == "failed" and "do not match" in log_tail
+
+
+def test_the_latest_inventory_stands_however_old(
+    owner: Engine, worker: Engine, store: FilesystemRawStore
+) -> None:
+    """Every screen shows each account's latest scan (owner's decision, 2026-11-01): 60 days
+    later, the inventory and the rule edges of the last Steampipe run still stand, read through
+    resource_load and edge_load."""
+    target = make_demo(owner)
+    run_tool(worker, store, target, "steampipe", DAY)
+    later = DAY + timedelta(days=60)
+    with owner.connect() as conn:
+        loads = conn.execute(
+            text("SELECT snapshot_date, resources FROM resource_load WHERE connection_id = :c"),
+            {"c": target.connection_id},
+        ).all()
+        assert inventory.effective_day(conn, connection_id=target.connection_id, day=later) == DAY
+        assert (
+            relationships.effective_days(conn, connection_id=target.connection_id, day=later)[
+                "rule_day"
+            ]
+            == DAY
+        )
+        one = conn.execute(
+            text("SELECT min(id) FROM resource WHERE connection_id = :c"),
+            {"c": target.connection_id},
+        ).scalar_one()
+        as_of = inventory.resource_at(conn, resource_id=one, day=later)
+    assert [(d, n > 0) for d, n in loads] == [(DAY, True)]
+    assert as_of is not None and as_of["seen_on"] == DAY and as_of["config"] is not None

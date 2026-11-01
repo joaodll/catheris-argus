@@ -163,7 +163,7 @@ After changing backend code that the running stack uses: `docker compose up -d -
 
 **After an upgrade, the worker derives again** (2026-10-21, ADR-0035 fifth amendment). Each rule
 load records the rule set it came from. When the worker starts, before it claims any run, it
-checks each enabled connection's latest rule load within 31 days. If that load came from other
+checks each enabled connection's latest rule load, however old. If that load came from other
 rules (or from before migration 0026), the worker re-runs the load's day with the new rules:
 edges, flows and the reach checks. The new rule set moves the graph's marker, so the graph thread
 then re-evaluates the attack paths; a path the new rules no longer find is resolved then, when the

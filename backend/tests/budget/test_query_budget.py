@@ -41,6 +41,10 @@ BUDGET_MS = 300.0
 RUNS = 20
 TODAY = date(2026, 10, 3)
 ACCOUNTS = 36
+# The account last scanned 90 days ago (owner's decision, 2026-11-01: every screen shows each
+# account's latest scan, however old); every other account was scanned today.
+STALE = ACCOUNTS
+STALE_DAY = TODAY - timedelta(days=90)
 FRAMEWORKS = 40
 REQUIREMENTS = 100
 FRAMEWORK = "fw_7_aws"
@@ -73,6 +77,32 @@ def _generate(conn: Connection) -> None:
         FROM generate_series(1, 300000) g
     """),
         {"n": ACCOUNTS, "d": TODAY},
+    )
+    # Every resource's inventory row: today's, or STALE's 90 days ago, with its load.
+    conn.execute(
+        text("""
+        INSERT INTO resource_config (config_hash, config, created_on)
+        VALUES (sha256('budget'::bytea), '{}', :d)
+    """),
+        {"d": TODAY},
+    )
+    conn.execute(
+        text("""
+        INSERT INTO resource_snapshot (snapshot_date, resource_id, config_id)
+        SELECT CASE WHEN r.connection_id = :stale THEN CAST(:old AS date) ELSE :d END, r.id,
+               (SELECT id FROM resource_config WHERE config_hash = sha256('budget'::bytea))
+        FROM resource r
+    """),
+        {"stale": STALE, "old": STALE_DAY, "d": TODAY},
+    )
+    conn.execute(
+        text("""
+        INSERT INTO resource_load (connection_id, snapshot_date, resources)
+        SELECT connection_id, CASE WHEN connection_id = :stale THEN CAST(:old AS date) ELSE :d END,
+               count(*)
+        FROM resource GROUP BY connection_id
+    """),
+        {"stale": STALE, "old": STALE_DAY, "d": TODAY},
     )
     conn.execute(
         text("""
@@ -574,6 +604,10 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "resources, facets": lambda c: inventory.resource_facets(c, connection_id=None),
     "resources, names for a page": lambda c: inventory.resource_names(c, list(range(1000, 1020))),
     "resource as of a day": lambda c: inventory.resource_at(c, resource_id=1234, day=TODAY),
+    # Resource 35 belongs to STALE (connection 1 + 35 % 36): its latest scan is 90 days old.
+    "resource as of a day, scanned 90 days ago": lambda c: inventory.resource_at(
+        c, resource_id=35, day=TODAY
+    ),
     "edges as of a day": lambda c: relationships.edges_at(
         c, resource_id=1234, connection_id=1234 % ACCOUNTS + 1, day=TODAY
     ),
@@ -744,6 +778,24 @@ def test_edges_of_a_day_read_one_partition(estate: Engine) -> None:
         ).scalar_one()
     scanned = {n for n in _relations(plan) if n.startswith("edge_snapshot")}
     assert scanned == {f"edge_snapshot_{TODAY:%Y%m}"}, scanned
+
+
+def test_an_account_scanned_90_days_ago_shows_its_latest_scan(estate: Engine) -> None:
+    """No age limit (owner's decision, 2026-11-01): the stale account's resource reads its
+    inventory of 90 days ago, found through resource_load, then one partition by equality."""
+    with estate.connect() as conn:
+        stale = inventory.resource_at(conn, resource_id=35, day=TODAY)
+        plan = conn.execute(
+            text("""
+            EXPLAIN (FORMAT JSON) SELECT config_id FROM resource_snapshot
+            WHERE snapshot_date = :d AND resource_id = 35
+        """),
+            {"d": STALE_DAY},
+        ).scalar_one()
+    assert stale is not None and stale["connection_id"] == STALE
+    assert stale["seen_on"] == STALE_DAY
+    scanned = {n for n in _relations(plan) if n.startswith("resource_snapshot")}
+    assert scanned == {f"resource_snapshot_{STALE_DAY:%Y%m}"}, scanned
 
 
 def test_flows_are_written_for_every_entry_of_the_hub(estate: Engine) -> None:

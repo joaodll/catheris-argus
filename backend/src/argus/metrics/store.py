@@ -5,7 +5,6 @@ from sqlalchemy import Connection, text
 from argus import connections
 
 ALL_CONNECTIONS = 0
-CARRY_FORWARD_DAYS = 31
 # What happened on a day, not how things stood: summed over that day only. Every other metric
 # describes a state, and all connections take each connection's latest value (rollup).
 FLOW_METRICS = frozenset({"findings.events"})
@@ -56,25 +55,34 @@ def read(
     return [(m, d, float(v)) for m, d, v in rows]
 
 
-def carried_days(conn: Connection, *, after: date, metrics: list[str]) -> list[date]:
-    """The days after the given one, up to CARRY_FORWARD_DAYS, on which all connections has
-    any of the metrics: the days whose rollup may have carried that day's values forward."""
+def carried_days(
+    conn: Connection, *, after: date, metrics: list[str], connection_id: int
+) -> list[date]:
+    """The days after `after` on which all connections has any of the metrics and the rollup
+    carried this connection's values of `after`: until its next day with those metrics, however
+    far (each account's latest scan counts, however old: owner's decision, 2026-11-01)."""
     return list(
         conn.execute(
-            text(
-                "SELECT DISTINCT snapshot_date FROM metric_daily WHERE connection_id = :all "
-                "AND snapshot_date > :d AND snapshot_date <= CAST(:d AS date) + :window "
-                "AND metric = ANY(CAST(:m AS text[])) ORDER BY 1"
-            ),
-            {"all": ALL_CONNECTIONS, "d": after, "window": CARRY_FORWARD_DAYS, "m": metrics},
+            text("""
+                SELECT DISTINCT snapshot_date FROM metric_daily
+                WHERE connection_id = :all AND snapshot_date > :d
+                  AND metric = ANY(CAST(:m AS text[]))
+                  AND snapshot_date < coalesce(
+                    (SELECT min(snapshot_date) FROM metric_daily
+                     WHERE connection_id = :c AND snapshot_date > :d
+                       AND metric = ANY(CAST(:m AS text[]))),
+                    CAST('infinity' AS date))
+                ORDER BY 1
+            """),
+            {"all": ALL_CONNECTIONS, "d": after, "c": connection_id, "m": metrics},
         ).scalars()
     )
 
 
 def copy_previous(conn: Connection, *, day: date, connection_id: int, metrics: list[str]) -> int:
     """For a partial or failed run: the day keeps what it already has (a complete run earlier
-    that day, or an earlier carry-forward), otherwise the most recent earlier values. A run
-    that resolves nothing never erases what a good run of the same day loaded."""
+    that day, or an earlier carry-forward), otherwise the most recent earlier values, however
+    old. A run that resolves nothing never erases what a good run of the same day loaded."""
     has_day = conn.execute(
         text(
             "SELECT EXISTS (SELECT 1 FROM metric_daily WHERE snapshot_date = :d "
@@ -92,19 +100,20 @@ def copy_previous(conn: Connection, *, day: date, connection_id: int, metrics: l
               AND snapshot_date = (
                 SELECT max(snapshot_date) FROM metric_daily
                 WHERE connection_id = :c AND metric = ANY(CAST(:m AS text[]))
-                  AND snapshot_date < :d AND snapshot_date >= :d - :window)
+                  AND snapshot_date < :d)
         """),
-        {"d": day, "c": connection_id, "m": metrics, "window": CARRY_FORWARD_DAYS},
+        {"d": day, "c": connection_id, "m": metrics},
     ).rowcount
     return copied
 
 
 def rollup(conn: Connection, *, day: date, metrics: list[str]) -> None:
     """connection 0 = all connections: for each enabled connection, its latest values on or
-    before the day (at most CARRY_FORWARD_DAYS old), summed. An account scanned yesterday
-    still counts today, until its next scan (decided 2026-10-08); one not scanned for longer,
-    or disabled, drops out. FLOW_METRICS sum that day only. Scores are derived from the sums
-    by their owners, never averaged.
+    before the day, however old, summed. An account scanned 60 days ago still counts today,
+    until its next scan (decided 2026-10-08; the 31-day limit lifted 2026-11-01: scans may run
+    15 to 60 days apart); a disabled one drops out, and retention is the only age limit.
+    FLOW_METRICS sum that day only. Scores are derived from the sums by their owners, never
+    averaged.
 
     Two workers finishing different connections for the same day would otherwise both delete
     (seeing nothing yet) and both insert. A transaction-scoped advisory lock per day serialises
@@ -128,7 +137,7 @@ def rollup(conn: Connection, *, day: date, metrics: list[str]) -> None:
                           ELSE max(snapshot_date) END AS day
               FROM metric_daily
               WHERE connection_id > 0 AND metric = ANY(CAST(:m AS text[]))
-                AND snapshot_date <= :d AND snapshot_date >= CAST(:d AS date) - :window
+                AND snapshot_date <= :d
               GROUP BY connection_id, metric
             )
             INSERT INTO metric_daily (snapshot_date, connection_id, metric, dimension, value)
@@ -137,13 +146,11 @@ def rollup(conn: Connection, *, day: date, metrics: list[str]) -> None:
             JOIN metric_daily md ON md.connection_id = l.connection_id
                                 AND md.metric = l.metric AND md.snapshot_date = l.day
             JOIN ({connections.DIRECTORY_SQL}) c ON c.id = l.connection_id AND c.enabled
-            WHERE md.snapshot_date <= :d AND md.snapshot_date >= CAST(:d AS date) - :window
             GROUP BY md.metric, md.dimension
         """),  # noqa: S608 - an exported SQL constant only
         {
             "d": day,
             "m": metrics,
             "flows": sorted(FLOW_METRICS),
-            "window": CARRY_FORWARD_DAYS,
         },
     )

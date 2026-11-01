@@ -60,8 +60,9 @@ easier to build and change:
 - **Postgres stays the system of record.** History, lifecycles and paths stay there.
 - **Memgraph holds only each connection's current state,** in one graph across connections and
   providers, and is rebuilt from Postgres whenever it is empty, stale or tampered with. The
-  current state is each connection's latest scan however old: scans may run only every 15 or
-  30 days (2026-11-01), so the read model has no 31-day window.
+  current state is each connection's latest scan, however old: scans may run 15 to 60 days
+  apart (2026-11-01), and every screen shows each account's latest scan (see "All
+  connections").
 - **The attack-path search runs over it, across accounts** (round M2, 2026-11-01): see
   [Ingestion, snapshots and attack paths](#ingestion-snapshots-and-attack-paths).
 - **Correlation stays SQL in ingest.** The relationship rules are unchanged.
@@ -189,7 +190,9 @@ History is kept as daily snapshots, so any past day is read with WHERE snapshot\
 - compliance\_rollup: one row per requirement per day for all connections together: how many connections fail it, need a manual check or pass it, and the checks summed (integers only). Ingest rebuilds the day after every Prowler load, so the Compliance screen's "All connections" never aggregates snapshot rows at request time (2026-10-07)
 - metric\_daily: one row per day, scope and metric, computed after each run so dashboards read small pre-aggregated rows
 
-**All connections** (connection\_id 0 in metric\_daily, and compliance\_rollup) is each **enabled** connection's **latest** result on or before the day, at most 31 days old, combined: counts are summed, and scores are derived from the summed parts (passed ÷ assessed; ThreatScore's numerator ÷ denominator), never averaged. An account scanned yesterday still counts today, until its next scan; one not scanned for 31 days, or disabled, drops out, and its own history stays. `findings.events` (what happened on a day) is summed for that day only. Decided 2026-10-08; before, a day summed only the accounts scanned that day. Migration 0015 recomputed past days.
+**All connections** (connection\_id 0 in metric\_daily, and compliance\_rollup) is each **enabled** connection's **latest** result on or before the day, however old, combined: counts are summed, and scores are derived from the summed parts (passed ÷ assessed; ThreatScore's numerator ÷ denominator), never averaged. An account scanned 60 days ago still counts today, until its next scan; a disabled one drops out, and its own history stays. `findings.events` (what happened on a day) is summed for that day only. Decided 2026-10-08; before, a day summed only the accounts scanned that day. Migration 0015 recomputed past days. Until 2026-11-01 a result counted for at most 31 days; the owner lifted the limit because scans run 15 to 60 days apart. The only age limit left is the history kept (Settings, default 180 days): retention deletes older scans, and their account shows "not covered".
+
+**The day a screen shows for an account** is its latest load on or before that day, however old: the inventory's from `resource_load` (migration 0036, 2026-11-01), each edge family's from `edge_load`. A load with nothing in it counts, so an account whose resources all went away reads empty. A failed or partial run carries the previous load forward, however old. The Overview and Compliance read six months of `metric_daily` (183 days), so with a history kept longer than that, an account last scanned more than six months ago shows "not covered" there.
 - finding\_facet: the Findings filter options per connection (regions, services, resource types, categories, checks), rebuilt after each findings load, so the list's options never need a DISTINCT over every finding (2026-10-07: that took about one second on 400,000 findings)
 
 **Retention: six months.** Snapshot, event and metric tables are partitioned by month. A nightly job drops partitions older than six months, then deletes configurations that no remaining snapshot points to. Sizing is under Database load and query rules below; hashing also makes "what changed" a comparison of two hashes.
@@ -213,6 +216,7 @@ With uids and JSON repeated in every snapshot row instead, the medium case grows
 Query rules, enforced in code review and by the query-budget test:
 
 - Every snapshot query filters snapshot\_date by equality or a short range, so Postgres reads one monthly partition and one index range. Nothing at request time aggregates months of snapshots.
+- The day a snapshot query reads is found first, in a load table keyed by connection and day (`resource_load`, `edge_load`), never by a max() over the snapshots: for an account last scanned weeks ago, that max() would read back through every partition (2026-11-01).
 - Trends and every Overview block read metric\_daily, computed by ingest; the API never counts snapshot rows for a chart.
 - Filter on integer ids and the snapshot date first, then join dimension tables for names, tags and configuration.
 - JSONB is read by relationship rules inside ingest, never by the API. Columns the UI filters on (account, region, type, VPC) are plain indexed columns on resource.
@@ -333,7 +337,7 @@ A run becomes visible only after four steps succeed in order; a failed step leav
    - A finding missing from a **complete** run that covered the same tool, account, region and check becomes resolved.
    - A resolved finding that comes back is marked reopened, which the dashboards count as a regression.
    - A failed or partial run never resolves anything. This rule prevents a scan timeout from looking like a fix.
-   - A partial run still records what it evaluated: a partial Prowler run's check results and compliance (ThreatScore) are that day's values. Prowler on a real account is often throttled somewhere, and carrying the previous day forward would hide its results for good; the cost is that a throttled day can undercount, and the run shows as Partial (2026-10-06). A failed run has no results: the day keeps what it has, or the previous day's values are carried forward. For Prowler that includes the connection's requirement results (`compliance_snapshot`, within 31 days), and the framework scores are recomputed for the connection and for all connections, so a score history has no gap on a failed day (2026-10-07; before, the scores were left out that day).
+   - A partial run still records what it evaluated: a partial Prowler run's check results and compliance (ThreatScore) are that day's values. Prowler on a real account is often throttled somewhere, and carrying the previous day forward would hide its results for good; the cost is that a throttled day can undercount, and the run shows as Partial (2026-10-06). A failed run has no results: the day keeps what it has, or the previous day's values are carried forward. For Prowler that includes the connection's requirement results (`compliance_snapshot`, however old), and the framework scores are recomputed for the connection and for all connections, so a score history has no gap on a failed day (2026-10-07; before, the scores were left out that day).
 3. **Snapshot.** The job writes the day's rows under snapshot\_date: resources with their config hash, new configurations, edges, failing findings and metric\_daily. Running the same day again replaces that day's rows, so a re-run never duplicates history.
 4. **Find paths, outside the run** (ADR-0044, round M2, 2026-11-01). An ingested run moves the graph read model's marker. Within one tick (15 s), the graph loop re-projects the connection into Memgraph, runs the integrity check, and runs the attack-path search over every connection at once. A failed run moves no marker, so it changes no path.
 

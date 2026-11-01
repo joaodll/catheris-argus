@@ -173,13 +173,11 @@ def _attrs(attributes: dict[str, Any] | None) -> dict[str, Any] | None:
 
 def read_snapshot(conn: Connection, target: Target, *, today: date) -> Snapshot:
     """Everything the graph holds for one connection, from one consistent Postgres read: its
-    latest scan state however old (window=None), as scans may be 30 days apart (ADR-0044, M2).
-    The 31-day window of the dated screens would empty an account scanned 32 days ago, and its
-    paths would read as fixed."""
+    latest scan state, however old (scans may be 60 days apart)."""
     c = target.connection_id
     days: dict[str, date | None] = {
-        "resource_day": inventory.effective_day(conn, connection_id=c, day=today, window=None),
-        **relationships.effective_days(conn, connection_id=c, day=today, window=None),
+        "resource_day": inventory.effective_day(conn, connection_id=c, day=today),
+        **relationships.effective_days(conn, connection_id=c, day=today),
     }
     snap = Snapshot(target, days)
     params = {"connection_id": c, **days}
@@ -190,7 +188,7 @@ def read_snapshot(conn: Connection, target: Target, *, today: date) -> Snapshot:
     exploitable: set[str] = set()
     if days["resource_day"] is not None:
         exploitable = set(conn.execute(text(_EXPLOITABLE_SQL), params).scalars())
-    reach = relationships.internet_reach(conn, connection_id=c, day=today, window=None).doors
+    reach = relationships.internet_reach(conn, connection_id=c, day=today).doors
     if days["resource_day"] is not None:
         for r in conn.execute(text(inventory.RESOURCES_PRESENT_SQL), params):
             door = reach.get(r.uid)
@@ -384,7 +382,7 @@ def status(conn: Connection) -> dict[int, dict[str, Any]]:
 
 
 def _targets(conn: Connection, *, today: date) -> dict[int, Target]:
-    rules = relationships.latest_rule_loads(conn, day=today, window=None)
+    rules = relationships.latest_rule_loads(conn, day=today)
     return {
         r.id: Target(
             connection_id=r.id,

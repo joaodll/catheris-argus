@@ -67,7 +67,13 @@ def remove_compliance_items(conn: Connection) -> int:
     # All connections carries each connection's latest day forward, so the days after one it
     # counted in summed a stale value too.
     days = {d for _, d in affected}
-    later = {c for d in days for c in metrics.carried_days(conn, after=d, metrics=ADDITIVE)}
+    later = {
+        later_day
+        for connection_id, d in affected
+        for later_day in metrics.carried_days(
+            conn, after=d, metrics=ADDITIVE, connection_id=connection_id
+        )
+    }
     for day in sorted(later - days):
         rollup_findings(conn, day=day)
     return len(ids)
