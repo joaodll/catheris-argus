@@ -1,7 +1,7 @@
 {{- /* The chart's Services, all ClusterIP: no public entry until SSO (ADR-0040). The API is
 reached only through web; Postgres only by its clients (NetworkPolicy), and only when it runs in
-the chart. */ -}}
-{{- $services := list (dict "component" "api" "port" 8000 "portName" "http") (dict "component" "web" "port" 8080 "portName" "http") }}
+the chart; Memgraph only by graph-sync (ADR-0044). */ -}}
+{{- $services := list (dict "component" "api" "port" 8000 "portName" "http") (dict "component" "web" "port" 8080 "portName" "http") (dict "component" "memgraph" "port" 7687 "portName" "bolt") }}
 {{- if .Values.postgres.enabled }}
 {{- $services = append $services (dict "component" "postgres" "port" 5432 "portName" "postgres") }}
 {{- end }}

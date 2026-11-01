@@ -91,6 +91,7 @@ keys it needs.
 | `ARGUS_SCHEDULER_DB_PASSWORD` | Role `argus_scheduler` |
 | `ARGUS_SECRET_KEYS` | The credential keyring, `k1:<base64 of 32 bytes>` |
 | `ARGUS_SECRET_KEY_ID` | The current key's id, `k1` |
+| `ARGUS_GRAPH_PASSWORD` | The Memgraph login: the memgraph pod creates it on a new volume, graph-sync uses it ([ADR-0044](adr/0044-graph-read-model-memgraph.md)). To change it later, delete the memgraph volume: the graph is rebuilt from Postgres |
 | `ARGUS_BOOTSTRAP_ADMIN_PASSWORD` or `ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH` | First start only: the first admin's password, or its argon2id hash. The migrate Job creates `admin.username` with it while no active admin exists ([ADR-0041](adr/0041-users-and-roles.md)). Remove the key after the first sign-in |
 
 Generate the values from the repository root. Every command runs in a container:
@@ -114,7 +115,7 @@ rm argus-secrets.env
 ```
 
 **From AWS Secrets Manager instead:** with the External Secrets Operator installed, store the
-six keys as one JSON secret and set `externalSecret.enabled: true`,
+seven keys as one JSON secret and set `externalSecret.enabled: true`,
 `externalSecret.secretStoreRef.name` and `externalSecret.remoteKey`. For the first start, add the
 bootstrap key to that JSON and name it in `externalSecret.bootstrapKeys`. The chart's
 ExternalSecret copies those keys and nothing else into `secrets.existingSecret`.
@@ -265,6 +266,16 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 
 **Locked out of sign-in.** Wait 15 minutes, or ask an admin to choose **Unlock** on the user in
 **Administration → Users**.
+
+**The graph read model** ([ADR-0044](adr/0044-graph-read-model-memgraph.md)).
+- **What keeps it current:** `graph-sync` keeps Memgraph equal to Postgres and checks it every 10
+  minutes. Its state is in `graph_projection`; drift appears as `graph.drift` in the audit log.
+- **When to rebuild it:** when Memgraph is broken, or the Secret's `ARGUS_GRAPH_PASSWORD` changed.
+  1. Scale `graph-sync` to 0.
+  2. Delete the memgraph StatefulSet's PVC and pod.
+  3. Scale `graph-sync` back to 1.
+
+  It re-projects every connection from Postgres, in minutes at about 1M resources.
 
 ## Keeping the controls true
 

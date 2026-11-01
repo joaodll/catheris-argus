@@ -262,11 +262,14 @@ services:
       ARGUS_DB_PASSWORD: ${ARGUS_DEV_WORKER_DB_PASSWORD:-argus-worker-local-dev}
       ARGUS_RAW_ROOT: /var/lib/argus
       ARGUS_WORKER_THREADS: "2"
-      # 3 connections per run thread, 1 for Test connection, 2 for the main loop: raise it with
-      # the threads, or the worker refuses to start. api, migrate and seed use the default, 10.
-      ARGUS_DB_POOL_MAX: "9"
+      # 3 connections per run thread, 1 for Test connection, 2 for the graph thread, 2 for the
+      # main loop: raise it with the threads, or the worker refuses to start. api, migrate and
+      # seed use the default, 10.
+      ARGUS_DB_POOL_MAX: "11"
       ARGUS_SECRET_KEYS: ${ARGUS_SECRET_KEYS:-}
       ARGUS_SECRET_KEY_ID: ${ARGUS_SECRET_KEY_ID:-}
+      # The graph read model's login (ADR-0044); the worker's graph thread is its only writer.
+      ARGUS_GRAPH_PASSWORD: ${ARGUS_DEV_GRAPH_PASSWORD:-argus-graph-local-dev}
     # staging holds an AWS run's raw output until it is uploaded to S3, then the run's folder
     # is deleted; the worker empties it at start (ADR-0032). It is on the host's disk and can
     # hold secret values: use an encrypted disk on a machine that scans a real account.
@@ -274,7 +277,8 @@ services:
       - raw:/var/lib/argus
       - staging:/var/lib/argus-staging
     # egress: the only service with a route out, to S3 (raw output) and, later, AWS APIs.
-    networks: [data, egress]
+    # graph: Memgraph, which only the worker reaches (ADR-0044).
+    networks: [data, egress, graph]
     <<: *hardened
     read_only: true
     tmpfs: [/tmp]
@@ -285,9 +289,50 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      memgraph:
+        condition: service_healthy
     command: ["python", "-m", "argus.entrypoints.worker"]
     restart: unless-stopped
     stop_grace_period: 2m
+
+  # The graph read model (ADR-0044): every connection's current state, rebuilt from Postgres,
+  # so its volume needs no backup. Only on the internal `graph` network, never published.
+  # Telemetry is off (the image's own memgraph.conf turns it on), and the metrics and monitoring
+  # listeners stay on the loopback. 2.0-2.5 GiB held 1M resources and 2.4M edges (2026-10-31).
+  memgraph:
+    image: memgraph/memgraph:3.13.2@sha256:302a6622a9bd28191818801b7ea6e5931bc1cd0a0d1646333269a2237b1bdcb0
+    environment:
+      # The first login, created when the volume is new (like POSTGRES_PASSWORD).
+      MEMGRAPH_USER: argus
+      MEMGRAPH_PASSWORD: ${ARGUS_DEV_GRAPH_PASSWORD:-argus-graph-local-dev}
+    command:
+      - --telemetry-enabled=false
+      - --metrics-address=127.0.0.1
+      - --monitoring-address=127.0.0.1
+      - --storage-mode=IN_MEMORY_TRANSACTIONAL
+      - --storage-wal-enabled=true
+      - --storage-snapshot-interval-sec=300
+      - --storage-snapshot-on-exit=true
+      - --query-execution-timeout-sec=600
+      - --memory-limit=3584
+      - --log-level=WARNING
+      # Logs to stderr only: no log file on a read-only root.
+      - --log-file=
+      - --also-log-to-stderr=true
+    volumes:
+      - memgraph-data:/var/lib/memgraph
+    networks: [graph]
+    <<: *hardened
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 4g
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/7687"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
 
   # Developer shortcut: three Demo connections with history. Connects as the API role, the
   # same identity the UI's "add connection" uses, so it proves those grants are enough.
@@ -367,11 +412,48 @@ services:
       ARGUS_RULES_DIR: /app/rules
       # A leaked connection or a stuck lock fails the test in seconds instead of hanging.
       PGOPTIONS: "-c lock_timeout=20s -c statement_timeout=120s"
-    networks: [data]
+      # Its own Memgraph: Community holds one database, so tests never share the dev graph.
+      ARGUS_GRAPH_URI: bolt://memgraph-test:7687
+      ARGUS_GRAPH_PASSWORD: argus-graph-test
+    networks: [data, graph]
     depends_on:
       postgres:
         condition: service_healthy
+      memgraph-test:
+        condition: service_healthy
     command: ["pytest"]
+
+  # The tests' Memgraph: no volume, emptied by the tests themselves (tests/graph).
+  memgraph-test:
+    image: memgraph/memgraph:3.13.2@sha256:302a6622a9bd28191818801b7ea6e5931bc1cd0a0d1646333269a2237b1bdcb0
+    profiles: [tools]
+    environment:
+      MEMGRAPH_USER: argus
+      MEMGRAPH_PASSWORD: argus-graph-test
+    # The dev flags, with the data in the container's /tmp and no durability: thrown away.
+    command:
+      - --telemetry-enabled=false
+      - --metrics-address=127.0.0.1
+      - --monitoring-address=127.0.0.1
+      - --storage-mode=IN_MEMORY_TRANSACTIONAL
+      - --storage-wal-enabled=false
+      - --storage-snapshot-interval-sec=0
+      - --storage-snapshot-on-exit=false
+      - --data-directory=/tmp/memgraph
+      - --query-execution-timeout-sec=600
+      - --log-level=WARNING
+      - --log-file=
+      - --also-log-to-stderr=true
+    networks: [graph]
+    <<: *hardened
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 4g
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/7687"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
   lint:
     <<: *backend-dev
@@ -468,7 +550,10 @@ services:
         trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL --ignore-unfixed
         --ignorefile /repo/.trivyignore argus-web:runtime &&
         trivy image --scanners vuln --exit-code 1 --severity CRITICAL --ignore-unfixed
-        --ignorefile /repo/.trivyignore argus-backend:worker
+        --ignorefile /repo/.trivyignore argus-backend:worker &&
+        trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL --ignore-unfixed
+        --ignorefile /repo/.trivyignore
+        memgraph/memgraph:3.13.2@sha256:302a6622a9bd28191818801b7ea6e5931bc1cd0a0d1646333269a2237b1bdcb0
 
   # The chart's static checks, offline (deploy/kind/check.sh): lint, render, kubeconform,
   # digests, the values that must be refused, the Postgres image the same as above.
@@ -519,12 +604,16 @@ networks:
     internal: true
   # worker -> the internet (S3). Not internal, and no other service joins it.
   egress: {}
+  # worker (and test) <-> Memgraph (ADR-0044). Internal: no route out.
+  graph:
+    internal: true
   # emulate <-> moto (dev only). Internal: no route out.
   emulate:
     internal: true
 
 volumes:
   pgdata:
+  memgraph-data:
   raw:
   staging:
   trivy-cache:

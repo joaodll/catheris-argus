@@ -1,6 +1,7 @@
 """The Compose worker (ADR-0019): run threads that claim and execute requests, a thread that
-answers Test connection, and a main loop that keeps the queue (maintenance.py) and runs
-retention once a day. On Kubernetes the same work is split between the scheduler and run Jobs
+answers Test connection, a thread that keeps the Memgraph read model equal to Postgres
+(ADR-0044), and a main loop that keeps the queue (maintenance.py) and runs retention once a
+day. On Kubernetes the same work is split between the scheduler and run Jobs
 (ADR-0039), with the same code.
 """
 
@@ -13,7 +14,10 @@ from uuid import uuid4
 
 from sqlalchemy import Engine
 
+from argus import graph
+from argus.core.config import get_settings
 from argus.core.rawstore import FilesystemRawStore
+from argus.graph import loop as graph_loop
 from argus.ingest import REDERIVE_CONNECTIONS, rederive_stale
 from argus.scheduling import connection_checks, maintenance
 from argus.scheduling.runner import RUN_CONNECTIONS, run_once
@@ -27,9 +31,9 @@ TEST_WAIT_SECONDS = 2
 
 def connections_needed(threads: int) -> int:
     """The most connections a worker holds at once: every run thread at its peak, the test
-    thread, and the main loop (re-derive at start, then retention)."""
+    thread, the graph thread, and the main loop (re-derive at start, then retention)."""
     main_loop = max(REDERIVE_CONNECTIONS, maintenance.RETENTION_CONNECTIONS)
-    return threads * RUN_CONNECTIONS + 1 + main_loop
+    return threads * RUN_CONNECTIONS + 1 + graph.GRAPH_CONNECTIONS + main_loop
 
 
 class Worker:
@@ -78,6 +82,12 @@ class Worker:
             for i in range(self.threads)
         ]
         runners.append(threading.Thread(target=self._test_loop, name="tests"))
+        if get_settings().graph_password is not None:
+            runners.append(
+                threading.Thread(target=graph_loop.run, args=(self.engine, self.stop), name="graph")
+            )
+        else:
+            log.warning("ARGUS_GRAPH_PASSWORD is not set: the graph read model is not kept")
         for runner in runners:
             runner.start()
         log.info("worker started", extra={"worker_id": self.worker_id, "threads": self.threads})

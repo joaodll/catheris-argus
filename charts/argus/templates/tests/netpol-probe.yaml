@@ -1,7 +1,7 @@
 {{- /* `helm test`: proves the cluster enforces the NetworkPolicies (ADR-0040). The probe is a pod
 no policy allows anything but DNS, so it must resolve the database's and the API's names and
-then fail to connect to either. If either connection succeeds, NetworkPolicy is not enforced:
-web could reach Postgres, and any pod could forge X-Forwarded-For to the API. Rendered only with
+then fail to connect to any. If one connection succeeds, NetworkPolicy is not enforced: web
+could reach Postgres, any pod could forge X-Forwarded-For to the API, or reach Memgraph. Rendered only with
 the policies on; with them off, NOTES.txt says what is lost. */ -}}
 {{- define "argus.netpolProbe.command" -}}
 {{- $dbHost := ternary (printf "%s-postgres" (include "argus.fullname" .)) .Values.postgres.external.host .Values.postgres.enabled }}
@@ -12,7 +12,8 @@ command:
   - |
     import socket, sys
     targets = [({{ $dbHost | quote }}, {{ $dbPort }}, "Postgres"),
-               ({{ printf "%s-api" (include "argus.fullname" .) | quote }}, 8000, "the API")]
+               ({{ printf "%s-api" (include "argus.fullname" .) | quote }}, 8000, "the API"),
+               ({{ printf "%s-memgraph" (include "argus.fullname" .) | quote }}, 7687, "Memgraph")]
     failed = False
     for host, port, what in targets:
         try:

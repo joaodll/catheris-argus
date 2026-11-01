@@ -46,6 +46,7 @@ OWNERS: dict[str, set[str]] = {
     "scheduling": {"run_request", "schedule", "schedule_connection"},
     "settings": {"platform_setting"},
     "auth": {"app_user", "user_session", "login_failure"},
+    "graph": {"graph_projection"},
 }
 ALL_TABLES = set().union(*OWNERS.values())
 _SQL_TABLE_RE = re.compile(

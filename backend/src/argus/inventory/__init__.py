@@ -9,6 +9,8 @@ Owns resource, resource_config and resource_snapshot. Public interface:
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
                        (the Resources page, and a resource as of a day)
     RESOURCE_NODES_SQL, resource_nodes()   resources as Resource map nodes, by uid
+    RESOURCES_PRESENT_SQL   one connection's resources on a day, without configuration (the
+                       graph read model's nodes, ADR-0044)
     is_asset()         whether a resource type counts as an asset (parts, settings and links
                        are stored and searchable, not counted)
 """
@@ -18,6 +20,7 @@ from argus.inventory.metrics import INVENTORY_METRICS, put_inventory_metrics
 from argus.inventory.queries import (
     RESOURCE_NODES_SQL,
     RESOURCES_ON_DAY_SQL,
+    RESOURCES_PRESENT_SQL,
     ResourceFilters,
     ResourceOrder,
     effective_day,
@@ -40,6 +43,7 @@ from argus.inventory.steampipe import (
 __all__ = [
     "INVENTORY_METRICS",
     "RESOURCES_ON_DAY_SQL",
+    "RESOURCES_PRESENT_SQL",
     "RESOURCE_NODES_SQL",
     "SUPPORTED_VERSIONS",
     "InventoryBatch",

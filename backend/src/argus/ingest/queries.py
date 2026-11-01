@@ -74,6 +74,16 @@ def last_runs(conn: Connection, *, connection_id: int) -> list[dict[str, Any]]:
     return [dict(r._mapping) for r in rows]
 
 
+# Exported SQL: each connection's newest ingested run that did not fail. A new value means the
+# connection's data changed (inventory, edges, findings, vulnerabilities): the graph read model's
+# marker (ADR-0044).
+LATEST_INGESTED_RUNS_SQL = """
+  SELECT connection_id, max(id) AS run_id FROM scan_run
+  WHERE ingested_at IS NOT NULL AND status IN ('complete', 'partial')
+  GROUP BY connection_id
+"""
+
+
 def data_through(
     conn: Connection,
     *,

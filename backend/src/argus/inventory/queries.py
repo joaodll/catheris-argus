@@ -146,6 +146,17 @@ def resource_facets(conn: Connection, *, connection_id: int | None) -> dict[str,
     return {"types": [r.type for r in types], "regions": [r.region for r in regions]}
 
 
+# Exported SQL: one connection's resources present on :resource_day (bind it to effective_day()),
+# without their configuration: the nodes of the graph read model (ADR-0044).
+RESOURCES_PRESENT_SQL = """
+  SELECT res.id, res.resource_uid AS uid, res.provider, res.type,
+         coalesce(res.name, res.native_id) AS name, res.region
+  FROM resource_snapshot s
+  JOIN resource res ON res.id = s.resource_id
+  WHERE s.snapshot_date = :resource_day AND res.connection_id = :connection_id
+"""
+
+
 # Exported SQL: one row per inventoried resource, as a node of the Resource map (ADR-0033).
 # Joined by uid, so another module can place resources on a graph without naming the table.
 RESOURCE_NODES_SQL = """

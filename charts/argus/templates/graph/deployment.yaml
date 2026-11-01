@@ -1,0 +1,37 @@
+{{- /* graph-sync (ADR-0044): one replica that keeps the Memgraph read model equal to Postgres
+and runs the integrity check. The only pod with the Memgraph login; scan Jobs never hold it. It
+reads Postgres as argus_worker, writes graph_projection, and reaches nothing but Postgres and
+Memgraph (networkpolicies.yaml). No Kubernetes token, no Service. */ -}}
+{{- define "argus.graphSync.env" -}}
+- name: ARGUS_GRAPH_URI
+  value: {{ printf "bolt://%s-memgraph:7687" (include "argus.fullname" .) | quote }}
+- name: ARGUS_GRAPH_USER
+  value: argus
+- name: ARGUS_GRAPH_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.existingSecret }}
+      key: ARGUS_GRAPH_PASSWORD
+{{- end }}
+{{- define "argus.graphSync.probes" -}}
+# It touches this file on every pass; a wedged loop stops touching it. A full rebuild of a
+# large estate takes minutes, inside one pass.
+livenessProbe:
+  exec:
+    command:
+      - python
+      - -c
+      - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/argus-graph-sync.alive') > 900)"
+  initialDelaySeconds: 60
+  periodSeconds: 60
+  failureThreshold: 3
+{{- end }}
+{{- $db := dict "root" . "user" "argus_worker" "key" "ARGUS_WORKER_DB_PASSWORD" "pool" "graphSync" }}
+{{- include "argus.deployment" (dict "root" . "component" "graph-sync" "v" .Values.graphSync "single" true
+  "pod" (dict
+    "grace" 30 "db" true
+    "initContainers" (include "argus.waitForSchema" $db)
+    "containers" (include "argus.container" (dict "root" . "name" "graph-sync" "db" $db
+      "command" (list "python" "-m" "argus.entrypoints.graph_sync")
+      "env" (include "argus.graphSync.env" .) "extra" (include "argus.graphSync.probes" .)
+      "resources" .Values.graphSync.resources)))) }}

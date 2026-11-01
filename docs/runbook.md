@@ -427,6 +427,22 @@ To refresh the test fixtures from a real run (the Phase 0 spike), see
    is kept with the Value column blanked), `instance-userdata.txt` and `cloudformation-data.txt`
    (2026-10-14).
 
+**The graph read model** ([ADR-0044](adr/0044-graph-read-model-memgraph.md)).
+- **What keeps it current:** the worker's graph thread copies each connection's current state into
+  Memgraph within about 15 seconds of an ingest, and checks it every 10 minutes.
+- **Where to see its state:** the `graph_projection` table, one row per connection with `status`,
+  counts and `synced_at`.
+- **When drift is found:** Memgraph no longer holding what was copied in shows up as a
+  `graph.drift` row in the audit log. The connection is then rebuilt from Postgres.
+- **When to rebuild it:** Memgraph holds nothing Postgres doesn't, so rebuild it when it is broken
+  or its password must change:
+
+```bash
+docker compose stop memgraph worker
+docker compose rm -f memgraph && docker volume rm argus_memgraph-data
+docker compose up -d memgraph worker   # the worker re-projects every connection
+```
+
 **Starting over.** `docker compose down` stops the stack and keeps the data. `docker compose down -v`
 also **deletes every volume: the database with all history, and the raw files**. There is no
 undo.

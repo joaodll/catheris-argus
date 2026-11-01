@@ -17,6 +17,16 @@ postgres:
   resources:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 1Gi}
+memgraph:
+  storage: {size: 1Gi}
+  memoryLimitMiB: 768
+  resources:
+    requests: {cpu: 100m, memory: 512Mi}
+    limits: {memory: 1Gi}
+graphSync:
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
 scheduler:
   maxRunJobs: 2
 scanJobs:

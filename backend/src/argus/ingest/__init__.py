@@ -13,10 +13,17 @@ reason, instead of being skipped silently.
 """
 
 from argus.ingest.pipeline import IngestOutcome, ingest_run, register_failed_run, register_run
-from argus.ingest.queries import data_through, last_runs, list_runs, synthetic_raw_paths_before
+from argus.ingest.queries import (
+    LATEST_INGESTED_RUNS_SQL,
+    data_through,
+    last_runs,
+    list_runs,
+    synthetic_raw_paths_before,
+)
 from argus.ingest.rederive import REDERIVE_CONNECTIONS, rederive_stale
 
 __all__ = [
+    "LATEST_INGESTED_RUNS_SQL",
     "REDERIVE_CONNECTIONS",
     "IngestOutcome",
     "data_through",

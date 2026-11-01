@@ -66,6 +66,7 @@ Secret ([runbook](runbook-kubernetes.md#the-secret)). Each process reads only wh
 | `ARGUS_SECRET_KEY_ID` | The keyring entry new secrets are sealed with, for example `k1` |
 | `ARGUS_DB_PASSWORD` | The database password of the process's own role |
 | `ARGUS_API_DB_PASSWORD`, `ARGUS_WORKER_DB_PASSWORD`, `ARGUS_SCHEDULER_DB_PASSWORD` | Read by the migration step only: it gives each application role its password |
+| `ARGUS_GRAPH_PASSWORD` | The Memgraph login ([ADR-0044](adr/0044-graph-read-model-memgraph.md)). Memgraph creates it on a new volume; only the graph sync (the Compose worker, `graph-sync` on Kubernetes) holds it. Unset, a process does not use the graph |
 
 **The database**
 
@@ -77,6 +78,14 @@ Secret ([runbook](runbook-kubernetes.md#the-secret)). Each process reads only wh
 | `ARGUS_DB_USER` | `argus` | The role this process connects as (`argus_api`, `argus_worker`, `argus_scheduler`, or the schema owner for migrations) |
 | `ARGUS_DB_SSLMODE` | unset | `verify-full` for a managed database; unset uses the driver's default |
 | `ARGUS_DB_SSLROOTCERT` | unset | Path to the CA bundle for `verify-full` |
+
+**The graph read model** ([ADR-0044](adr/0044-graph-read-model-memgraph.md))
+
+| Variable | Default | What it is |
+| --- | --- | --- |
+| `ARGUS_GRAPH_URI` | `bolt://memgraph:7687` | Memgraph's Bolt address |
+| `ARGUS_GRAPH_USER` | `argus` | The login |
+| `ARGUS_GRAPH_TIMEOUT_SECONDS` | `120` | A bound: the longest one graph transaction may run (0 to 600 s); Memgraph's own ceiling is 600 s |
 
 **Sign-in, history and connection bounds**: limits on what the administrator may set, or on
 exposure.
@@ -100,7 +109,7 @@ exposure.
 | `ARGUS_LOG_LEVEL` | `INFO` | Log level; logs are JSON lines on stdout, redacted |
 | `ARGUS_TRUSTED_PROXIES` | `127.0.0.1` | Addresses or ranges whose `X-Forwarded-For` the API believes: the web server only |
 | `ARGUS_WORKER_THREADS` | `2` | Compose: runs one worker process executes at once (below **Max parallel runs**) |
-| `ARGUS_DB_POOL_MAX` | `10` | The most connections this process opens to Postgres, a hard cap (1 to 50). A process refuses to start below its own peak: a scan Job 3; migrate, rederive and retention 2; the Compose worker 3 per run thread plus 3 (`compose.yaml` sets 9 for two threads). The API uses one per request in progress; a request that waits 10 seconds for one gets 503. On Kubernetes the chart sets it per pod from `database.pools` |
+| `ARGUS_DB_POOL_MAX` | `10` | The most connections this process opens to Postgres, a hard cap (1 to 50). A process refuses to start below its own peak: a scan Job 3; migrate, rederive and retention 2; the Compose worker 3 per run thread plus 5 (`compose.yaml` sets 11 for two threads); graph-sync 2. The API uses one per request in progress; a request that waits 10 seconds for one gets 503. On Kubernetes the chart sets it per pod from `database.pools` |
 | `ARGUS_MAX_RUN_JOBS` | `4` | Kubernetes: AWS scans at once, below **Max parallel runs**; read by the scheduler and by each scan Job |
 | `ARGUS_MAX_TEST_JOBS` | `1` | Kubernetes: scan Jobs the scheduler may start beyond that while connection tests wait |
 | `ARGUS_JOB_TEMPLATES_DIR` | `/etc/argus/jobs` | Kubernetes: where the scheduler reads its fixed scan Job template, `scan.json` |
@@ -110,13 +119,13 @@ exposure.
 
 **Compose only**, read by `compose.yaml` rather than by Argus:
 
-- `ARGUS_DEV_DB_PASSWORD`, `ARGUS_DEV_API_DB_PASSWORD`, `ARGUS_DEV_WORKER_DB_PASSWORD`: optional
-  development passwords. Without them `compose.yaml` uses fixed ones, fine on a laptop and nowhere
+- `ARGUS_DEV_DB_PASSWORD`, `ARGUS_DEV_API_DB_PASSWORD`, `ARGUS_DEV_WORKER_DB_PASSWORD`,
+  `ARGUS_DEV_GRAPH_PASSWORD`: optional development passwords. Without them `compose.yaml` uses fixed ones, fine on a laptop and nowhere
   else.
 - `ARGUS_E2E_PASSWORD`: the admin password, for the browser walk only.
 - With `compose.single-instance.yaml` (a shared host), the development defaults are refused: set
-  `ARGUS_DB_PASSWORD`, `ARGUS_API_DB_PASSWORD` and `ARGUS_WORKER_DB_PASSWORD`
-  ([runbook](runbook.md#single-instance)).
+  `ARGUS_DB_PASSWORD`, `ARGUS_API_DB_PASSWORD`, `ARGUS_WORKER_DB_PASSWORD` and
+  `ARGUS_GRAPH_PASSWORD` ([runbook](runbook.md#single-instance)).
 
 ## Helm values
 

@@ -53,6 +53,7 @@ make_secret() {
     echo "ARGUS_SCHEDULER_DB_PASSWORD=$(rand 32)"
     echo "ARGUS_SECRET_KEYS=k1:$(head -c 32 /dev/urandom | base64 -w0)"
     echo "ARGUS_SECRET_KEY_ID=k1"
+    echo "ARGUS_GRAPH_PASSWORD=$(rand 32)"
     echo "ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH=$hash"
   } > "$env"
   k create secret generic argus-secrets --from-env-file="$env" > /dev/null
@@ -231,12 +232,14 @@ expect_reach() {
 test_install() {
   step "the install"
   local d
-  for d in api web scheduler; do
+  for d in api web scheduler graph-sync; do
     k rollout status "deploy/$FULL-$d" --timeout 300s > /dev/null
     ok "deploy/$FULL-$d available"
   done
-  k rollout status "statefulset/$FULL-postgres" --timeout 300s > /dev/null
-  ok "statefulset/$FULL-postgres ready"
+  for d in postgres memgraph; do
+    k rollout status "statefulset/$FULL-$d" --timeout 300s > /dev/null
+    ok "statefulset/$FULL-$d ready"
+  done
   for d in migrate rederive; do
     k wait --for=condition=complete job -l "app.kubernetes.io/component=$d" --timeout 600s > /dev/null
     ok "the $d Job completed"
@@ -362,6 +365,7 @@ test_web() {
 test_network() {
   step "NetworkPolicies, enforced"
   local api_ip api_port db="$FULL-postgres:5432" api="$FULL-api:8000" web="$FULL-web:8080" out internet=no
+  local graph="$FULL-memgraph:7687"
   api_ip=$(kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes -o jsonpath='{.items[0].endpoints[0].addresses[0]}')
   api_port=$(kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes -o jsonpath='{.items[0].ports[0].port}')
   curl -s -m 5 -o /dev/null https://1.1.1.1 && internet=yes
@@ -373,9 +377,23 @@ test_network() {
     || fail "web cannot resolve $FULL-postgres"
   if k exec "deploy/$FULL-web" -- nc -z -w 3 "$FULL-postgres" 5432 2>/dev/null; then fail "web -> Postgres open"; fi
   ok "web -> $db closed"
+  if k exec "deploy/$FULL-web" -- nc -z -w 3 "$FULL-memgraph" 7687 2>/dev/null; then fail "web -> Memgraph open"; fi
+  ok "web -> $graph closed"
 
-  out=$(probe_from scan run "$db" "$api" "$web" 169.254.169.254:80 10.96.0.1:443 "$api_ip:$api_port" 1.1.1.1:443)
+  # Memgraph (ADR-0044): graph-sync alone reaches it; it reaches nothing.
+  out=$(probe_from graph graph-sync "$graph" "$db" "$api" 1.1.1.1:443)
+  expect_reach "$out" graph-sync "$graph" open
+  expect_reach "$out" graph-sync "$db" open
+  expect_reach "$out" graph-sync "$api" closed
+  expect_reach "$out" graph-sync 1.1.1.1:443 closed
+  out=$(probe_from memgraph memgraph "$db" "$api" 1.1.1.1:443)
+  expect_reach "$out" memgraph "$db" closed
+  expect_reach "$out" memgraph "$api" closed
+  expect_reach "$out" memgraph 1.1.1.1:443 closed
+
+  out=$(probe_from scan run "$db" "$api" "$web" "$graph" 169.254.169.254:80 10.96.0.1:443 "$api_ip:$api_port" 1.1.1.1:443)
   expect_reach "$out" scan "$db" open
+  expect_reach "$out" scan "$graph" closed
   expect_reach "$out" scan "$api" closed
   expect_reach "$out" scan "$web" closed
   expect_reach "$out" scan 169.254.169.254:80 closed
@@ -387,14 +405,16 @@ test_network() {
     echo "      (no internet from this host: scan -> 443 outside not checked)"
   fi
 
-  out=$(probe_from scheduler scheduler "$db" "$api_ip:$api_port" "$api" 1.1.1.1:443)
+  out=$(probe_from scheduler scheduler "$db" "$api_ip:$api_port" "$api" "$graph" 1.1.1.1:443)
   expect_reach "$out" scheduler "$db" open
+  expect_reach "$out" scheduler "$graph" closed
   expect_reach "$out" scheduler "$api_ip:$api_port" open
   expect_reach "$out" scheduler "$api" closed
   expect_reach "$out" scheduler 1.1.1.1:443 closed
 
-  out=$(probe_from unlisted unlisted "$db" "$api" "$web" 1.1.1.1:443)
+  out=$(probe_from unlisted unlisted "$db" "$api" "$web" "$graph" 1.1.1.1:443)
   expect_reach "$out" unlisted "$db" closed
+  expect_reach "$out" unlisted "$graph" closed
   expect_reach "$out" unlisted "$api" closed
   expect_reach "$out" unlisted "$web" closed
   expect_reach "$out" unlisted 1.1.1.1:443 closed
@@ -446,6 +466,11 @@ test_health() {
   denied=$(k logs "deploy/$FULL-scheduler" -c scheduler | grep -ci 'denied\|forbidden' || true)
   [ "$denied" -eq 0 ] || fail "the scheduler logged $denied refusals"
   ok "the scheduler logged no refusal"
+  k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -q 'graph sync started' \
+    || fail "graph-sync did not start its loop"
+  denied=$(k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -ci 'graph sync failed\|loop error' || true)
+  [ "$denied" -eq 0 ] || fail "graph-sync logged $denied errors"
+  ok "graph-sync running, no sync error"
 }
 
 run_tests() {

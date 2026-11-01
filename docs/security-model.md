@@ -72,14 +72,17 @@ when their checks need it. Argus never stores such a value:
   worker and the one-shot migration
 - the API has no route out; only the worker, which runs the scans, and the web server sit on
   networks that have one
+- Memgraph, the graph read model, sits on its own internal network that only the worker joins
+  ([ADR-0044](adr/0044-graph-read-model-memgraph.md)); it is never published and has no route out
 - no service of the running stack mounts the Docker socket (two development tools do: `scan`,
   to read local images, and `kind`, to create a test cluster)
 
 **Kubernetes** ([ADR-0040](adr/0040-helm-chart-trust-boundaries.md)):
 
 - **Network:** default-deny NetworkPolicies. Postgres accepts its clients only, the API accepts the
-  web pods only, and only scan Jobs reach port 443 outside the cluster, never instance metadata.
-  `helm test` proves the cluster enforces them.
+  web pods only, Memgraph accepts graph-sync only and reaches nothing, and only scan Jobs reach
+  port 443 outside the cluster, never instance metadata. `helm test` proves the cluster enforces
+  them.
 - **What a scan Job can be:** the scheduler is the only pod with a Kubernetes token, and may only
   create Jobs. An admission policy rejects any Job from it whose image, command, service account,
   environment, volumes and mounts, security context, placement, probes or hooks differ from the
@@ -135,6 +138,13 @@ Argus is pre-1.0. These are known and accepted for now:
   that way.
 - **The tools can read their own credentials** while they run: the role session or the IRSA
   token. That identity can only assume scanner roles and write to the bucket.
+- **The graph read model has no read-only login.** Memgraph Community has no roles, so any login
+  can write. Only graph-sync (the Compose worker) holds one today. When the API reads the graph
+  (a later round), a compromised API could alter what the map and blast-radius views show until
+  the integrity check, at most 10 minutes later, finds the drift, audits it as `graph.drift` and
+  rebuilds the connection from Postgres. Attack-path lists and history are read from Postgres and
+  are not exposed to this. Telemetry is off, its metrics and monitoring listeners stay on the
+  loopback, and it holds no secret value (ADR-0044).
 - **No Postgres backup is built in.** Back up the database yourself, or use a managed Postgres.
 - **Scan data is not encrypted by Argus at rest.** Only stored credentials are. The database holds
   the attack map: put it on an encrypted volume, or use a managed database with encryption on.

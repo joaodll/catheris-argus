@@ -40,13 +40,28 @@ The MVP ships two screens, the executive Overview and Administration (ADR-0028),
 | Compliance and findings | Scores, history, lifecycle, remediation | — |
 | Attack paths | Chains of CloudFox steps, joined with failing Prowler checks; counted by category on the Overview | A step-by-step path screen, then paths drawn on the dependency map (Investigate → Attack paths, ADR-0033) |
 | Resources | Inventory from Steampipe with each resource's full configuration and its daily versions, joined to Prowler and CloudFox findings by resource\_uid | The dependency map, drawn from rule-derived, CloudFox and manual edges |
-| Graph storage | `Edge, snapshot` and `attack_path` tables in Postgres, queried with SQL | The same tables, with recursive SQL for multi-hop paths; no graph database |
+| Graph storage | `Edge, snapshot` and `attack_path` tables in Postgres, queried with SQL | Postgres stays the record; since 2026-10-31 a Memgraph read model holds every connection's current state for the map and attack paths, rebuilt from Postgres ([ADR-0044](adr/0044-graph-read-model-memgraph.md)) |
 | Map and manual edges | Not included | Inventory map (Investigate → Resource map, ADR-0033) and resource panel; the edge editor after it |
 | Screens | Two, plus Sign in: the executive Overview and Administration (Connections, Schedules with Run now and the queue, Runs, Settings), in the Titanium Signal theme | Read-only Findings and Resources with the resource panel (built 2026-10-06, ADR-0028 second amendment); Posture → Compliance, read-only (built 2026-10-07, ADR-0028 third amendment); Attack paths, the inventory map; finding states, users, roles and audit log in Admin |
 | History | Daily snapshots (snapshot\_date) kept six months in Postgres | The same retention unless a need for longer appears |
 | Clouds | AWS | GCP, then OCI |
 
-**Why no graph database.** The map asks for one account, VPC or resource on one day plus its neighbours: a few indexed joins or a recursive query over the edge table. CloudFox already supplies multi-step escalation paths. At 36 accounts a second database would add operations, backups and attack surface without a query that needs it. If a rule ever needs deep path search, the first step is networkx inside ingest, then Apache AGE (Cypher inside Postgres), before any separate graph database.
+**A graph read model, not a graph database of record (2026-10-31, [ADR-0044](adr/0044-graph-read-model-memgraph.md)).**
+Until then the map and the paths were indexed joins and recursive SQL over the edge table, one
+connection at a time (ADR-002).
+
+Three needs changed that:
+- a scale target of about 1M resources
+- new providers and sources (GCP, OCI, Cloudflare, Identity Center, GitHub)
+- paths that cross accounts and clouds
+
+The owner chose Memgraph as a **derived read model** beside Postgres, for graph queries that are
+easier to build and change:
+- **Postgres stays the system of record.** History, lifecycles and paths stay there.
+- **Memgraph holds only each connection's current state,** in one graph across connections and
+  providers, and is rebuilt from Postgres whenever it is empty, stale or tampered with.
+- **Correlation stays SQL in ingest.** The relationship rules are unchanged.
+- **Apache AGE was out:** the managed Postgres (RDS) does not offer it.
 
 ## How the MVP runs
 
@@ -109,6 +124,8 @@ This section describes Argus on Kubernetes, as the chart in `charts/argus/` depl
 | api | Deployment, 2 replicas | Postgres: read on data, write on schedules, manual edges, sessions and audit log; no Kubernetes or cloud access |
 | scheduler | Deployment, 1 replica | Postgres as `argus_scheduler` (no secrets); the Kubernetes API: create, get and list Jobs in its namespace |
 | scan Jobs | A Job per unit of work, from one fixed template: a queued Test connection first, otherwise one AWS run (collect and ingest), then exit. No Demo connections on Kubernetes | Postgres as `argus_worker`; the cloud identity and port 443 outside the cluster |
+| graph-sync | Deployment, 1 replica (ADR-0044) | Postgres as `argus_worker`; Memgraph with its login. Keeps the read model equal to Postgres and checks it every 10 minutes |
+| memgraph | StatefulSet, 1 replica, with a volume for snapshots and WAL; no backup needed (rebuilt from Postgres) | Nothing: no egress; only graph-sync reaches its Bolt port |
 | migrate, rederive | One Job per image | Postgres (the schema owner; `argus_worker`) |
 | retention | Daily CronJob | Postgres partition maintenance |
 
@@ -119,6 +136,8 @@ Modules inside the package own their tables and expose a small public interface;
 - settings: administration settings and their bounds
 - collection: the raw store, the manifest and the sources (synthetic now, AWS later)
 - ingest: one run through its adapter, rules, lifecycle, snapshots, paths and metrics
+- graph: the Memgraph read model; projects each connection's current state, verifies it, and
+  holds the named read queries (ADR-0044)
 - retention: partition maintenance and raw-file pruning
 - inventory: Steampipe adapter, resources, snapshots, configurations
 - relationships: the edge-rule engine and edge snapshots
@@ -137,6 +156,7 @@ A module becomes its own service only when it needs a different scaling profile,
 | S3 raw archive | Unchanged record of every run, replayable | S3; SSE-KMS recommended, encryption recorded per run (ADR-0031) |
 | Ingest | Adapters, relationship rules, lifecycle rules, daily snapshots, attack-path engine, daily metrics | Python, in the process that collected the run (the run Job on Kubernetes) |
 | Postgres | Canonical models, daily snapshots, schedules, manual edges, users, audit log | PostgreSQL |
+| Graph read model | Every connection's current state as one graph, rebuilt from Postgres; never the record (ADR-0044) | Memgraph Community, the plain image |
 | Scheduler | Queues the runs schedules call for and starts run Jobs for claimable work, from fixed templates | Python, a standard-library Kubernetes client (`core/kube.py`) |
 | API | Authentication, roles, named graph queries, every read and write | FastAPI |
 | UI | Map, findings, compliance, attack paths, trends, admin | Vue with SVG chart components (ADR-0027); Cytoscape.js for the map in phase 2 |
@@ -486,7 +506,7 @@ These decisions shape the platform; each is an ADR in [`adr/`](adr/README.md), w
 | ADR | Decision | Why | Revisit if |
 | --- | --- | --- | --- |
 | 001 | Build our own platform and use Prowler, CloudFox and Steampipe as collectors, instead of extending Prowler's self-hosted server | Multi-cloud attack paths, manual edges, history dashboards and team workflow don't exist upstream, and a fork becomes maintenance debt | Prowler's server ships history and manual edges |
-| 002 | Postgres is the only database; the API builds the graph from its edge tables | At our size the map and path queries are indexed joins or recursive SQL; one database to run, back up and secure; a graph database would add a second store without a query that needs it | A rule needs deep path search SQL can't run in time: first networkx in ingest, then Apache AGE |
+| 002 | Postgres is the only database of record; the API builds the graph from its edge tables | At our size the map and path queries are indexed joins or recursive SQL; one database to run, back up and secure | Amended 2026-10-31 by ADR-0044: a Memgraph read model beside Postgres, never the record |
 | 003 | Raw output of every run is kept, unchanged, in S3 | Adapters can be replayed after a bug fix; raw evidence for audits | Storage cost becomes material |
 | 004 | `resource_uid` = provider + the cloud's global id (ARN, full resource name, OCID) | It is the one join key across tools; most integration bugs are id mismatches | A cloud has resources with no global id |
 | 005 | The graph the API returns uses our canonical model and our own edge types for every origin (relationship rules, CloudFox, manual) | Stays tool-agnostic; Prowler's Attack Paths queries give the logic we port to SQL | A provider needs a relationship our edge model can't express |
