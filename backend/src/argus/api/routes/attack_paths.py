@@ -1,15 +1,16 @@
 """Investigate -> Attack paths (ADR-0028 fourth amendment): ranked paths, and one path with its
 steps, how sure Argus is of each (ADR-0037) and what each tool says about them. A path's
-`rule_*` fields name its kind (backend/rules/attack_paths): one search finds every kind."""
+`rule_*` fields name its kind (backend/rules/attack_paths): one search finds every kind, over
+the graph read model and across accounts (ADR-0044, M2)."""
 
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection
 
-from argus import attackpaths, ingest, inventory, relationships
+from argus import attackpaths, connections, graph, ingest, inventory, relationships
 from argus.api.deps import Db, Viewer
 from argus.api.routes.resource_map import MapEdge, MapNode, with_findings
 from argus.core.config import get_settings
@@ -33,6 +34,14 @@ class PathEntryStep(BaseModel):
     attributes: dict[str, Any]
 
 
+class PathAccount(BaseModel):
+    """A connection (account) the path passes through."""
+
+    connection_id: int
+    # Null when the connection is not readable any more.
+    name: str | None
+
+
 class PathOut(BaseModel):
     id: int
     path_id: str
@@ -52,8 +61,12 @@ class PathOut(BaseModel):
     # How sure Argus is: its weakest step's level (ADR-0037). Null for a path found before
     # 2026-10-10 by a rule.
     confidence: Confidence | None
+    # The entry's connection: where the attacker gets in, which owns the path.
     connection_id: int
     connection: str
+    # Every connection the path passes through, in path order, the entry's first (one item for
+    # a path inside one account).
+    accounts: list[PathAccount]
     entry_uid: str
     target_uid: str
     # The ends' names, when they are in the inventory.
@@ -70,11 +83,26 @@ class PathOut(BaseModel):
     resolved_on: date | None
 
 
+class PathsGraphState(BaseModel):
+    """Whether the paths are behind the scans (owner's decision, 2026-11-01): paths are
+    evaluated by the graph read model after each ingested run; until then, or while its sync
+    fails, the list shows the paths of an earlier evaluation."""
+
+    # The oldest evaluation among the connections listed; null: never evaluated.
+    evaluated_at: datetime | None
+    # A connection has a newer ingested run than its paths were evaluated from.
+    behind: bool
+    # A connection's graph sync failed, or its paths have been behind for 10 minutes (Memgraph
+    # down): they wait for the next successful update.
+    failed: bool
+
+
 class PathPage(BaseModel):
     items: list[PathOut]
     total: int
     # The scan time the list reflects (newest day ingested); null when nothing is ingested.
     data_through: date | None
+    graph: PathsGraphState
 
 
 class PathKindOut(BaseModel):
@@ -121,6 +149,9 @@ class PathQuery(BaseModel):
     offset: int = Field(0, ge=0)
     order: Order = "severity"
     connection_id: int | None = None
+    # With a connection: also the paths that pass through it, not only those whose entry is
+    # there (the default, as the Overview counts them).
+    passing_through: bool = False
     state: Literal["open", "resolved"] = "open"
     severity: list[Severity] = Field(default_factory=list, max_length=5)
     category: list[Text] = Field(default_factory=list, max_length=50)
@@ -147,9 +178,11 @@ def _rows(conn: Connection, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         conn, sorted({r[k] for r in rows for k in ("entry_uid", "target_uid")})
     )
     edges = relationships.edges_by_ids(conn, sorted({i for r in rows for i in r["edge_ids"]}))
+    names = connections.names(conn, sorted({c for r in rows for c in r["connection_ids"]}))
     return [
         {
             **r,
+            "accounts": [{"connection_id": c, "name": names.get(c)} for c in r["connection_ids"]],
             "rule_name": kinds[r["rule_id"]].name if r["rule_id"] in kinds else None,
             "entry_name": nodes.get(r["entry_uid"], {}).get("name"),
             "target_name": nodes.get(r["target_uid"], {}).get("name"),
@@ -188,6 +221,7 @@ def list_paths(conn: Db, _user: Viewer, query: Annotated[PathQuery, Query()]) ->
         order=query.order,
         filters=attackpaths.PathFilters(
             connection_id=query.connection_id,
+            passing_through=query.passing_through,
             state=query.state,
             severities=tuple(query.severity),
             categories=tuple(query.category),
@@ -199,18 +233,25 @@ def list_paths(conn: Db, _user: Viewer, query: Annotated[PathQuery, Query()]) ->
     return PathPage(
         items=[PathOut.model_validate(r) for r in _rows(conn, rows)],
         total=total,
-        # Paths are evaluated after every ingest (ADR-0037, second amendment); Steampipe and
-        # CloudFox make the edges they walk.
+        # Steampipe and CloudFox make the edges the search walks; `graph` says whether the
+        # paths have caught up with those scans (ADR-0044, M2).
         data_through=ingest.data_through(
             conn, connection_id=query.connection_id, tools=["steampipe", "cloudfox"]
+        ),
+        graph=PathsGraphState.model_validate(
+            graph.paths_state(conn, connection_id=query.connection_id)
         ),
     )
 
 
 @router.get("/attack-paths/facets")
-def path_facets(conn: Db, _user: Viewer, connection_id: int | None = None) -> PathFacets:
+def path_facets(
+    conn: Db, _user: Viewer, connection_id: int | None = None, passing_through: bool = False
+) -> PathFacets:
     """The Attack paths filters' options that come from the data."""
-    found = attackpaths.path_facets(conn, connection_id=connection_id)
+    found = attackpaths.path_facets(
+        conn, connection_id=connection_id, passing_through=passing_through
+    )
     present = set(found["confidences"])
     kinds = _kinds()
     named = [PathKindOut(id=k, name=kinds[k].name if k in kinds else None) for k in found["kinds"]]

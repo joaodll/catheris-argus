@@ -106,7 +106,9 @@ whole chain behind it, record by record and hop by hop, down to the roles and da
 Paths from a way in (an exposed port, a resource public by its own policy, an outside principal,
 a leaked access key) to administrator or to data. Each row says how the path gets in, each step
 names its move ("can escalate via iam:CreatePolicyVersion"), and each link carries its evidence
-and the fix. A confidence per step says how sure Argus is.
+and the fix. A confidence per step says how sure Argus is. One search covers every account, so a
+path can cross from one account into another; it belongs to the account where it gets in, and
+"Include paths passing through" lists the paths that cross a chosen account.
 
 ### Operate and Administration
 

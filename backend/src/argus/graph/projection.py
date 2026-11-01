@@ -21,6 +21,14 @@ or anything in Memgraph no projected connection owns, is audited (`graph.drift`)
 
 Manual edges (origin `manual`, no connection) are not projected yet: none can be created until
 the UI for them exists. That is the seam for them.
+
+Pseudo-nodes: `internet` and `external:<host>` are one node for every connection, and
+`admin:<account>` names its account. `any:<service>` (a wildcard grant: every resource of a
+service, role-accesses) means that service in the account whose edge it is, but its uid names no
+account; in one graph across accounts, two accounts' "any S3 bucket" would be one node, and the
+search would keep one account's path to it where each account has its own (found 2026-11-01).
+The graph holds it as `any:<service>@<account>` (graph_uid); Postgres keeps `any:<service>`, and
+whoever reads a uid back for Postgres calls postgres_uid.
 """
 
 import hashlib
@@ -51,6 +59,11 @@ BATCH = 10_000
 # the edge id: the graph holds no configuration.
 EDGE_ATTRIBUTES = ("protocol", "from_port", "to_port", "port")
 _EDGE_TYPE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_ACCOUNT_SCOPED = "any:"  # pseudo-nodes that mean something in one account only
+# The graph's shape. Bump it when the projection writes something differently: every connection
+# projected in another format re-projects once, at the next reconcile, without reading as drift.
+# 2: account-scoped wildcard pseudo-nodes (any:<service>@<account>), 2026-11-01.
+FORMAT = 2
 _SEVERITIES = ("critical", "high", "medium", "low")
 _EMPTY_CHECKSUM = bytes(32)
 
@@ -138,6 +151,17 @@ def checksum(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> bytes:
     return digest.digest()
 
 
+def graph_uid(uid: str, account: str) -> str:
+    """The node a Postgres uid is in the graph: an account's wildcard pseudo-node gets its
+    account (see the module docstring); every other uid is itself."""
+    return f"{uid}@{account}" if uid.startswith(_ACCOUNT_SCOPED) else uid
+
+
+def postgres_uid(uid: str) -> str:
+    """The Postgres uid of a graph node: graph_uid undone."""
+    return uid.rpartition("@")[0] if uid.startswith(_ACCOUNT_SCOPED) and "@" in uid else uid
+
+
 def _attrs(attributes: dict[str, Any] | None) -> dict[str, Any] | None:
     kept = {
         k: v
@@ -148,11 +172,14 @@ def _attrs(attributes: dict[str, Any] | None) -> dict[str, Any] | None:
 
 
 def read_snapshot(conn: Connection, target: Target, *, today: date) -> Snapshot:
-    """Everything the graph holds for one connection, from one consistent Postgres read."""
+    """Everything the graph holds for one connection, from one consistent Postgres read: its
+    latest scan state however old (window=None), as scans may be 30 days apart (ADR-0044, M2).
+    The 31-day window of the dated screens would empty an account scanned 32 days ago, and its
+    paths would read as fixed."""
     c = target.connection_id
     days: dict[str, date | None] = {
-        "resource_day": inventory.effective_day(conn, connection_id=c, day=today),
-        **relationships.effective_days(conn, connection_id=c, day=today),
+        "resource_day": inventory.effective_day(conn, connection_id=c, day=today, window=None),
+        **relationships.effective_days(conn, connection_id=c, day=today, window=None),
     }
     snap = Snapshot(target, days)
     params = {"connection_id": c, **days}
@@ -163,7 +190,7 @@ def read_snapshot(conn: Connection, target: Target, *, today: date) -> Snapshot:
     exploitable: set[str] = set()
     if days["resource_day"] is not None:
         exploitable = set(conn.execute(text(_EXPLOITABLE_SQL), params).scalars())
-    reach = relationships.internet_reach(conn, connection_id=c, day=today).doors
+    reach = relationships.internet_reach(conn, connection_id=c, day=today, window=None).doors
     if days["resource_day"] is not None:
         for r in conn.execute(text(inventory.RESOURCES_PRESENT_SQL), params):
             door = reach.get(r.uid)
@@ -192,8 +219,8 @@ def read_snapshot(conn: Connection, target: Target, *, today: date) -> Snapshot:
             snap.edges.append(
                 {
                     "id": int(e.id),
-                    "source": e.source_uid,
-                    "target": e.target_uid,
+                    "source": graph_uid(e.source_uid, target.account),
+                    "target": graph_uid(e.target_uid, target.account),
                     "type": e.type,
                     "origin": e.origin,
                     "confidence": level,
@@ -266,11 +293,13 @@ def _write(session: Session, snap: Snapshot) -> None:
         _collect_stubs(tx, candidates)
         tx.run(
             "MERGE (p:Projection {conn: $c}) "
-            "SET p.checksum = $h, p.source_run_id = $run, p.ruleset = $ruleset",
+            "SET p.checksum = $h, p.source_run_id = $run, p.ruleset = $ruleset, "
+            "p.format = $format",
             c=c,
             h=snap.checksum.hex(),
             run=snap.target.source_run_id,
             ruleset=snap.target.ruleset,
+            format=FORMAT,
         )
         tx.commit()
 
@@ -355,7 +384,7 @@ def status(conn: Connection) -> dict[int, dict[str, Any]]:
 
 
 def _targets(conn: Connection, *, today: date) -> dict[int, Target]:
-    rules = relationships.latest_rule_loads(conn, day=today)
+    rules = relationships.latest_rule_loads(conn, day=today, window=None)
     return {
         r.id: Target(
             connection_id=r.id,
@@ -385,7 +414,7 @@ def ensure_schema(session: Session) -> None:
     _schema_ready.add("done")
 
 
-def _locked(engine: Engine) -> Connection | None:
+def try_lock(engine: Engine) -> Connection | None:
     lock = engine.connect()
     if lock.execute(text("SELECT pg_try_advisory_lock(hashtext(:k))"), {"k": LOCK}).scalar():
         return lock
@@ -393,7 +422,7 @@ def _locked(engine: Engine) -> Connection | None:
     return None
 
 
-def _unlock(lock: Connection) -> None:
+def unlock(lock: Connection) -> None:
     try:
         lock.execute(text("SELECT pg_advisory_unlock(hashtext(:k))"), {"k": LOCK})
     finally:
@@ -404,7 +433,7 @@ def reconcile(engine: Engine, *, today: date | None = None) -> dict[str, int] | 
     """Bring Memgraph to Postgres's current state. Returns what it did, or None when another
     process holds the graph lock."""
     today = today or datetime.now(UTC).date()
-    lock = _locked(engine)
+    lock = try_lock(engine)
     if lock is None:
         return None
     try:
@@ -413,7 +442,10 @@ def reconcile(engine: Engine, *, today: date | None = None) -> dict[str, int] | 
             rows = status(conn)
         with client.write_session() as session:
             ensure_schema(session)
-            markers = {int(m["conn"]): m["checksum"] for m in client.read("projection_markers")}
+            markers = {
+                int(m["conn"]): (m["checksum"], m["format"])
+                for m in client.read("projection_markers")
+            }
             synced = failed = 0
             for c, target in sorted(targets.items()):
                 row = rows.get(c)
@@ -422,7 +454,7 @@ def reconcile(engine: Engine, *, today: date | None = None) -> dict[str, int] | 
                     and row["status"] == "synced"
                     and (row["source_run_id"], row["ruleset"])
                     == (target.source_run_id, target.ruleset)
-                    and markers.get(c) == bytes(row["checksum"]).hex()
+                    and markers.get(c) == (bytes(row["checksum"]).hex(), FORMAT)
                 )
                 if current:
                     continue
@@ -439,7 +471,7 @@ def reconcile(engine: Engine, *, today: date | None = None) -> dict[str, int] | 
                     )
         return {"synced": synced, "failed": failed, "removed": len(gone)}
     finally:
-        _unlock(lock)
+        unlock(lock)
 
 
 def _read_back(connection_id: int) -> bytes:
@@ -454,7 +486,7 @@ def _read_back(connection_id: int) -> bytes:
 def verify(engine: Engine, *, today: date | None = None) -> dict[str, int] | None:
     """The integrity check. Returns how many connections drifted, or None when another
     process holds the graph lock. Drift is audited, marked failed and re-synced."""
-    lock = _locked(engine)
+    lock = try_lock(engine)
     if lock is None:
         return None
     drifted: dict[int, str] = {}
@@ -509,7 +541,7 @@ def verify(engine: Engine, *, today: date | None = None) -> dict[str, int] | Non
                     ).consume()
             log.warning("graph drift", extra={"connections": sorted(drifted)})
     finally:
-        _unlock(lock)
+        unlock(lock)
     if drifted:
         reconcile(engine, today=today)
     return {"checked": len(rows), "drifted": len(drifted)}

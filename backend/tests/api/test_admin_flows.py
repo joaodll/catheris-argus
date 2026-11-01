@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from tests.api.conftest import csrf
+from tests.conftest import Settle
 from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
 from argus.collection import TOOL_ORDER
@@ -86,7 +87,7 @@ def test_a_schedule_changed_in_the_ui_runs_at_its_new_time(
 
 # --------------------------------------------------------------- gate check 8
 def test_a_demo_connection_created_in_the_ui_backfills_onto_the_overview(
-    signed_in: TestClient, worker: Engine, store: FilesystemRawStore
+    signed_in: TestClient, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     _put_collection(signed_in, synthetic_throttle_share=0.0)
     created = signed_in.post(
@@ -106,6 +107,7 @@ def test_a_demo_connection_created_in_the_ui_backfills_onto_the_overview(
     ) is not None:
         statuses.append(status)
     assert statuses == ["complete"] * (2 * len(TOOL_ORDER))
+    settle(datetime.now(UTC).date())  # the graph loop's evaluation (ADR-0044, M2)
 
     today = datetime.now(UTC).date().isoformat()
     after = signed_in.get("/api/v1/overview", params={"connection_id": cid}).json()
@@ -263,6 +265,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     worker: Engine,
     store: FilesystemRawStore,
     caplog: pytest.LogCaptureFixture,
+    settle: Settle,
 ) -> None:
     caplog.set_level(logging.DEBUG)
     target = make_demo(owner)
@@ -271,6 +274,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     for day in (earlier, today):
         for tool in TOOL_ORDER:
             run_tool(worker, store, target, tool, day)
+    settle(today)
     raw = "".join(p.read_text(errors="ignore") for p in store.root.rglob("*") if p.is_file())
     assert MARKERS.search(raw), "the synthetic estate no longer plants secrets: fix this test"
 

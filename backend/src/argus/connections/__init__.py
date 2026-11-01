@@ -307,6 +307,16 @@ def get(conn: Connection, connection_id: int) -> ConnectionRow | None:
     return ConnectionRow(*row) if row else None
 
 
+def names(conn: Connection, ids: list[int]) -> dict[int, str]:
+    """Connection names by id, in one read: the labels of rows that name several connections
+    (an attack path's accounts)."""
+    rows = conn.execute(
+        text("SELECT id, name FROM connection WHERE id = ANY(CAST(:ids AS bigint[]))"),
+        {"ids": ids},
+    )
+    return {r.id: r.name for r in rows}
+
+
 def enabled(conn: Connection) -> list[ConnectionRow]:
     rows = conn.execute(
         text(f"SELECT {_COLUMNS} FROM connection WHERE enabled ORDER BY id")  # noqa: S608

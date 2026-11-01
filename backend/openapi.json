@@ -3216,8 +3216,41 @@
         "title": "PasswordIn",
         "type": "object"
       },
+      "PathAccount": {
+        "description": "A connection (account) the path passes through.",
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "connection_id",
+          "name"
+        ],
+        "title": "PathAccount",
+        "type": "object"
+      },
       "PathDetail": {
         "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/PathAccount"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
           "base_severity": {
             "anyOf": [
               {
@@ -3431,6 +3464,7 @@
           "confidence",
           "connection_id",
           "connection",
+          "accounts",
           "entry_uid",
           "target_uid",
           "entry_name",
@@ -3614,6 +3648,13 @@
       },
       "PathOut": {
         "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/PathAccount"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
           "base_severity": {
             "anyOf": [
               {
@@ -3803,6 +3844,7 @@
           "confidence",
           "connection_id",
           "connection",
+          "accounts",
           "entry_uid",
           "target_uid",
           "entry_name",
@@ -3832,6 +3874,9 @@
             ],
             "title": "Data Through"
           },
+          "graph": {
+            "$ref": "#/components/schemas/PathsGraphState"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/PathOut"
@@ -3847,7 +3892,8 @@
         "required": [
           "items",
           "total",
-          "data_through"
+          "data_through",
+          "graph"
         ],
         "title": "PathPage",
         "type": "object"
@@ -3883,6 +3929,38 @@
           "remediation"
         ],
         "title": "PathRuleOut",
+        "type": "object"
+      },
+      "PathsGraphState": {
+        "description": "Whether the paths are behind the scans (owner's decision, 2026-11-01): paths are\nevaluated by the graph read model after each ingested run; until then, or while its sync\nfails, the list shows the paths of an earlier evaluation.",
+        "properties": {
+          "behind": {
+            "title": "Behind",
+            "type": "boolean"
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "evaluated_at",
+          "behind",
+          "failed"
+        ],
+        "title": "PathsGraphState",
         "type": "object"
       },
       "PendingRequest": {
@@ -6309,6 +6387,16 @@
           },
           {
             "in": "query",
+            "name": "passing_through",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Passing Through",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
             "name": "state",
             "required": false,
             "schema": {
@@ -6504,6 +6592,16 @@
                 }
               ],
               "title": "Connection Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "passing_through",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Passing Through",
+              "type": "boolean"
             }
           },
           {

@@ -11,7 +11,14 @@ _COLUMNS = """
     p.id, encode(p.path_id, 'hex') AS path_id, p.rule_id, p.rule_version, p.category,
     p.severity, p.connection_id, c.name AS connection, p.entry_uid, p.target_uid,
     p.node_uids, p.edge_ids, p.state, p.first_seen, p.last_seen, p.resolved_on,
-    p.base_severity, p.entry_confirmed, p.has_failing, p.confidence
+    p.base_severity, p.entry_confirmed, p.has_failing, p.confidence, p.connection_ids
+"""
+# The connection filter: the entry's account (as the Overview counts), or with `passing_through`
+# also the paths that pass through it (ADR-0044, M2). `@>` so the GIN index serves it.
+_CONNECTION = """
+  (CAST(:c AS bigint) IS NULL
+   OR (NOT CAST(:pt AS boolean) AND p.connection_id = :c)
+   OR (CAST(:pt AS boolean) AND p.connection_ids @> ARRAY[CAST(:c AS bigint)]))
 """
 
 
@@ -20,6 +27,8 @@ class PathFilters:
     """The Attack paths list's filters; an empty tuple does not filter."""
 
     connection_id: int | None = None
+    # With a connection: also the paths that pass through it, not only those entering there.
+    passing_through: bool = False
     state: str = "open"
     severities: tuple[str, ...] = ()
     categories: tuple[str, ...] = ()
@@ -61,7 +70,7 @@ def list_paths(
         WITH m AS (
         SELECT {_COLUMNS}
         FROM attack_path p JOIN ({DIRECTORY_SQL}) c ON c.id = p.connection_id
-        WHERE p.state = :s AND (CAST(:c AS bigint) IS NULL OR p.connection_id = :c)
+        WHERE p.state = :s AND {_CONNECTION}
           AND (CAST(:sev AS text[]) IS NULL OR p.severity = ANY(CAST(:sev AS text[])))
           AND (CAST(:cat AS text[]) IS NULL OR p.category = ANY(CAST(:cat AS text[])))
           AND (CAST(:kind AS text[]) IS NULL OR p.rule_id = ANY(CAST(:kind AS text[])))
@@ -77,6 +86,7 @@ def list_paths(
         {
             "s": filters.state,
             "c": filters.connection_id,
+            "pt": filters.passing_through,
             "sev": list(filters.severities) or None,
             "cat": list(filters.categories) or None,
             "kind": list(filters.kinds) or None,
@@ -104,15 +114,17 @@ def get_path(conn: Connection, path_id: int) -> dict[str, Any] | None:
     return dict(row._mapping) if row else None
 
 
-def path_facets(conn: Connection, *, connection_id: int | None) -> dict[str, list[str]]:
+def path_facets(
+    conn: Connection, *, connection_id: int | None, passing_through: bool = False
+) -> dict[str, list[str]]:
     """The categories, kinds and confidence levels that have paths: the list filters'
     options."""
     rows = conn.execute(
-        text("""
-        SELECT DISTINCT category, rule_id, confidence FROM attack_path
-        WHERE CAST(:c AS bigint) IS NULL OR connection_id = :c
-    """),
-        {"c": connection_id},
+        text(f"""
+        SELECT DISTINCT category, rule_id, confidence FROM attack_path p
+        WHERE {_CONNECTION}
+    """),  # noqa: S608 - a constant fragment
+        {"c": connection_id, "pt": passing_through},
     ).all()
     return {
         "categories": sorted({r.category for r in rows}),

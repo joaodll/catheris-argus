@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isPathFiltered, parsePathFilters, parsePathId, parsePathOrder, pathApiFilters, pathFiltersToQuery, toggleDate } from './pathFilters'
 import { confidenceLine } from './confidence'
-import { breakLink, severityLine } from './pathText'
+import { accountsChain, breakLink, crossesLine, severityLine, staleNote } from './pathText'
 import { doorPorts, factsOf, moveWords, outsiderName, pathSubline, pathTitle, stepLabel, wayIn, type ChainEdge } from './pathWords'
 import { portLabel, sortPorts } from './ports'
 import type { MapNode } from '../map/mapGraph'
@@ -14,6 +14,7 @@ describe('Attack paths filters in the URL', () => {
       kind: ['internet-exposed-admin-port', 'internet-to-admin'],
       confidence: ['candidate', 'confirmed'],
       connection: '3',
+      passing: '1',
       state: 'resolved',
       through: 'arn:aws:iam::1:role/app',
     }
@@ -25,6 +26,7 @@ describe('Attack paths filters in the URL', () => {
       kind: undefined,
       confidence: undefined,
       connection: undefined,
+      passing: undefined,
       state: undefined,
       through: undefined,
     })
@@ -48,11 +50,45 @@ describe('Attack paths filters in the URL', () => {
       kind: ['internet-exposed'],
       confidence: ['supported'],
       connection_id: 2,
+      passing_through: false,
       state: 'open',
       through: null,
     })
     expect(toggleDate('severity', 'last_seen')).toBe('last_seen_desc')
     expect(toggleDate('last_seen_desc', 'last_seen')).toBe('last_seen_asc')
+  })
+})
+
+describe('Attack paths across accounts (ADR-0044, M2)', () => {
+  it('passes through a connection only when one is chosen', () => {
+    expect(parsePathFilters({ connection: '4', passing: '1' }).passing).toBe(true)
+    expect(pathApiFilters(parsePathFilters({ connection: '4', passing: '1' })).passing_through).toBe(true)
+    expect(parsePathFilters({ passing: '1' }).passing).toBe(false) // all connections: nothing to pass through
+    expect(parsePathFilters({ connection: '4', passing: 'yes' }).passing).toBe(false)
+    expect(pathFiltersToQuery({ ...parsePathFilters({ connection: '4', passing: '1' }), connection: null })).toMatchObject({ connection: undefined, passing: undefined })
+  })
+
+  it('says which accounts a path crosses', () => {
+    const prod = { connection_id: 1, name: 'prod' }
+    const shared = { connection_id: 2, name: 'shared' }
+    expect(crossesLine([prod])).toBeNull()
+    expect(crossesLine([prod, shared])).toEqual({ text: 'Crosses into shared', title: 'prod → shared' })
+    expect(crossesLine([prod, shared, { connection_id: 9, name: null }])).toEqual({ text: 'Crosses into 2 accounts', title: 'prod → shared → Connection 9' })
+    expect(accountsChain([shared, prod])).toBe('shared → prod')
+  })
+
+  it('notes when the paths are behind the scans', () => {
+    const when = (iso: string) => `[${iso}]`
+    expect(staleNote({ evaluated_at: '2026-11-01T10:00:00Z', behind: false, failed: false }, when)).toBeNull()
+    expect(staleNote({ evaluated_at: '2026-11-01T10:00:00Z', behind: true, failed: false }, when)).toEqual({
+      kind: 'info',
+      text: 'Attack paths are being updated from the newest scans. Shown: the paths found [2026-11-01T10:00:00Z].',
+    })
+    expect(staleNote({ evaluated_at: null, behind: true, failed: false }, when)?.text).toBe('Attack paths have not been evaluated from the newest scans yet.')
+    const failed = staleNote({ evaluated_at: '2026-11-01T10:00:00Z', behind: true, failed: true }, when)
+    expect(failed?.kind).toBe('warn')
+    expect(failed?.text).toContain('updating them from the newest scans failed')
+    expect(failed?.text).toContain('Argus keeps retrying')
   })
 })
 

@@ -165,8 +165,10 @@ After changing backend code that the running stack uses: `docker compose up -d -
 load records the rule set it came from. When the worker starts, before it claims any run, it
 checks each enabled connection's latest rule load within 31 days. If that load came from other
 rules (or from before migration 0026), the worker re-runs the load's day with the new rules:
-edges, flows, the reach checks and attack paths. Nothing is resolved. So a new rule version shows
-on the map and in Attack paths at once, not after the next Steampipe and CloudFox runs. The same
+edges, flows and the reach checks. The new rule set moves the graph's marker, so the graph thread
+then re-evaluates the attack paths; a path the new rules no longer find is resolved then, when the
+connection's newest Steampipe and CloudFox runs are complete (2026-11-01). So a new rule version
+shows on the map and in Attack paths at once, not after the next Steampipe and CloudFox runs. The same
 happens once when a release checks the reach of more findings (2026-10-22: Prowler's exposure
 checks), so their Reach and reason show at once. The log
 shows `re-derived after a rule upgrade` per connection, then `rule set checked` with the counts.
@@ -430,8 +432,15 @@ To refresh the test fixtures from a real run (the Phase 0 spike), see
 **The graph read model** ([ADR-0044](adr/0044-graph-read-model-memgraph.md)).
 - **What keeps it current:** the worker's graph thread copies each connection's current state into
   Memgraph within about 15 seconds of an ingest, and checks it every 10 minutes.
+- **Attack paths come from it** (round M2, 2026-11-01). After each copy, the graph thread checks
+  the graph and runs the attack-path search over every connection; the log shows
+  `attack paths evaluated` with the counts and seconds. Ingest no longer computes paths.
 - **Where to see its state:** the `graph_projection` table, one row per connection with `status`,
-  counts and `synced_at`.
+  counts and `synced_at`, and `paths_evaluated_at` and `paths_run_id` for its paths.
+- **When Attack paths says its paths are behind:** they were found before the newest scans. An
+  information note for a minute after a scan is normal. After 10 minutes behind, or when a sync
+  fails, it turns into a warning: look for `graph sync loop error` or `graph sync failed` in the
+  worker log, and check that `memgraph` is up. The paths catch up on the next successful pass.
 - **When drift is found:** Memgraph no longer holding what was copied in shows up as a
   `graph.drift` row in the audit log. The connection is then rebuilt from Postgres.
 - **When to rebuild it:** Memgraph holds nothing Postgres doesn't, so rebuild it when it is broken

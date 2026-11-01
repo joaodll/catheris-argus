@@ -22,7 +22,7 @@ import { nodeName, worstOf, type MapNode } from '../map/mapGraph'
 import { confidenceLine } from './confidence'
 import ConfidenceBadge from './ConfidenceBadge.vue'
 import { factsOf, imdsV1, moveWords, stepLabel, type Move } from './pathWords'
-import { breakLink, severityLine } from './pathText'
+import { accountsChain, breakLink, severityLine } from './pathText'
 
 const props = defineProps<{ pathId: number; connectionName: (id: number) => string }>()
 const emit = defineEmits<{ loaded: [path: Schemas['PathDetail'] | null] }>()
@@ -61,15 +61,23 @@ interface Step {
   move: Move | null // that link in words
   reversed: boolean // the edge points back (an instance MEMBER_OF its security group)
   imdsV1: boolean // the entry instance lets a foothold read its role's credentials
+  account: string | null // the step's account when it is not the entry's (ADR-0044, M2)
 }
+/** A connection's name: the path's own list first, the connections the page knows otherwise. */
+function accountName(id: number): string {
+  return path.value?.accounts.find((a) => a.connection_id === id)?.name ?? props.connectionName(id)
+}
+const crossesAccounts = computed(() => (path.value && path.value.accounts.length > 1 ? accountsChain(path.value.accounts) : null))
 const steps = computed<Step[]>(() => {
   const p = path.value
   if (!p) return []
   return p.nodes.map((node, i) => {
     const edge = i < p.nodes.length - 1 ? (p.edges[i] ?? null) : null
     const inbound = i > 0 ? (p.edges[i - 1] ?? null) : null
+    const owner = node.connection_id
     return {
       node,
+      account: owner != null && owner !== p.connection_id ? accountName(owner) : null,
       label: stepLabel(node, inbound),
       edge,
       move: edge ? moveWords(edge) : null,
@@ -146,6 +154,10 @@ const mapLink = computed(() => (path.value ? { name: 'resource-map', query: { fo
           <dt><span aria-hidden="true">🖥 </span>Connection</dt>
           <dd>{{ path.connection }}</dd>
         </div>
+        <div v-if="crossesAccounts">
+          <dt><span aria-hidden="true">🔀 </span>Accounts</dt>
+          <dd>{{ crossesAccounts }}</dd>
+        </div>
         <div>
           <dt><span aria-hidden="true">📅 </span>First seen</dt>
           <dd class="mono">{{ path.first_seen }}</dd>
@@ -170,6 +182,7 @@ const mapLink = computed(() => (path.value ? { name: 'resource-map', query: { fo
         <li v-for="(step, i) in steps" :key="`${i}-${step.node.uid}`" class="step-item">
           <div class="step">
             <span class="type mono">{{ step.label.type }}</span>
+            <span v-if="step.account" class="chip acct" :title="`In ${step.account}, another account`">in {{ step.account }}</span>
             <button v-if="step.node.resource_id != null" type="button" class="name link-btn" :title="step.node.uid" @click="sheet = { id: step.node.resource_id!, name: nodeName(step.node) }">
               {{ step.label.name }}
             </button>
@@ -336,6 +349,14 @@ const mapLink = computed(() => (path.value ? { name: 'resource-map', query: { fo
 .type {
   font-size: 11px;
   color: var(--text-3);
+}
+
+/* The step's account, when the path has crossed into another: a long name is cut, whole in the title. */
+.acct {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .name {

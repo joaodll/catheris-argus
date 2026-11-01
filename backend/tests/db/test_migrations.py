@@ -7,9 +7,16 @@ pytestmark = pytest.mark.db
 
 
 def _tables(engine: Engine) -> set[str]:
+    """The schema's tables, not their monthly partitions: those depend on the date the
+    migrations ran (current_date - 7 months onward) and on the days other tests loaded (the
+    budget estate goes 200 days back), so a round trip cannot recreate them all. The next test
+    checks the partitions the migrations make."""
     with engine.connect() as conn:
         rows = conn.execute(
-            text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+            text(
+                "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p') AND NOT c.relispartition"
+            )
         ).scalars()
         return set(rows)
 

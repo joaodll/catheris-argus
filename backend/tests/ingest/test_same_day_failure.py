@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import Engine, text
+from tests.conftest import Settle
 from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
 from argus import metrics
@@ -77,12 +78,13 @@ def test_a_partial_prowler_run_on_the_first_day_shows_its_results(
 
 
 def test_each_overview_block_reads_its_own_tool(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     """CloudFox alone fills its own blocks: with no inventory its public endpoints are the only
     paths, each a door at candidate (ADR-0037, second amendment), counted, not "no data"."""
     target = make_demo(owner)
     assert run_tool(worker, store, target, "cloudfox", DAY).status == "complete"
+    settle(DAY)
     with owner.connect() as conn:
         overview = metrics.build_overview(conn, connection_id=target.connection_id, as_of=DAY)
         doors = conn.execute(
@@ -108,6 +110,7 @@ def test_each_overview_block_reads_its_own_tool(
     # Prowler the next day: its blocks show its scan, CloudFox's keep theirs.
     next_day = DAY + timedelta(days=1)
     assert run_tool(worker, store, target, "prowler", next_day).status == "complete"
+    settle(next_day)
     with owner.connect() as conn:
         overview = metrics.build_overview(conn, connection_id=target.connection_id, as_of=next_day)
     assert overview["data_through"] == next_day

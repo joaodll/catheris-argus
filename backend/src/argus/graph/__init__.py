@@ -14,15 +14,27 @@ Interface:
                              left; the only entry point that writes to Memgraph
     verify(engine)           the integrity check: re-read each connection, compare checksums,
                              re-sync and audit on drift
+    evaluate_paths(engine)   the attack-path search over every connection, across accounts
+                             (round M2): upserts, resolves and counts attack_path rows
+    paths_state(conn)        whether the stored paths are behind the scans (the API's note)
     status(conn)             graph_projection rows, for "as of" and the UI
     read(name, **params)     run one named query of the catalog, in a read transaction
-    GRAPH_CONNECTIONS        the most Postgres connections reconcile/verify hold at once
+    GRAPH_CONNECTIONS        the most Postgres connections reconcile/verify/evaluate hold at once
 
 Only projection.py writes to Memgraph. Every read goes through catalog.READ_QUERIES by name; a
 client never sends Cypher.
 """
 
 from argus.graph.client import read
+from argus.graph.paths import evaluate_paths, paths_state
 from argus.graph.projection import GRAPH_CONNECTIONS, reconcile, status, verify
 
-__all__ = ["GRAPH_CONNECTIONS", "read", "reconcile", "status", "verify"]
+__all__ = [
+    "GRAPH_CONNECTIONS",
+    "evaluate_paths",
+    "paths_state",
+    "read",
+    "reconcile",
+    "status",
+    "verify",
+]

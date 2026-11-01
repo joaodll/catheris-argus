@@ -1964,8 +1964,20 @@ export interface components {
             /** Password */
             password: string;
         };
+        /**
+         * PathAccount
+         * @description A connection (account) the path passes through.
+         */
+        PathAccount: {
+            /** Connection Id */
+            connection_id: number;
+            /** Name */
+            name: string | null;
+        };
         /** PathDetail */
         PathDetail: {
+            /** Accounts */
+            accounts: components["schemas"]["PathAccount"][];
             /** Base Severity */
             base_severity: string | null;
             /** Category */
@@ -2098,6 +2110,8 @@ export interface components {
         };
         /** PathOut */
         PathOut: {
+            /** Accounts */
+            accounts: components["schemas"]["PathAccount"][];
             /** Base Severity */
             base_severity: string | null;
             /** Category */
@@ -2156,6 +2170,7 @@ export interface components {
         PathPage: {
             /** Data Through */
             data_through: string | null;
+            graph: components["schemas"]["PathsGraphState"];
             /** Items */
             items: components["schemas"]["PathOut"][];
             /** Total */
@@ -2173,6 +2188,20 @@ export interface components {
             severity: string;
             /** Technique */
             technique: string;
+        };
+        /**
+         * PathsGraphState
+         * @description Whether the paths are behind the scans (owner's decision, 2026-11-01): paths are
+         *     evaluated by the graph read model after each ingested run; until then, or while its sync
+         *     fails, the list shows the paths of an earlier evaluation.
+         */
+        PathsGraphState: {
+            /** Behind */
+            behind: boolean;
+            /** Evaluated At */
+            evaluated_at: string | null;
+            /** Failed */
+            failed: boolean;
         };
         /** PendingRequest */
         PendingRequest: {
@@ -2959,6 +2988,7 @@ export interface operations {
                 offset?: number;
                 order?: "severity" | "first_seen_desc" | "first_seen_asc" | "last_seen_desc" | "last_seen_asc";
                 connection_id?: number | null;
+                passing_through?: boolean;
                 state?: "open" | "resolved";
                 severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
                 category?: string[];
@@ -3001,6 +3031,7 @@ export interface operations {
         parameters: {
             query?: {
                 connection_id?: number | null;
+                passing_through?: boolean;
             };
             header?: {
                 "X-Argus-CSRF"?: string | null;

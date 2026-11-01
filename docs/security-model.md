@@ -142,8 +142,10 @@ Argus is pre-1.0. These are known and accepted for now:
   can write. Only graph-sync (the Compose worker) holds one today. When the API reads the graph
   (a later round), a compromised API could alter what the map and blast-radius views show until
   the integrity check, at most 10 minutes later, finds the drift, audits it as `graph.drift` and
-  rebuilds the connection from Postgres. Attack-path lists and history are read from Postgres and
-  are not exposed to this. Telemetry is off, its metrics and monitoring listeners stay on the
+  rebuilds the connection from Postgres. Since 2026-11-01 the attack-path search runs over the
+  graph (round M2), so graph-sync runs the integrity check before every search: paths are
+  computed only from a graph it has just verified, and the lists and their history are read from
+  Postgres. Telemetry is off, its metrics and monitoring listeners stay on the
   loopback, and it holds no secret value (ADR-0044).
 - **No Postgres backup is built in.** Back up the database yourself, or use a managed Postgres.
 - **Scan data is not encrypted by Argus at rest.** Only stored credentials are. The database holds

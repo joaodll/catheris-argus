@@ -2,6 +2,7 @@ from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import Engine, text
+from tests.conftest import Settle
 from tests.ingest.conftest import make_demo, run_tool
 
 from argus.collection import TOOL_ORDER, CollectOptions, FilesystemRawStore
@@ -46,10 +47,11 @@ def _metric(engine: Engine, metric: str, dimension: str, connection_id: int, day
 
 
 def test_the_scenario_becomes_a_critical_path_joined_to_a_failing_check(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     target = make_demo(owner)
     _day(worker, store, target, DAY)
+    settle(DAY)
     with owner.connect() as conn:
         instance_uid = conn.execute(
             text("SELECT resource_uid FROM resource WHERE name = :n"), {"n": SCENARIO_INSTANCE}
@@ -164,10 +166,11 @@ def test_loot_commands_report_uids_not_inventoried_and_read_per_connection(
 
 
 def test_a_partial_cloudfox_run_resolves_no_path(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     target = make_demo(owner)
     _day(worker, store, target, DAY)
+    settle(DAY)
     _day(
         worker,
         store,
@@ -175,6 +178,7 @@ def test_a_partial_cloudfox_run_resolves_no_path(
         DAY + timedelta(days=1),
         cloudfox_options=CollectOptions(synthetic_throttle_share=1.0),
     )
+    settle(DAY + timedelta(days=1))
     with owner.connect() as conn:
         resolved = conn.execute(
             text("SELECT count(*) FROM attack_path WHERE state = 'resolved'")
@@ -186,11 +190,12 @@ def test_a_partial_cloudfox_run_resolves_no_path(
 
 
 def test_overview_metrics_for_each_connection_and_all(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     prod, staging = make_demo(owner, 0), make_demo(owner, 1)
     _day(worker, store, prod, DAY)
     _day(worker, store, staging, DAY)
+    settle(DAY)
     for metric, dimension in (
         ("assets.total", ""),
         ("checks.status", "PASS"),
@@ -245,10 +250,11 @@ def test_retention_drops_old_history_and_prunes_demo_raw(
 
 
 def test_the_scenario_also_yields_lateral_movement_to_the_private_peer(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     target = make_demo(owner)
     _day(worker, store, target, DAY)
+    settle(DAY)
     with owner.connect() as conn:
         peer_uid = conn.execute(
             text("SELECT resource_uid FROM resource WHERE name = :n"), {"n": SCENARIO_PEER}
@@ -270,13 +276,14 @@ def _uid(engine: Engine, name: str) -> str:
 
 
 def test_the_search_trusts_argus_over_cloudfox_and_shows_what_it_cannot_tell(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     """ADR-0037: a door Argus calls restricted starts only latent paths (blocked), even when
     CloudFox calls it public; a door Argus cannot judge starts a path whose confidence is
     Unknown. Latent paths are not counted on the Overview."""
     target = make_demo(owner)
     _day(worker, store, target, DAY)
+    settle(DAY)
     with owner.connect() as conn:
         restricted = set(
             conn.execute(
@@ -345,10 +352,12 @@ def test_the_search_stops_at_the_cap(
     store: FilesystemRawStore,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    settle: Settle,
 ) -> None:
     monkeypatch.setattr("argus.attackpaths.search.MAX_PATHS", 2)
     target = make_demo(owner)
     _day(worker, store, target, DAY)
+    settle(DAY)
     with owner.connect() as conn:
         count = conn.execute(
             text("SELECT count(*) FROM attack_path WHERE state = 'open'")
@@ -358,24 +367,25 @@ def test_the_search_stops_at_the_cap(
 
 
 def test_a_complete_run_closes_paths_of_a_kind_that_is_gone(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     """A path a pre-ADR-0037 rule found, still open on the day of the upgrade, is resolved by
-    that day's complete run: no kind can find it again."""
+    the evaluation after that day's complete runs: no kind can find it again."""
     target = make_demo(owner)
     with owner.begin() as conn:
         conn.execute(
             text("""
             INSERT INTO attack_path (path_id, rule_id, rule_version, category, severity,
-                                     connection_id, entry_uid, target_uid, node_uids, edge_ids,
-                                     state, first_seen, last_seen)
+                                     connection_id, connection_ids, entry_uid, target_uid,
+                                     node_uids, edge_ids, state, first_seen, last_seen)
             VALUES (sha256('old'::bytea), 'internet-chain-to-admin', 1,
-                    'IAM privilege escalation', 'high', :c, 'internet', 'admin:x',
+                    'IAM privilege escalation', 'high', :c, ARRAY[:c], 'internet', 'admin:x',
                     ARRAY['internet', 'admin:x'], ARRAY[]::bigint[], 'open', :d, :d)
         """),
             {"c": target.connection_id, "d": DAY},
         )
     _day(worker, store, target, DAY)
+    settle(DAY)
     with owner.connect() as conn:
         state = conn.execute(
             text("SELECT state FROM attack_path WHERE rule_id = 'internet-chain-to-admin'")
@@ -383,14 +393,16 @@ def test_a_complete_run_closes_paths_of_a_kind_that_is_gone(
     assert state == "resolved"
 
 
-def test_paths_follow_every_ingest_and_a_late_run_closes_nothing(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
+def test_paths_follow_the_latest_state_and_a_late_run_closes_nothing(
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
-    """Paths are computed after every ingest, on the latest day either edge family stands for
-    (ADR-0037, second amendment): a Steampipe retry that lands after the next day's CloudFox
-    run evaluates that later day and resolves nothing, and Prowler updates severities."""
+    """Paths are evaluated over the graph's latest state after every ingest, dated by the
+    evaluation (ADR-0044, M2; owner's decision 2026-10-31): a Steampipe retry for an earlier day
+    that lands after the next day's CloudFox run changes no path and resolves nothing, and
+    Prowler updates severities."""
     target = make_demo(owner)
     _day(worker, store, target, DAY)
+    settle(DAY)
     later = DAY + timedelta(days=1)
 
     def paths() -> dict[str, tuple[str, date]]:
@@ -408,20 +420,23 @@ def test_paths_follow_every_ingest_and_a_late_run_closes_nothing(
     assert before and {s for s, _ in before.values()} == {"open"}
     run_tool(worker, store, target, "cloudfox", later)
     run_tool(worker, store, target, "steampipe", DAY)  # the late retry
+    settle(later)
     after = paths()
     assert after.keys() == before.keys()
     assert set(after.values()) == {("open", later)}
     run_tool(worker, store, target, "prowler", later + timedelta(days=1))
+    settle(later + timedelta(days=1))
     assert {s for s, _ in paths().values()} == {"open"}
 
 
 def test_prowler_alone_leaves_attack_paths_not_covered(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     """Paths follow every ingest, but a connection with no edges yet has nothing to search: no
     path metrics, so the Overview says "not covered", never 0 paths."""
     target = make_demo(owner)
     run_tool(worker, store, target, "prowler", DAY)
+    settle(DAY)
     with owner.connect() as conn:
         rows = conn.execute(
             text(

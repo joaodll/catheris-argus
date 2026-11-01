@@ -224,3 +224,21 @@ def test_the_graph_holds_no_configuration_and_no_secret(
     edges = graph_rows("MATCH ()-[r]->() RETURN keys(r) AS k, r.attrs AS a")
     assert {k for r in edges for k in r["k"]} <= EDGE_KEYS  # type: ignore[attr-defined]
     assert {k for r in edges for k in (r["a"] or {})} <= set(EDGE_ATTRIBUTES)  # type: ignore[attr-defined]
+
+
+def test_a_graph_projected_in_an_older_format_is_projected_again(
+    owner: Engine, worker: Engine, store: FilesystemRawStore
+) -> None:
+    """A release that changes the graph's shape (projection.FORMAT; 2: account-scoped wildcards)
+    re-projects every connection once, and the integrity check does not call it drift."""
+    target = make_demo(owner)
+    _scan(worker, store, target, DAY)
+    assert graph.reconcile(worker, today=DAY) == {"synced": 1, "failed": 0, "removed": 0}
+    assert graph.reconcile(worker, today=DAY) == {"synced": 0, "failed": 0, "removed": 0}
+    # As M1 left it: wildcards without their account, a marker without a format.
+    graph_write("MATCH (n:R) WHERE n.uid STARTS WITH 'any:' SET n.uid = split(n.uid, '@')[0]")
+    graph_write("MATCH (p:Projection) REMOVE p.format")
+    assert graph.reconcile(worker, today=DAY) == {"synced": 1, "failed": 0, "removed": 0}
+    scoped = graph_rows("MATCH (n:R) WHERE n.uid STARTS WITH 'any:' RETURN collect(n.uid) AS u")
+    assert scoped[0]["u"] and all("@" + target.account_id in u for u in scoped[0]["u"])  # type: ignore[union-attr]
+    assert graph.verify(worker, today=DAY) == {"checked": 1, "drifted": 0}

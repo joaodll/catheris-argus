@@ -18,7 +18,6 @@ import math
 import time
 from collections.abc import Callable, Iterator
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -34,10 +33,8 @@ from argus import (
     relationships,
     scheduling,
 )
-from argus.attackpaths.engine import find_paths
 
 pytestmark = [pytest.mark.db, pytest.mark.budget]
-RULES_DIR = Path(__file__).resolve().parents[2] / "rules"
 BUDGET_MS = 300.0
 # p95 by nearest rank over 20 runs: the 19th fastest, so one stray run (a checkpoint, a cold
 # page) is tolerated and two are not. Never interpolated past the slowest run (2026-10-09).
@@ -154,12 +151,15 @@ def _generate(conn: Connection) -> None:
     conn.execute(
         text("""
         INSERT INTO attack_path (path_id, rule_id, rule_version, category, severity,
-                                 connection_id, entry_uid, target_uid, node_uids, edge_ids, state,
-                                 first_seen, last_seen, confidence)
+                                 connection_id, connection_ids, entry_uid, target_uid, node_uids,
+                                 edge_ids, state, first_seen, last_seen, confidence)
         SELECT sha256(('p' || g)::bytea), 'r', 1, 'IAM privilege escalation',
-               (ARRAY['critical','high','medium'])[1 + g % 3], 1 + g % :n, 'internet',
-               't' || g, ARRAY['internet', 't' || g], ARRAY[]::bigint[], 'open', :d, :d,
-               (ARRAY['confirmed','supported','candidate','unknown'])[1 + g % 4]
+               (ARRAY['critical','high','medium'])[1 + g % 3], 1 + g % :n,
+               -- One path in ten crosses into another account (ADR-0044, M2).
+               CASE WHEN g % 10 = 0 THEN ARRAY[1 + g % :n, 1 + (g + 5) % :n]
+                    ELSE ARRAY[1 + g % :n] END,
+               'internet', 't' || g, ARRAY['internet', 't' || g], ARRAY[]::bigint[], 'open',
+               :d, :d, (ARRAY['confirmed','supported','candidate','unknown'])[1 + g % 4]
         FROM generate_series(1, 5000) g
     """),
         {"n": ACCOUNTS, "d": TODAY},
@@ -223,7 +223,6 @@ MAP_FOCUS = "arn:aws:ec2:us-east-1:200000000031:instance/i-30"
 MAP_SCOPE = {"scope": relationships.MapScope(31, "200000000031")}
 HUB_SCOPE = {"scope": relationships.MapScope(1, "200000000001")}
 FLOWS: dict[str, float] = {}
-PATHS: dict[str, float] = {}
 # Connection 1's instances (resource ids are the generator's g; g % 36 == 0, g % 5 == 0): one
 # page of the Resources list, each with 15 CVEs.
 VULNERABLE_PAGE = [180 * i for i in range(1, 21)]
@@ -392,12 +391,8 @@ def estate(migrated: Engine) -> Engine:
     started = time.perf_counter()
     FLOWS["written"] = relationships.write_flows(migrated, connection_id=1, day=TODAY)
     FLOWS["seconds"] = time.perf_counter() - started
-    # The attack-path search (ADR-0037) from the same 5,000 entries, read-only: timed, not
-    # written, so the seeded paths the list queries read stay as they are.
-    kinds = attackpaths.load_path_kinds(RULES_DIR)
-    started = time.perf_counter()
-    PATHS["found"] = len(find_paths(migrated, kinds=kinds, connection_id=1, day=TODAY))
-    PATHS["seconds"] = time.perf_counter() - started
+    # The attack-path search runs over the graph read model (ADR-0044, M2): its time is in the
+    # opt-in graph budget (test_graph_budget.py), with Memgraph.
     # A steady-state database: the first reads of freshly inserted rows would otherwise pay
     # for setting their hint bits and flushing the load, and time that instead of the query.
     with migrated.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -595,6 +590,15 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "attack paths through a resource": lambda c: attackpaths.list_paths(
         c, limit=6, offset=0, filters=attackpaths.PathFilters(through_uid="t4242")
     ),
+    "attack paths of a connection": lambda c: attackpaths.list_paths(
+        c, limit=50, offset=0, filters=attackpaths.PathFilters(connection_id=7)
+    ),
+    "attack paths passing through a connection": lambda c: attackpaths.list_paths(
+        c,
+        limit=50,
+        offset=0,
+        filters=attackpaths.PathFilters(connection_id=7, passing_through=True),
+    ),
     "map: a neighbourhood, depth 2": lambda c: relationships.neighbourhood(
         c, focus=MAP_FOCUS, depth=2, day=TODAY, **MAP_SCOPE
     ),
@@ -749,11 +753,3 @@ def test_flows_are_written_for_every_entry_of_the_hub(estate: Engine) -> None:
     assert FLOWS["seconds"] < 300
     detail = relationships.flow_detail(estate.connect(), flow_id=1, day=TODAY)
     assert detail and detail["depth"] >= 5  # the chain runs on, step by step
-
-
-def test_the_path_search_walks_every_entry_of_the_hub(estate: Engine) -> None:
-    """Ingest's attack-path search at the hub's scale (ADR-0037): 5,000 entries, each the head
-    of a chain, walked to depth 8."""
-    print(f"path search: {PATHS['found']:.0f} paths in {PATHS['seconds']:.1f} s")
-    assert PATHS["found"] > 1000  # rebuilt paths, not only the walk
-    assert PATHS["seconds"] < 300

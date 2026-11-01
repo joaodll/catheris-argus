@@ -49,15 +49,25 @@ def uid_by_native_id(
     return uid
 
 
-def effective_day(conn: Connection, *, connection_id: int, day: date) -> date | None:
-    """The snapshot that stands for `day`: the latest on or before it, within the window."""
-    value: date | None = conn.execute(
-        text("""
-        SELECT max(s.snapshot_date) FROM resource_snapshot s JOIN resource r ON r.id = s.resource_id
-        WHERE r.connection_id = :c AND s.snapshot_date BETWEEN :start AND :d
-    """),
-        {"c": connection_id, "d": day, "start": day - timedelta(days=CARRY_FORWARD_DAYS)},
-    ).scalar()
+_EFFECTIVE_DAY_SQL = """
+  SELECT max(s.snapshot_date) FROM resource_snapshot s JOIN resource r ON r.id = s.resource_id
+  WHERE r.connection_id = :c AND s.snapshot_date {bound}
+"""
+
+
+def effective_day(
+    conn: Connection, *, connection_id: int, day: date, window: int | None = CARRY_FORWARD_DAYS
+) -> date | None:
+    """The snapshot that stands for `day`: the latest on or before it, within `window` days.
+    window=None takes the latest however old: the graph read model shows each connection's
+    latest scan, and scans may be 30 days apart (ADR-0044, M2). The two bounds are two texts,
+    so the windowed read keeps its partition pruning in a prepared plan."""
+    if window is None:
+        sql, params = _EFFECTIVE_DAY_SQL.format(bound="<= :d"), {"c": connection_id, "d": day}
+    else:
+        sql = _EFFECTIVE_DAY_SQL.format(bound="BETWEEN :start AND :d")
+        params = {"c": connection_id, "d": day, "start": day - timedelta(days=window)}
+    value: date | None = conn.execute(text(sql), params).scalar()
     return value
 
 

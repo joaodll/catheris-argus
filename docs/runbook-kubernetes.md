@@ -270,6 +270,10 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 **The graph read model** ([ADR-0044](adr/0044-graph-read-model-memgraph.md)).
 - **What keeps it current:** `graph-sync` keeps Memgraph equal to Postgres and checks it every 10
   minutes. Its state is in `graph_projection`; drift appears as `graph.drift` in the audit log.
+- **Attack paths come from it** (round M2, 2026-11-01): after each change `graph-sync` checks the
+  graph and runs the attack-path search over every connection (log: `attack paths evaluated`).
+  Scan Jobs no longer compute paths. When Attack paths says its paths are behind for more than a
+  minute, read `graph-sync`'s log and check the memgraph pod.
 - **When to rebuild it:** when Memgraph is broken, or the Secret's `ARGUS_GRAPH_PASSWORD` changed.
   1. Scale `graph-sync` to 0.
   2. Delete the memgraph StatefulSet's PVC and pod.

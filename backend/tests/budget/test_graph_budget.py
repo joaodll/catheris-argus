@@ -1,8 +1,9 @@
 """The graph read model's budget (ADR-0044): how long Memgraph takes to be rebuilt from Postgres,
-to re-sync one connection, and to be verified, on a skewed estate (graph_estate.py: 300,000
-resources over 36 accounts by default).
+to re-sync one connection, to be verified, and to evaluate the attack paths across every
+account (round M2), on a skewed estate (graph_estate.py: 300,000 resources over 36 accounts by
+default).
 
-Opt-in, because it generates its own estate (minutes) and no API query reads the graph yet. It
+Opt-in, because it generates its own estate (minutes) and no API query reads the graph. It
 needs a Postgres with more memory than compose.yaml's development 1 GiB (on 2026-10-31 a backend
 was killed generating 300,000 resources there); the spike measured 1M on 8 GiB:
     ARGUS_GRAPH_BUDGET=1 docker compose run --rm test pytest tests/budget/test_graph_budget.py -s
@@ -15,6 +16,7 @@ import time
 import pytest
 from sqlalchemy import Engine, text
 from tests.budget import graph_estate
+from tests.conftest import RULES_DIR
 
 from argus import graph
 from argus.graph import client
@@ -31,9 +33,10 @@ SCALE = graph_estate.RESOURCES / 300_000
 REBUILD_S = 300 * SCALE
 LARGEST_SYNC_S = 30 * SCALE
 VERIFY_S = 60 * SCALE
+EVALUATE_S = 300 * SCALE
 
 
-def test_rebuild_resync_and_verify_within_budget(migrated: Engine) -> None:
+def test_rebuild_resync_verify_and_paths_within_budget(migrated: Engine) -> None:
     with migrated.begin() as conn:
         conn.execute(
             text(
@@ -83,11 +86,22 @@ def test_rebuild_resync_and_verify_within_budget(migrated: Engine) -> None:
     }
     verify = time.perf_counter() - started
 
+    started = time.perf_counter()
+    paths = graph.evaluate_paths(migrated, today=graph_estate.TODAY, rules_dir=RULES_DIR)
+    evaluate = time.perf_counter() - started
+    assert paths is not None and paths["paths"] > 0
+    with migrated.connect() as conn:
+        crossing = conn.execute(
+            text("SELECT count(*) FROM attack_path WHERE cardinality(connection_ids) > 1")
+        ).scalar_one()
+
     print(
         f"graph budget at {graph_estate.RESOURCES:,} resources: full rebuild {rebuild:.1f} s, "
         f"no-op reconcile {noop:.2f} s, re-sync of the largest connection ({edges:,} edges) "
-        f"{resync:.1f} s, verify {verify:.1f} s"
+        f"{resync:.1f} s, verify {verify:.1f} s, attack paths {evaluate:.1f} s "
+        f"({paths['paths']:,} paths, {crossing:,} across accounts, {paths['cut']:,} cut)"
     )
     assert rebuild < REBUILD_S
     assert resync < LARGEST_SYNC_S
     assert verify < VERIFY_S
+    assert evaluate < EVALUATE_S

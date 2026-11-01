@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine
+from tests.conftest import Settle
 from tests.ingest.conftest import make_demo, run_tool
 
 from argus.collection import TOOL_ORDER
@@ -17,10 +18,11 @@ pytestmark = pytest.mark.db
 
 
 @pytest.fixture
-def prod(owner: Engine, worker: Engine, store: FilesystemRawStore) -> int:
+def prod(owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle) -> int:
     target = make_demo(owner)  # seed 0: the prod profile
     for tool in TOOL_ORDER:
         run_tool(worker, store, target, tool, datetime.now(UTC).date())
+    settle(datetime.now(UTC).date())  # the graph loop's evaluation (ADR-0044, M2)
     return target.connection_id
 
 
@@ -233,6 +235,15 @@ def test_attack_paths_list_detail_and_facets(signed_in: TestClient, prod: int) -
     assert top["severity"] == "critical" and top["rule_name"]
     assert "cloudfox" in top["evidence"] and "rule" in top["evidence"]
     assert top["base_severity"] == "high" and top["entry_confirmed"] is True
+    # Inside one account: the entry's connection is the only one (ADR-0044, M2).
+    assert top["accounts"] == [{"connection_id": prod, "name": top["connection"]}]
+    # Evaluated from the newest scans: nothing to say about the graph.
+    assert page["graph"]["behind"] is False and page["graph"]["failed"] is False
+    assert page["graph"]["evaluated_at"]
+    passing = signed_in.get(
+        "/api/v1/attack-paths", params={"connection_id": prod, "passing_through": True}
+    ).json()
+    assert passing["total"] == page["total"]
     detail = signed_in.get(f"/api/v1/attack-paths/{top['id']}").json()
     assert [n["uid"] for n in detail["nodes"]] == top["node_uids"]
     assert detail["nodes"][0]["kind"] == "internet" and detail["nodes"][-1]["kind"] == "admin"
