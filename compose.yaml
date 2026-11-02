@@ -9,6 +9,7 @@
 #   docker compose run --rm lint         gitleaks, read-only policy check, ruff, mypy, import-linter
 #   docker compose run --rm scan         Trivy: repo files, then the backend, worker and web images (CRITICAL gate)
 #   docker compose run --rm scrub-fixtures --run-id ID   spike run -> backend/tests/fixtures
+#   docker compose --profile budget run --rm budget   graph and map budgets on an 8 GiB Postgres (Phase 0)
 #   docker compose run --rm lock         re-resolve backend/uv.lock after editing pyproject.toml
 #     ... lock uv lock --directory tools/prowler   re-resolve Prowler's lock after changing its pin
 #   docker compose build migrate worker  build argus-backend:runtime and :worker (needed before `scan`)
@@ -455,6 +456,114 @@ services:
       timeout: 3s
       retries: 30
 
+  # Phase 0 (ADR-0044, round M3): the opt-in graph and map budgets, at 300,000 and 1,000,000
+  # resources. Its own Postgres sized like an 8 GiB RDS instance (the development one has 1 GiB,
+  # and a backend was killed generating 300,000 resources there on 2026-10-31), its own
+  # Memgraph with the production flags (durable, so the WAL's cost is measured), and a runner.
+  # All three share the internal `budget` network only: nothing is published, nothing reaches
+  # the development stack, and nothing has a route out.
+  #   docker compose --profile budget run --rm budget          (300,000 resources)
+  #   ARGUS_GRAPH_BUDGET_RESOURCES=1000000 docker compose --profile budget run --rm budget
+  # Stop and empty it afterwards, naming the services. A `stop` with no service names stops
+  # EVERY service of the project, including the development stack (a dead end, 2026-10-31):
+  #   docker compose --profile budget rm -sfv postgres-budget memgraph-budget
+  #   docker volume rm argus_pgdata-budget argus_memgraph-budget
+  postgres-budget:
+    image: postgres:17-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    profiles: [budget]
+    environment:
+      POSTGRES_DB: argus
+      POSTGRES_USER: argus
+      POSTGRES_PASSWORD: argus-budget
+    # RDS-like for 8 GiB: a quarter of it for shared buffers, JIT off as on Argus's RDS
+    # recommendation, room for the parallel workers' shared memory (shm_size).
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - work_mem=64MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - max_wal_size=8GB
+      - -c
+      - jit=off
+    volumes:
+      - pgdata-budget:/var/lib/postgresql/data
+    networks: [budget]
+    <<: *hardened
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    mem_limit: 8g
+    shm_size: 2g
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U argus -d argus"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # The `memgraph` service's image and flags, on its own volume.
+  memgraph-budget:
+    image: memgraph/memgraph:3.13.2@sha256:302a6622a9bd28191818801b7ea6e5931bc1cd0a0d1646333269a2237b1bdcb0
+    profiles: [budget]
+    environment:
+      MEMGRAPH_USER: argus
+      MEMGRAPH_PASSWORD: argus-graph-budget
+    command:
+      - --telemetry-enabled=false
+      - --metrics-address=127.0.0.1
+      - --monitoring-address=127.0.0.1
+      - --storage-mode=IN_MEMORY_TRANSACTIONAL
+      - --storage-wal-enabled=true
+      - --storage-snapshot-interval-sec=300
+      - --storage-snapshot-on-exit=false
+      - --query-execution-timeout-sec=600
+      - --memory-limit=3584
+      - --log-level=WARNING
+      - --log-file=
+      - --also-log-to-stderr=true
+    volumes:
+      - memgraph-budget:/var/lib/memgraph
+    networks: [budget]
+    <<: *hardened
+    read_only: true
+    tmpfs: [/tmp]
+    mem_limit: 4g
+    pids_limit: 512
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/7687"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # The runner: the test image against the two above. Only the budget tests run here.
+  budget:
+    <<: [*backend-dev, *hardened]
+    profiles: [budget]
+    environment:
+      <<: *db-env
+      ARGUS_DB_HOST: postgres-budget
+      ARGUS_DB_NAME: argus_test   # the session fixture recreates it; never a dev database
+      ARGUS_DB_PASSWORD: argus-budget
+      ARGUS_RULES_DIR: /app/rules
+      # A stuck lock fails in seconds; generating 1,000,000 resources takes minutes per statement.
+      PGOPTIONS: "-c lock_timeout=20s -c statement_timeout=30min"
+      ARGUS_GRAPH_URI: bolt://memgraph-budget:7687
+      ARGUS_GRAPH_PASSWORD: argus-graph-budget
+      ARGUS_GRAPH_BUDGET: "1"
+      ARGUS_GRAPH_BUDGET_RESOURCES: ${ARGUS_GRAPH_BUDGET_RESOURCES:-300000}
+    networks: [budget]
+    depends_on:
+      postgres-budget:
+        condition: service_healthy
+      memgraph-budget:
+        condition: service_healthy
+    mem_limit: 6g
+    command: ["pytest", "-p", "no:cacheprovider", "-s", "tests/budget/test_graph_budget.py", "tests/budget/test_map_budget.py"]
+
   lint:
     <<: *backend-dev
     environment: {}
@@ -610,10 +719,15 @@ networks:
   # emulate <-> moto (dev only). Internal: no route out.
   emulate:
     internal: true
+  # The budget profile's Postgres, Memgraph and runner. Internal: no route out.
+  budget:
+    internal: true
 
 volumes:
   pgdata:
   memgraph-data:
+  pgdata-budget:
+  memgraph-budget:
   raw:
   staging:
   trivy-cache:

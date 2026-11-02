@@ -112,6 +112,12 @@ _SETUP = [
     INSERT INTO resource_snapshot (snapshot_date, resource_id, config_id)
     SELECT :d, id, (SELECT id FROM resource_config) FROM spike_res
     """,
+    # Each account's inventory day (migration 0036): without it the projection finds no
+    # inventory and writes every node as a bare stub.
+    """
+    INSERT INTO resource_load (connection_id, snapshot_date, resources)
+    SELECT acct, :d, count(*) FROM spike_res GROUP BY acct
+    """,
     """
     CREATE UNLOGGED TABLE spike_edge (src text NOT NULL, dst text NOT NULL, type text NOT NULL,
                                       origin text NOT NULL, conn int NOT NULL)
@@ -323,3 +329,122 @@ def generate(engine: Engine) -> dict[str, float]:
         conn.execute(text("DROP TABLE spike_res"))
     out["seconds"] = time.perf_counter() - started
     return out
+
+
+def prepare(engine: Engine) -> dict[str, float]:
+    """Empties the budget database's estate tables and writes the estate again."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "TRUNCATE connection, scan_run, resource, resource_config, edge, audit_log "
+                "RESTART IDENTITY CASCADE"
+            )
+        )
+    return generate(engine)
+
+
+def largest_connection(engine: Engine) -> int:
+    """The connection with the most resources: the map budget's account."""
+    with engine.connect() as conn:
+        return int(
+            conn.execute(
+                text(
+                    "SELECT connection_id FROM resource GROUP BY connection_id "
+                    "ORDER BY count(*) DESC, connection_id LIMIT 1"
+                )
+            ).scalar_one()
+        )
+
+
+# The Resource map's hubs inside one account (the query budget's shapes: a VPC holding 20,000,
+# a security group with 10,000 members, a role 5,000 resources belong to). Edge types the
+# attack-path search does not walk, so the paths, and the evaluation's cost, stay the same.
+_HUBS = (
+    # (label, edge type, origin, hub's resource type, neighbours, layer it shows in)
+    ("vpc", "IN_NETWORK", "rule:resource-in-network@1", "aws_vpc", 20_000, "network"),
+    (
+        "sg",
+        "MEMBER_OF",
+        "rule:instance-security-group@1",
+        "aws_vpc_security_group",
+        10_000,
+        "network",
+    ),
+    ("role", "BELONGS_TO", "rule:resource-in-network@1", "aws_iam_role", 5_000, "identity"),
+)
+
+
+def add_map_hubs(engine: Engine, connection_id: int) -> dict[str, tuple[str, str]]:
+    """Adds the hubs to one connection (once) and returns {label: (hub uid, layer)}. The
+    caller re-projects the connection: its marker does not move with these edges."""
+    hubs: dict[str, tuple[str, str]] = {}
+    with engine.begin() as conn:
+        conn.execute(text("SET LOCAL statement_timeout = 0"))
+        for i, (label, edge_type, origin, hub_type, wanted, layer) in enumerate(_HUBS):
+            hub_id, hub_uid = conn.execute(
+                text(
+                    "SELECT id, resource_uid FROM resource WHERE connection_id = :c "
+                    "AND type = :t ORDER BY id LIMIT 1"
+                ),
+                {"c": connection_id, "t": hub_type},
+            ).one()
+            hubs[label] = (hub_uid, layer)
+            exists = conn.execute(
+                text("SELECT count(*) FROM edge WHERE target_uid = :h AND type = :t"),
+                {"h": hub_uid, "t": edge_type},
+            ).scalar_one()
+            if exists >= wanted // 2:
+                continue
+            ids = (
+                conn.execute(
+                    text(
+                        """
+                    INSERT INTO edge (edge_key, source_uid, target_uid, source_resource_id,
+                                      target_resource_id, type, origin, first_seen, last_seen,
+                                      connection_id)
+                    SELECT sha256(convert_to('maphub|' || :t || '|' || r.resource_uid
+                                             || '|' || :h, 'UTF8')),
+                           r.resource_uid, :h, r.id, :hid, :t, :o, CAST(:d AS date) - 30, :d,
+                           :c
+                    FROM resource r
+                    WHERE r.connection_id = :c AND r.id <> :hid
+                    ORDER BY md5(r.id::text || :salt)
+                    LIMIT :n
+                    ON CONFLICT (edge_key) DO NOTHING
+                    RETURNING id
+                    """
+                    ),
+                    {
+                        "t": edge_type,
+                        "h": hub_uid,
+                        "hid": hub_id,
+                        "o": origin,
+                        "d": TODAY,
+                        "c": connection_id,
+                        "salt": str(i),
+                        "n": wanted,
+                    },
+                )
+                .scalars()
+                .all()
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO edge_snapshot (snapshot_date, edge_id) "
+                    "SELECT day, id FROM unnest(CAST(:ids AS bigint[])) id, "
+                    "unnest(ARRAY[CAST(:d AS date), CAST(:d AS date) - 1]) day"
+                ),
+                {"ids": list(ids), "d": TODAY},
+            )
+            conn.execute(
+                text(
+                    "UPDATE edge_load SET edges = edges + :n WHERE connection_id = :c "
+                    "AND family = 'rule' AND snapshot_date IN (CAST(:d AS date), "
+                    "CAST(:d AS date) - 1)"
+                ),
+                {"n": len(ids), "c": connection_id, "d": TODAY},
+            )
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(text("ANALYZE edge"))
+        conn.execute(text("ANALYZE edge_snapshot"))
+    return hubs
