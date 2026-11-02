@@ -4,8 +4,8 @@ edge_type = "PROTECTED_BY"
 description = """A front door is protected by a web ACL (ADR-0036): the resources a WAFv2 web ACL
 lists as associated (load balancers, API Gateway stages, AppSync, Cognito), CloudFront's
 web_acl_id, and an API Gateway stage's web_acl_arn. An API stage counts for its API. The web
-ACL is the target even when it is not in the inventory. Flow mode shows it as a chip on the
-protected resource. Unconfirmed on real output (associated_resources needs
+ACL is the target even when it is not in the inventory; the Resource map draws it in the
+network layer. Unconfirmed on real output (associated_resources needs
 wafv2:ListResourcesForWebACL)."""
 sql = """
 SELECT DISTINCT

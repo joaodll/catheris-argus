@@ -252,7 +252,6 @@ MAP_FOCUS = "arn:aws:ec2:us-east-1:200000000031:instance/i-30"
 # Connection c holds account 2000000000cc: every map read is for one connection (ADR-0033).
 MAP_SCOPE = {"scope": relationships.MapScope(31, "200000000031")}
 HUB_SCOPE = {"scope": relationships.MapScope(1, "200000000001")}
-FLOWS: dict[str, float] = {}
 # Connection 1's instances (resource ids are the generator's g; g % 36 == 0, g % 5 == 0): one
 # page of the Resources list, each with 15 CVEs.
 VULNERABLE_PAGE = [180 * i for i in range(1, 21)]
@@ -263,11 +262,6 @@ def _vulnerability_cells(c: Connection) -> Any:
         findings.vulnerability_counts(c, VULNERABLE_PAGE),
         findings.scanned_resources(c, VULNERABLE_PAGE),
     )
-
-
-def _a_flow(c: Connection) -> Any:
-    flow_id = c.execute(text("SELECT min(flow_id) FROM flow_snapshot")).scalar_one()
-    return relationships.flow_detail(c, flow_id=flow_id, day=TODAY)
 
 
 # A literal ':word' would read as a bind parameter in text(): the colon is concatenated.
@@ -412,15 +406,10 @@ def estate(migrated: Engine) -> Engine:
             text(
                 "TRUNCATE connection, scan_run, resource, resource_config, edge, "
                 "audit_log, metric_daily, compliance_requirement, schedule, "
-                "platform_setting, flow_shape, flow_snapshot RESTART IDENTITY CASCADE"
+                "platform_setting RESTART IDENTITY CASCADE"
             )
         )
         _generate(conn)
-    # Flow mode: connection 1 holds the internet hub's 5,000 entries, each the head of a
-    # ROUTES_TO chain (g -> g+36 -> ...). Written by ingest's own code, which this also times.
-    started = time.perf_counter()
-    FLOWS["written"] = relationships.write_flows(migrated, connection_id=1, day=TODAY)
-    FLOWS["seconds"] = time.perf_counter() - started
     # The attack-path search runs over the graph read model (ADR-0044, M2): its time is in the
     # opt-in graph budget (test_graph_budget.py), with Memgraph.
     # A steady-state database: the first reads of freshly inserted rows would otherwise pay
@@ -534,9 +523,6 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         filters=findings.FindingFilters(
             connection_ids=(7,), reaches=("confirmed", "restricted", "unknown", "not_covered")
         ),
-    ),
-    "findings, Prowler exposure counts for a page of doors": lambda c: (
-        findings.open_exposure_counts(c, list(range(1, 2000, 100)))
     ),
     "findings by check, no filter": lambda c: findings.finding_groups(c, limit=20, offset=0),
     "findings by check, past the last page": lambda c: findings.finding_groups(
@@ -658,22 +644,6 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         limit=20,
         offset=0,
     ),
-    "map: front doors": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=0
-    ),
-    "map: front doors, a later page": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=4000
-    ),
-    "map: front doors in one region": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=0, regions=("us-east-1",)
-    ),
-    "map: front doors Argus cannot judge": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=0, reach=("unknown",)
-    ),
-    "map: front doors matching a search": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=0, q="s3"
-    ),
-    "map: a flow": _a_flow,
     "resources: the Vulnerabilities cells of a page": _vulnerability_cells,
     "resources: with an exploitable CVE, one account": lambda c: inventory.list_resources(
         c,
@@ -796,12 +766,3 @@ def test_an_account_scanned_90_days_ago_shows_its_latest_scan(estate: Engine) ->
     assert stale["seen_on"] == STALE_DAY
     scanned = {n for n in _relations(plan) if n.startswith("resource_snapshot")}
     assert scanned == {f"resource_snapshot_{STALE_DAY:%Y%m}"}, scanned
-
-
-def test_flows_are_written_for_every_entry_of_the_hub(estate: Engine) -> None:
-    """Ingest's flow walk at the hub's scale: 5,000 entries, each the head of a chain."""
-    print(f"flows: {FLOWS['written']:.0f} written in {FLOWS['seconds']:.1f} s")
-    assert FLOWS["written"] == 5000
-    assert FLOWS["seconds"] < 300
-    detail = relationships.flow_detail(estate.connect(), flow_id=1, day=TODAY)
-    assert detail and detail["depth"] >= 5  # the chain runs on, step by step

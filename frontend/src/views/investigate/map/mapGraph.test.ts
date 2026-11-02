@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addMember, boundaryLabel, drawnEdges, emptyGraph, lineStyle, mergeGraph, nodeName, pathFromInternet, traceOf, worstOf, type MapEdge, type MapNode } from './mapGraph'
+import { addMember, boundaryLabel, drawnEdges, emptyGraph, lineStyle, mergeGraph, nodeName, traceOf, worstOf, type MapEdge, type MapNode } from './mapGraph'
 
 function node(uid: string, extra: Partial<MapNode> = {}): MapNode {
   return { uid, kind: 'resource', resource_id: 1, type: 'aws_lambda_function', name: uid, region: 'us-east-1', connection_id: 1, deleted_on: null, expanded: false, boundary: false, findings: {}, ...extra }
@@ -98,13 +98,5 @@ describe('Tracing a node', () => {
     expect(trace.nodes.has('s3')).toBe(false)
     // What feeds a node downstream is not part of its trace.
     expect(trace.nodes.has('other')).toBe(false)
-  })
-
-  it('walks the shortest chain from the internet, with the line of each step', () => {
-    const path = pathFromInternet(lines, 'tg')!
-    expect(path.map((s) => s.uid)).toEqual(['internet', 'dns', 'cf', 'alb', 'tg'])
-    expect(path[0]!.line).toBeNull()
-    expect(path[4]!.line?.source).toBe('alb')
-    expect(pathFromInternet(lines, 'other')).toBeNull()
   })
 })

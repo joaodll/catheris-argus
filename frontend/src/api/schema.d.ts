@@ -426,49 +426,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/map/flows/{flow_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Flow
-         * @description One flow as it stood on a day: its steps left to right, each node's chips and findings.
-         */
-        get: operations["flow_api_v1_map_flows__flow_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/map/front-doors": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Front Doors
-         * @description What faces the internet in one account: where the map starts. Open doors first, then
-         *     unknown, restricted and CloudFox's alone, each by name (ADR-0035); `reach`, `region` and
-         *     `q` narrow it.
-         *     Each door names the flow that starts from it (ADR-0036).
-         */
-        get: operations["front_doors_api_v1_map_front_doors_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/map/graph": {
         parameters: {
             query?: never;
@@ -1254,34 +1211,6 @@ export interface components {
             /** Seed */
             seed: number;
         };
-        /** DoorInterface */
-        DoorInterface: {
-            /** Interface */
-            interface: string | null;
-            open: components["schemas"]["DoorOpen"];
-            /** Public */
-            public: string[];
-            /** Subnets */
-            subnets: components["schemas"]["DoorSubnet"][];
-        };
-        /** DoorOpen */
-        DoorOpen: {
-            /** Ipv4 */
-            ipv4: string[];
-            /** Ipv6 */
-            ipv6: string[];
-        };
-        /** DoorSubnet */
-        DoorSubnet: {
-            /** Acl */
-            acl: string | null;
-            /** Family */
-            family: string;
-            /** Route */
-            route: string;
-            /** Subnet */
-            subnet: string;
-        };
         /** EdgeOut */
         EdgeOut: {
             /** Attributes */
@@ -1522,78 +1451,6 @@ export interface components {
             /** Total Capped */
             total_capped: boolean;
         };
-        /**
-         * FlowChip
-         * @description What a node carries without being a step of the flow.
-         */
-        FlowChip: {
-            /** Chip Uid */
-            chip_uid: string;
-            /** Edge Id */
-            edge_id: number;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "security_group" | "role" | "waf";
-            /** Name */
-            name: string | null;
-            /** Node Uid */
-            node_uid: string;
-        };
-        /** FlowDetail */
-        FlowDetail: {
-            /**
-             * As Of
-             * Format: date
-             */
-            as_of: string;
-            /** Chips */
-            chips: components["schemas"]["FlowChip"][];
-            /** Connection Id */
-            connection_id: number;
-            /** Data Through */
-            data_through: string | null;
-            /** Edges */
-            edges: components["schemas"]["MapEdge"][];
-            /** Entry Uid */
-            entry_uid: string;
-            /** Id */
-            id: number;
-            /** Nodes */
-            nodes: components["schemas"]["MapNode"][];
-            /**
-             * Reach
-             * @enum {string}
-             */
-            reach: "open" | "restricted" | "unknown";
-            /** Steps */
-            steps: components["schemas"]["FlowStep"][];
-            /** Truncated */
-            truncated: boolean;
-        };
-        /** FlowStep */
-        FlowStep: {
-            /** Col */
-            col: number;
-            /** Edge Ids */
-            edge_ids: number[];
-            /** Group Count */
-            group_count: number | null;
-            /** Group Type */
-            group_type: string | null;
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "edge" | "dns" | "uses" | "group";
-            /** Source Uid */
-            source_uid: string;
-            /** Target Uid */
-            target_uid: string | null;
-            /** Via Uid */
-            via_uid: string | null;
-        };
         /** FrameworkDetail */
         FrameworkDetail: {
             /** Change */
@@ -1650,71 +1507,6 @@ export interface components {
             trend: components["schemas"]["ScorePoint"][];
             /** Version */
             version: string;
-        };
-        /** FrontDoor */
-        FrontDoor: {
-            /**
-             * Default Routes
-             * @default []
-             */
-            default_routes: string[];
-            /** Families */
-            families: string[];
-            /** Flow Id */
-            flow_id: number | null;
-            /** Listens */
-            listens?: string[] | null;
-            /** Missing */
-            missing: string[];
-            /**
-             * Network
-             * @default []
-             */
-            network: components["schemas"]["DoorInterface"][];
-            node: components["schemas"]["MapNode"];
-            /** Open */
-            open: string[];
-            /**
-             * Open Ports
-             * @default []
-             */
-            open_ports: string[];
-            /**
-             * Policy Actions
-             * @default []
-             */
-            policy_actions: string[];
-            /**
-             * Prowler Exposure
-             * @default 0
-             */
-            prowler_exposure: number;
-            /**
-             * Reach
-             * @enum {string}
-             */
-            reach: "open" | "unknown" | "restricted" | "cloudfox_only";
-            /** Reason */
-            reason: string | null;
-            /** Resources */
-            resources: number | null;
-            /** Sources */
-            sources: string[];
-            /** State */
-            state?: string | null;
-            /** Truncated */
-            truncated: boolean;
-            /** Via */
-            via: string[];
-        };
-        /** FrontDoorPage */
-        FrontDoorPage: {
-            /** Data Through */
-            data_through: string | null;
-            /** Items */
-            items: components["schemas"]["FrontDoor"][];
-            /** Total */
-            total: number;
         };
         /** GroupMember */
         GroupMember: {
@@ -3844,86 +3636,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
-                };
-            };
-        };
-    };
-    flow_api_v1_map_flows__flow_id__get: {
-        parameters: {
-            query?: {
-                as_of?: string | null;
-            };
-            header?: {
-                "X-Argus-CSRF"?: string | null;
-            };
-            path: {
-                flow_id: number;
-            };
-            cookie?: {
-                argus_session?: string | null;
-                argus_csrf?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FlowDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    front_doors_api_v1_map_front_doors_get: {
-        parameters: {
-            query: {
-                connection_id: number;
-                as_of?: string | null;
-                limit?: number;
-                offset?: number;
-                reach?: ("open" | "unknown" | "restricted" | "cloudfox_only")[];
-                region?: string[];
-                q?: string | null;
-            };
-            header?: {
-                "X-Argus-CSRF"?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                argus_session?: string | null;
-                argus_csrf?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["FrontDoorPage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

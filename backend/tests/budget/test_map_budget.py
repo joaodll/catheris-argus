@@ -80,13 +80,7 @@ PAGE_SIZE = 20  # the API's default page (api/routes/resource_map.py)
 # Python declaration projected onto each edge). MEMBER_OF is identity when its target is an IAM
 # group, network otherwise.
 LAYER_TYPES: dict[str, tuple[str, ...]] = {
-    "traffic": (
-        "ROUTES_TO",
-        "TRIGGERS",
-        "INTERNET_REACHABLE",
-        "PUBLIC_RESTRICTED",
-        "PUBLIC_UNVERIFIED",
-    ),
+    "traffic": ("ROUTES_TO", "TRIGGERS", "INTERNET_REACHABLE"),
     "identity": (
         "RUNS_AS",
         "CAN_ASSUME",

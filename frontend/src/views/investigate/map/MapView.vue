@@ -1,12 +1,11 @@
 <script setup lang="ts">
 /**
- * Investigate -> Resource map (docs/ui/screens.md, E11; ADR-0033, ADR-0036): what a resource
- * connects to, from the internet down to data and identity, and what each tool says about each
- * resource on the way. It starts from the front doors list; a door opens its Flow, the whole
- * chain from that internet entry, computed in ingest. Explore grows one neighbourhood step by
- * step (Expand, group members), at most 500 nodes; it opens from a node ("Explore around"), a
- * door no flow starts from, or Search. There is no mode switch: what is open says the mode
- * (argus_v11). Never a whole account. Everything except expansions lives in the URL (mapQuery).
+ * Investigate -> Resource map (docs/ui/screens.md, E11; ADR-0033): what a resource connects to,
+ * its dependencies and connections, and what each tool says about each resource on the way. It
+ * starts from a search or a recently opened resource (MapStart, round M3a); a focus grows one
+ * neighbourhood step by step (Expand, group members), at most 500 nodes. Never a whole account.
+ * Reach is not judged here: Attack paths and Findings explain it (the owner's decision,
+ * 2026-11-01). Everything except expansions lives in the URL (mapQuery).
  */
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -19,27 +18,15 @@ import PageHeader from '@/components/PageHeader.vue'
 import SeverityTag from '@/components/SeverityTag.vue'
 import SideSheet from '@/components/SideSheet.vue'
 import { useResource } from '@/composables/useResource'
-import FrontDoors from './FrontDoors.vue'
+import { forgetRecent, rememberRecent, type RecentResource } from '@/composables/recentResources'
+import { username } from '@/composables/useSession'
 import MapCanvas from './MapCanvas.vue'
 import MapList from './MapList.vue'
 import MapPanel from './MapPanel.vue'
+import MapStart from './MapStart.vue'
 import ResourceSearch from './ResourceSearch.vue'
-import { columnLabel, flowView, type FlowView } from './flowGraph'
-import { addMember, drawnEdges, emptyGraph, MAX_NODES, mergeGraph, nodeName, pathFromInternet, worstOf, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
-import {
-  DEPTHS,
-  LAYER_LABEL,
-  LAYERS,
-  ORIGIN_LABEL,
-  ORIGINS,
-  chosenLayers,
-  graphParams,
-  mapQueryToUrl,
-  modeOf,
-  parseMapQuery,
-  type MapState,
-  type Origin,
-} from './mapQuery'
+import { addMember, emptyGraph, MAX_NODES, mergeGraph, nodeName, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
+import { DEPTHS, LAYER_LABEL, LAYERS, ORIGIN_LABEL, ORIGINS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapState, type Origin } from './mapQuery'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,7 +35,8 @@ const router = useRouter()
 const phone = window.matchMedia?.('(max-width: 600px)').matches ?? false
 const defaultView = phone ? 'list' : 'map'
 const state = computed(() => parseMapQuery(route.query, defaultView))
-const mode = computed(() => modeOf(state.value))
+// A focus is on the canvas; else the start shows.
+const started = computed(() => state.value.focus != null)
 
 function navigate(next: Partial<MapState>, how: 'push' | 'replace' = 'push'): void {
   void router[how]({ query: mapQueryToUrl({ ...state.value, ...next }, defaultView) })
@@ -69,20 +57,26 @@ const capped = ref(false) // the map holds 500
 const dataThrough = ref<string | null>(null)
 // The connection the focus neighbourhood was walked in: every Expand stays in it.
 const walked = ref<number | null>(null)
-// Flow mode: the flow on the canvas, its columns and chips.
-const flow = shallowRef<FlowView | null>(null)
-const flowEntry = ref<string | null>(null)
-const flowTruncated = ref(false)
-const flowReach = ref<Schemas['FlowDetail']['reach'] | null>(null)
 let generation = 0
 // The selected group or edge (a node's selection is ?open=; see Selection below).
 const localSelection = ref<Selection | null>(null)
 
 const neighbourhoodKey = computed(() =>
-  mode.value === 'flow'
-    ? JSON.stringify(['flow', state.value.flow, state.value.asOf])
-    : JSON.stringify(['explore', state.value.focus, state.value.connection, state.value.depth, state.value.layers, state.value.origins, state.value.asOf]),
+  JSON.stringify([state.value.focus, state.value.connection, state.value.depth, state.value.layers, state.value.origins, state.value.asOf]),
 )
+
+/** "Recently opened": the focus, once the map has drawn it (it is in the inventory). */
+function remember(focus: string, connectionId: number): void {
+  const node = graph.value.nodes.get(focus)
+  if (!node) return
+  rememberRecent(username.value, {
+    uid: focus,
+    name: node.name ?? null,
+    type: node.type ?? null,
+    connectionId: node.connection_id ?? connectionId,
+    connectionName: connections.data.value?.find((c) => c.id === (node.connection_id ?? connectionId))?.name ?? null,
+  })
+}
 
 async function load(): Promise<void> {
   const s = state.value
@@ -93,14 +87,6 @@ async function load(): Promise<void> {
   capped.value = false
   notFound.value = false
   error.value = null
-  flow.value = null
-  flowEntry.value = null
-  flowTruncated.value = false
-  flowReach.value = null
-  if (s.flow != null) {
-    await loadFlow(s.flow, mine)
-    return
-  }
   if (!s.focus) return
   loading.value = true
   try {
@@ -112,72 +98,20 @@ async function load(): Promise<void> {
     truncated.value = result.truncated
     capped.value = merged.capped
     dataThrough.value = result.data_through
+    remember(s.focus, result.connection_id)
     await showPath(mine)
   } catch (err) {
     if (mine !== generation) return
-    if (err instanceof ApiError && (err.status === 404 || err.status === 422)) notFound.value = true
+    if (err instanceof ApiError && (err.status === 404 || err.status === 422)) {
+      notFound.value = true
+      forgetRecent(username.value, s.focus) // gone from the inventory: not worth reopening
+    }
     else error.value = err instanceof ApiError ? err.message : 'Something went wrong while loading.'
   } finally {
     if (mine === generation) loading.value = false
   }
 }
 watch(neighbourhoodKey, () => void load(), { immediate: true })
-
-async function loadFlow(id: number, mine: number): Promise<void> {
-  loading.value = true
-  try {
-    const detail = await unwrap(api.GET('/api/v1/map/flows/{flow_id}', { params: { path: { flow_id: id }, query: { as_of: state.value.asOf } } }))
-    if (mine !== generation) return
-    const view = flowView(detail)
-    flow.value = view
-    graph.value = view.graph
-    walked.value = detail.connection_id
-    flowEntry.value = detail.entry_uid
-    flowTruncated.value = detail.truncated
-    flowReach.value = detail.reach
-    dataThrough.value = detail.data_through
-  } catch (err) {
-    if (mine !== generation) return
-    if (err instanceof ApiError && err.status === 404) notFound.value = true
-    else error.value = err instanceof ApiError ? err.message : 'Something went wrong while loading.'
-  } finally {
-    if (mine === generation) loading.value = false
-  }
-}
-const canvasFlow = computed(() => {
-  const view = flow.value
-  return view ? { columns: view.columns, label: (col: number) => columnLabel(col, view.entryCol), chips: view.chips } : null
-})
-const flowLink = (id: number) => ({ query: mapQueryToUrl({ ...state.value, flow: id, focus: null, open: null, path: null }, defaultView) })
-// Back to the front doors list as it was: its filters and page are in the URL. Its connection
-// too, unless Search cleared it (the API then walks the focus's own): then the one walked.
-const doorsLink = computed(() => ({ query: mapQueryToUrl({ ...state.value, flow: null, focus: null, open: null, path: null, connection: state.value.connection ?? walked.value }, defaultView) }))
-const flowName = computed(() => {
-  const entry = flowEntry.value ? graph.value.nodes.get(flowEntry.value) : undefined
-  return entry ? nodeName(entry) : null
-})
-// The flow's summary pill: its resources and their open findings over both tools.
-const flowCounts = computed(() => {
-  let resources = 0
-  let open = 0
-  for (const node of graph.value.nodes.values()) {
-    if (node.kind !== 'resource') continue
-    resources += 1
-    open += worstOf(node).open
-  }
-  return { resources, open }
-})
-// "Path from the internet" (Flow mode, a node selected): the shortest chain along the flow.
-const flowPath = computed(() => {
-  const sel = selection.value
-  if (mode.value !== 'flow' || sel?.kind !== 'node') return null
-  const steps = pathFromInternet(drawnEdges(graph.value), sel.id)
-  return steps?.flatMap((step) => {
-    const node = graph.value.nodes.get(step.uid)
-    const role = step.line?.type === 'USES' ? step.line.edges[0]?.attributes.via_role : undefined
-    return node ? [{ node, via: typeof role === 'string' ? role : null }] : []
-  }) ?? null
-})
 
 const full = computed(() => capped.value || graph.value.nodes.size + graph.value.groups.size >= MAX_NODES)
 
@@ -201,11 +135,10 @@ function add(member: { node: MapNode; edge: MapEdge }): void {
   capped.value ||= merged.capped
 }
 
-/** A boundary node becomes the focus in its own connection; anything else stays in this one.
- * From a flow, this is "Explore around": the node's neighbourhood in Explore. */
+/** A boundary node becomes the focus in its own connection; anything else stays in this one. */
 function focusHere(uid: string): void {
   const node = graph.value.nodes.get(uid)
-  navigate({ flow: null, focus: uid, open: uid, connection: node?.boundary && node.connection_id != null ? node.connection_id : walked.value })
+  navigate({ focus: uid, open: uid, connection: node?.boundary && node.connection_id != null ? node.connection_id : walked.value })
 }
 
 // ---- A highlighted attack path (?path=): its steps are added to the map, then lit.
@@ -297,7 +230,9 @@ function reset(): void {
   if (state.value.open || state.value.path) navigate({ open: null, path: null }, 'replace')
   void load()
 }
-const focusLink = (uid: string) => ({ query: mapQueryToUrl({ ...state.value, flow: null, focus: uid, open: null, path: null }, defaultView) })
+const recentLink = (r: RecentResource) => ({ query: mapQueryToUrl({ ...state.value, focus: r.uid, open: r.uid, path: null, connection: r.connectionId }, defaultView) })
+// Back to the start: the day and the view stay.
+const startLink = computed(() => ({ query: mapQueryToUrl({ ...state.value, focus: null, open: null, path: null }, defaultView) }))
 
 // ---- Panel frame: docked (≥ 1200 px), over the canvas (900–1200), the detail sheet (< 900).
 const narrow = ref(window.matchMedia?.('(max-width: 899px)').matches ?? false)
@@ -316,16 +251,13 @@ watch(selection, (sel, before) => {
   }
 })
 
-const alone = computed(() => mode.value === 'explore' && !loading.value && state.value.focus != null && graph.value.nodes.size === 1 && graph.value.edges.size === 0 && graph.value.groups.size === 0)
+const alone = computed(() => started.value && !loading.value && graph.value.nodes.size === 1 && graph.value.edges.size === 0 && graph.value.groups.size === 0)
 const banner = computed(() => {
-  if (flowTruncated.value) return 'This flow reaches more than the map draws (150 resources, 10 steps). Explore around a resource to see the rest.'
   if (truncated.value) return 'This neighbourhood has more than 500 resources. Turn off a layer or lower the depth to see the rest.'
   if (full.value) return 'Showing 500 resources, the most this map draws. Turn off a layer or lower the depth to see the rest.'
   return null
 })
 const groupCount = computed(() => graph.value.groups.size)
-// A flow or a focus is on the canvas (else the start list shows).
-const started = computed(() => mode.value !== 'doors')
 // The loading skeleton's column headers: hop columns, as the canvas draws them (mapLanes.ts).
 const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops out']
 </script>
@@ -336,9 +268,8 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
   </PageHeader>
 
   <section class="card toolbar" aria-label="Map controls">
-    <RouterLink v-if="started" class="btn btn-secondary back" :to="doorsLink"><AppIcon name="chevron" class="back-chev" :size="16" :stroke="2.2" />Front doors</RouterLink>
-    <ResourceSearch :connection-name="connectionName" @choose="(uid) => navigate({ flow: null, focus: uid, open: uid, path: null, connection: null })" />
-    <template v-if="mode === 'explore'">
+    <ResourceSearch v-if="started" :connection-name="connectionName" @choose="(uid) => navigate({ focus: uid, open: uid, path: null, connection: null })" />
+    <template v-if="started">
       <div class="field">
         <span id="map-depth" class="lbl">Depth</span>
         <div class="segmented" role="group" aria-labelledby="map-depth">
@@ -377,7 +308,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         <button type="button" :aria-pressed="state.view === 'list'" @click="navigate({ view: 'list' }, 'replace')">List</button>
       </div>
     </div>
-    <button v-if="mode === 'explore'" type="button" class="btn btn-ghost reset" @click="reset">Reset</button>
+    <button v-if="started" type="button" class="btn btn-ghost reset" @click="reset">Reset</button>
   </section>
 
   <AlertBanner v-if="banner" kind="warn">{{ banner }}</AlertBanner>
@@ -391,23 +322,22 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
 
   <div class="work" :class="{ 'has-panel': started && !narrow && !!selection }">
     <section class="card canvas-card" :class="{ 'is-map': started && state.view === 'map' }" aria-label="Resource map">
-      <FrontDoors
+      <MapStart
         v-if="!started"
-        :connections="connections.data.value ?? []"
-        :state="state"
-        :focus-link="focusLink"
-        :flow-link="flowLink"
-        @change="(next) => navigate(next, 'replace')"
+        :connections="connections.data.value ?? null"
+        :connections-failed="!!connections.error.value"
+        :connection="state.connection"
+        :connection-name="connectionName"
+        :recent-link="recentLink"
+        @choose="(uid, cid) => navigate({ focus: uid, open: uid, path: null, connection: state.connection != null ? cid : null })"
+        @account="(cid) => navigate({ connection: cid }, 'replace')"
       />
       <AlertBanner v-else-if="error" kind="fail" class="in-card">
         The map didn't load: {{ error }}
         <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load">Retry</button></template>
       </AlertBanner>
-      <EmptyState v-else-if="notFound && mode === 'flow'" icon="graph" :title="`This flow has no data on ${state.asOf ?? 'the latest day'}.`">
-        <RouterLink class="btn btn-secondary" :to="doorsLink">Back to front doors</RouterLink>
-      </EmptyState>
       <EmptyState v-else-if="notFound" icon="graph" :title="`${state.focus} is not in the inventory on ${state.asOf ?? 'the latest day'}.`">
-        <RouterLink class="btn btn-secondary" :to="doorsLink">Back to front doors</RouterLink>
+        <RouterLink class="btn btn-secondary" :to="startLink">Find another resource</RouterLink>
       </EmptyState>
       <div v-else-if="loading && graph.nodes.size === 0" class="skeleton-map" aria-busy="true" aria-label="Loading the map">
         <div v-for="(lane, i) in canvasLanes" :key="lane" class="sk-lane">
@@ -419,28 +349,21 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         v-else-if="state.view === 'list'"
         :graph="graph"
         :selection="selection"
-        :focus="mode === 'flow' ? flowEntry : state.focus"
-        :flow="canvasFlow"
+        :focus="state.focus"
         @select="select"
       />
       <MapCanvas
         v-else
         :graph="graph"
-        :focus="mode === 'flow' ? flowEntry : state.focus"
-        :flow="canvasFlow"
+        :focus="state.focus"
         :selection="selection"
         :highlight="highlight"
         :connection-name="connectionName"
-        :reach="flowReach"
         @select="select"
         @expand="expand"
         @focus-here="focusHere"
       >
         <template #overlay>
-          <p v-if="flowName && mode === 'flow'" class="pill" role="status">
-            Flow from <strong>{{ flowName }}</strong> · <span class="mono">{{ flowCounts.resources }}</span> {{ flowCounts.resources === 1 ? 'resource' : 'resources' }} ·
-            <template v-if="flowCounts.open"><span class="mono">{{ flowCounts.open }}</span> open {{ flowCounts.open === 1 ? 'finding' : 'findings' }}</template><template v-else>no open findings</template>
-          </p>
           <p v-if="!everSelected" class="pill hint">Hover a resource to trace its path · click to open it</p>
         </template>
       </MapCanvas>
@@ -455,8 +378,6 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         :full="full"
         :connection-name="connectionName"
         :connection-id="walked"
-        :flow-chips="flow?.chips ?? null"
-        :flow-path="flowPath"
         @close="select(null)"
         @expand="expand"
         @focus-here="focusHere"
@@ -476,8 +397,6 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
       :full="full"
       :connection-name="connectionName"
       :connection-id="walked"
-      :flow-chips="flow?.chips ?? null"
-      :flow-path="flowPath"
       @close="select(null)"
       @expand="expand"
       @focus-here="focusHere"
@@ -525,17 +444,8 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
   cursor: not-allowed;
 }
 
-.reset,
-.back {
+.reset {
   align-self: flex-end;
-}
-
-.back {
-  gap: var(--s-6);
-}
-
-.back-chev {
-  transform: rotate(180deg);
 }
 
 .work {
@@ -567,7 +477,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
   align-self: start;
 }
 
-/* The canvas's pills: the flow's summary and the first-use hint. */
+/* The canvas's pill: the first-use hint. */
 .pill {
   margin: 0;
   padding: var(--s-4) var(--s-12);

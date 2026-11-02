@@ -35,6 +35,10 @@ const props = defineProps<{
   // A block to bring into view once it shows: a finding's See the evidence opens the sheet at
   // From the internet (ADR-0035, sixth amendment).
   at?: 'from-internet' | null
+  // The Resource map's panel: no "From the internet" block (reach and its evidence). The map
+  // shows connections, not reach (the owner's decision, 2026-11-01); the Resources sheet, Attack
+  // paths and Findings' "See the evidence" keep it.
+  hideInternet?: boolean
 }>()
 const emit = defineEmits<{ loaded: [resource: Schemas['ResourceDetail'] | null] }>()
 
@@ -69,8 +73,8 @@ const paths = useResource(
 
 const connection = computed(() => (current.value ? props.connectionName(current.value.connection_id) : ''))
 const cloudfoxEdges = computed(() => (current.value?.edges ?? []).filter((e) => e.origin === 'cloudfox'))
-// The internet rules' verdict on this resource, when it faces the internet (ADR-0035): the same
-// badge, why-line and evidence as its row in the front doors list.
+// The internet rules' verdict on this resource, when it faces the internet (ADR-0035): a badge,
+// a why-line and the evidence.
 const door = computed(() => {
   for (const e of current.value?.edges ?? []) {
     const d = e.source_uid === 'internet' ? doorOfEdge(e) : null
@@ -268,7 +272,7 @@ function step(path: Schemas['PathOut']): string {
       </template>
     </section>
 
-    <section v-if="door" ref="doorBlock" class="block" aria-labelledby="rd-door">
+    <section v-if="door && !hideInternet" ref="doorBlock" class="block" aria-labelledby="rd-door">
       <h3 id="rd-door" class="lbl">From the internet</h3>
       <div class="door">
         <ReachBadge door :reach="door.reach" />

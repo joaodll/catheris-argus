@@ -192,26 +192,3 @@ export function traceOf(lines: Pick<DrawnEdge, 'key' | 'source' | 'target'>[], i
   }
   return { nodes, lines: keys }
 }
-
-/** The shortest chain from the internet to a node along the drawn lines (Flow mode's "Path from
- * the internet"), each step with the line that reached it; null when none leads there. */
-export function pathFromInternet(lines: DrawnEdge[], id: string): { uid: string; line: DrawnEdge | null }[] | null {
-  const via = new Map<string, DrawnEdge | null>([['internet', null]])
-  const queue = ['internet']
-  while (queue.length && !via.has(id)) {
-    const at = queue.shift()!
-    for (const line of lines) {
-      if (line.source !== at || via.has(line.target)) continue
-      via.set(line.target, line)
-      queue.push(line.target)
-    }
-  }
-  if (!via.has(id)) return null
-  const out: { uid: string; line: DrawnEdge | null }[] = []
-  for (let at: string | undefined = id; at != null; ) {
-    const line: DrawnEdge | null = via.get(at) ?? null
-    out.unshift({ uid: at, line })
-    at = line?.source
-  }
-  return out
-}

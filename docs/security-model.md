@@ -105,6 +105,10 @@ when their checks need it. Argus never stores such a value:
   second factor until single sign-on.
 - **Sessions:** HttpOnly, Secure, SameSite=Strict cookies, double-submit CSRF protection on every
   write, and limits of 30 minutes idle and 12 hours in total.
+- **What stays in the browser:** the Resource map's "Recently opened" list keeps the names, types
+  and identifiers (on AWS, ARNs) of the last 8 resources mapped, per user, in the tab's session
+  storage. It goes when the tab closes, on sign-out, and when a request finds the session expired.
+  Nothing else about scan data is stored in the browser.
 - **Sign-in limits** per 15 minutes: 5 failures for a username from one address, 20 from one
   address, 100 for a username from anywhere. One attacker cannot lock an administrator out, and
   guessing the current password in a password change counts against the same limits.

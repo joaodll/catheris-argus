@@ -4,11 +4,7 @@
                       more than 25 neighbours of one (direction, edge type, resource type)
                       come back as one group instead
     group_members()   a group's members, a page at a time
-    front_doors()     what faces the internet in one account: the targets of edges from
-                      `internet` (internet-entry, internet-restricted, CloudFox's
-                      INTERNET_REACHABLE), with their reach (ADR-0035) and their flow
-                      (ADR-0036): the Resource map's one start list
-    edges_by_ids()    edges by id (an attack path's steps)
+    edges_by_ids()    edges by id (an attack path's steps), with every attribute
 
 Every read is for one connection and one day (ADR-0033, amended 2026-10-09): the edges that
 connection's runs derived, in each edge family's snapshot that stands for the day (edge_load),
@@ -17,6 +13,11 @@ an ARN of another account, is a boundary node: drawn, never expanded. Layers and
 edges from fixed SQL fragments; a client only names them. Nodes are uids: resources (placed
 with inventory's exported node view) and the pseudo-nodes `internet`, `admin:<account>`,
 `external:<host>` and `any:<service>` (a wildcard grant, role-accesses).
+
+The map shows dependencies and connections, not reach (the owner's decision, 2026-11-01, round
+M3a): a door the internet rules judge closed or undecided is not drawn, and a map edge carries
+only its plain attributes (EDGE_ATTRIBUTES), never the rules' evidence. Attack paths, Findings
+and the Resources sheet explain reach.
 """
 
 from datetime import date
@@ -24,7 +25,6 @@ from typing import Any, Literal, NamedTuple
 
 from sqlalchemy import Connection, text
 
-from argus.core.db import like_contains
 from argus.inventory import RESOURCE_NODES_SQL, resource_nodes
 from argus.relationships.queries import MAX_EDGES, all_effective_days
 
@@ -37,16 +37,17 @@ MAX_NODES = MAX_EDGES  # design: the neighbourhood stops at 500 nodes
 GROUP_OVER = 25  # more neighbours of one kind than this: one group node (a constant, ADR-0033)
 DEFAULT_LAYERS: tuple[Layer, ...] = ("traffic", "identity")
 ORIGINS: tuple[Origin, ...] = ("rule", "cloudfox", "manual")
+# What a map edge shows of its attributes, and all the graph read model keeps of them
+# (graph/projection.py): the protocol and ports. The internet rules' evidence (network, routes,
+# reasons) stays on the edge row for Attack paths and the Resources sheet.
+EDGE_ATTRIBUTES: tuple[str, ...] = ("protocol", "from_port", "to_port", "port")
 
 # An IAM group's ARN: MEMBER_OF to a group is identity, to a security group is network.
 _IAM_GROUP = "e.target_uid ~ '[:]iam[:][:][0-9]{12}[:]group/'"
 LAYER_SQL: dict[str, str] = {
-    # A door's link from the internet, whatever its reach (ADR-0033, amended 2026-10-21): a
-    # Restricted or Unknown door shows it too, drawn dashed.
-    "traffic": (
-        "e.type IN ('ROUTES_TO', 'TRIGGERS', 'INTERNET_REACHABLE', 'PUBLIC_RESTRICTED', "
-        "'PUBLIC_UNVERIFIED')"
-    ),
+    # Connections only (round M3a): the internet rules' closed and undecided doors
+    # (PUBLIC_RESTRICTED, PUBLIC_UNVERIFIED) are verdicts, not connections, and are not drawn.
+    "traffic": "e.type IN ('ROUTES_TO', 'TRIGGERS', 'INTERNET_REACHABLE')",
     "identity": (
         "e.type IN ('RUNS_AS', 'CAN_ASSUME', 'IS_ADMIN', 'CAN_PRIVESC_TO', 'BELONGS_TO', "
         "'OUTSIDER', 'HAS_CREDENTIAL', 'CAN_ESCALATE_TO', 'CAN_RUN_ON') "
@@ -286,14 +287,25 @@ def neighbourhood(
     }
 
 
-def _edge(r: Any) -> dict[str, Any]:
+def plain_attributes(attributes: dict[str, Any] | None) -> dict[str, Any]:
+    """An edge's plain attributes (EDGE_ATTRIBUTES), scalars only."""
+    return {
+        k: v
+        for k, v in (attributes or {}).items()
+        if k in EDGE_ATTRIBUTES and isinstance(v, str | int | float | bool)
+    }
+
+
+def _edge(r: Any, *, plain: bool = True) -> dict[str, Any]:
+    """An edge as the API returns it: on the map with its plain attributes only; an attack
+    path's steps (edges_by_ids) keep every attribute, the evidence their words explain."""
     return {
         "id": r.id,
         "source_uid": r.source_uid,
         "target_uid": r.target_uid,
         "type": r.type,
         "origin": r.origin,
-        "attributes": r.attributes or {},
+        "attributes": plain_attributes(r.attributes) if plain else (r.attributes or {}),
         "first_seen": r.first_seen,
         "last_seen": r.last_seen,
     }
@@ -312,13 +324,6 @@ def _node(uid: str, info: dict[str, Any], expanded: bool, boundary: bool) -> dic
         "expanded": expanded,
         "boundary": boundary,
     }
-
-
-def node_views(conn: Connection, uids: list[str]) -> list[dict[str, Any]]:
-    """Map nodes for these uids, in their order: one connection's own front doors and flows,
-    never boundary nodes."""
-    found = resource_nodes(conn, [u for u in uids if kind_of(u) == "resource"])
-    return [_node(uid, found.get(uid, {}), False, False) for uid in uids]
 
 
 _MEMBERS = {
@@ -383,154 +388,6 @@ def group_members(
     return [{"node": nodes[r.other], "edge": _edge(r)} for r in rows], total
 
 
-Reach = Literal["open", "unknown", "restricted", "cloudfox_only"]
-# In the list's order: an unknown door could be open, so it comes before the restricted ones.
-REACHES: tuple[Reach, ...] = ("open", "unknown", "restricted", "cloudfox_only")
-
-
-def _cloudfox_ports(attributes: list[dict[str, Any]]) -> list[str]:
-    """What CloudFox calls open on a door only it finds, as Argus labels ports ("tcp/80",
-    "tcp/8000-8100"): endpoints give one port, network-ports a list ("80,443,8000-8100")."""
-    labels = set()
-    for a in attributes:
-        protocol = (a.get("protocol") or "tcp").lower()
-        ports = a.get("ports") or a.get("port") or ""
-        labels |= {f"{protocol}/{p.strip()}" for p in str(ports).split(",") if p.strip()}
-
-    def order(label: str) -> tuple[int, str]:
-        first = label.split("/", 1)[1].split("-", 1)[0]
-        return (int(first) if first.isdigit() else -1, label)
-
-    return sorted(labels, key=order)
-
-
-def front_doors(
-    conn: Connection,
-    *,
-    connection_id: int,
-    day: date,
-    limit: int,
-    offset: int,
-    reach: tuple[str, ...] = REACHES,
-    regions: tuple[str, ...] = (),
-    q: str | None = None,
-) -> tuple[list[dict[str, Any]], int]:
-    """One page of what faces the internet in one account, and how many there are: open doors
-    first, then unknown, restricted and CloudFox's alone, each by name. Each has the origins
-    that found it ("rule", "cloudfox") and its reach (ADR-0035): "open" when Argus's rules say
-    traffic can arrive (with the ports and address families that get in), "unknown" when data
-    the verdict needs is missing (`missing` names it), "restricted" when its settings are public
-    but security groups, routing, a network ACL, auth or address lists keep the internet out
-    (with the rule's `reason` and `sources`), "cloudfox_only" when only CloudFox calls it public
-    (its endpoints or network-ports module; `open` then holds the ports CloudFox names). A door
-    with a flow that day (ADR-0036) carries its id, size and cut; `regions`, when given, keeps the
-    doors in those regions; `q` keeps those whose name, uid or type holds it, in any case, the
-    type's underscores also read as spaces ("S3", "s3 bucket": aws_s3_bucket; 2026-10-15)."""
-    rows = conn.execute(
-        text(f"""
-        WITH {_DAYS},
-        fd AS (
-          SELECT e.target_uid AS uid,
-                 array_agg(DISTINCT CASE WHEN e.origin = 'cloudfox' THEN 'cloudfox'
-                                         ELSE 'rule' END) AS via,
-                 CASE WHEN bool_or(e.type = 'ROUTES_TO') THEN 'open'
-                      WHEN bool_or(e.type = 'PUBLIC_RESTRICTED') THEN 'restricted'
-                      WHEN bool_or(e.type = 'PUBLIC_UNVERIFIED') THEN 'unknown'
-                      ELSE 'cloudfox_only' END AS reach,
-                 -- The rule edge's attributes: why, what is open, what is missing.
-                 (array_agg(e.attributes ORDER BY array_position(
-                    ARRAY['ROUTES_TO', 'PUBLIC_RESTRICTED', 'PUBLIC_UNVERIFIED'], e.type), e.id)
-                    FILTER (WHERE e.origin <> 'cloudfox'))[1] AS attrs,
-                 -- CloudFox's own: its port and protocol per endpoint or address.
-                 array_agg(e.attributes ORDER BY e.id) FILTER (WHERE e.origin = 'cloudfox')
-                   AS cloudfox
-          FROM edge e JOIN days d ON d.cid = e.connection_id
-          WHERE e.source_uid = 'internet' AND e.connection_id = :c
-            AND e.type IN ('ROUTES_TO', 'PUBLIC_RESTRICTED', 'PUBLIC_UNVERIFIED',
-                           'INTERNET_REACHABLE') AND {_ALIVE}
-          GROUP BY e.target_uid
-        ),
-        page AS (
-          SELECT fd.*, count(*) OVER () AS total,
-                 row_number() OVER (ORDER BY array_position(CAST(:order AS text[]), fd.reach),
-                                             lower(coalesce(n.name, fd.uid)), fd.uid) AS ord
-          FROM fd LEFT JOIN ({RESOURCE_NODES_SQL}) n ON n.uid = fd.uid
-          WHERE fd.reach = ANY(CAST(:reach AS text[]))
-            AND (cardinality(CAST(:regions AS text[])) = 0
-                 OR n.region = ANY(CAST(:regions AS text[])))
-            AND (CAST(:p AS text) IS NULL
-                 OR concat_ws(E'\\n', n.name, fd.uid, n.type, replace(n.type, '_', ' '))
-                    ILIKE :p ESCAPE '\\')
-          ORDER BY ord
-          LIMIT :l OFFSET :o
-        )
-        SELECT p.uid, p.via, p.reach, p.attrs, p.cloudfox, p.total,
-               f.id AS flow_id, sh.node_count, sh.truncated
-        FROM page p
-        CROSS JOIN days d
-        LEFT JOIN flow f
-          ON f.flow_key = sha256(convert_to('flow|' || :c || '|' || p.uid, 'UTF8'))
-        LEFT JOIN flow_snapshot s ON s.flow_id = f.id AND s.snapshot_date = d.rd
-        LEFT JOIN flow_shape sh ON sh.id = s.shape_id
-        WHERE d.cid = :c
-        ORDER BY p.ord
-    """),  # noqa: S608 - fixed fragments; values are bound
-        {
-            **_day_params(conn, day, [connection_id]),
-            "c": connection_id,
-            "order": list(REACHES),
-            "reach": list(reach),
-            "regions": list(regions),
-            "p": like_contains(q) if q else None,
-            "l": limit,
-            "o": offset,
-        },
-    ).all()
-    total = int(rows[0].total) if rows else 0
-    nodes = {n["uid"]: n for n in node_views(conn, [r.uid for r in rows])}
-    doors = []
-    for r in rows:
-        attrs = r.attrs or {}
-        restricted = r.reach == "restricted"
-        doors.append(
-            {
-                "node": nodes[r.uid],
-                "via": sorted(r.via),
-                "reach": r.reach,
-                "reason": attrs.get("reason") if restricted else None,
-                "sources": attrs.get("sources", []) if restricted else [],
-                # The facts behind a restricted verdict (ADR-0035, fourth amendment).
-                "open_ports": attrs.get("open_ports", []) if restricted else [],
-                "listens": attrs.get("listens") if restricted else None,
-                "default_routes": attrs.get("default_routes", []) if restricted else [],
-                "missing": attrs.get("missing", []) if r.reach == "unknown" else [],
-                "open": (
-                    attrs.get("open", [])
-                    if r.reach == "open"
-                    else _cloudfox_ports(r.cloudfox or [])
-                    if r.reach == "cloudfox_only"
-                    else []
-                ),
-                "families": attrs.get("families", []) if r.reach == "open" else [],
-                # The evidence of a door in a VPC, whatever its reach (ADR-0035, fifth
-                # amendment): per interface, what is public and open, each subnet's route and
-                # ACL; and an instance's state.
-                "network": attrs.get("network", []),
-                "state": attrs.get("state"),
-                # A resource public by its own policy, whatever its reach: what the statements
-                # for anyone allow (ADR-0037, second amendment, wave 2).
-                "policy_actions": (
-                    attrs.get("actions", []) if attrs.get("via") == "resource_policy" else []
-                ),
-                # The flow drawn from this door that day; none for CloudFox's alone.
-                "flow_id": r.flow_id if r.node_count is not None else None,
-                "resources": r.node_count,
-                "truncated": bool(r.truncated),
-            }
-        )
-    return doors, total
-
-
 def edges_by_ids(conn: Connection, edge_ids: list[int]) -> dict[int, dict[str, Any]]:
     """Edges by id, whatever day they stood (an attack path keeps its steps' ids)."""
     if not edge_ids:
@@ -539,4 +396,4 @@ def edges_by_ids(conn: Connection, edge_ids: list[int]) -> dict[int, dict[str, A
         text(f"SELECT {_EDGE_COLUMNS} FROM edge e WHERE e.id = ANY(CAST(:ids AS bigint[]))"),  # noqa: S608
         {"ids": edge_ids},
     )
-    return {r.id: _edge(r) for r in rows}
+    return {r.id: _edge(r, plain=False) for r in rows}

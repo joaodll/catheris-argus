@@ -1,11 +1,24 @@
-/** Why a front door has its reach, in one line of the front doors list (ADR-0035). */
-import type { Schemas } from '@/api/client'
-import { familyLabel, onlyIcmp, openWithoutAddress, stateWord } from './doorEvidence'
+/** Why a door from the internet has its reach, in one line (ADR-0035): the Resources sheet's
+ * "From the internet" and an attack path's way in. */
+import { familyLabel, onlyIcmp, openWithoutAddress, stateWord, type DoorInterface } from './doorEvidence'
 
-type Door = Pick<
-  Schemas['FrontDoor'],
-  'reach' | 'reason' | 'sources' | 'missing' | 'open' | 'families' | 'open_ports' | 'listens' | 'default_routes' | 'network' | 'state' | 'policy_actions'
->
+/** A door as read from its edge (the internet rules' attributes, ADR-0035). */
+export interface Door {
+  // open: traffic can arrive; unknown: data the verdict needs is missing; restricted: public
+  // settings, but something keeps the internet out; cloudfox_only: only CloudFox calls it public.
+  reach: 'open' | 'unknown' | 'restricted' | 'cloudfox_only'
+  reason: string | null
+  sources: string[]
+  missing: string[]
+  open: string[]
+  families: string[]
+  open_ports: string[]
+  listens: string[] | null
+  default_routes: string[]
+  network: DoorInterface[]
+  state: string | null
+  policy_actions: string[]
+}
 
 // Why a restricted door is closed, from its rule's reason and the sources it admits: with
 // sources, "<lead>: a, b, c and N more"; without, `closed` when the reason has one.

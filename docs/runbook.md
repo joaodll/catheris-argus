@@ -165,7 +165,7 @@ After changing backend code that the running stack uses: `docker compose up -d -
 load records the rule set it came from. When the worker starts, before it claims any run, it
 checks each enabled connection's latest rule load, however old. If that load came from other
 rules (or from before migration 0026), the worker re-runs the load's day with the new rules:
-edges, flows and the reach checks. The new rule set moves the graph's marker, so the graph thread
+edges and the reach checks. The new rule set moves the graph's marker, so the graph thread
 then re-evaluates the attack paths; a path the new rules no longer find is resolved then, when the
 connection's newest Steampipe and CloudFox runs are complete (2026-11-01). So a new rule version
 shows on the map and in Attack paths at once, not after the next Steampipe and CloudFox runs. The same

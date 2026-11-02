@@ -63,16 +63,11 @@ from argus.inventory import (
     put_inventory_metrics,
 )
 from argus.inventory.steampipe import UnsupportedVersionError as SteampipeVersionError
-from argus.relationships import (
-    internet_reach,
-    load_rules,
-    write_edges,
-    write_flows,
-)
+from argus.relationships import internet_reach, load_rules, write_edges
 
 log = logging.getLogger("argus.ingest")
 # Held shared by every ingest and exclusive by a re-derive after a rule upgrade (rederive.py),
-# so the two never interleave on one connection's edges, flows and paths (ADR-0039).
+# so the two never interleave on one connection's edges and paths (ADR-0039).
 REDERIVE_LOCK = "argus.rederive"
 VERSION_ERRORS = (
     SteampipeVersionError,
@@ -250,7 +245,6 @@ def _steampipe(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[
         day=run.day,
         ruleset=rule_set(rules_dir),
     )
-    loaded["flows"] = write_flows(engine, connection_id=run.connection_id, day=run.day)
     with engine.begin() as conn:
         put_inventory_metrics(conn, connection_id=run.connection_id, day=run.day)
         loaded["reach_checked"] = check_reach(conn, connection_id=run.connection_id, day=run.day)

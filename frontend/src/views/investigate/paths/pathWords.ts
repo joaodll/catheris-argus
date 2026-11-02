@@ -4,6 +4,7 @@
  * words, and the names of steps that are not a resource. Read from the edges' attributes, as
  * the rules and the CloudFox adapter write them (backend/rules/relationships).
  */
+import { edgeWord } from '../edgeWords'
 import { uidTail } from '../labels'
 import { list } from '../map/doorWhy'
 import { nodeName, type MapNode } from '../map/mapGraph'
@@ -240,19 +241,19 @@ export function moveWords(e: ChainEdge): Move {
   }
   switch (e.type) {
     case 'ROUTES_TO':
-      return { short: 'routes to', sentence: 'Traffic it receives goes on to the next step.' }
+      return { short: edgeWord(e.type), sentence: 'Traffic it receives goes on to the next step.' }
     case 'TRIGGERS':
-      return { short: 'triggers', sentence: 'It starts the next step with what it receives.' }
+      return { short: edgeWord(e.type), sentence: 'It starts the next step with what it receives.' }
     case 'RUNS_AS':
-      return { short: 'runs as', sentence: "It runs with this role's permissions." }
+      return { short: edgeWord(e.type), sentence: "It runs with this role's permissions." }
     case 'CAN_ASSUME':
-      return { short: 'can assume', sentence: 'It may assume the next role.' }
+      return { short: edgeWord(e.type), sentence: 'It may assume the next role.' }
     case 'ACCESSES': {
       const level = LEVEL[String(a.level)] ?? LEVEL.read!
       return { short: level.short, sentence: `Its policies allow ${level.word} access to the next step.` }
     }
     case 'IS_ADMIN':
-      return { short: 'is administrator', sentence: 'Its policies allow every action on every resource.' }
+      return { short: edgeWord(e.type), sentence: 'Its policies allow every action on every resource.' }
     case 'CAN_PRIVESC_TO':
       return { short: 'can escalate (CloudFox)', sentence: 'CloudFox found it can make itself an administrator.' }
     case 'CAN_ESCALATE_TO': {
@@ -272,16 +273,16 @@ export function moveWords(e: ChainEdge): Move {
     }
     case 'CAN_RUN_ON':
       return e.target_uid === 'any:ssm'
-        ? { short: 'can run commands through', sentence: 'It may send commands or start sessions through Systems Manager.' }
-        : { short: 'runs commands on', sentence: 'Systems Manager manages this instance and reaches it.' }
+        ? { short: edgeWord(e.type, e.target_uid), sentence: 'It may send commands or start sessions through Systems Manager.' }
+        : { short: edgeWord(e.type, e.target_uid), sentence: 'Systems Manager manages this instance and reaches it.' }
     case 'MEMBER_OF':
       return /:iam::\d{12}:group\//.test(e.target_uid)
-        ? { short: 'is in', sentence: 'It is a member of this group.' }
-        : { short: 'is in', sentence: 'It is in this security group.' }
+        ? { short: edgeWord(e.type), sentence: 'It is a member of this group.' }
+        : { short: edgeWord(e.type), sentence: 'It is in this security group.' }
     case 'ALLOWS_INGRESS':
-      return { short: 'admits', sentence: 'This security group admits the traffic.' }
+      return { short: edgeWord(e.type), sentence: 'This security group admits the traffic.' }
   }
-  const words = e.type.toLowerCase().replace(/_/g, ' ')
+  const words = edgeWord(e.type, e.target_uid)
   return { short: words, sentence: `${words.charAt(0).toUpperCase()}${words.slice(1)}.` }
 }
 

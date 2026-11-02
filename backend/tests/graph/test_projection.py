@@ -11,8 +11,8 @@ from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
 from argus import graph
 from argus.collection import TOOL_ORDER, FilesystemRawStore
-from argus.graph.projection import EDGE_ATTRIBUTES
 from argus.ingest import ingest_run, register_failed_run
+from argus.relationships import EDGE_ATTRIBUTES
 
 pytestmark = [pytest.mark.db, pytest.mark.graph, pytest.mark.usefixtures("graph_clean")]
 DAY = date(2026, 10, 2)

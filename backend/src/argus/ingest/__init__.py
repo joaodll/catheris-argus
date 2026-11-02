@@ -4,7 +4,7 @@ and attack paths").
     register_run()         records a committed run in scan_run, from its manifest
     register_failed_run()  records a request that failed before it had a manifest to register
     ingest_run()           adapter -> load -> derived steps, for one scan_run
-    rederive_stale()       at worker start: edges, flows and reach again for each connection
+    rederive_stale()       at worker start: edges and reach again for each connection
                            whose rules were upgraded (ADR-0035, fifth amendment); the graph
                            read model then re-evaluates the paths (ADR-0044)
     LATEST_INGESTED_RUNS_SQL   each connection's newest ingested run: the graph's marker

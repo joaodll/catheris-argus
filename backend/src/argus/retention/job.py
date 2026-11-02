@@ -39,7 +39,6 @@ def run_retention(
         configs = inventory.delete_orphan_configs(conn)
         inventory.delete_loads_before(conn, cutoff=cutoff)
         relationships.delete_loads_before(conn, cutoff=cutoff)
-        relationships.delete_orphan_flow_shapes(conn)
         demo_paths = ingest.synthetic_raw_paths_before(
             conn, day=today - timedelta(days=demo_raw_days)
         )

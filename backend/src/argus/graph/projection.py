@@ -55,9 +55,8 @@ log = logging.getLogger(__name__)
 GRAPH_CONNECTIONS = 2
 LOCK = "argus.graph"
 BATCH = 10_000
-# Edge attributes the graph questions filter on. Anything else stays in Postgres, read through
-# the edge id: the graph holds no configuration.
-EDGE_ATTRIBUTES = ("protocol", "from_port", "to_port", "port")
+# Edge attributes: only relationships.EDGE_ATTRIBUTES. Anything else stays in Postgres, read
+# through the edge id: the graph holds no configuration.
 _EDGE_TYPE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _ACCOUNT_SCOPED = "any:"  # pseudo-nodes that mean something in one account only
 # The graph's shape. Bump it when the projection writes something differently: every connection
@@ -163,12 +162,8 @@ def postgres_uid(uid: str) -> str:
 
 
 def _attrs(attributes: dict[str, Any] | None) -> dict[str, Any] | None:
-    kept = {
-        k: v
-        for k, v in (attributes or {}).items()
-        if k in EDGE_ATTRIBUTES and isinstance(v, str | int | float | bool)
-    }
-    return kept or None
+    # The attributes filters need (relationships.EDGE_ATTRIBUTES), the map's own.
+    return relationships.plain_attributes(attributes) or None
 
 
 def read_snapshot(conn: Connection, target: Target, *, today: date) -> Snapshot:

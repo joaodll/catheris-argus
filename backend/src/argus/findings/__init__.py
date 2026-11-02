@@ -9,7 +9,6 @@ Public interface:
     list_findings(), finding_facets(), open_finding_counts()   the read side (Findings page)
     finding_groups()    the Findings list by check
     open_finding_counts_by_tool()   per-tool counts for the Resource map
-    open_exposure_counts()   open Prowler exposure findings per resource (the front doors)
     framework_catalog(), list_requirements()                   the read side (Compliance page)
     carry_forward_compliance(), rederive_scores()              a failed Prowler run (ingest)
     set_reach()         CloudFox's public endpoints and Prowler's exposure checks
@@ -66,7 +65,6 @@ from argus.findings.queries import (
     finding_groups,
     get_finding,
     list_findings,
-    open_exposure_counts,
     open_finding_counts,
     open_finding_counts_by_tool,
 )
@@ -130,7 +128,6 @@ __all__ = [
     "load_prowler",
     "load_tool_findings",
     "load_vulnerabilities",
-    "open_exposure_counts",
     "open_finding_counts",
     "open_finding_counts_by_tool",
     "parse_prowler",

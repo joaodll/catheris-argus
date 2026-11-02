@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { chosenLayers, graphParams, mapQueryToUrl, modeOf, parseMapQuery } from './mapQuery'
+import { chosenLayers, graphParams, mapQueryToUrl, parseMapQuery } from './mapQuery'
 
 describe('Resource map state in the URL', () => {
   it('starts with the defaults and leaves them out of the URL', () => {
     const state = parseMapQuery({})
     expect(state).toEqual({
-      flow: null,
       focus: null,
       depth: 1,
       layers: ['traffic', 'identity'],
@@ -15,10 +14,6 @@ describe('Resource map state in the URL', () => {
       path: null,
       open: null,
       connection: null,
-      q: '',
-      reach: [],
-      region: [],
-      page: 1,
     })
     expect(Object.values(mapQueryToUrl(state)).filter((v) => v !== undefined)).toEqual([])
   })
@@ -61,24 +56,10 @@ describe('Resource map state in the URL', () => {
     expect(graphParams({ ...state, connection: 4 }, 'b', 1, 7).connection_id).toBe(7)
   })
 
-  it('says the mode by what is open: a flow, a focus, or the front doors', () => {
-    expect(modeOf(parseMapQuery({}))).toBe('doors')
-    expect(modeOf(parseMapQuery({ focus: 'arn:x' }))).toBe('explore')
-    expect(modeOf(parseMapQuery({ flow: '7', focus: 'arn:x' }))).toBe('flow')
-    // An older link's mode is ignored and never written back.
-    expect(modeOf(parseMapQuery({ mode: 'explore' }))).toBe('doors')
-    expect(mapQueryToUrl(parseMapQuery({ mode: 'flow', flow: '7' }))).not.toHaveProperty('mode')
-  })
-
-  it('keeps the front doors filters and page, in a stable order', () => {
-    const state = parseMapQuery({ reach: ['cloudfox_only', 'restricted', 'unknown', 'open', 'nowhere'], region: ['us-east-1', 'eu-west-1', 'x'.repeat(65)], page: '3' })
-    const reach = ['open', 'unknown', 'restricted', 'cloudfox_only']
-    expect(state).toMatchObject({ reach, region: ['eu-west-1', 'us-east-1'], page: 3 })
-    expect(mapQueryToUrl(state)).toMatchObject({ reach, region: ['eu-west-1', 'us-east-1'], page: '3' })
-    expect(parseMapQuery({ page: '0' }).page).toBe(1)
-    expect(parseMapQuery({ q: '  S3 ' }).q).toBe('S3')
-    expect(mapQueryToUrl(parseMapQuery({ q: 's3' })).q).toBe('s3')
-    expect(parseMapQuery({ q: 'x'.repeat(250) }).q).toHaveLength(200)
-    expect(mapQueryToUrl(parseMapQuery({ page: '1' })).page).toBeUndefined()
+  it('ignores the front doors and Flow of an older link (round M3a)', () => {
+    const old = parseMapQuery({ flow: '7', reach: ['open'], region: 'us-east-1', q: 's3', page: '3', mode: 'flow', connection: '2' })
+    expect(old).toEqual({ ...parseMapQuery({}), connection: 2 }) // the start, in that account
+    expect(Object.keys(mapQueryToUrl(old)).filter((k) => mapQueryToUrl(old)[k] !== undefined)).toEqual(['connection'])
+    expect(parseMapQuery({ flow: '7', focus: 'arn:x' }).focus).toBe('arn:x')
   })
 })

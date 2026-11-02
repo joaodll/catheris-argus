@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hopColumns, hopLabel, layout, moveSelection, typeLabel, type LaidNode } from './mapLanes'
+import { LANE_GAP, LANE_WIDTH, hopColumns, hopLabel, layout, moveSelection, typeLabel, type LaidNode } from './mapLanes'
 
 const n = (id: string, type: string | null, extra: Partial<LaidNode> = {}): LaidNode => ({ id, kind: 'resource', type, name: id, rank: 5, ...extra })
 
@@ -52,8 +52,11 @@ describe('Resource map columns', () => {
       ['hop-0', 'Selected'],
       ['hop-1', '1 hop out'],
     ])
-    expect(lanes.map((l) => l.x)).toEqual([0, 206, 412])
-    expect(positions.get('focus')).toEqual({ x: 295, y: 0, lane: 'hop-0' })
+    const step = LANE_WIDTH + LANE_GAP
+    expect(lanes.map((l) => l.x)).toEqual([0, step, 2 * step])
+    expect(positions.get('focus')).toEqual({ x: step + LANE_WIDTH / 2, y: 0, lane: 'hop-0' })
+    // Room for a line's words between the cards (round M3a): "is administrator" is ~90 px.
+    expect(LANE_GAP).toBeGreaterThanOrEqual(110)
     expect(positions.get('fn-a')!.y).toBe(-70) // worst first
     expect(positions.get('fn-b')!.y).toBe(0)
     expect(positions.get('role')!.y).toBe(70)

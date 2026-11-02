@@ -212,7 +212,7 @@ def test_a_temporary_identity_key_needs_its_session_token(
 
 def _sweep_map(signed_in: TestClient, bodies: dict[str, str], connection_id: int) -> None:
     """The map: every resource's neighbourhood with every layer (so every edge and its
-    attributes), every anchor's members, the front doors, and every attack path."""
+    attributes), every anchor's members, and every attack path."""
 
     def sweep(path: str) -> Any:
         response = signed_in.get(path)
@@ -246,12 +246,6 @@ def _sweep_map(signed_in: TestClient, bodies: dict[str, str], connection_id: int
         if resource_type:
             query["resource_type"] = resource_type
         sweep(f"/api/v1/map/group?{urlencode(query)}&limit=100")
-    # Every front door, whatever its reach, and the flow each one starts (ADR-0036).
-    doors = sweep(f"/api/v1/map/front-doors?connection_id={connection_id}&limit=100")
-    flow_ids = [d["flow_id"] for d in doors["items"] if d["flow_id"] is not None]
-    assert flow_ids, "no flow swept"
-    for flow_id in flow_ids:
-        sweep(f"/api/v1/map/flows/{flow_id}")
     sweep("/api/v1/attack-paths/facets")
     for item in json.loads(bodies["/api/v1/attack-paths"])["items"]:
         sweep(f"/api/v1/attack-paths/{item['id']}")
@@ -350,7 +344,6 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     swept = {re.sub(r"/connection-tests/\d+$", "/connection-tests/{test_id}", p) for p in swept}
     swept = {re.sub(r"/compliance/cis_6\.0_aws", "/compliance/{framework}", p) for p in swept}
     swept = {re.sub(r"/attack-paths/\d+$", "/attack-paths/{path_id}", p) for p in swept}
-    swept = {re.sub(r"/map/flows/\d+$", "/map/flows/{flow_id}", p) for p in swept}
     assert routes == swept
 
     leaked = {path for path, body in bodies.items() if MARKERS.search(body)}

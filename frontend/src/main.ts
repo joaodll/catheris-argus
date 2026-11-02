@@ -13,14 +13,14 @@ import './theme/base.css'
 import { createApp } from 'vue'
 import { setForbiddenHandler, setUnauthorizedHandler } from '@/api/client'
 import { installLeaveGuard } from '@/composables/useDirtyGuard'
-import { can, refreshSession, session } from '@/composables/useSession'
+import { can, endSession, refreshSession, session } from '@/composables/useSession'
 import { toast } from '@/composables/useToasts'
 import App from './App.vue'
 import { router } from './router'
 
 setUnauthorizedHandler(() => {
   if (router.currentRoute.value.name === 'sign-in') return
-  session.value = null
+  endSession()
   void router.push({ name: 'sign-in', query: { next: router.currentRoute.value.fullPath, reason: 'expired' } })
 })
 // A role changed, or a password change became due, while the page was open (ADR-0041): read

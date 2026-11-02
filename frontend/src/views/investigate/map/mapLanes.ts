@@ -1,16 +1,18 @@
 /**
  * The Resource map's columns (docs/ui/screens.md, E11, The canvas): the chain in the order traffic
  * and access follow it, one column per hop (argus_v12: "follow the exact resource chain
- * sequence, no separation by column type"). Explore counts hops from the chosen resource,
- * sources to its left and targets to its right; Flow mode numbers its steps from the internet
- * (flowLayout). Positions are computed here and handed to Cytoscape's preset layout (ADR-0033):
+ * sequence, no separation by column type"), counted in hops from the chosen resource, sources to
+ * its left and targets to its right. Positions are computed here and handed to Cytoscape's
+ * preset layout (ADR-0033):
  * the same view always places a node in the same spot.
  */
 import type { IconName } from '@/components/icons'
 import { typeGroupOf } from '@/views/overview/assetTypes'
 
 export const LANE_WIDTH = 178
-export const LANE_GAP = 28
+// Wide enough for a line's word at its midpoint, between the cards (round M3a: at 28 px the
+// labels sat under the cards). The longest word, "is administrator", is about 90 px.
+export const LANE_GAP = 120
 export const ROW = 70
 export const NODE_WIDTH = 178
 export const NODE_HEIGHT = 46
@@ -85,7 +87,7 @@ export interface LaidNode {
 export interface Placed {
   x: number
   y: number
-  // A hop column in Explore ("hop-<n>"); a flow column ("col-<n>") in Flow mode.
+  // A hop column ("hop-<n>").
   lane: string
 }
 
@@ -187,28 +189,6 @@ export function layout(nodes: LaidNode[], edges: Link[], focus: string | null): 
     }
     const x = at * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH / 2
     list.forEach((n, row) => positions.set(n.id, { x, y: (row - origin) * ROW, lane: `hop-${col}` }))
-  })
-  return { positions, lanes }
-}
-
-/**
- * Flow mode (ADR-0036): one column per step from the internet, as the API numbers them, empty
- * columns hidden. In a column, nodes ROW apart, worst first then by name, centred on 0.
- */
-export function flowLayout(nodes: LaidNode[], columns: ReadonlyMap<string, number>, label: (col: number) => string): Layout {
-  const members = new Map<number, LaidNode[]>()
-  for (const n of nodes) {
-    const col = columns.get(n.id)
-    if (col !== undefined) members.set(col, [...(members.get(col) ?? []), n])
-  }
-  const shown = [...members.keys()].sort((a, b) => a - b)
-  const lanes = shown.map((col, at) => ({ lane: `col-${col}`, label: label(col), x: at * (LANE_WIDTH + LANE_GAP) }))
-  const positions = new Map<string, Placed>()
-  shown.forEach((col, at) => {
-    const list = [...members.get(col)!].sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
-    const origin = (list.length - 1) / 2
-    const x = at * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH / 2
-    list.forEach((n, row) => positions.set(n.id, { x, y: (row - origin) * ROW, lane: `col-${col}` }))
   })
   return { positions, lanes }
 }

@@ -226,9 +226,9 @@ def test_worker_creates_and_drops_partitions_api_cannot(conn: Connection) -> Non
     created = conn.execute(
         text("SELECT argus_ensure_partitions('2001-01-01', '2001-01-31')")
     ).scalar_one()
-    assert created == 8  # one per partitioned table
+    assert created == 7  # one per partitioned table
     dropped = set(conn.execute(text("SELECT argus_drop_partitions_before('2001-02-01')")).scalars())
-    assert {"metric_daily_200101", "compliance_rollup_200101", "flow_snapshot_200101"} <= dropped
+    assert {"metric_daily_200101", "compliance_rollup_200101", "edge_snapshot_200101"} <= dropped
 
     conn.execute(text("RESET ROLE"))
     conn.execute(text("SET LOCAL ROLE argus_api"))

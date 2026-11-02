@@ -3,7 +3,7 @@
 Edges are derived when a Steampipe run is ingested. So after an upgrade, a connection kept the
 old rules' edges until its next runs. When the worker starts, before its run threads, each
 enabled connection whose latest rule load was derived with another rule set (edge_load.ruleset,
-migration 0026; none before it) is derived again on that load's day: its edges, flows and reach
+migration 0026; none before it) is derived again on that load's day: its edges and reach
 checks. The new rule set moves the graph read model's marker, so the graph loop re-projects the
 connection and evaluates the attack paths again (ADR-0044, M2). A path the new rules no longer
 find is resolved by that evaluation when the connection's newest runs are complete, on the
@@ -18,7 +18,7 @@ from sqlalchemy import Engine, text
 
 from argus import connections
 from argus.ingest.pipeline import REDERIVE_LOCK, check_reach, rule_set
-from argus.relationships import latest_rule_loads, write_edges, write_flows
+from argus.relationships import latest_rule_loads, write_edges
 
 log = logging.getLogger(__name__)
 # Two re-derives starting together (two workers, a Job and a worker) do it once.
@@ -45,7 +45,6 @@ def rederive_connection(engine: Engine, *, rules_dir: Path, connection_id: int, 
     edges = write_edges(
         engine, rules_dir=rules_dir, connection_id=connection_id, day=day, ruleset=ruleset
     )
-    flows = write_flows(engine, connection_id=connection_id, day=day)
     with engine.begin() as conn:
         reach = check_reach(conn, connection_id=connection_id, day=day)
     log.info(
@@ -54,7 +53,6 @@ def rederive_connection(engine: Engine, *, rules_dir: Path, connection_id: int, 
             "connection_id": connection_id,
             "day": day.isoformat(),
             "edges": edges,
-            "flows": flows,
             "reach_checked": reach,
         },
     )
