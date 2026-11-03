@@ -385,6 +385,32 @@ services:
         condition: service_healthy
     command: ["pytest"]
 
+  # The RDS install without a superuser (tests/tooling/rds_install_check.py), on its own throwaway
+  # Postgres: roles belong to the whole cluster, and the shared one already has Argus's.
+  rds-check-postgres:
+    extends: {service: postgres}
+    profiles: [rds-check]
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: rds-check-local-only
+    volumes: !reset []
+    tmpfs: [/var/lib/postgresql]
+    networks: !override [rds-check]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+  rds-check:
+    <<: *backend-dev
+    profiles: [rds-check]
+    environment:
+      ARGUS_DB_HOST: rds-check-postgres
+      RDS_CHECK_SUPERUSER_PASSWORD: rds-check-local-only
+    networks: [rds-check]
+    depends_on:
+      rds-check-postgres:
+        condition: service_healthy
+    command: ["python", "tests/tooling/rds_install_check.py"]
+
   lint:
     <<: *backend-dev
     environment: {}
@@ -533,6 +559,9 @@ networks:
   egress: {}
   # emulate <-> moto (dev only). Internal: no route out.
   emulate:
+    internal: true
+  # rds-check <-> its throwaway Postgres. Internal: no route out.
+  rds-check:
     internal: true
 
 volumes:

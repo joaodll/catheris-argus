@@ -81,9 +81,28 @@ Create an IAM role for `-run`:
 2. Permissions: `s3:PutObject` on the raw output bucket and `kms:GenerateDataKey` on its key,
    exactly as in [runbook.md, Raw output storage](runbook.md#operating), plus `sts:AssumeRole` on
    each connection's scanner role. Nothing else.
-3. Put the role's ARN in `identity.roleArn`. With EKS Pod Identity instead, set
-   `identity.mode: podIdentity` and make the association outside the chart. With no identity at
-   all (`identity.mode: none`), enter an access key in **Settings → Platform identity**.
+3. Put the role's ARN in `identity.roleArn`. With no identity at all (`identity.mode: none`), enter
+   an access key in **Settings → Platform identity**.
+
+   With EKS Pod Identity instead, set `identity.mode: podIdentity`, make the association for the
+   `-run` service account outside the chart, and give the role this trust:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Effect": "Allow",
+         "Principal": {"Service": "pods.eks.amazonaws.com"},
+         "Action": ["sts:AssumeRole", "sts:TagSession"],
+         "Condition": {
+           "StringEquals": {"aws:SourceAccount": "ACCOUNT"},
+           "ArnEquals": {"aws:SourceArn": "arn:aws:eks:REGION:ACCOUNT:cluster/CLUSTER"}
+         }
+       }
+     ]
+   }
+   ```
 
 The tools in an `aws` pod can read its IRSA token, as they can read the instance role on a
 Compose host. That is why the role may only assume scanner roles and put objects.
@@ -200,9 +219,37 @@ there is no public entry. If you turn it on, add its controller to
 
 ### An external Postgres
 
-Postgres 18 (Amazon RDS, for example), with the database created, owned by the owner role, and
-that role has `CREATEROLE`: the migrate Job creates `argus_api`, `argus_worker` and `argus_scheduler` and sets
-their passwords. Then:
+Postgres 18 (Amazon RDS, for example). You create one role and one database; the migrate Job
+creates `argus_api`, `argus_worker` and `argus_scheduler`, sets their passwords from the Secret, and
+creates the schema.
+
+**Don't create those three roles yourself.** Since Postgres 16 only a role's creator can change it,
+and migrate changes them on every run, so it would fail.
+
+On RDS, connect once as the master user to the database `postgres` and run this, with your master
+user's name in place of `MASTER`:
+
+```sql
+CREATE ROLE argus_owner LOGIN CREATEROLE;
+\password argus_owner
+
+-- CREATE DATABASE ... OWNER needs this first, or it fails with "must be able to SET ROLE".
+GRANT argus_owner TO MASTER;
+CREATE DATABASE argus OWNER argus_owner;
+REVOKE argus_owner FROM MASTER;
+```
+
+`\password` hashes the password in psql, so it never reaches the server's logs. The owner needs
+nothing more: no `rds_superuser`, no `CREATEDB`. Its password is `ARGUS_DB_PASSWORD` in the Secret.
+Argus never uses the master user. Don't run `REVOKE CONNECT ON DATABASE argus FROM PUBLIC` unless you
+also grant `CONNECT` to the three roles: the migrations don't.
+
+Set these RDS parameters: `rds.force_ssl` to `1`, `password_encryption` to `scram-sha-256`, and
+`rds.restrict_password_commands` to `0`, because migrate sets the three passwords. If you set
+`rds.allowed_extensions`, include `pg_trgm`. Set the chart's `postgres.maxConnections` to what RDS
+allows Argus.
+
+Then:
 
 ```yaml
 database:

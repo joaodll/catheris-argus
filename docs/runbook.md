@@ -262,27 +262,150 @@ connections write to your own S3 bucket and cannot run until one is set
          "Resource": [
            "arn:aws:s3:::BUCKET/raw/steampipe/*",
            "arn:aws:s3:::BUCKET/raw/prowler/*",
-           "arn:aws:s3:::BUCKET/raw/cloudfox/*"
+           "arn:aws:s3:::BUCKET/raw/cloudfox/*",
+           "arn:aws:s3:::BUCKET/raw/vulnerabilities/*"
          ]
        },
        {
          "Sid": "ArgusRawOutputKey",
          "Effect": "Allow",
          "Action": "kms:GenerateDataKey",
-         "Resource": "arn:aws:kms:REGION:ACCOUNT:key/KEY_ID"
+         "Resource": "arn:aws:kms:REGION:ACCOUNT:key/KEY_ID",
+         "Condition": {"StringEquals": {"kms:ViaService": "s3.REGION.amazonaws.com"}}
        }
      ]
    }
    ```
 
+   Argus only uploads, one object at a time, so it needs no `kms:Decrypt` and no `s3:GetObject`.
    The identity also needs `sts:AssumeRole` on each connection's scanner role
    ([ADR-0024](adr/0024-connection-auth-methods.md)).
-3. On a machine with no instance or pod role, the identity is an access key: enter it in
+3. Optional, and recommended: narrow the key and the bucket, so nothing else can write or read raw
+   output. `argus-platform` is the role from step 2, and `argus-raw-reader` is a role for the
+   people who may read raw output, with its own `s3:GetObject`, `s3:ListBucket` and `kms:Decrypt`.
+
+   The key policy. Argus can only encrypt, and only through S3 for this bucket. Whoever manages
+   the key cannot decrypt:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Sid": "AccountCanRecoverTheKeyButNotUseIt",
+         "Effect": "Allow",
+         "Principal": {"AWS": "arn:aws:iam::ACCOUNT:root"},
+         "Action": ["kms:Describe*", "kms:Get*", "kms:List*", "kms:PutKeyPolicy"],
+         "Resource": "*"
+       },
+       {
+         "Sid": "KeyAdministration",
+         "Effect": "Allow",
+         "Principal": {"AWS": "arn:aws:iam::ACCOUNT:role/argus-key-admin"},
+         "Action": [
+           "kms:Create*", "kms:Describe*", "kms:Enable*", "kms:List*", "kms:Put*", "kms:Update*",
+           "kms:Revoke*", "kms:Disable*", "kms:Get*", "kms:Delete*", "kms:TagResource",
+           "kms:UntagResource", "kms:ScheduleKeyDeletion", "kms:CancelKeyDeletion",
+           "kms:RotateKeyOnDemand"
+         ],
+         "Resource": "*"
+       },
+       {
+         "Sid": "ArgusEncryptsThroughS3Only",
+         "Effect": "Allow",
+         "Principal": {"AWS": "arn:aws:iam::ACCOUNT:role/argus-platform"},
+         "Action": "kms:GenerateDataKey",
+         "Resource": "*",
+         "Condition": {
+           "StringEquals": {"kms:ViaService": "s3.REGION.amazonaws.com"},
+           "StringLike": {"kms:EncryptionContext:aws:s3:arn": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/*"]}
+         }
+       },
+       {
+         "Sid": "NamedPeopleDecryptThroughS3Only",
+         "Effect": "Allow",
+         "Principal": {"AWS": "arn:aws:iam::ACCOUNT:role/argus-raw-reader"},
+         "Action": "kms:Decrypt",
+         "Resource": "*",
+         "Condition": {
+           "StringEquals": {"kms:ViaService": "s3.REGION.amazonaws.com"},
+           "StringLike": {"kms:EncryptionContext:aws:s3:arn": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/*"]}
+         }
+       }
+     ]
+   }
+   ```
+
+   The bucket policy:
+
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       {
+         "Sid": "DenyWithoutTLS",
+         "Effect": "Deny",
+         "Principal": "*",
+         "Action": "s3:*",
+         "Resource": ["arn:aws:s3:::BUCKET", "arn:aws:s3:::BUCKET/*"],
+         "Condition": {"Bool": {"aws:SecureTransport": "false"}}
+       },
+       {
+         "Sid": "OnlyArgusWrites",
+         "Effect": "Deny",
+         "Principal": "*",
+         "Action": "s3:PutObject",
+         "Resource": "arn:aws:s3:::BUCKET/*",
+         "Condition": {"StringNotLike": {"aws:PrincipalArn": "arn:aws:iam::ACCOUNT:role/argus-platform"}}
+       },
+       {
+         "Sid": "OnlyNamedPeopleReadOrDelete",
+         "Effect": "Deny",
+         "Principal": "*",
+         "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:DeleteObject", "s3:DeleteObjectVersion"],
+         "Resource": "arn:aws:s3:::BUCKET/*",
+         "Condition": {"StringNotLike": {"aws:PrincipalArn": "arn:aws:iam::ACCOUNT:role/argus-raw-reader"}}
+       },
+       {
+         "Sid": "DenyAskingForOtherEncryption",
+         "Effect": "Deny",
+         "Principal": "*",
+         "Action": "s3:PutObject",
+         "Resource": "arn:aws:s3:::BUCKET/*",
+         "Condition": {
+           "Null": {"s3:x-amz-server-side-encryption": "false"},
+           "StringNotEquals": {"s3:x-amz-server-side-encryption": "aws:kms"}
+         }
+       },
+       {
+         "Sid": "DenyAskingForAnotherKey",
+         "Effect": "Deny",
+         "Principal": "*",
+         "Action": "s3:PutObject",
+         "Resource": "arn:aws:s3:::BUCKET/*",
+         "Condition": {
+           "Null": {"s3:x-amz-server-side-encryption-aws-kms-key-id": "false"},
+           "StringNotEquals": {"s3:x-amz-server-side-encryption-aws-kms-key-id": "arn:aws:kms:REGION:ACCOUNT:key/KEY_ID"}
+         }
+       }
+     ]
+   }
+   ```
+
+   Keep the `Null` lines. Argus sends no encryption header and relies on the bucket's default
+   encryption, and a policy sees the request, not the stored object. Without them, or with
+   `StringNotEqualsIfExists`, every Argus upload is denied. With an access key as the identity, add
+   that user's ARN to `OnlyArgusWrites`. Turn versioning on, because `PutObject` can overwrite older
+   raw output, and expire old versions in the lifecycle rule. Leave S3 Bucket Keys off: they cut KMS
+   calls, and with them the per-object audit trail, and Argus writes little.
+4. On a machine with no instance or pod role, the identity is an access key: enter it in
    **Settings → Platform identity**.
    It can be an IAM user's key (`AKIA…`) or your SSO session's temporary credentials (`ASIA…`
    plus the session token, see below).
-4. In **Settings → Raw output storage**, enter the bucket and its region, and change the folder per
+5. In **Settings → Raw output storage**, enter the bucket and its region, and change the folder per
    tool if you need to. The card shows "Bucket set".
+6. Run **Test connection** on the platform identity. It writes to all four folders and reports the
+   encryption S3 used, which should be `aws:kms`.
 
 A run whose upload fails shows as **Failed** in **Scans → Runs** with the reason in its log. A run
 stored without KMS carries a **No KMS** badge, and the worker logs a warning. Only the worker has a route to the internet (`egress` network).
