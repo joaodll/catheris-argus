@@ -22,7 +22,6 @@ import { typeLabel } from './mapLanes'
 const props = defineProps<{
   graph: GraphState
   selection: Selection | null
-  asOf: string | null
   full: boolean // the map holds 500 nodes: nothing more can be added
   connectionName: (id: number) => string
   // The connection the map walks: a group's members are read in it.
@@ -95,7 +94,6 @@ const members = useResource(
             direction: g.direction as 'out' | 'in',
             edge_type: g.edge_type,
             resource_type: g.resource_type,
-            as_of: props.asOf,
             limit: PAGE,
             offset: (page.value - 1) * PAGE,
           },
@@ -103,7 +101,7 @@ const members = useResource(
       }),
     )
   },
-  { watch: [group, page, () => props.asOf, () => props.connectionId] },
+  { watch: [group, page, () => props.connectionId] },
 )
 function added(member: Schemas['GroupMember']): boolean {
   return props.graph.nodes.has(member.node.uid)
@@ -158,7 +156,6 @@ function ports(edge: MapEdge): string | null {
       <ResourceDetail
         v-if="node.resource_id != null"
         :resource-id="node.resource_id"
-        :as-of="asOf"
         :connection-name="connectionName"
         :resource-link="resourceLink"
         hide-internet

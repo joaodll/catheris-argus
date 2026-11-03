@@ -25,7 +25,7 @@ import MapList from './MapList.vue'
 import MapPanel from './MapPanel.vue'
 import MapStart from './MapStart.vue'
 import ResourceSearch from './ResourceSearch.vue'
-import { addMember, emptyGraph, MAX_NODES, mergeGraph, nodeName, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
+import { addMember, emptyGraph, graphNote, MAX_NODES, mergeGraph, nodeName, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
 import { DEPTHS, LAYER_LABEL, LAYERS, ORIGIN_LABEL, ORIGINS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapState, type Origin } from './mapQuery'
 
 const route = useRoute()
@@ -55,6 +55,7 @@ const notFound = ref(false)
 const truncated = ref(false) // the API stopped at 500
 const capped = ref(false) // the map holds 500
 const dataThrough = ref<string | null>(null)
+const graphState = ref<Schemas['MapGraphState'] | null>(null)
 // The connection the focus neighbourhood was walked in: every Expand stays in it.
 const walked = ref<number | null>(null)
 let generation = 0
@@ -62,7 +63,7 @@ let generation = 0
 const localSelection = ref<Selection | null>(null)
 
 const neighbourhoodKey = computed(() =>
-  JSON.stringify([state.value.focus, state.value.connection, state.value.depth, state.value.layers, state.value.origins, state.value.asOf]),
+  JSON.stringify([state.value.focus, state.value.connection, state.value.depth, state.value.layers, state.value.origins]),
 )
 
 /** "Recently opened": the focus, once the map has drawn it (it is in the inventory). */
@@ -98,6 +99,7 @@ async function load(): Promise<void> {
     truncated.value = result.truncated
     capped.value = merged.capped
     dataThrough.value = result.data_through
+    graphState.value = result.graph
     remember(s.focus, result.connection_id)
     await showPath(mine)
   } catch (err) {
@@ -252,6 +254,7 @@ watch(selection, (sel, before) => {
 })
 
 const alone = computed(() => started.value && !loading.value && graph.value.nodes.size === 1 && graph.value.edges.size === 0 && graph.value.groups.size === 0)
+const stale = computed(() => graphNote(graphState.value))
 const banner = computed(() => {
   if (truncated.value) return 'This neighbourhood has more than 500 resources. Turn off a layer or lower the depth to see the rest.'
   if (full.value) return 'Showing 500 resources, the most this map draws. Turn off a layer or lower the depth to see the rest.'
@@ -297,10 +300,6 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         </div>
       </div>
     </template>
-    <div class="field">
-      <label class="lbl" for="map-asof">As of</label>
-      <input id="map-asof" class="input" type="date" :value="state.asOf ?? ''" :max="new Date().toISOString().slice(0, 10)" @change="navigate({ asOf: ($event.target as HTMLInputElement).value || null })">
-    </div>
     <div v-if="started" class="field">
       <span id="map-view" class="lbl">View</span>
       <div class="segmented" role="group" aria-labelledby="map-view">
@@ -312,6 +311,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
   </section>
 
   <AlertBanner v-if="banner" kind="warn">{{ banner }}</AlertBanner>
+  <AlertBanner v-if="started && stale" :kind="stale.kind">{{ stale.text }}</AlertBanner>
   <AlertBanner v-if="path" kind="info">
     Showing attack path {{ path.rule_name ?? path.rule_id }} · <SeverityTag :severity="path.severity" compact />
     <template #action><button type="button" class="btn btn-ghost btn-sm" @click="navigate({ path: null }, 'replace')">Clear</button></template>
@@ -336,7 +336,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         The map didn't load: {{ error }}
         <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load">Retry</button></template>
       </AlertBanner>
-      <EmptyState v-else-if="notFound" icon="graph" :title="`${state.focus} is not in the inventory on ${state.asOf ?? 'the latest day'}.`">
+      <EmptyState v-else-if="notFound" icon="graph" :title="`${state.focus} is not in the inventory.`">
         <RouterLink class="btn btn-secondary" :to="startLink">Find another resource</RouterLink>
       </EmptyState>
       <div v-else-if="loading && graph.nodes.size === 0" class="skeleton-map" aria-busy="true" aria-label="Loading the map">
@@ -374,7 +374,6 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         ref="panel"
         :graph="graph"
         :selection="selection"
-        :as-of="state.asOf"
         :full="full"
         :connection-name="connectionName"
         :connection-id="walked"
@@ -393,7 +392,6 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
       framed
       :graph="graph"
       :selection="selection"
-      :as-of="state.asOf"
       :full="full"
       :connection-name="connectionName"
       :connection-id="walked"

@@ -105,4 +105,11 @@ chart_digest=$(yq '.images.memgraph.digest' "$CHART/values.yaml")
 [ "$compose_digest" = "$chart_digest" ] || fail "memgraph: compose.yaml $compose_digest, chart $chart_digest"
 echo "memgraph $chart_digest"
 
+step "Memgraph's login stays inside the graph (ADR-0044, M-2)"
+memgraph=$(helm template argus "$CHART" -f "$CHART/ci/$(ls "$CHART/ci" | head -1)" --show-only templates/memgraph/statefulset.yaml)
+echo "$memgraph" | grep -q -- '--allow-load-csv=false' || fail "Memgraph allows LOAD CSV"
+echo "$memgraph" | yq -e '.spec.template.spec.containers[0].volumeMounts[] | select(.mountPath == "/var/lib/memgraph/data/internal_modules") | .readOnly == true' > /dev/null \
+  || fail "Memgraph's query module directory is writable"
+echo "no LOAD CSV, no writable module directory"
+
 printf '\nchart-check passed\n'

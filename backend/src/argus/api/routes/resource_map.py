@@ -1,15 +1,16 @@
 """Investigate -> Resource map (ADR-0033): one neighbourhood at a time, never the estate.
 Named reads only: a client chooses a connection, a focus, a depth, layers and origins, never a
-query. Every read is for one connection (ADR-0033, amended 2026-10-09)."""
+query. Every read is for one connection (ADR-0033, amended 2026-10-09), in its latest state in
+the graph read model (ADR-0044, M3b): the map has no past days."""
 
-from datetime import UTC, date, datetime
+from datetime import date
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection
 
-from argus import connections, findings, ingest, inventory, relationships
+from argus import connections, findings, graph, inventory, relationships
 from argus.api.deps import Db, Viewer
 
 router = APIRouter(tags=["map"])
@@ -65,10 +66,24 @@ class MapGroup(BaseModel):
     count: int
 
 
+class MapGraphState(BaseModel):
+    """How current the map is for its connection (ADR-0044, M-3)."""
+
+    # The days its state in the graph was projected from; null when that family has none, or
+    # while its sync has failed.
+    resource_day: date | None
+    rule_day: date | None
+    cloudfox_day: date | None
+    # A newer scan is ingested and not yet in the graph.
+    behind: bool
+    # Its sync failed, or it has been behind for 10 minutes: it waits for the next update.
+    failed: bool
+
+
 class MapGraph(BaseModel):
     focus: str
     connection_id: int
-    as_of: date
+    graph: MapGraphState
     nodes: list[MapNode]
     edges: list[MapEdge]
     groups: list[MapGroup]
@@ -93,7 +108,6 @@ class MapQuery(BaseModel):
     # The connection whose edges are walked. Absent: the focus resource's own connection.
     connection_id: int | None = None
     depth: int = Field(1, ge=1, le=relationships.MAX_DEPTH)
-    as_of: date | None = None
     layer: list[relationships.Layer] = Field(
         default_factory=lambda: list(relationships.DEFAULT_LAYERS), max_length=5
     )
@@ -102,13 +116,10 @@ class MapQuery(BaseModel):
     )
 
 
-def _day(as_of: date | None) -> date:
-    return as_of or datetime.now(UTC).date()
-
-
-def _through(conn: Connection, connection_id: int | None = None) -> date | None:
-    # Edges come from Steampipe (our rules) and CloudFox.
-    return ingest.data_through(conn, connection_id=connection_id, tools=["steampipe", "cloudfox"])
+def _through(state: dict[str, Any]) -> date | None:
+    """The newest day the connection's state in the graph was projected from."""
+    days = [state[k] for k in ("resource_day", "rule_day", "cloudfox_day") if state[k] is not None]
+    return max(days) if days else None
 
 
 def with_findings(conn: Connection, nodes: list[dict[str, Any]]) -> list[MapNode]:
@@ -145,30 +156,29 @@ def _connection(conn: Connection, connection_id: int | None, focus: str) -> rela
 
 
 @router.get("/map/graph")
-def graph(conn: Db, _user: Viewer, query: Annotated[MapQuery, Query()]) -> MapGraph:
-    day = _day(query.as_of)
+def map_graph(conn: Db, _user: Viewer, query: Annotated[MapQuery, Query()]) -> MapGraph:
     scope = _connection(conn, query.connection_id, query.focus)
-    found = relationships.neighbourhood(
+    found = graph.neighbourhood(
         conn,
         focus=query.focus,
         scope=scope,
         depth=query.depth,
-        day=day,
         layers=tuple(query.layer),
         origins=tuple(query.origin),
     )
     focus = found["nodes"][0]
     if focus["kind"] == "resource" and focus["resource_id"] is None and not found["edges"]:
-        raise LookupError(query.focus)  # neither in the inventory nor on any edge that day
+        raise LookupError(query.focus)  # neither in the inventory nor on any edge of the graph
+    state = graph.map_state(conn, connection_id=scope.connection_id)
     return MapGraph(
         focus=query.focus,
         connection_id=scope.connection_id,
-        as_of=day,
+        graph=MapGraphState.model_validate(state),
         nodes=with_findings(conn, found["nodes"]),
         edges=[MapEdge.model_validate(e) for e in found["edges"]],
         groups=[MapGroup.model_validate(g) for g in found["groups"]],
         truncated=found["truncated"],
-        data_through=_through(conn, scope.connection_id),
+        data_through=_through(state),
     )
 
 
@@ -181,7 +191,6 @@ class GroupQuery(BaseModel):
     direction: Literal["out", "in"]
     edge_type: Annotated[str, Field(pattern=r"^[A-Z][A-Z_]{0,63}$")]
     resource_type: Annotated[str | None, Field(max_length=128)] = None
-    as_of: date | None = None
     limit: int = Field(20, ge=1, le=100)
     offset: int = Field(0, ge=0)
 
@@ -190,14 +199,13 @@ class GroupQuery(BaseModel):
 def group(conn: Db, _user: Viewer, query: Annotated[GroupQuery, Query()]) -> GroupPage:
     """A group's members, by name, each with the edge that links it to the anchor."""
     scope = _connection(conn, query.connection_id, query.anchor)
-    rows, total = relationships.group_members(
+    rows, total = graph.group_members(
         conn,
         anchor=query.anchor,
         scope=scope,
         direction=query.direction,
         edge_type=query.edge_type,
         resource_type=query.resource_type or None,
-        day=_day(query.as_of),
         limit=query.limit,
         offset=query.offset,
     )
@@ -208,5 +216,5 @@ def group(conn: Db, _user: Viewer, query: Annotated[GroupQuery, Query()]) -> Gro
             for node, r in zip(nodes, rows, strict=True)
         ],
         total=total,
-        data_through=_through(conn, scope.connection_id),
+        data_through=_through(graph.map_state(conn, connection_id=scope.connection_id)),
     )

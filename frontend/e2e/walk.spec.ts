@@ -604,6 +604,34 @@ test('investigate: resource map and attack paths, read-only', async ({ page }) =
   await shot(page, '96-map-path')
 })
 
+test('resource map: says when the graph is unavailable or behind, never an empty map', async ({ page }) => {
+  allowed = [/503/] // the answer this test asks for
+  await signIn(page)
+  const map = '/investigate/map?focus=internet&connection=1'
+  // Memgraph down (ADR-0044, M-1): the API's answer, then the way back.
+  let down = true
+  await page.route(/\/api\/v1\/map\/graph\?/, async (route) => {
+    if (down) {
+      await route.fulfill({ status: 503, headers: { 'Retry-After': '5' }, json: { detail: 'the graph is unavailable; try again shortly' } })
+      return
+    }
+    const response = await route.fetch()
+    const body = await response.json()
+    await route.fulfill({ response, json: { ...body, graph: { ...body.graph, behind: true } } })
+  })
+  await page.goto(map)
+  await expect(page.getByText("The map didn't load: the graph is unavailable; try again shortly")).toBeVisible()
+  await axe(page, 'map, graph unavailable')
+  await shot(page, '92b-map-graph-unavailable')
+  // A newer scan is on its way (M-3).
+  down = false
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(page.getByText('A newer scan of this account is being added to the map.')).toBeVisible()
+  // The map has no past days (D1).
+  await expect(page.locator('#map-asof')).toHaveCount(0)
+  await axe(page, 'map, behind the scans')
+})
+
 test('attack paths: says how many paths the cap kept out of the list', async ({ page }) => {
   await signIn(page)
   // The cap can't be reached on the demo estates, so the answer carries a cut (ADR-0044, amended 2026-11-02).

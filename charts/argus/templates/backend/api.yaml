@@ -1,8 +1,10 @@
 {{- /* The HTTP API (/api/v1), behind web's nginx. Connects as argus_api; no Kubernetes token,
-no cloud identity (ADR-0040). Reached only by web (NetworkPolicy). Its Service, disruption budget
+no cloud identity (ADR-0040). Reached only by web; reaches Postgres and, for the Resource map,
+Memgraph (NetworkPolicy, ADR-0044 M3b). Its Service, disruption budget
 and autoscaler are in services.yaml, pdb.yaml and hpa.yaml. */ -}}
 {{- define "argus.api.env" -}}
 {{ include "argus.keyringEnv" . }}
+{{ include "argus.graph.env" . }}
 # Kubernetes offers real connections only: Demo connections are for Docker Compose (ADR-0039).
 - name: ARGUS_DEMO_CONNECTIONS
   value: "false"

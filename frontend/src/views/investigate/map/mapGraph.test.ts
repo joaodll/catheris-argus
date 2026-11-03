@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addMember, boundaryLabel, drawnEdges, emptyGraph, lineStyle, mergeGraph, nodeName, traceOf, worstOf, type MapEdge, type MapNode } from './mapGraph'
+import { addMember, boundaryLabel, drawnEdges, emptyGraph, graphNote, lineStyle, mergeGraph, nodeName, traceOf, worstOf, type MapEdge, type MapNode } from './mapGraph'
 
 function node(uid: string, extra: Partial<MapNode> = {}): MapNode {
   return { uid, kind: 'resource', resource_id: 1, type: 'aws_lambda_function', name: uid, region: 'us-east-1', connection_id: 1, deleted_on: null, expanded: false, boundary: false, findings: {}, ...extra }
@@ -8,6 +8,16 @@ let next = 1
 function edge(source: string, target: string, origin = 'rule:x@1', type = 'ROUTES_TO'): MapEdge {
   return { id: next++, source_uid: source, target_uid: target, type, origin, attributes: {}, first_seen: '2026-10-01', last_seen: '2026-10-08' }
 }
+
+describe('the graph note', () => {
+  it('says when the map has not caught up with the scans', () => {
+    expect(graphNote(null)).toBeNull()
+    expect(graphNote({ behind: false, failed: false })).toBeNull()
+    expect(graphNote({ behind: true, failed: false })?.kind).toBe('info')
+    expect(graphNote({ behind: true, failed: true })?.kind).toBe('warn')
+    expect(graphNote({ behind: false, failed: true })?.text).toContain('out of date')
+  })
+})
 
 describe('Resource map graph state', () => {
   it('merges responses, keeps a node expanded once its neighbours were read', () => {

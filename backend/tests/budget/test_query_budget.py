@@ -634,31 +634,6 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "attack paths, not listed": lambda c: attackpaths.not_listed(
         c, connection_id=None, as_of=TODAY
     ),
-    "map: a neighbourhood, depth 2": lambda c: relationships.neighbourhood(
-        c, focus=MAP_FOCUS, depth=2, day=TODAY, **MAP_SCOPE
-    ),
-    "map: a neighbourhood, depth 3, every layer": lambda c: relationships.neighbourhood(
-        c,
-        focus=MAP_FOCUS,
-        **MAP_SCOPE,
-        depth=3,
-        day=TODAY,
-        layers=("traffic", "identity", "network", "policy"),
-    ),
-    "map: the internet hub": lambda c: relationships.neighbourhood(
-        c, focus="internet", depth=1, day=TODAY, **HUB_SCOPE
-    ),
-    "map: a group's first page": lambda c: relationships.group_members(
-        c,
-        anchor=HUB_VPC,
-        **HUB_SCOPE,
-        direction="in",
-        edge_type="IN_NETWORK",
-        resource_type="aws_ec2_instance",
-        day=TODAY,
-        limit=20,
-        offset=0,
-    ),
     "resources: the Vulnerabilities cells of a page": _vulnerability_cells,
     "resources: with an exploitable CVE, one account": lambda c: inventory.list_resources(
         c,

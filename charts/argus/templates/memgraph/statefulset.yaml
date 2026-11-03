@@ -49,7 +49,12 @@ spec:
       labels:
         {{- include "argus.labels" (dict "root" . "component" "memgraph") | nindent 8 }}
     spec:
-      {{- /* A clean stop writes a snapshot; a killed one replays the WAL at the next start. */}}
+      {{- /* A clean stop writes a snapshot; a killed one replays the WAL at the next start.
+      Community's login can do everything, and the API holds it (ADR-0044, M-2). No LOAD CSV and a
+      read-only module directory keep it to the graph: no reading files, no writing a Python query
+      module and running it inside Memgraph. Memgraph refuses a data directory it does not own, and a
+      volume's root is root's: the init container makes it, as Memgraph's user, for the read-only
+      mount to sit inside. */}}
       {{- include "argus.podSpec" (dict "root" . "component" "memgraph" "uid" 101 "grace" 60
         "fsGroupChangePolicy" "OnRootMismatch" "placement" .Values.memgraph
         "containers" (include "argus.container" (dict "root" . "name" "memgraph"
@@ -58,12 +63,18 @@ spec:
             "--monitoring-address=127.0.0.1" "--storage-mode=IN_MEMORY_TRANSACTIONAL"
             "--storage-wal-enabled=true" "--storage-snapshot-interval-sec=300"
             "--storage-snapshot-on-exit=true" "--data-directory=/var/lib/memgraph/data"
-            "--query-execution-timeout-sec=600"
+            "--query-execution-timeout-sec=600" "--allow-load-csv=false"
             (printf "--memory-limit=%d" (int .Values.memgraph.memoryLimitMiB))
             "--log-level=WARNING" "--log-file=" "--also-log-to-stderr=true")
           "env" (include "argus.memgraph.env" .) "extra" (include "argus.memgraph.probes" .)
           "resources" .Values.memgraph.resources
-          "mounts" "- {name: data, mountPath: /var/lib/memgraph}"))) | nindent 6 }}
+          "mounts" "- {name: data, mountPath: /var/lib/memgraph}\n- {name: no-modules, mountPath: /var/lib/memgraph/data/internal_modules, readOnly: true}"))
+        "initContainers" (include "argus.container" (dict "root" . "name" "data-directory"
+          "image" (include "argus.image" (dict "root" . "image" .Values.images.memgraph "registry" false))
+          "command" (list "mkdir" "-p" "/var/lib/memgraph/data")
+          "resources" (dict "requests" (dict "cpu" "10m" "memory" "16Mi") "limits" (dict "memory" "32Mi"))
+          "mounts" "- {name: data, mountPath: /var/lib/memgraph}"))
+        "volumes" "- {name: no-modules, emptyDir: {sizeLimit: 1Mi}}") | nindent 6 }}
   volumeClaimTemplates:
     - metadata:
         name: data

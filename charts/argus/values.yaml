@@ -136,7 +136,7 @@ postgres:
     cidrs: []
 
 # The graph read model (ADR-0044): Memgraph, holding every connection's current state, rebuilt
-# from Postgres (so its volume needs no backup). One replica; only graph-sync reaches it.
+# from Postgres (so its volume needs no backup). One replica; graph-sync and the API reach it.
 # 2.0-2.5 GiB held 1M resources and 2.4M edges (2026-10-31): size memory from the estate.
 memgraph:
   storage:
@@ -153,7 +153,7 @@ memgraph:
   affinity: {}
 
 # graph-sync (ADR-0044): one replica that keeps Memgraph equal to Postgres, and the integrity
-# check. The only pod with the Memgraph login.
+# check. The only writer to Memgraph.
 graphSync:
   resources:
     requests: {cpu: 50m, memory: 256Mi}

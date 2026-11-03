@@ -277,6 +277,10 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
   minute, read `graph-sync`'s log and check the memgraph pod. "N more paths ... not listed" means
   that account found more than its cap of 5,000 new rows (log: `attack paths cut at the cap`); a
   fixed path still resolves.
+- **The Resource map reads it too** (round M3b, 2026-11-02). When the map says "the graph is
+  unavailable", the API can't get an answer from Memgraph within 5 seconds: check the memgraph pod,
+  and look for `graph unavailable` in the `api` log. Every other screen keeps working. The API
+  holds `ARGUS_GRAPH_PASSWORD` too, so restart `api` as well as `graph-sync` when it changes.
 - **When to rebuild it:** when Memgraph is broken, or the Secret's `ARGUS_GRAPH_PASSWORD` changed.
   1. Scale `graph-sync` to 0.
   2. Delete the memgraph StatefulSet's PVC and pod.

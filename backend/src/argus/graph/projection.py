@@ -9,6 +9,11 @@ restarted Memgraph rebuilds this way, one connection at a time). A failed or par
 marker the projection reads (the effective days and LATEST_INGESTED_RUNS_SQL already exclude
 it), so it changes nothing here.
 
+A connection whose projection would write what Memgraph already holds is not rewritten (D7a): a
+Prowler or Inspector run changes nothing in the graph, which holds no findings. The new run is
+still recorded, so the attack paths are evaluated from it. A connection marked failed always
+rewrites, so the integrity check's repair is never skipped.
+
 One connection is replaced in one Memgraph transaction: its edges deleted, its nodes merged by
 uid, its edges created between merged endpoints. A uid it references that it does not own
 (another connection's resource, a pseudo-node such as `internet`) is a stub holding only its uid
@@ -43,7 +48,7 @@ from typing import Any
 from neo4j import Session
 from sqlalchemy import Connection, Engine, text
 
-from argus import connections, findings, ingest, inventory, relationships
+from argus import connections, ingest, inventory, relationships
 from argus.attackpaths import edge_confidence
 from argus.core import audit
 from argus.core.redaction import redact_text
@@ -62,18 +67,10 @@ _ACCOUNT_SCOPED = "any:"  # pseudo-nodes that mean something in one account only
 # The graph's shape. Bump it when the projection writes something differently: every connection
 # projected in another format re-projects once, at the next reconcile, without reading as drift.
 # 2: account-scoped wildcard pseudo-nodes (any:<service>@<account>), 2026-11-01.
-FORMAT = 2
-_SEVERITIES = ("critical", "high", "medium", "low")
+# 3: a map `layer` on edges, no findings or reach on nodes (D6), 2026-11-02.
+FORMAT = 3
 _EMPTY_CHECKSUM = bytes(32)
 
-_FAILING_SQL = f"""
-  SELECT f.resource_uid, f.severity, count(*) AS n FROM ({findings.FAILING_FINDINGS_SQL}) f
-  GROUP BY f.resource_uid, f.severity
-"""  # noqa: S608 - exported SQL only
-_EXPLOITABLE_SQL = f"""
-  SELECT DISTINCT r.uid FROM ({findings.VULNERABLE_RESOURCES_SQL["exploitable"]}) v
-  JOIN ({inventory.RESOURCES_PRESENT_SQL}) r ON r.id = v.resource_id
-"""  # noqa: S608 - exported SQL only
 _EDGES_SQL = f"""
   SELECT e.id, e.source_uid, e.target_uid, e.type, e.origin, e.attributes
   FROM ({relationships.EFFECTIVE_EDGES_SQL}) e WHERE e.origin <> 'manual'
@@ -136,6 +133,7 @@ def checksum(nodes: list[dict[str, Any]], edges: list[dict[str, Any]]) -> bytes:
                 e["type"],
                 e["origin"],
                 e["confidence"],
+                e.get("layer"),
                 e.get("attrs") or {},
             ],
             sort_keys=True,
@@ -176,17 +174,8 @@ def read_snapshot(conn: Connection, target: Target, *, today: date) -> Snapshot:
     }
     snap = Snapshot(target, days)
     params = {"connection_id": c, **days}
-    failing: dict[str, dict[str, int]] = defaultdict(dict)
-    for uid, severity, n in conn.execute(text(_FAILING_SQL), params):
-        if severity in _SEVERITIES:
-            failing[uid][f"failing_{severity}"] = int(n)
-    exploitable: set[str] = set()
-    if days["resource_day"] is not None:
-        exploitable = set(conn.execute(text(_EXPLOITABLE_SQL), params).scalars())
-    reach = relationships.internet_reach(conn, connection_id=c, day=today).doors
     if days["resource_day"] is not None:
         for r in conn.execute(text(inventory.RESOURCES_PRESENT_SQL), params):
-            door = reach.get(r.uid)
             snap.nodes.append(
                 _clean(
                     {
@@ -197,9 +186,6 @@ def read_snapshot(conn: Connection, target: Target, *, today: date) -> Snapshot:
                         "region": r.region,
                         "type": r.type,
                         "name": r.name,
-                        "reach": door.reach if door else None,
-                        "exploitable": True if r.uid in exploitable else None,
-                        **failing.get(r.uid, {}),
                     }
                 )
             )
@@ -217,6 +203,7 @@ def read_snapshot(conn: Connection, target: Target, *, today: date) -> Snapshot:
                     "type": e.type,
                     "origin": e.origin,
                     "confidence": level,
+                    "layer": relationships.layer_of(e.type, e.target_uid),
                     "attrs": _attrs(e.attributes),
                 }
             )
@@ -265,6 +252,7 @@ def _write(session: Session, snap: Snapshot) -> None:
                         "conn": c,
                         "origin": e["origin"],
                         "confidence": e["confidence"],
+                        "layer": e["layer"],
                         "attrs": e["attrs"],
                     }
                 ),
@@ -297,6 +285,18 @@ def _write(session: Session, snap: Snapshot) -> None:
         tx.commit()
 
 
+def _note_run(session: Session, snap: Snapshot) -> None:
+    """Nothing to write but the marker: the run this unchanged state was projected from."""
+    with session.begin_transaction(timeout=client.timeout()) as tx:
+        tx.run(
+            "MATCH (p:Projection {conn: $c}) SET p.source_run_id = $run, p.ruleset = $ruleset",
+            c=snap.target.connection_id,
+            run=snap.target.source_run_id,
+            ruleset=snap.target.ruleset,
+        )
+        tx.commit()
+
+
 def _remove(session: Session, connection_id: int) -> None:
     with session.begin_transaction(timeout=client.timeout()) as tx:
         _collect_stubs(tx, _detach(tx, connection_id))
@@ -319,16 +319,22 @@ _UPSERT_SQL = """
 """
 
 
-def sync_connection(engine: Engine, session: Session, target: Target, *, today: date) -> bool:
+def sync_connection(
+    engine: Engine, session: Session, target: Target, *, today: date, holds: bytes | None = None
+) -> bool:
     """Re-project one connection. Returns whether it succeeded; a failure is recorded on the
-    connection's row (status failed) and retried by the next reconcile."""
+    connection's row (status failed) and retried by the next reconcile. `holds` is the checksum
+    Memgraph is known to hold for it: the same state is not written again."""
     c = target.connection_id
     try:
         with engine.connect().execution_options(isolation_level="REPEATABLE READ") as conn:
             conn.execute(text("SET TRANSACTION READ ONLY"))
             snap = read_snapshot(conn, target, today=today)
             conn.rollback()
-        _write(session, snap)
+        if snap.checksum == holds:
+            _note_run(session, snap)
+        else:
+            _write(session, snap)
     except Exception as e:
         log.exception("graph sync failed", extra={"connection": c})
         with engine.begin() as conn:
@@ -451,7 +457,16 @@ def reconcile(engine: Engine, *, today: date | None = None) -> dict[str, int] | 
                 )
                 if current:
                     continue
-                if sync_connection(engine, session, target, today=today):
+                # Only a healthy row may vouch for what Memgraph holds: a failed one, the
+                # integrity check's mark among them, always rewrites.
+                holds = (
+                    bytes(row["checksum"])
+                    if row is not None
+                    and row["status"] == "synced"
+                    and markers.get(c) == (bytes(row["checksum"]).hex(), FORMAT)
+                    else None
+                )
+                if sync_connection(engine, session, target, today=today, holds=holds):
                     synced += 1
                 else:
                     failed += 1

@@ -98,7 +98,7 @@ by CVE. **Resources** is the inventory, with each resource's configuration as of
 Shows what a resource depends on and connects to. Find one by name, id or ARN, narrow the search
 to an account, or reopen one you mapped recently. The map draws its network, the roles it runs as,
 the policies attached and what calls it, hop by hop, with each line saying what it is ("routes to",
-"runs as"). Whether a resource is really reachable from the internet is on Misconfigurations,
+"runs as"). It shows each account's latest scan; for an earlier day, use Resources. Whether a resource is really reachable from the internet is on Misconfigurations,
 Resources and Attack paths.
 
 ### Investigate → Attack paths

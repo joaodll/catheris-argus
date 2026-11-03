@@ -2242,11 +2242,6 @@
       },
       "MapGraph": {
         "properties": {
-          "as_of": {
-            "format": "date",
-            "title": "As Of",
-            "type": "string"
-          },
           "connection_id": {
             "title": "Connection Id",
             "type": "integer"
@@ -2274,6 +2269,9 @@
             "title": "Focus",
             "type": "string"
           },
+          "graph": {
+            "$ref": "#/components/schemas/MapGraphState"
+          },
           "groups": {
             "items": {
               "$ref": "#/components/schemas/MapGroup"
@@ -2296,7 +2294,7 @@
         "required": [
           "focus",
           "connection_id",
-          "as_of",
+          "graph",
           "nodes",
           "edges",
           "groups",
@@ -2304,6 +2302,64 @@
           "data_through"
         ],
         "title": "MapGraph",
+        "type": "object"
+      },
+      "MapGraphState": {
+        "description": "How current the map is for its connection (ADR-0044, M-3).",
+        "properties": {
+          "behind": {
+            "title": "Behind",
+            "type": "boolean"
+          },
+          "cloudfox_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cloudfox Day"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "boolean"
+          },
+          "resource_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Day"
+          },
+          "rule_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Day"
+          }
+        },
+        "required": [
+          "resource_day",
+          "rule_day",
+          "cloudfox_day",
+          "behind",
+          "failed"
+        ],
+        "title": "MapGraphState",
         "type": "object"
       },
       "MapGroup": {
@@ -8757,7 +8813,7 @@
     },
     "/api/v1/map/graph": {
       "get": {
-        "operationId": "graph_api_v1_map_graph_get",
+        "operationId": "map_graph_api_v1_map_graph_get",
         "parameters": [
           {
             "in": "query",
@@ -8796,23 +8852,6 @@
               "minimum": 1,
               "title": "Depth",
               "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "as_of",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "date",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "As Of"
             }
           },
           {
@@ -8924,7 +8963,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Graph",
+        "summary": "Map Graph",
         "tags": [
           "map"
         ]
@@ -8993,23 +9032,6 @@
                 }
               ],
               "title": "Resource Type"
-            }
-          },
-          {
-            "in": "query",
-            "name": "as_of",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "date",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "As Of"
             }
           },
           {

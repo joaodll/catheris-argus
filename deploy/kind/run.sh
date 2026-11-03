@@ -380,7 +380,17 @@ test_network() {
   if k exec "deploy/$FULL-web" -- nc -z -w 3 "$FULL-memgraph" 7687 2>/dev/null; then fail "web -> Memgraph open"; fi
   ok "web -> $graph closed"
 
-  # Memgraph (ADR-0044): graph-sync alone reaches it; it reaches nothing.
+  # Community's one login can do everything: its module directory must stay read-only (M-2).
+  if k exec "statefulset/$FULL-memgraph" -- touch /var/lib/memgraph/data/internal_modules/probe 2>/dev/null; then
+    fail "Memgraph's query module directory is writable"
+  fi
+  ok "Memgraph's query module directory is read-only"
+
+  # Memgraph (ADR-0044): graph-sync and the API reach it; it reaches nothing.
+  out=$(probe_from api api "$graph" "$db" 1.1.1.1:443)
+  expect_reach "$out" api "$graph" open
+  expect_reach "$out" api "$db" open
+  expect_reach "$out" api 1.1.1.1:443 closed
   out=$(probe_from graph graph-sync "$graph" "$db" "$api" 1.1.1.1:443)
   expect_reach "$out" graph-sync "$graph" open
   expect_reach "$out" graph-sync "$db" open

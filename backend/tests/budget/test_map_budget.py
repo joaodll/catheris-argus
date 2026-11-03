@@ -1,20 +1,14 @@
-"""The Resource map in Cypher, measured before it is built: Phase 0 of round M3 (ADR-0044, M3
-amendment, D2's gate). M3b may move the map's reads to Memgraph only when this passes:
-- parity: the Cypher prototype answers what relationships.neighbourhood() answers today (the
-  same nodes, edges, groups, boundary nodes and `truncated`), at depths 1-3, with the default
-  layers and with all of them; a group's members match group_members()
-- speed: p95 <= 300 ms and p99 <= 1 s at 8 concurrent clients, idle, while the largest
-  connection is re-projected, and while the attack paths are evaluated
+"""The Resource map's reads against their budget (ADR-0044, round M3b): at 8 concurrent clients on
+a realistic mix of requests, idle, while the largest connection is re-projected, and while the
+attack paths are evaluated, p95 stays under 300 ms and p99 under 1 s, with no errors. The worst
+case (every layer, depths 1 to 3, over the hubs) is printed, not asserted.
 
-The prototype is test code. Round 4b MOVES it into argus.graph (the hop as a named read, the
-loop beside it) and deletes the SQL; it is never copied. It reads what M3b will read:
-topology from Memgraph (one read per hop, in a read transaction with a 5 s timeout), then
-names and edge details from Postgres in batches. Layers are edge-type lists here; Phase 3
-projects a `layer` per edge instead.
+M3b moved the map here from SQL on the owner's gate of 2026-11-02, measured at 300,000 resources
+with both engines present (palace, `architecture`): the same answers, p95 within 10% of SQL's.
 
 Clients are threads of one process, as requests are in one API process. The re-projection and
 the evaluation run in a process of their own, as graph-sync does, so they do not share this
-process's interpreter lock. SQL runs as argus_api with its 5 s statement timeout.
+process's interpreter lock. Postgres runs as argus_api with its 5 s statement timeout.
 
 Runs after test_graph_budget.py in the same session (the `budget` profile runs both) and reuses
 its estate; alone, it generates one. It adds three hubs to the largest connection (20,000,
@@ -26,7 +20,7 @@ import os
 import random
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from multiprocessing import get_context
@@ -40,22 +34,12 @@ from sqlalchemy.exc import OperationalError
 from tests.budget import graph_estate
 from tests.conftest import RULES_DIR
 
-from argus import graph, inventory, relationships
+from argus import graph
 from argus.core.config import get_settings
 from argus.core.db import CONNECT_ARGS, get_engine
 from argus.graph import client
-from argus.graph.projection import graph_uid, postgres_uid
-from argus.relationships.graph import (
-    DEFAULT_LAYERS,
-    GROUP_OVER,
-    MAX_DEPTH,
-    MAX_NODES,
-    ORIGINS,
-    MapScope,
-    _account_of,
-    group_id,
-    kind_of,
-)
+from argus.graph.projection import postgres_uid
+from argus.relationships import DEFAULT_LAYERS, MAX_DEPTH, MapScope, kind_of
 
 pytestmark = [
     pytest.mark.db,
@@ -64,82 +48,18 @@ pytestmark = [
         not os.environ.get("ARGUS_GRAPH_BUDGET"), reason="opt-in: ARGUS_GRAPH_BUDGET=1"
     ),
 ]
+TIMEOUT_S = 5.0
 P95_MS = 300.0
 P99_MS = 1000.0
-TIMEOUT_S = 5.0
 ALL_LAYERS = ("traffic", "identity", "network", "policy", "data")
 CLIENTS = (8, 16)
-IDLE_REQUESTS = 40  # per client
+IDLE_REQUESTS = 100  # per client
+BUDGET_CLIENTS = 8
 WARM_UP = 2  # unrecorded requests per client before each measurement
 SINGLE_RUNS = 10
 PAGE_SIZE = 20  # the API's default page (api/routes/resource_map.py)
 
-# ---- the prototype -----------------------------------------------------------------------
-
-# The layers as edge types (LAYER_SQL in relationships/graph.py, which Phase 3 replaces with one
-# Python declaration projected onto each edge). MEMBER_OF is identity when its target is an IAM
-# group, network otherwise.
-LAYER_TYPES: dict[str, tuple[str, ...]] = {
-    "traffic": ("ROUTES_TO", "TRIGGERS", "INTERNET_REACHABLE"),
-    "identity": (
-        "RUNS_AS",
-        "CAN_ASSUME",
-        "IS_ADMIN",
-        "CAN_PRIVESC_TO",
-        "BELONGS_TO",
-        "OUTSIDER",
-        "HAS_CREDENTIAL",
-        "CAN_ESCALATE_TO",
-        "CAN_RUN_ON",
-    ),
-    "network": ("IN_NETWORK", "ALLOWS_INGRESS", "PROTECTED_BY", "CAN_CONNECT_TO"),
-    "policy": ("HAS_POLICY",),
-    "data": ("ACCESSES",),
-}
-IAM_GROUP = ".*:iam::[0-9]{12}:group/.*"
-
-# One hop: every edge of the connection at the frontier, grouped per (anchor, direction, edge
-# type, neighbour type); a group's members only when it is drawn one by one. The WITH makes
-# Memgraph find the anchor by its uid first and expand from it: in one MATCH, its planner
-# starts from the global edge index on `conn` and scans every edge of the connection for each
-# anchor (3,989,601 edges for 200 anchors at 20,000 resources: 1.8 s against 0.16 s). One
-# record per hop: the client's cost is per Bolt record (about 40 ms of CPU per map request with
-# a record per group, under the interpreter lock that a busy API process shares).
-HOP = """
-UNWIND $frontier AS anchor
-MATCH (a:R {uid: anchor})
-WITH a, anchor
-MATCH (a)-[r]-(b:R)
-WHERE r.conn = $c
-  AND (type(r) IN $types
-       OR (type(r) = 'MEMBER_OF'
-           AND (($groups AND endNode(r).uid =~ $iam_group)
-                OR ($others AND NOT endNode(r).uid =~ $iam_group))))
-  AND (($rule AND r.origin STARTS WITH 'rule:') OR ($cloudfox AND r.origin = 'cloudfox'))
-WITH anchor, r, b,
-     CASE WHEN startNode(r).uid = anchor THEN 'out' ELSE 'in' END AS direction
-WITH anchor, direction, type(r) AS type, b.type AS other_type,
-     count(DISTINCT b.uid) AS siblings,
-     collect([r.id, b.uid, b.name, b.conn]) AS hits
-RETURN collect([anchor, direction, type, other_type, siblings,
-                CASE WHEN siblings <= $g THEN hits ELSE [] END]) AS hop
-"""
-# One page of a group's members, by name, each with the lowest edge id that links it.
-_GROUP_PAGE = """
-MATCH (a:R {{uid: $anchor}})
-WITH a
-MATCH (a){pattern}(b:R)
-WHERE type(r) = $type AND r.conn = $c AND coalesce(b.type, '') = $rt
-WITH b, min(r.id) AS id
-WITH b.uid AS other, id, toLower(coalesce(b.name, b.uid)) AS label
-ORDER BY label, other
-WITH collect([other, id]) AS members
-RETURN size(members) AS total, members[$first..$last] AS page
-"""
-GROUP_PAGE = {
-    "out": _GROUP_PAGE.format(pattern="-[r]->"),
-    "in": _GROUP_PAGE.format(pattern="<-[r]-"),
-}
+# ---- the harness -------------------------------------------------------------------------
 
 
 def _read(cypher: str, *, timeout: float = TIMEOUT_S, **params: Any) -> list[dict[str, Any]]:
@@ -154,178 +74,6 @@ def _read(cypher: str, *, timeout: float = TIMEOUT_S, **params: Any) -> list[dic
     with client.driver().session() as session:
         rows: list[dict[str, Any]] = session.execute_read(work)
         return rows
-
-
-def _hop_params(c: int, layers: tuple[str, ...], origins: tuple[str, ...]) -> dict[str, Any]:
-    return {
-        "c": c,
-        "types": sorted({t for layer in layers for t in LAYER_TYPES[layer]}),
-        "groups": "identity" in layers,
-        "others": "network" in layers,
-        "iam_group": IAM_GROUP,
-        "rule": "rule" in origins,
-        "cloudfox": "cloudfox" in origins,
-        "g": GROUP_OVER,
-    }
-
-
-def _boundary(uid: str, owner: int | None, scope: MapScope) -> bool:
-    if owner is not None:
-        return owner != scope.connection_id
-    account = _account_of(uid)
-    return account is not None and account != scope.account_id
-
-
-def _ordered(rows: list[list[Any]]) -> Iterator[tuple[Any, ...]]:
-    """The hop's groups in relationships.neighbourhood()'s order: a large group as one row,
-    else one row per edge (two when a rule and CloudFox both find it), by name, uid, edge id.
-    Code-point order: SQL sorts in the database's collation, so which nodes a cut neighbourhood
-    keeps can differ (round 4b fixes one order)."""
-    flat: list[tuple[Any, ...]] = []
-    for anchor_uid, direction, etype, other_type, siblings, hits in rows:
-        anchor = postgres_uid(anchor_uid)
-        if siblings > GROUP_OVER:
-            flat.append((anchor, direction, etype, other_type, None, None, siblings, None, None))
-            continue
-        for edge_id, other, name, owner in hits:
-            flat.append(
-                (
-                    anchor,
-                    direction,
-                    etype,
-                    other_type,
-                    name,
-                    postgres_uid(other),
-                    siblings,
-                    edge_id,
-                    owner,
-                )
-            )
-    flat.sort(
-        key=lambda x: (
-            x[0],
-            x[1],
-            x[2],
-            x[3] is not None,
-            x[3] or "",
-            x[4] is None,
-            x[4] or "",
-            x[5] or "",
-            x[7] or 0,
-        )
-    )
-    return iter(flat)
-
-
-def cypher_neighbourhood(
-    conn: Connection,
-    *,
-    focus: str,
-    scope: MapScope,
-    depth: int,
-    layers: tuple[str, ...] = DEFAULT_LAYERS,
-    origins: tuple[str, ...] = ORIGINS,
-) -> dict[str, Any]:
-    """relationships.neighbourhood() over Memgraph: the same walk, limits and answer."""
-    depth = max(1, min(depth, MAX_DEPTH))
-    params = _hop_params(scope.connection_id, layers, origins)
-    order: dict[str, None] = {focus: None}
-    owners: dict[str, int | None] = {}
-    edge_ids: dict[int, None] = {}
-    groups: dict[str, dict[str, Any]] = {}
-    expanded: set[str] = set()
-    truncated = False
-    frontier = [focus]
-    for _ in range(depth):
-        if not frontier or truncated:
-            break
-        rows = _read(HOP, frontier=[graph_uid(u, scope.account_id) for u in frontier], **params)[0][
-            "hop"
-        ]
-        expanded.update(frontier)
-        found: list[str] = []
-        for (
-            anchor,
-            direction,
-            etype,
-            other_type,
-            _name,
-            other,
-            siblings,
-            edge_id,
-            owner,
-        ) in _ordered(rows):
-            if len(order) + len(groups) >= MAX_NODES:
-                truncated = True
-                break
-            if siblings > GROUP_OVER:
-                key = group_id(anchor, direction, etype, other_type)
-                groups.setdefault(
-                    key,
-                    {
-                        "id": key,
-                        "anchor_uid": anchor,
-                        "direction": direction,
-                        "edge_type": etype,
-                        "resource_type": other_type,
-                        "count": int(siblings),
-                    },
-                )
-                continue
-            if other not in order:
-                order[other] = None
-                found.append(other)
-            owners[other] = owner
-            edge_ids[edge_id] = None
-        frontier = [u for u in found if not _boundary(u, owners.get(u), scope)]
-    # Postgres: names and places, and the edges' details, in one batch each.
-    uids = list(order)
-    info = inventory.resource_nodes(conn, [u for u in uids if kind_of(u) == "resource"])
-    edges = relationships.edges_by_ids(conn, list(edge_ids))
-    nodes = [
-        {
-            "uid": u,
-            "kind": kind_of(u),
-            "resource_id": info.get(u, {}).get("id"),
-            "type": info.get(u, {}).get("type"),
-            "name": info.get(u, {}).get("name"),
-            "expanded": u in expanded,
-            "boundary": _boundary(u, owners.get(u), scope),
-        }
-        for u in uids
-    ]
-    return {
-        "nodes": nodes,
-        "edges": [edges[i] for i in edge_ids if i in edges],
-        "groups": list(groups.values()),
-        "truncated": truncated,
-    }
-
-
-def cypher_group_page(
-    *,
-    anchor: str,
-    scope: MapScope,
-    direction: str,
-    edge_type: str,
-    resource_type: str | None,
-    limit: int,
-    offset: int,
-) -> tuple[list[tuple[str, int]], int]:
-    rows = _read(
-        GROUP_PAGE[direction],
-        anchor=graph_uid(anchor, scope.account_id),
-        type=edge_type,
-        c=scope.connection_id,
-        rt=resource_type or "",
-        first=offset,
-        last=offset + limit,
-    )
-    page = [(postgres_uid(uid), int(edge_id)) for uid, edge_id in rows[0]["page"]]
-    return page, int(rows[0]["total"])
-
-
-# ---- the harness -------------------------------------------------------------------------
 
 
 def _percentile(samples: list[float], p: float) -> float:
@@ -371,30 +119,13 @@ class Sample:
         )
 
 
-Request = Callable[[Connection, str, int], Any]
-
-
-def _requests(scope: MapScope) -> dict[str, Request]:
-    def sql(conn: Connection, focus: str, depth: int) -> Any:
-        return relationships.neighbourhood(
-            conn,
-            focus=focus,
-            scope=scope,
-            depth=depth,
-            day=graph_estate.TODAY,
-            layers=ALL_LAYERS,
-        )
-
-    def cypher(conn: Connection, focus: str, depth: int) -> Any:
-        return cypher_neighbourhood(conn, focus=focus, scope=scope, depth=depth, layers=ALL_LAYERS)
-
-    return {"SQL": sql, "Cypher": cypher}
+Request = Callable[..., Any]
 
 
 def _client(
     engine: Engine,
     request: Request,
-    work: list[tuple[str, int]],
+    work: list[tuple[Any, ...]],
     seed: int,
     sample: Sample,
     lock: threading.Lock,
@@ -405,11 +136,11 @@ def _client(
     rng = random.Random(seed)  # noqa: S311 - a fixed request order, not a secret
     done = 0
     while (count is not None and done < count) or (until is not None and not until.is_set()):
-        focus, depth = work[rng.randrange(len(work))]
+        item = work[rng.randrange(len(work))]
         started = time.perf_counter()
         try:
             with engine.connect() as conn:
-                request(conn, focus, depth)
+                request(conn, *item)
             ms = (time.perf_counter() - started) * 1000
             with lock:
                 sample.latencies_ms.append(ms)
@@ -428,7 +159,7 @@ def _client(
 def _drive(
     engine: Engine,
     request: Request,
-    work: list[tuple[str, int]],
+    work: list[tuple[Any, ...]],
     clients: int,
     *,
     count: int | None = None,
@@ -497,6 +228,23 @@ def _during(
         return sample, future.result()
 
 
+def _conditions(
+    engine: Engine,
+    request: Request,
+    work: list[tuple[Any, ...]],
+    clients: int,
+    estate: dict[str, Any],
+) -> dict[str, Sample]:
+    """One sample idle, one while the largest connection is re-projected, one during an
+    evaluation."""
+    drive = lambda until: _drive(engine, request, work, clients, until=until)  # noqa: E731
+    return {
+        "idle": _drive(engine, request, work, clients, count=IDLE_REQUESTS),
+        "projection": _during(_resync, (estate["connection"], 3), drive)[0],
+        "evaluation": _during(_evaluate, (), drive)[0],
+    }
+
+
 # ---- the estate --------------------------------------------------------------------------
 
 
@@ -549,227 +297,134 @@ def estate(migrated: Engine) -> dict[str, Any]:
     if leaf is not None:
         foci["leaf (1 edge)"] = leaf
     print(f"\nmap budget: connection {c}, {len(ranked):,} nodes with edges; foci {foci}")
-    return {"scope": scope, "foci": foci, "connection": c}
+    ordinary = [u for u, d in ranked if u not in foci.values() and kind_of(u) == "resource"]
+    return {"scope": scope, "foci": foci, "connection": c, "ordinary": ordinary}
 
 
 # ---- the tests ---------------------------------------------------------------------------
 
 
-def _key(answer: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "nodes": {n["uid"]: (n["boundary"], n["expanded"]) for n in answer["nodes"]},
-        "edges": {e["id"] for e in answer["edges"]},
-        "groups": {g["id"]: g["count"] for g in answer["groups"]},
-        "truncated": answer["truncated"],
-    }
-
-
-def _differences(where: str, want: dict[str, Any], got: dict[str, Any]) -> list[str]:
-    if want["truncated"] != got["truncated"]:
-        return [f"{where}: truncated {want['truncated']} vs {got['truncated']}"]
-    if want["truncated"]:
-        # The 500 kept follow each engine's sort order (collation): compare sizes only.
-        sizes = [len(x["nodes"]) + len(x["groups"]) for x in (want, got)]
-        return [f"{where}: cut at {sizes[0]} vs {sizes[1]}"] if sizes[0] != sizes[1] else []
-    found = []
-    for part in ("nodes", "edges", "groups"):
-        if want[part] != got[part]:
-            extra = set(got[part]) - set(want[part])
-            missing = set(want[part]) - set(got[part])
-            changed = {
-                k
-                for k in set(want[part]) & set(got[part])
-                if isinstance(want[part], dict) and want[part][k] != got[part][k]
-            }
-            found.append(
-                f"{where}: {part} differ, {len(missing)} missing "
-                f"{sorted(missing, key=str)[:3]}, {len(extra)} extra "
-                f"{sorted(extra, key=str)[:3]}, {len(changed)} changed {sorted(changed)[:3]}"
-            )
-    return found
-
-
-def test_the_cypher_map_answers_what_the_sql_map_answers(
-    migrated: Engine, estate: dict[str, Any]
-) -> None:
+def test_one_client(migrated: Engine, estate: dict[str, Any]) -> None:
     scope: MapScope = estate["scope"]
-    mismatches: list[str] = []
-    checked = cut = 0
-    groups_seen: list[dict[str, Any]] = []
-    with migrated.connect() as conn:
+    engine = _api_engine(2)
+
+    def read(conn: Connection, focus: str, depth: int) -> Any:
+        return graph.neighbourhood(conn, focus=focus, scope=scope, depth=depth, layers=ALL_LAYERS)
+
+    print("\none client, all layers (ms, p50 / p95 of", SINGLE_RUNS, "runs):")
+    try:
         for label, focus in estate["foci"].items():
-            for layers in (DEFAULT_LAYERS, ALL_LAYERS):
-                for depth in range(1, MAX_DEPTH + 1):
-                    want = _key(
-                        relationships.neighbourhood(
-                            conn,
-                            focus=focus,
-                            scope=scope,
-                            depth=depth,
-                            day=graph_estate.TODAY,
-                            layers=layers,
-                        )
-                    )
-                    answer = cypher_neighbourhood(
-                        conn, focus=focus, scope=scope, depth=depth, layers=layers
-                    )
-                    checked += 1
-                    cut += bool(want["truncated"])
-                    shown = "all" if layers == ALL_LAYERS else "default"
-                    mismatches += _differences(
-                        f"{label}, depth {depth}, layers {shown}", want, _key(answer)
-                    )
-                    if depth == 1 and layers == ALL_LAYERS:
-                        groups_seen.extend(answer["groups"][:3])
-        # A group's members: every member and the edge that links it.
-        for g in groups_seen[:12]:
-            members, total = relationships.group_members(
+            cells = []
+            for depth in range(1, MAX_DEPTH + 1):
+                sample = _drive(engine, read, [(focus, depth)], 1, count=SINGLE_RUNS)
+                assert not sample.errors, sample.errors[:3]
+                lat = sample.latencies_ms or [math.inf]
+                cells.append(f"d{depth} {_percentile(lat, 0.5):6.1f}/{_percentile(lat, 0.95):6.1f}")
+            print(f"  {label:<34} " + "  ".join(cells))
+    finally:
+        engine.dispose()
+
+
+def test_the_worst_case_at_concurrent_clients(migrated: Engine, estate: dict[str, Any]) -> None:
+    """Every layer, depths 1 to 3, over every focus, hubs included: printed, not asserted."""
+    scope: MapScope = estate["scope"]
+    work = [(focus, depth) for focus in estate["foci"].values() for depth in (1, 2, 3)]
+
+    def read(conn: Connection, focus: str, depth: int) -> Any:
+        return graph.neighbourhood(conn, focus=focus, scope=scope, depth=depth, layers=ALL_LAYERS)
+
+    print("\nconcurrent clients, all layers, depths 1-3 over every focus:")
+    for clients in CLIENTS:
+        engine = _api_engine(clients)
+        try:
+            for condition, sample in _conditions(engine, read, work, clients, estate).items():
+                print(f"  {clients:2d} clients {condition:<10} {sample.line()}")
+        finally:
+            engine.dispose()
+
+
+# ---- the budget: a realistic mix ---------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Ask:
+    """One request as the screen makes it (frontend/src/views/investigate/map/mapQuery.ts)."""
+
+    focus: str
+    depth: int = 1
+    layers: tuple[str, ...] = DEFAULT_LAYERS
+    group: dict[str, Any] | None = None
+    offset: int = 0
+
+
+def _realistic_mix(estate: dict[str, Any], conn: Connection) -> list[tuple[Ask]]:
+    """100 requests, sampled by the clients: what a person does on the map. Opening or expanding an
+    ordinary resource at depth 1 with the default layers (the screen's defaults), sometimes one hop
+    further or every layer; now and then a hub, and a group's pages, nearly always the first."""
+    scope: MapScope = estate["scope"]
+    rng = random.Random(7)  # noqa: S311 - a fixed mix, not a secret
+    ordinary = rng.sample(estate["ordinary"], 60)
+    hubs = [uid for label, uid in estate["foci"].items() if label.startswith("hub")]
+    groups = [
+        g
+        for hub in hubs
+        for g in graph.neighbourhood(conn, focus=hub, scope=scope, depth=1, layers=ALL_LAYERS)[
+            "groups"
+        ]
+    ]
+    assert groups, "the hubs lost their groups"
+    asks = [Ask(u) for u in ordinary[:60]]  # opened or expanded: both are one depth-1 read
+    asks += [Ask(u, depth=2) for u in ordinary[:15]]
+    asks += [Ask(u, layers=ALL_LAYERS) for u in ordinary[15:20]]
+    asks += [Ask(hub) for hub in hubs for _ in range(2)]  # hubs: 6 requests with three hubs
+    largest = sorted(groups, key=lambda g: -g["count"])[:3]
+    asks += [Ask(g["anchor_uid"], group=g) for g in groups[:12]]
+    asks += [Ask(g["anchor_uid"], group=g, offset=g["count"] - PAGE_SIZE) for g in largest[:2]]
+    return [(ask,) for ask in asks]
+
+
+def test_a_realistic_mix_stays_within_budget(migrated: Engine, estate: dict[str, Any]) -> None:
+    scope: MapScope = estate["scope"]
+
+    def read(conn: Connection, ask: Ask) -> Any:
+        if ask.group:
+            g = ask.group
+            return graph.group_members(
                 conn,
                 anchor=g["anchor_uid"],
                 scope=scope,
                 direction=g["direction"],
                 edge_type=g["edge_type"],
                 resource_type=g["resource_type"],
-                day=graph_estate.TODAY,
-                limit=100_000,
-                offset=0,
+                limit=PAGE_SIZE,
+                offset=ask.offset,
             )
-            want_members = {(m["node"]["uid"], m["edge"]["id"]) for m in members}
-            page, got_total = cypher_group_page(
-                anchor=g["anchor_uid"],
-                scope=scope,
-                direction=g["direction"],
-                edge_type=g["edge_type"],
-                resource_type=g["resource_type"],
-                limit=100_000,
-                offset=0,
-            )
-            if (total, want_members) != (got_total, set(page)):
-                mismatches.append(
-                    f"group {g['id']}: {total} members vs {got_total}, "
-                    f"{len(want_members ^ set(page))} differ"
-                )
-    print(
-        f"\nparity: {checked} neighbourhoods ({cut} cut at {MAX_NODES}), "
-        f"{min(len(groups_seen), 12)} groups; {len(mismatches)} mismatches"
-    )
-    for m in mismatches[:20]:
-        print(f"    {m}")
-    assert not mismatches
+        return graph.neighbourhood(
+            conn, focus=ask.focus, scope=scope, depth=ask.depth, layers=ask.layers
+        )
 
-
-def test_one_client(migrated: Engine, estate: dict[str, Any]) -> None:
-    scope: MapScope = estate["scope"]
-    engine = _api_engine(2)
-    requests = _requests(scope)
-    print("\none client, all layers (ms, p50 / p95 of", SINGLE_RUNS, "runs):")
+    with migrated.connect() as conn:
+        work = _realistic_mix(estate, conn)
+    engine = _api_engine(BUDGET_CLIENTS)
     try:
-        for label, focus in estate["foci"].items():
-            cells = []
-            for depth in range(1, MAX_DEPTH + 1):
-                for name, request in requests.items():
-                    sample = _drive(engine, request, [(focus, depth)], 1, count=SINGLE_RUNS)
-                    assert not sample.errors, sample.errors[:3]
-                    lat = sample.latencies_ms or [math.inf]
-                    p50, p95 = _percentile(lat, 0.5), _percentile(lat, 0.95)
-                    cells.append(f"d{depth} {name} {p50:6.1f}/{p95:6.1f}")
-            print(f"  {label:<34} " + "  ".join(cells))
-        # A group page: the first and a deep one, of the largest group of each hub.
-        with engine.connect() as conn:
-            for label, focus in estate["foci"].items():
-                if not label.startswith("hub"):
-                    continue
-                groups = cypher_neighbourhood(
-                    conn, focus=focus, scope=scope, depth=1, layers=ALL_LAYERS
-                )["groups"]
-                if not groups:
-                    continue
-                g = max(groups, key=lambda x: x["count"])
-                for offset in (0, max(0, g["count"] - PAGE_SIZE)):
-                    times: dict[str, list[float]] = {"SQL": [], "Cypher": []}
-                    for _ in range(SINGLE_RUNS):
-                        started = time.perf_counter()
-                        relationships.group_members(
-                            conn,
-                            anchor=g["anchor_uid"],
-                            scope=scope,
-                            direction=g["direction"],
-                            edge_type=g["edge_type"],
-                            resource_type=g["resource_type"],
-                            day=graph_estate.TODAY,
-                            limit=PAGE_SIZE,
-                            offset=offset,
-                        )
-                        times["SQL"].append((time.perf_counter() - started) * 1000)
-                        started = time.perf_counter()
-                        cypher_group_page(
-                            anchor=g["anchor_uid"],
-                            scope=scope,
-                            direction=g["direction"],
-                            edge_type=g["edge_type"],
-                            resource_type=g["resource_type"],
-                            limit=PAGE_SIZE,
-                            offset=offset,
-                        )
-                        times["Cypher"].append((time.perf_counter() - started) * 1000)
-                    print(
-                        f"  group page {label} ({g['count']:,} members, offset {offset:,}): "
-                        + "  ".join(
-                            f"{k} {_percentile(v, 0.5):6.1f}/{_percentile(v, 0.95):6.1f}"
-                            for k, v in times.items()
-                        )
-                    )
+        results = _conditions(engine, read, work, BUDGET_CLIENTS, estate)
     finally:
         engine.dispose()
-
-
-def test_concurrent_clients_idle_during_a_projection_and_during_an_evaluation(
-    migrated: Engine, estate: dict[str, Any]
-) -> None:
-    scope: MapScope = estate["scope"]
-    work = [(focus, depth) for focus in estate["foci"].values() for depth in (1, 2, 3)]
-    results: dict[tuple[str, int, str], Sample] = {}
-    background: dict[tuple[str, int, str], float] = {}
-    for name, request in _requests(scope).items():
-        for clients in CLIENTS:
-            engine = _api_engine(clients)
-            try:
-                results[(name, clients, "idle")] = _drive(
-                    engine, request, work, clients, count=IDLE_REQUESTS
-                )
-                (
-                    results[(name, clients, "projection")],
-                    background[(name, clients, "projection")],
-                ) = _during(
-                    _resync,
-                    (estate["connection"], 3),
-                    lambda until, e=engine, r=request, n=clients: _drive(
-                        e, r, work, n, until=until
-                    ),
-                )
-                (
-                    results[(name, clients, "evaluation")],
-                    background[(name, clients, "evaluation")],
-                ) = _during(
-                    _evaluate,
-                    (),
-                    lambda until, e=engine, r=request, n=clients: _drive(
-                        e, r, work, n, until=until
-                    ),
-                )
-            finally:
-                engine.dispose()
-    print("\nconcurrent clients, all layers, depths 1-3 over every focus:")
-    for (name, clients, condition), sample in results.items():
-        took = background.get((name, clients, condition))
-        during = f" (background {took:.1f} s)" if took is not None else ""
-        print(f"  {name:<6} {clients:2d} clients {condition:<10} {sample.line()}{during}")
+    print(f"\nthe budget: {len(work)} requests in the mix, {BUDGET_CLIENTS} clients")
+    for condition, sample in results.items():
+        print(f"  {condition:<10} {sample.line()}")
         for error in sample.errors[:3]:
             print(f"      {error}")
-    # The gate (ADR-0044, M3 amendment, D2): Cypher at 8 clients, in every condition.
-    for condition in ("idle", "projection", "evaluation"):
-        sample = results[("Cypher", 8, condition)]
-        assert not sample.errors, sample.errors[:3]
+    print(f"Memgraph after the budget: {_memgraph_memory()}")
+    for condition, sample in results.items():
         assert sample.latencies_ms, f"no request completed during the {condition}"
+        assert not sample.errors, sample.errors[:3]
+        assert not sample.timeouts, condition
         assert _percentile(sample.latencies_ms, 0.95) <= P95_MS, condition
         assert _percentile(sample.latencies_ms, 0.99) <= P99_MS, condition
+
+
+def _memgraph_memory() -> str:
+    with client.driver().session() as session:
+        info = {r["storage info"]: r["value"] for r in session.run("SHOW STORAGE INFO")}
+    return f"memory_res {info.get('memory_res')}, peak_memory_res {info.get('peak_memory_res')}"

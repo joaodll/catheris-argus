@@ -21,8 +21,9 @@ Owns edge, edge_snapshot and edge_load. Public interface:
                       exposure, ADR-0035), `pa` and `ps` (each role's and user's attached
                       policies and Allow statements, its groups' included; ADR-0037)
     NO_JIT            the setting rule transactions run with (JIT off)
-    neighbourhood(), group_members(), edges_by_ids()   the Resource map's reads (graph.py,
-                      ADR-0033)
+    edges_by_ids()    edges by id, an attack path's steps or a map's (graph.py)
+    layer_of(), LAYER_TYPES, kind_of(), group_id(), MapScope, the map's limits   what the Resource
+                      map's reads in argus.graph share (ADR-0033; ADR-0044, M3b)
     EDGE_ATTRIBUTES, plain_attributes()   what a map edge and the graph read model keep of an
                       edge's attributes
     delete_loads_before()   retention's cleanup of edge_load
@@ -44,6 +45,7 @@ from argus.relationships.graph import (
     DEFAULT_LAYERS,
     EDGE_ATTRIBUTES,
     GROUP_OVER,
+    LAYER_TYPES,
     MAX_DEPTH,
     MAX_NODES,
     ORIGINS,
@@ -52,9 +54,9 @@ from argus.relationships.graph import (
     MapScope,
     Origin,
     edges_by_ids,
-    group_members,
+    group_id,
     kind_of,
-    neighbourhood,
+    layer_of,
     plain_attributes,
 )
 from argus.relationships.queries import (
@@ -75,6 +77,7 @@ __all__ = [
     "EFFECTIVE_EDGES_SQL",
     "GROUP_OVER",
     "HOSTS_SQL",
+    "LAYER_TYPES",
     "MAX_DEPTH",
     "MAX_NODES",
     "NO_JIT",
@@ -93,14 +96,14 @@ __all__ = [
     "edges_at",
     "edges_by_ids",
     "effective_days",
-    "group_members",
+    "group_id",
     "internet_reach",
     "kind_of",
     "latest_load_day",
     "latest_rule_loads",
+    "layer_of",
     "load_edges",
     "load_rules",
-    "neighbourhood",
     "owners_of_hosts",
     "plain_attributes",
     "write_edges",

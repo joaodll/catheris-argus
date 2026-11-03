@@ -7,13 +7,13 @@ Memgraph refuses to use for a write. Plain openCypher where possible, so a move 
 engine rewrites this file.
 
 Graph shape (projection.py writes it):
-    (:R {uid, conn, provider, account, region, type, name, reach,
-         failing_critical, failing_high, failing_medium, failing_low, exploitable})
+    (:R {uid, conn, provider, account, region, type, name})
         a resource; a stub (a uid another connection owns, or a pseudo-node such as
         `internet` or `admin:<account>`) has only `uid`. An account's wildcard pseudo-node is
         `any:<service>@<account>` here, `any:<service>` in Postgres (projection.graph_uid)
-    -[:<EDGE_TYPE> {id, conn, origin, confidence, attrs}]->
-        an effective edge of the connection `conn`, `id` being Postgres's edge.id
+    -[:<EDGE_TYPE> {id, conn, origin, confidence, layer, attrs}]->
+        an effective edge of the connection `conn`, `id` being Postgres's edge.id; `layer` is the
+        map layer it is drawn in (relationships.layer_of), absent when the map never draws it
     (:Projection {conn, checksum, source_run_id, ruleset, format})
         the marker of each projected connection (format: projection.FORMAT, the graph's shape)
 
@@ -29,6 +29,19 @@ _MOVES = "|".join(MOVE_TYPES)
 _ENTRY_LIST = ", ".join(f"'{t}'" for t in (*ENTRY_TYPES, *RULE_ENTRY_TYPES))
 _STEP = """r.id AS id, a.uid AS source, b.uid AS target, type(r) AS type, r.origin AS origin,
            r.confidence AS confidence, r.conn AS conn"""
+
+# One page of a group's members, by name, each with the lowest edge id that links it.
+_MAP_GROUP_PAGE = """
+    MATCH (a:R {{uid: $anchor}})
+    WITH a
+    MATCH (a){pattern}(b:R)
+    WHERE type(r) = $type AND r.conn = $c AND coalesce(b.type, '') = $rt
+    WITH b, min(r.id) AS id
+    WITH b.uid AS other, id, toLower(coalesce(b.name, b.uid)) AS label
+    ORDER BY label, other
+    WITH collect([other, id]) AS members
+    RETURN size(members) AS total, members[$first..$last] AS page
+"""
 
 READ_QUERIES: dict[str, str] = {
     # The attack-path search: the edges leaving the internet, with their target's connection.
@@ -57,6 +70,29 @@ READ_QUERIES: dict[str, str] = {
         MATCH (a:R {uid: entry})-[:MEMBER_OF]->(g:R)
         RETURN DISTINCT a.uid AS entry, g.uid AS grp
     """,
+    # One hop of the Resource map: every edge of the connection at the frontier, grouped per
+    # (anchor, direction, edge type, neighbour type), with a group's members only when it is
+    # drawn one by one. The WITH makes Memgraph find the anchor by its uid first and expand from
+    # it: in one MATCH, its planner starts from the global edge index on `conn` and scans every
+    # edge of the connection for each anchor (1.8 s against 0.16 s for 200 anchors at 20,000
+    # resources). One record per hop: the client's cost is per Bolt record.
+    "map_hop": """
+        UNWIND $frontier AS anchor
+        MATCH (a:R {uid: anchor})
+        WITH a, anchor
+        MATCH (a)-[r]-(b:R)
+        WHERE r.conn = $c AND r.layer IN $layers
+          AND (($rule AND r.origin STARTS WITH 'rule:') OR ($cloudfox AND r.origin = 'cloudfox'))
+        WITH anchor, r, b,
+             CASE WHEN startNode(r).uid = anchor THEN 'out' ELSE 'in' END AS direction
+        WITH anchor, direction, type(r) AS type, b.type AS other_type,
+             count(DISTINCT b.uid) AS siblings,
+             collect([r.id, b.uid, b.name]) AS hits
+        RETURN collect([anchor, direction, type, other_type, siblings,
+                        CASE WHEN siblings <= $g THEN hits ELSE [] END]) AS hop
+    """,
+    "map_group_page_out": _MAP_GROUP_PAGE.format(pattern="-[r]->"),
+    "map_group_page_in": _MAP_GROUP_PAGE.format(pattern="<-[r]-"),
     # The integrity check (projection.verify) reads each connection back.
     "projection_markers": """
         MATCH (p:Projection) RETURN p.conn AS conn, p.checksum AS checksum, p.format AS format
@@ -64,7 +100,8 @@ READ_QUERIES: dict[str, str] = {
     "connection_edges": """
         MATCH (a:R)-[r {conn: $conn}]->(b:R)
         RETURN r.id AS id, a.uid AS source, b.uid AS target, type(r) AS type,
-               r.origin AS origin, r.confidence AS confidence, r.attrs AS attrs
+               r.origin AS origin, r.confidence AS confidence, r.layer AS layer,
+               r.attrs AS attrs
     """,
     "connection_nodes": """
         MATCH (n:R {conn: $conn})

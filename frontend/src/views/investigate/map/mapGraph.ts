@@ -21,6 +21,16 @@ export function boundaryLabel(node: MapNode, connectionName: (id: number) => str
   return account ? `Other account: ${account}` : 'Other account'
 }
 
+/** The map's note when the graph has not caught up with the account's scans (ADR-0044, M-3): the map
+ * is that account's latest state in the graph, never a past day. */
+export function graphNote(state: Pick<Schemas['MapGraphState'], 'behind' | 'failed'> | null): { kind: 'info' | 'warn'; text: string } | null {
+  if (state?.failed) {
+    return { kind: 'warn', text: 'This map may be out of date: updating it from the newest scans failed. Argus keeps retrying.' }
+  }
+  if (state?.behind) return { kind: 'info', text: 'A newer scan of this account is being added to the map.' }
+  return null
+}
+
 /** What the map's panel shows: a node, a group (by its id) or a drawn line (by its key). */
 export type Selection = { kind: 'node'; id: string } | { kind: 'group'; id: string } | { kind: 'edge'; key: string }
 

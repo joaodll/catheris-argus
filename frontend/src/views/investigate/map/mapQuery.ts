@@ -27,7 +27,6 @@ export interface MapState {
   depth: Depth
   layers: Layer[]
   origins: Origin[]
-  asOf: string | null
   view: View
   path: number | null
   open: string | null
@@ -67,14 +66,12 @@ export function parseMapQuery(query: LocationQuery, defaultView: View = 'map'): 
   const depth = Number(one(query.depth))
   const layers = ordered(strings(query.layer) as Layer[], LAYERS)
   const origins = ordered(strings(query.origin) as Origin[], ORIGINS)
-  const asOf = one(query.as_of)
   const view = one(query.view)
   return {
     focus: uid(query.focus),
     depth: (DEPTHS as readonly number[]).includes(depth) ? (depth as Depth) : 1,
     layers: layers.length ? layers : [...DEFAULT_LAYERS],
     origins: origins.length ? origins : [...ORIGINS],
-    asOf: asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : null,
     view: view === 'map' || view === 'list' ? view : defaultView,
     path: id(query.path),
     open: uid(query.open),
@@ -91,7 +88,6 @@ export function mapQueryToUrl(s: MapState, defaultView: View = 'map'): LocationQ
     depth: s.depth === 1 ? undefined : String(s.depth),
     layer: same(layers, DEFAULT_LAYERS) ? undefined : layers,
     origin: same(origins, ORIGINS) ? undefined : origins,
-    as_of: s.asOf ?? undefined,
     view: s.view === defaultView ? undefined : s.view,
     path: s.path == null ? undefined : String(s.path),
     open: s.open ?? undefined,
@@ -108,5 +104,5 @@ export function chosenLayers(values: string[]): Layer[] {
 /** The graph request's parameters (GET /map/graph), for one focus, in one connection: the
  * one the first response walked (an Expand), else the URL's, else the API picks the focus's. */
 export function graphParams(s: MapState, focus: string, depth: number = s.depth, connection: number | null = s.connection) {
-  return { focus, depth, layer: s.layers, origin: s.origins, as_of: s.asOf, connection_id: connection ?? undefined }
+  return { focus, depth, layer: s.layers, origin: s.origins, connection_id: connection ?? undefined }
 }

@@ -72,7 +72,8 @@ when their checks need it. Argus never stores such a value:
   worker and the one-shot migration
 - the API has no route out; only the worker, which runs the scans, and the web server sit on
   networks that have one
-- Memgraph, the graph read model, sits on its own internal network that only the worker joins
+- Memgraph, the graph read model, sits on its own internal network that only the worker and the
+  API join
   ([ADR-0044](adr/0044-graph-read-model-memgraph.md)); it is never published and has no route out
 - no service of the running stack mounts the Docker socket (two development tools do: `scan`,
   to read local images, and `kind`, to create a test cluster)
@@ -80,7 +81,7 @@ when their checks need it. Argus never stores such a value:
 **Kubernetes** ([ADR-0040](adr/0040-helm-chart-trust-boundaries.md)):
 
 - **Network:** default-deny NetworkPolicies. Postgres accepts its clients only, the API accepts the
-  web pods only, Memgraph accepts graph-sync only and reaches nothing, and only scan Jobs reach
+  web pods only, Memgraph accepts graph-sync and the API only and reaches nothing, and only scan Jobs reach
   port 443 outside the cluster, never instance metadata. `helm test` proves the cluster enforces
   them.
 - **What a scan Job can be:** the scheduler is the only pod with a Kubernetes token, and may only
@@ -143,10 +144,14 @@ Argus is pre-1.0. These are known and accepted for now:
 - **The tools can read their own credentials** while they run: the role session or the IRSA
   token. That identity can only assume scanner roles and write to the bucket.
 - **The graph read model has no read-only login.** Memgraph Community has no roles, so any login
-  can write. Only graph-sync (the Compose worker) holds one today. When the API reads the graph
-  (a later round), a compromised API could alter what the map and blast-radius views show until
-  the integrity check, at most 10 minutes later, finds the drift, audits it as `graph.drift` and
-  rebuilds the connection from Postgres. Since 2026-11-01 the attack-path search runs over the
+  can write. graph-sync (the Compose worker) and, since round M3b, the API share one (the owner's
+  decision, 2026-11-02): a second login would limit nothing. The API reads only by named queries
+  in read transactions, and a test forbids writes outside the projection. Memgraph runs with
+  `LOAD CSV` off and a read-only query module directory, so the login can't read its files or run
+  Python inside it (found in the M3b review, 2026-11-02). A compromised API could still alter what
+  the map shows until the integrity check, at most 10 minutes later, finds the drift, audits it as
+  `graph.drift` and rebuilds the connection from Postgres, and it could change the login, which
+  stops the graph updating, visibly, until the Secret and the volume are reset. Since 2026-11-01 the attack-path search runs over the
   graph (round M2), so graph-sync runs the integrity check before every search: paths are
   computed only from a graph it has just verified, and the lists and their history are read from
   Postgres. Telemetry is off, its metrics and monitoring listeners stay on the

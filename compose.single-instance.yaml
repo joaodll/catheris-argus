@@ -31,6 +31,7 @@ services:
     environment:
       <<: *keyring
       ARGUS_DB_PASSWORD: ${ARGUS_API_DB_PASSWORD:?set ARGUS_API_DB_PASSWORD}
+      ARGUS_GRAPH_PASSWORD: *graph-password
 
   memgraph:
     environment:

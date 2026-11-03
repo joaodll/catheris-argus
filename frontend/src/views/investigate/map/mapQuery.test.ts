@@ -9,7 +9,6 @@ describe('Resource map state in the URL', () => {
       depth: 1,
       layers: ['traffic', 'identity'],
       origins: ['rule', 'cloudfox'],
-      asOf: null,
       view: 'map',
       path: null,
       open: null,
@@ -24,7 +23,6 @@ describe('Resource map state in the URL', () => {
       depth: '3',
       layer: ['network', 'traffic'],
       origin: 'cloudfox',
-      as_of: '2026-10-01',
       view: 'list',
       path: '42',
       open: 'internet',
@@ -35,8 +33,8 @@ describe('Resource map state in the URL', () => {
   })
 
   it('ignores values it does not know', () => {
-    const state = parseMapQuery({ depth: '9', layer: 'everything', origin: 'probe', as_of: 'yesterday', view: 'graph', path: '-1', focus: 'x'.repeat(3000) })
-    expect(state).toMatchObject({ depth: 1, layers: ['traffic', 'identity'], origins: ['rule', 'cloudfox'], asOf: null, view: 'map', path: null, focus: null })
+    const state = parseMapQuery({ depth: '9', layer: 'everything', origin: 'probe', view: 'graph', path: '-1', focus: 'x'.repeat(3000) })
+    expect(state).toMatchObject({ depth: 1, layers: ['traffic', 'identity'], origins: ['rule', 'cloudfox'], view: 'map', path: null, focus: null })
   })
 
   it('defaults to the List view on a phone, and keeps a chosen Map', () => {
@@ -50,8 +48,8 @@ describe('Resource map state in the URL', () => {
   })
 
   it('builds the graph request for a focus', () => {
-    const state = parseMapQuery({ focus: 'a', depth: '2', as_of: '2026-10-01' })
-    expect(graphParams(state, 'b', 1)).toEqual({ focus: 'b', depth: 1, layer: ['traffic', 'identity'], origin: ['rule', 'cloudfox'], as_of: '2026-10-01', connection_id: undefined })
+    const state = parseMapQuery({ focus: 'a', depth: '2', as_of: '2026-10-01' }) // an older link's day means nothing now
+    expect(graphParams(state, 'b', 1)).toEqual({ focus: 'b', depth: 1, layer: ['traffic', 'identity'], origin: ['rule', 'cloudfox'], connection_id: undefined })
     expect(graphParams({ ...state, connection: 4 }, 'b', 1).connection_id).toBe(4)
     expect(graphParams({ ...state, connection: 4 }, 'b', 1, 7).connection_id).toBe(7)
   })

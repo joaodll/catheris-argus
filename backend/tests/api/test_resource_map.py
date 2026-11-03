@@ -7,16 +7,20 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from neo4j.exceptions import ClientError, ServiceUnavailable, SessionExpired, TransientError
 from sqlalchemy import Engine, text
 from tests.conftest import Settle
 from tests.ingest.conftest import make_demo, run_tool
 
-from argus.collection import TOOL_ORDER
+from argus import graph
+from argus.collection import TOOL_ORDER, CollectTarget
 from argus.collection.synthetic.estate import SCENARIO_INSTANCE
+from argus.connections import demo_account_id
 from argus.core.rawstore import FilesystemRawStore
-from argus.relationships import EDGE_ATTRIBUTES
+from argus.graph import client
+from argus.relationships import EDGE_ATTRIBUTES, MapScope
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.graph]
 
 
 @pytest.fixture
@@ -144,7 +148,7 @@ def test_identity_and_findings_per_tool(signed_in: TestClient, prod: int) -> Non
 def test_many_neighbours_of_one_kind_come_back_as_a_group(
     signed_in: TestClient, prod: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("argus.relationships.graph.GROUP_OVER", 1)
+    monkeypatch.setattr("argus.graph.resource_map.GROUP_OVER", 1)
     graph = _graph(signed_in, "internet", connection_id=prod)
     # Any kind with more than one front door (GROUP_OVER is 1 here) comes back as a group.
     group = next(g for g in graph["groups"] if g["edge_type"] == "ROUTES_TO")
@@ -181,12 +185,14 @@ def test_the_map_walks_one_connection(
     owner: Engine,
     worker: Engine,
     store: FilesystemRawStore,
+    settle: Settle,
 ) -> None:
     """Depth used to reach other connections through shared nodes such as `internet`
     (argus_v10); another connection's resource is now a boundary node, never expanded."""
     other = make_demo(owner, seed=1)
     for tool in TOOL_ORDER:
         run_tool(worker, store, other, tool, datetime.now(UTC).date())
+    settle(datetime.now(UTC).date())
     for cid in (prod, other.connection_id):
         graph = _graph(signed_in, "internet", connection_id=cid, depth=3)
         assert graph["connection_id"] == cid
@@ -203,7 +209,7 @@ def test_the_map_walks_one_connection(
 def test_the_map_cap_and_bad_requests(
     signed_in: TestClient, prod: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("argus.relationships.graph.MAX_NODES", 3)
+    monkeypatch.setattr("argus.graph.resource_map.MAX_NODES", 3)
     capped = _graph(signed_in, "internet", connection_id=prod, layer=["traffic", "network"])
     assert capped["truncated"] and len(capped["nodes"]) + len(capped["groups"]) <= 3
     unknown = signed_in.get(
@@ -382,3 +388,83 @@ def test_the_map_draws_connections_not_reach(
         },
     ).json()
     assert all(set(i["edge"]["attributes"]) <= set(EDGE_ATTRIBUTES) for i in page["items"])
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ServiceUnavailable("connection refused"),
+        SessionExpired("gone"),
+        TransientError("transaction timed out"),
+        ClientError("failed to obtain a connection from the pool within 5.0s (timeout)"),
+        client.GraphNotConfigured("no password"),
+    ],
+    ids=["down", "session-lost", "over-its-timeout", "pool-full", "no-login"],
+)
+def test_the_map_says_so_when_the_graph_cannot_answer(
+    signed_in: TestClient, prod: int, monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    """ADR-0044, M-1: 503 with Retry-After, never an empty map, and nothing of the error."""
+
+    def fails(*_args: Any, **_kwargs: Any) -> Any:
+        raise failure
+
+    monkeypatch.setattr(client, "read", fails)
+    for path, params in (
+        ("/api/v1/map/graph", {"focus": "internet", "connection_id": prod}),
+        (
+            "/api/v1/map/group",
+            {"anchor": "internet", "connection_id": prod, "direction": "out", "edge_type": "X"},
+        ),
+    ):
+        answer = signed_in.get(path, params=params)
+        assert answer.status_code == 503
+        assert answer.headers["Retry-After"]
+        assert answer.json() == {"detail": "the graph is unavailable; try again shortly"}
+
+
+def test_a_wrong_query_is_a_bug_and_not_an_outage(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fails(*_args: Any, **_kwargs: Any) -> Any:
+        raise ClientError("syntax error")
+
+    monkeypatch.setattr(client, "read", fails)
+    with pytest.raises(ClientError):
+        graph.neighbourhood(
+            None,  # type: ignore[arg-type]
+            focus="internet",
+            scope=MapScope(1, "100000000010"),
+            depth=1,
+        )
+
+
+def test_the_map_says_how_current_it_is(
+    signed_in: TestClient,
+    owner: Engine,
+    worker: Engine,
+    store: FilesystemRawStore,
+    prod: int,
+) -> None:
+    """ADR-0044, M-3: the days its state was projected from, and whether a newer scan waits."""
+
+    def state() -> dict[str, Any]:
+        answer = _graph(signed_in, "internet", connection_id=prod)
+        assert isinstance(answer["graph"], dict)
+        assert "as_of" not in answer
+        return answer["graph"]
+
+    today = datetime.now(UTC).date()
+    current = state()
+    assert (current["behind"], current["failed"]) == (False, False)
+    assert current["resource_day"] == today.isoformat()
+    target = CollectTarget(prod, "demo", demo_account_id(0), 0)
+    run_tool(worker, store, target, "prowler", today)  # not in the graph yet
+    assert state()["behind"] is True
+    with owner.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE graph_projection SET status = 'failed', error = 'test' "
+                "WHERE connection_id = :c"
+            ),
+            {"c": prod},
+        )
+    assert state()["failed"] is True

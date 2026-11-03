@@ -2,6 +2,7 @@
 failed run changes nothing, other connections' uids are stubs, and tampering is caught."""
 
 from datetime import UTC, date, datetime, timedelta
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -11,6 +12,7 @@ from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
 from argus import graph
 from argus.collection import TOOL_ORDER, FilesystemRawStore
+from argus.graph import projection
 from argus.ingest import ingest_run, register_failed_run
 from argus.relationships import EDGE_ATTRIBUTES
 
@@ -24,14 +26,8 @@ NODE_KEYS = {
     "region",
     "type",
     "name",
-    "reach",
-    "exploitable",
-    "failing_critical",
-    "failing_high",
-    "failing_medium",
-    "failing_low",
 }
-EDGE_KEYS = {"id", "conn", "origin", "confidence", "attrs"}
+EDGE_KEYS = {"id", "conn", "origin", "confidence", "layer", "attrs"}
 
 
 def _scan(worker: Engine, store: FilesystemRawStore, target, day: date) -> None:  # type: ignore[no-untyped-def]
@@ -83,6 +79,44 @@ def test_a_connection_is_projected_once_and_again_only_when_it_changes(
     # A new day's run moves the marker.
     run_tool(worker, store, target, "prowler", DAY + timedelta(days=1))
     assert graph.reconcile(worker, today=DAY + timedelta(days=1))["synced"] == 1  # type: ignore[index]
+
+
+def test_a_scan_that_changes_nothing_in_the_graph_is_not_written(
+    owner: Engine,
+    worker: Engine,
+    store: FilesystemRawStore,
+    monkeypatch: pytest.MonkeyPatch,
+    graph_clean: None,
+) -> None:
+    """D7a: the graph holds no findings, so a Prowler run rewrites nothing. The run is still
+    recorded, and the integrity check's repair is never skipped."""
+    target = make_demo(owner)
+    _scan(worker, store, target, DAY)
+    graph.reconcile(worker, today=DAY)
+    writes: list[int] = []
+    real = projection._write
+
+    def counted(session: Any, snap: Any) -> None:
+        writes.append(snap.target.connection_id)
+        real(session, snap)
+
+    monkeypatch.setattr(projection, "_write", counted)
+    later = DAY + timedelta(days=1)
+    run_tool(worker, store, target, "prowler", later)
+    assert graph.reconcile(worker, today=later) == {"synced": 1, "failed": 0, "removed": 0}
+    assert writes == []
+    with owner.connect() as conn:
+        row = graph.status(conn)[target.connection_id]
+        newest = conn.execute(text("SELECT max(id) FROM scan_run")).scalar_one()
+    assert row["source_run_id"] == newest  # so its paths are evaluated from it
+    [marker] = graph_rows(
+        "MATCH (p:Projection {conn: $c}) RETURN p.source_run_id AS run", c=target.connection_id
+    )
+    assert marker["run"] == newest
+
+    graph_write("MATCH ()-[r {conn: $c}]->() WITH r LIMIT 1 DELETE r", c=target.connection_id)
+    assert graph.verify(worker, today=later)["drifted"] == 1  # type: ignore[index]
+    assert writes == [target.connection_id]
 
 
 def test_a_failed_run_changes_nothing(

@@ -40,8 +40,8 @@ metadata:
 {{- $np := .Values.networkPolicy }}
 {{- /* Every pod that connects to the database. */}}
 {{- $dbClients := list "api" "scheduler" "run" "migrate" "rederive" "retention" "graph-sync" }}
-{{- /* Every pod that connects to Memgraph (ADR-0044): graph-sync alone. */}}
-{{- $graphClients := list "graph-sync" }}
+{{- /* Every pod that connects to Memgraph (ADR-0044): graph-sync, and the API for the map. */}}
+{{- $graphClients := list "graph-sync" "api" }}
 {{ include "argus.np.meta" (dict "root" . "name" "default-deny") }}
 spec:
   podSelector: {}

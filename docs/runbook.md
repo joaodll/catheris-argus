@@ -439,6 +439,9 @@ To refresh the test fixtures from a real run (the Phase 0 spike), see
 - **When Attack paths says "N more paths ... not listed":** that account found more paths than its
   cap of 5,000 new rows. They are not lost: an evaluation still looks at them, and none of this
   stops a fixed path from resolving. The log shows `attack paths cut at the cap` per connection.
+- **The Resource map reads it too** (round M3b, 2026-11-02). When the map says "the graph is
+  unavailable", the API can't get an answer from `memgraph` within 5 seconds: check that `memgraph`
+  is up, and look for `graph unavailable` in the `api` log. Every other screen keeps working.
 - **Where to see its state:** the `graph_projection` table, one row per connection with `status`,
   counts and `synced_at`, and `paths_evaluated_at` and `paths_run_id` for its paths.
 - **When Attack paths says its paths are behind:** they were found before the newest scans. An

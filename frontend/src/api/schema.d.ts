@@ -433,8 +433,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Graph */
-        get: operations["graph_api_v1_map_graph_get"];
+        /** Map Graph */
+        get: operations["map_graph_api_v1_map_graph_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1619,11 +1619,6 @@ export interface components {
         };
         /** MapGraph */
         MapGraph: {
-            /**
-             * As Of
-             * Format: date
-             */
-            as_of: string;
             /** Connection Id */
             connection_id: number;
             /** Data Through */
@@ -1632,12 +1627,29 @@ export interface components {
             edges: components["schemas"]["MapEdge"][];
             /** Focus */
             focus: string;
+            graph: components["schemas"]["MapGraphState"];
             /** Groups */
             groups: components["schemas"]["MapGroup"][];
             /** Nodes */
             nodes: components["schemas"]["MapNode"][];
             /** Truncated */
             truncated: boolean;
+        };
+        /**
+         * MapGraphState
+         * @description How current the map is for its connection (ADR-0044, M-3).
+         */
+        MapGraphState: {
+            /** Behind */
+            behind: boolean;
+            /** Cloudfox Day */
+            cloudfox_day: string | null;
+            /** Failed */
+            failed: boolean;
+            /** Resource Day */
+            resource_day: string | null;
+            /** Rule Day */
+            rule_day: string | null;
         };
         /**
          * MapGroup
@@ -3655,13 +3667,12 @@ export interface operations {
             };
         };
     };
-    graph_api_v1_map_graph_get: {
+    map_graph_api_v1_map_graph_get: {
         parameters: {
             query: {
                 focus: string;
                 connection_id?: number | null;
                 depth?: number;
-                as_of?: string | null;
                 layer?: ("traffic" | "identity" | "network" | "policy" | "data")[];
                 origin?: ("rule" | "cloudfox" | "manual")[];
             };
@@ -3704,7 +3715,6 @@ export interface operations {
                 direction: "out" | "in";
                 edge_type: string;
                 resource_type?: string | null;
-                as_of?: string | null;
                 limit?: number;
                 offset?: number;
             };

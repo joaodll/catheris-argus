@@ -129,6 +129,19 @@ Secret may lack it. */}}
       {{- end }}
 {{- end }}
 
+{{/* The Memgraph login (ADR-0044): graph-sync writes with it, the API only reads. */}}
+{{- define "argus.graph.env" -}}
+- name: ARGUS_GRAPH_URI
+  value: {{ printf "bolt://%s-memgraph:7687" (include "argus.fullname" .) | quote }}
+- name: ARGUS_GRAPH_USER
+  value: argus
+- name: ARGUS_GRAPH_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.existingSecret }}
+      key: ARGUS_GRAPH_PASSWORD
+{{- end }}
+
 {{- define "argus.keyringEnv" -}}
 {{ include "argus.secretEnv" (dict "root" . "key" "ARGUS_SECRET_KEYS") }}
 {{ include "argus.secretEnv" (dict "root" . "key" "ARGUS_SECRET_KEY_ID") }}

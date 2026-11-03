@@ -66,7 +66,7 @@ Secret ([runbook](runbook-kubernetes.md#the-secret)). Each process reads only wh
 | `ARGUS_SECRET_KEY_ID` | The keyring entry new secrets are sealed with, for example `k1` |
 | `ARGUS_DB_PASSWORD` | The database password of the process's own role |
 | `ARGUS_API_DB_PASSWORD`, `ARGUS_WORKER_DB_PASSWORD`, `ARGUS_SCHEDULER_DB_PASSWORD` | Read by the migration step only: it gives each application role its password |
-| `ARGUS_GRAPH_PASSWORD` | The Memgraph login ([ADR-0044](adr/0044-graph-read-model-memgraph.md)). Memgraph creates it on a new volume; only the graph sync (the Compose worker, `graph-sync` on Kubernetes) holds it. Unset, a process does not use the graph |
+| `ARGUS_GRAPH_PASSWORD` | The Memgraph login ([ADR-0044](adr/0044-graph-read-model-memgraph.md)). Memgraph creates it on a new volume; the graph sync (the Compose worker, `graph-sync` on Kubernetes) writes with it and the API reads with it. Unset, a process does not use the graph |
 
 **The database**
 

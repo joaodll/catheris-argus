@@ -18,7 +18,7 @@ from typing import Any
 
 import pytest
 from neo4j import Driver, GraphDatabase, ManagedTransaction, unit_of_work
-from neo4j.exceptions import TransientError
+from neo4j.exceptions import Neo4jError, TransientError
 from tests.graph.conftest import graph_write
 
 from argus.core.config import get_settings
@@ -92,3 +92,19 @@ def test_a_read_during_an_uncommitted_write_sees_the_old_state_without_waiting(
     assert during == [{"x": 1}]
     assert waited < 2
     assert after == [{"x": 2}]
+
+
+@pytest.mark.parametrize(
+    "cypher",
+    [
+        "LOAD CSV FROM '/etc/passwd' NO HEADER AS row RETURN row LIMIT 1",
+        "CALL mg.create_module_file('not_ours.py', 'import mgp') YIELD path RETURN path",
+    ],
+    ids=["read-a-file", "write-a-python-module"],
+)
+def test_the_login_stays_inside_the_graph(cypher: str) -> None:
+    """Community's one login can do everything, and the API holds it (ADR-0044, M-2). The server's
+    flags and a read-only module directory, set in compose.yaml and the chart, take away what would
+    reach past the graph: reading its files, and running Python inside it."""
+    with client.driver().session() as session, pytest.raises(Neo4jError):
+        session.run(cypher).consume()

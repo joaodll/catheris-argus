@@ -125,7 +125,10 @@ services:
       # X-Forwarded-For with the real peer, so a browser can't choose the IP that the sign-in
       # limit and the audit log record. Any other caller is recorded by its own address.
       ARGUS_TRUSTED_PROXIES: 172.31.250.2
-    networks: [edge, data]
+      # The Resource map reads the graph (ADR-0044, M3b), by named queries in read transactions.
+      # The one login, which Memgraph Community can't limit: the owner's decision of 2026-11-02.
+      ARGUS_GRAPH_PASSWORD: ${ARGUS_DEV_GRAPH_PASSWORD:-argus-graph-local-dev}
+    networks: [edge, data, graph]
     <<: *hardened
     read_only: true
     tmpfs: [/tmp]
@@ -278,7 +281,7 @@ services:
       - raw:/var/lib/argus
       - staging:/var/lib/argus-staging
     # egress: the only service with a route out, to S3 (raw output) and, later, AWS APIs.
-    # graph: Memgraph, which only the worker reaches (ADR-0044).
+    # graph: Memgraph, which only the worker and the API reach (ADR-0044).
     networks: [data, egress, graph]
     <<: *hardened
     read_only: true
@@ -316,6 +319,10 @@ services:
       - --storage-snapshot-on-exit=true
       - --query-execution-timeout-sec=600
       - --memory-limit=3584
+      # Community's login can do everything, and the API holds it (ADR-0044, M-2). These keep it
+      # to the graph: no reading files, and, with the read-only directory below, no writing a
+      # Python query module and running it inside Memgraph.
+      - --allow-load-csv=false
       - --log-level=WARNING
       # Logs to stderr only: no log file on a read-only root.
       - --log-file=
@@ -325,7 +332,9 @@ services:
     networks: [graph]
     <<: *hardened
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs:
+      - /tmp
+      - /var/lib/memgraph/internal_modules:ro
     mem_limit: 4g
     pids_limit: 512
     healthcheck:
@@ -440,15 +449,19 @@ services:
       - --storage-wal-enabled=false
       - --storage-snapshot-interval-sec=0
       - --storage-snapshot-on-exit=false
-      - --data-directory=/tmp/memgraph
       - --query-execution-timeout-sec=600
+      - --allow-load-csv=false
       - --log-level=WARNING
       - --log-file=
       - --also-log-to-stderr=true
     networks: [graph]
     <<: *hardened
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs:
+      - /tmp
+      # Its data never outlives it, and its module directory is read-only, as `memgraph`'s is.
+      - /var/lib/memgraph:uid=101,gid=103,mode=0750
+      - /var/lib/memgraph/internal_modules:ro
     mem_limit: 4g
     healthcheck:
       test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/7687"]
@@ -522,6 +535,7 @@ services:
       - --storage-snapshot-on-exit=false
       - --query-execution-timeout-sec=600
       - --memory-limit=3584
+      - --allow-load-csv=false
       - --log-level=WARNING
       - --log-file=
       - --also-log-to-stderr=true
@@ -530,7 +544,9 @@ services:
     networks: [budget]
     <<: *hardened
     read_only: true
-    tmpfs: [/tmp]
+    tmpfs:
+      - /tmp
+      - /var/lib/memgraph/internal_modules:ro
     mem_limit: 4g
     pids_limit: 512
     healthcheck:
