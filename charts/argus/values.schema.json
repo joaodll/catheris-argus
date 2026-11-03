@@ -490,6 +490,11 @@
         },
         "affinity": {
           "type": "object"
+        },
+        "transactionTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 600
         }
       },
       "required": [
@@ -607,6 +612,42 @@
         },
         "affinity": {
           "type": "object"
+        },
+        "session": {
+          "type": "object",
+          "properties": {
+            "idleMinutes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "absoluteHours": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
+        },
+        "signIn": {
+          "type": "object",
+          "properties": {
+            "maxFailures": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "lockoutMinutes": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxFailuresPerAddress": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "maxFailuresPerUsername": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false,
@@ -902,6 +943,10 @@
             "requests",
             "limits"
           ]
+        },
+        "maxHistoryDays": {
+          "type": "integer",
+          "minimum": 30
         }
       },
       "additionalProperties": false

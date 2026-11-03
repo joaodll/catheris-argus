@@ -232,6 +232,19 @@ expect_reach() {
   ok "$2 -> $3 $4"
 }
 
+test_limits() {
+  step "the limits reach the processes"
+  local got
+  got=$(k exec "deploy/$FULL-api" -c api -- python -c \
+    'from argus.core.config import get_settings as g; s = g(); print(s.max_history_days, s.session_idle_minutes)')
+  [ "$got" = "500 45" ] || fail "the API reads '$got', expected 500 45"
+  ok "the API reads the history bound and the session limit from the chart"
+  got=$(k get cronjob "$FULL-retention" -o json \
+    | jq -r '.spec.jobTemplate.spec.template.spec.containers[0].env[] | select(.name == "ARGUS_MAX_HISTORY_DAYS") | .value')
+  [ "$got" = 500 ] || fail "retention's history bound is '$got', expected 500"
+  ok "retention holds the API's history bound"
+}
+
 test_install() {
   step "the install"
   local d
@@ -497,6 +510,7 @@ test_health() {
 run_tests() {
   kubeconfig
   test_install
+  test_limits
   test_rights
   test_admission
   test_network

@@ -101,6 +101,14 @@ exposure.
 | `ARGUS_MAX_HISTORY_DAYS` | `400` | The longest history the Retention setting may keep |
 | `ARGUS_DEMO_CONNECTIONS` | `true` | Whether Demo connections may be added. The Kubernetes chart sets `false`: the API refuses them, the Add connection dialog offers AWS only and `seed` refuses ([ADR-0039](adr/0039-kubernetes-scheduler-and-run-jobs.md)) |
 
+On Compose, set these in `.env`, along with `ARGUS_GRAPH_TIMEOUT_SECONDS`. On Kubernetes they are chart
+values: `api.session`, `api.signIn`, `retention.maxHistoryDays` and
+`memgraph.transactionTimeoutSeconds`.
+
+`ARGUS_MAX_HISTORY_DAYS` is read twice: the API refuses more, and retention cuts anything above it
+down to it. So lowering it below what is set in **Administration → Settings** deletes the history
+above it at the next retention. The chart and `compose.yaml` give both the same value.
+
 **Deployment facts**
 
 | Variable | Default | What it is |
@@ -116,6 +124,10 @@ exposure.
 | `ARGUS_RAW_ROOT` | `/var/lib/argus` | Where Demo raw output is kept |
 | `ARGUS_RAW_STAGING_ROOT` | `/var/lib/argus-staging` | Where an AWS run is staged before upload |
 | `ARGUS_RULES_DIR` | `/opt/argus/rules` | The relationship and attack-path rules |
+
+`ARGUS_RAW_ROOT`, `ARGUS_RAW_STAGING_ROOT` and `ARGUS_RULES_DIR` are where the image and its mounts put
+things, and `ARGUS_WORKER_THREADS` is set in `compose.yaml`, because `ARGUS_DB_POOL_MAX` has to grow with
+it. None of the four can be set in `.env` or the chart: changing one alone would break the service.
 
 **Compose only**, read by `compose.yaml` rather than by Argus:
 

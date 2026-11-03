@@ -6,6 +6,8 @@ secrets:
 api:
   # kind's pod network: web's pods.
   trustedProxies: 10.244.0.0/16
+  # Not the defaults, so run.sh proves the values reach the process.
+  session: {idleMinutes: 45}
   resources:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {memory: 256Mi}
@@ -38,3 +40,6 @@ scanJobs:
 networkPolicy:
   # Link-local, the pod and Service networks, and the kind nodes' Docker network.
   scanEgressExcept: [169.254.0.0/16, 10.244.0.0/16, 10.96.0.0/12, 172.16.0.0/12]
+# As above: run.sh reads it back from the API and from the retention Job.
+retention:
+  maxHistoryDays: 500

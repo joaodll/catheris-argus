@@ -118,6 +118,15 @@ services:
       <<: *db-env
       ARGUS_DB_USER: argus_api
       ARGUS_DB_PASSWORD: ${ARGUS_DEV_API_DB_PASSWORD:-argus-api-local-dev}
+      # The operator's limits, from .env (.env.example). The defaults are core/config.py's.
+      ARGUS_SESSION_IDLE_MINUTES: ${ARGUS_SESSION_IDLE_MINUTES:-30}
+      ARGUS_SESSION_ABSOLUTE_HOURS: ${ARGUS_SESSION_ABSOLUTE_HOURS:-12}
+      ARGUS_LOGIN_MAX_FAILURES: ${ARGUS_LOGIN_MAX_FAILURES:-5}
+      ARGUS_LOGIN_LOCKOUT_MINUTES: ${ARGUS_LOGIN_LOCKOUT_MINUTES:-15}
+      ARGUS_LOGIN_MAX_FAILURES_PER_IP: ${ARGUS_LOGIN_MAX_FAILURES_PER_IP:-20}
+      ARGUS_LOGIN_MAX_FAILURES_PER_USERNAME: ${ARGUS_LOGIN_MAX_FAILURES_PER_USERNAME:-100}
+      ARGUS_MAX_HISTORY_DAYS: ${ARGUS_MAX_HISTORY_DAYS:-400}
+      ARGUS_GRAPH_TIMEOUT_SECONDS: ${ARGUS_GRAPH_TIMEOUT_SECONDS:-120}
       # From .env: docker compose run --rm admin-tools new-secret-key
       ARGUS_SECRET_KEYS: ${ARGUS_SECRET_KEYS:-}
       ARGUS_SECRET_KEY_ID: ${ARGUS_SECRET_KEY_ID:-}
@@ -265,6 +274,9 @@ services:
       ARGUS_DB_USER: argus_worker
       ARGUS_DB_PASSWORD: ${ARGUS_DEV_WORKER_DB_PASSWORD:-argus-worker-local-dev}
       ARGUS_RAW_ROOT: /var/lib/argus
+      # As the API's: retention deletes what is above the bound, so both must hold the same one.
+      ARGUS_MAX_HISTORY_DAYS: ${ARGUS_MAX_HISTORY_DAYS:-400}
+      ARGUS_GRAPH_TIMEOUT_SECONDS: ${ARGUS_GRAPH_TIMEOUT_SECONDS:-120}
       ARGUS_WORKER_THREADS: "2"
       # 3 connections per run thread, 1 for Test connection, 2 for the graph thread, 2 for the
       # main loop: raise it with the threads, or the worker refuses to start. api, migrate and

@@ -25,4 +25,5 @@ spec:
         {{- include "argus.taskPod" (dict "root" . "component" "retention" "wait" true
           "command" (list "python" "-m" "argus.entrypoints.retention")
           "db" (dict "root" . "user" "argus_worker" "key" "ARGUS_WORKER_DB_PASSWORD" "pool" "task")
+          "env" (include "argus.historyBound.env" .)
           "resources" .Values.retention.resources) | nindent 8 }}

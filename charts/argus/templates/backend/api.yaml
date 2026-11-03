@@ -5,6 +5,20 @@ and autoscaler are in services.yaml, pdb.yaml and hpa.yaml. */ -}}
 {{- define "argus.api.env" -}}
 {{ include "argus.keyringEnv" . }}
 {{ include "argus.graph.env" . }}
+{{ include "argus.historyBound.env" . }}
+# Session and sign-in limits bound every user's exposure, so they are the operator's.
+- name: ARGUS_SESSION_IDLE_MINUTES
+  value: {{ .Values.api.session.idleMinutes | int | quote }}
+- name: ARGUS_SESSION_ABSOLUTE_HOURS
+  value: {{ .Values.api.session.absoluteHours | int | quote }}
+- name: ARGUS_LOGIN_MAX_FAILURES
+  value: {{ .Values.api.signIn.maxFailures | int | quote }}
+- name: ARGUS_LOGIN_LOCKOUT_MINUTES
+  value: {{ .Values.api.signIn.lockoutMinutes | int | quote }}
+- name: ARGUS_LOGIN_MAX_FAILURES_PER_IP
+  value: {{ .Values.api.signIn.maxFailuresPerAddress | int | quote }}
+- name: ARGUS_LOGIN_MAX_FAILURES_PER_USERNAME
+  value: {{ .Values.api.signIn.maxFailuresPerUsername | int | quote }}
 # Kubernetes offers real connections only: Demo connections are for Docker Compose (ADR-0039).
 - name: ARGUS_DEMO_CONNECTIONS
   value: "false"

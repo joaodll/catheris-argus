@@ -53,6 +53,13 @@ go in `serviceAccounts.run.annotations` and `serviceAccounts.scheduler.annotatio
 Every value is described in place in [`values.yaml`](values.yaml). `ci/minimal-values.yaml` is the
 smallest valid set; `ci/external-db-values.yaml` turns on every optional piece.
 
+## Limits you may want to change
+
+`api.session` and `api.signIn` bound every user's session and sign-in attempts,
+`retention.maxHistoryDays` caps the history an administrator can set in the UI, and
+`memgraph.transactionTimeoutSeconds` caps one graph transaction. Lowering `retention.maxHistoryDays`
+below what is set in the UI deletes the history above it at the next retention.
+
 ## Scaling
 
 - **Scans** scale through the scheduler: up to `scheduler.maxRunJobs` scan Jobs at once (and the
