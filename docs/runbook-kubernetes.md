@@ -26,6 +26,16 @@ Each of these is a control the chart relies on but cannot set itself.
   in the `vpc-cni` add-on's configuration. Without it every pod can reach Postgres, and any pod
   can reach the API and choose the client address it records. `helm test` fails when policies
   are not enforced; run it after every install and upgrade.
+  - **A new pod's first moments.** In the VPC CNI's default `standard` mode, a new pod starts with
+    a default allow until its policies are configured, so its egress rules don't hold for its first
+    moments. Postgres, the API and Memgraph still refuse it by their own ingress rules. Anything
+    without such a rule stays reachable in that moment, including an external database and the
+    Kubernetes API. `helm test --logs` reports it: `note at its start, a new pod's outgoing traffic
+    passes before its policies apply`.
+    [`strict` mode](https://docs.aws.amazon.com/eks/latest/userguide/cni-network-policy-configure.html)
+    starts pods on a default deny instead (`NETWORK_POLICY_ENFORCING_MODE`, VPC CNI 1.19.3 or newer).
+    It closes this gap, but it applies to the whole cluster: every pod in every namespace then
+    needs a policy for whatever it reaches, so decide it with whoever owns the cluster.
 - **A namespace for Argus alone**, labelled for Pod Security `restricted`. The NetworkPolicies
   deny everything to every pod in it.
 - **Instance metadata out of reach of pods:** IMDSv2 required with a hop limit of 1 on every node.
@@ -91,7 +101,7 @@ keys it needs.
 | `ARGUS_SCHEDULER_DB_PASSWORD` | Role `argus_scheduler` |
 | `ARGUS_SECRET_KEYS` | The credential keyring, `k1:<base64 of 32 bytes>` |
 | `ARGUS_SECRET_KEY_ID` | The current key's id, `k1` |
-| `ARGUS_GRAPH_PASSWORD` | The Memgraph login: the memgraph pod creates it on a new volume, graph-sync uses it ([ADR-0044](adr/0044-graph-read-model-memgraph.md)). To change it later, delete the memgraph volume: the graph is rebuilt from Postgres |
+| `ARGUS_GRAPH_PASSWORD` | The Memgraph login: the memgraph pod creates it on a new volume, graph-sync and the API use it ([ADR-0044](adr/0044-graph-read-model-memgraph.md)). To change it later, delete the memgraph volume: the graph is rebuilt from Postgres |
 | `ARGUS_BOOTSTRAP_ADMIN_PASSWORD` or `ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH` | First start only: the first admin's password, or its argon2id hash. The migrate Job creates `admin.username` with it while no active admin exists ([ADR-0041](adr/0041-users-and-roles.md)). Remove the key after the first sign-in |
 
 Generate the values from the repository root. Every command runs in a container:

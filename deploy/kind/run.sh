@@ -192,6 +192,9 @@ BAD_JOBS=(
 
 # A pod with the given component label, so the matching NetworkPolicies apply; it tries each
 # host:port and prints "host:port open" or "host:port closed".
+# A pod's traffic can pass until kindnet has applied the policies to it, so the probe waits and tests
+# the running state (without the wait it passed on timing, and failed under load, 2026-11-03). What
+# a new pod reaches at its start is measured by helm test's probe.
 probe_from() {
   local name=$1 component=$2; shift 2
   local image pod="$FULL-probe-$name"
@@ -207,7 +210,7 @@ probe_from() {
       restartPolicy: "Never", automountServiceAccountToken: false, enableServiceLinks: false,
       securityContext: {runAsNonRoot: true, runAsUser: 10001, seccompProfile: {type: "RuntimeDefault"}},
       containers: [{name: "probe", image: $image,
-        command: (["python", "-c", "import socket, sys\nfor t in sys.argv[1:]:\n    h, p = t.rsplit(\":\", 1)\n    try:\n        socket.create_connection((h, int(p)), timeout=4).close(); print(t, \"open\")\n    except OSError:\n        print(t, \"closed\")"] + $targets),
+        command: (["python", "-c", "import socket, sys, time\ntime.sleep(10)\nfor t in sys.argv[1:]:\n    h, p = t.rsplit(\":\", 1)\n    try:\n        socket.create_connection((h, int(p)), timeout=4).close(); print(t, \"open\")\n    except OSError:\n        print(t, \"closed\")"] + $targets),
         securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}},
         resources: {requests: {cpu: "10m", memory: "32Mi"}, limits: {memory: "64Mi"}}}]}}' "$@" \
     | k create -f - > /dev/null
@@ -463,12 +466,16 @@ test_upgrade() {
 
 test_helm_test() {
   step "helm test"
-  helm test "$RELEASE" -n "$NAMESPACE" --logs
+  local out
+  out=$(helm test "$RELEASE" -n "$NAMESPACE" --logs) || { printf '%s\n' "$out"; fail "helm test failed"; }
+  printf '%s\n' "$out"
+  printf '%s\n' "$out" | grep -q 'at its start, a new pod' || fail "helm test did not measure a new pod's start"
+  ok "helm test measured a new pod's start"
 }
 
 test_health() {
   step "afterwards"
-  local restarts denied
+  local restarts denied errors
   restarts=$(k get pods -l "app.kubernetes.io/instance=$RELEASE" -o json \
     | jq -r '.items[] | select([.status.containerStatuses[]?.restartCount] | add > 0) | .metadata.name')
   [ -z "$restarts" ] || fail "containers restarted: $restarts"
@@ -478,8 +485,12 @@ test_health() {
   ok "the scheduler logged no refusal"
   k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -q 'graph sync started' \
     || fail "graph-sync did not start its loop"
-  denied=$(k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -ci 'graph sync failed\|loop error' || true)
-  [ "$denied" -eq 0 ] || fail "graph-sync logged $denied errors"
+  # Shown before failing: `kind down` takes the log with it.
+  errors=$(k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -i 'graph sync failed\|loop error' || true)
+  if [ -n "$errors" ]; then
+    printf '%s\n' "$errors"
+    fail "graph-sync logged $(printf '%s\n' "$errors" | wc -l) errors"
+  fi
   ok "graph-sync running, no sync error"
 }
 

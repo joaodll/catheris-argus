@@ -2,7 +2,13 @@
 no policy allows anything but DNS, so it must resolve the database's and the API's names and
 then fail to connect to any. If one connection succeeds, NetworkPolicy is not enforced: web
 could reach Postgres, any pod could forge X-Forwarded-For to the API, or reach Memgraph. Rendered only with
-the policies on; with them off, NOTES.txt says what is lost. */ -}}
+the policies on; with them off, NOTES.txt says what is lost.
+
+A CNI can let a new pod's outgoing traffic through until it has applied the pod's policies (the VPC
+CNI's standard mode does, and so does kind's). So the probe first reports that, which is never a
+failure, then waits and tests the running state. It measures against the Kubernetes API: nothing but
+the pod's own egress policy can stop that connection. Postgres or the API would refuse by their own
+ingress rule, which holds throughout and proves nothing about the gap. */ -}}
 {{- define "argus.netpolProbe.command" -}}
 {{- $dbHost := ternary (printf "%s-postgres" (include "argus.fullname" .)) .Values.postgres.external.host .Values.postgres.enabled }}
 {{- $dbPort := ternary 5432 .Values.postgres.external.port .Values.postgres.enabled }}
@@ -10,10 +16,25 @@ command:
   - python
   - -c
   - |
-    import socket, sys
+    import os, socket, sys, time
     targets = [({{ $dbHost | quote }}, {{ $dbPort }}, "Postgres"),
                ({{ printf "%s-api" (include "argus.fullname" .) | quote }}, 8000, "the API"),
                ({{ printf "%s-memgraph" (include "argus.fullname" .) | quote }}, 7687, "Memgraph")]
+    def reaches_kubernetes():
+        address = (os.environ["KUBERNETES_SERVICE_HOST"], int(os.environ["KUBERNETES_SERVICE_PORT"]))
+        try:
+            socket.create_connection(address, timeout=3).close()
+        except OSError:
+            return False
+        return True
+    at_start = reaches_kubernetes()
+    time.sleep(10)
+    if not at_start:
+        print("ok   at its start, a new pod's outgoing traffic is already under its policies")
+    elif reaches_kubernetes():
+        print("note at its start, a new pod reached the Kubernetes API, and still does: this measures nothing here")
+    else:
+        print("note at its start, a new pod's outgoing traffic passes before its policies apply: see \"NetworkPolicy enforced\" in the runbook")
     failed = False
     for host, port, what in targets:
         try:

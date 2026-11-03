@@ -34,3 +34,4 @@ scrub-mapping*.json
 .admin-password.local
 CLAUDE.md
 docs/adr/
+emulated/

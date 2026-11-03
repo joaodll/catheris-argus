@@ -9,7 +9,7 @@
 #   runtime  nginx + dist/ only. No Node, no source. Listens on 8080 as uid 101.
 
 ARG NODE_IMAGE=node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.29-alpine@sha256:0c79d56aee561a1d81c63f00eee5fb5fe29279560cdc55e91425133104c7fbe6
+ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
 
 FROM ${NODE_IMAGE} AS base
 ENV COREPACK_HOME=/opt/corepack \
@@ -34,6 +34,11 @@ COPY . .
 RUN pnpm build
 
 FROM ${NGINX_IMAGE} AS runtime
+# CVE-2026-111497: no published image carries the fix yet (checked 2026-11-03). nginx doesn't use
+# brotli. Not pinned to a version, because Alpine removes old ones and the build would break. Drop
+# this once the base image ships brotli-libs 1.2.1 or newer.
+USER root
+RUN apk upgrade --no-cache brotli-libs
 # A template the entrypoint fills in at start (ARGUS_API_UPSTREAM), into /etc/nginx/conf.d,
 # which must be writable: a tmpfs in Compose, an emptyDir on Kubernetes. Only ARGUS_ variables
 # are substituted, never nginx's own ($remote_addr, $host).
