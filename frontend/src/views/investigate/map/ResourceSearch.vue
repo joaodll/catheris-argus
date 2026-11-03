@@ -136,8 +136,8 @@ function onKey(event: KeyboardEvent): void {
 <style scoped>
 .find {
   position: relative;
-  min-width: 280px;
-  flex: 1 1 320px;
+  min-width: 220px;
+  flex: 1 1 220px;
 }
 
 .panel {

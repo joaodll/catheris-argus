@@ -1674,6 +1674,7 @@ export interface components {
         };
         /** MapNode */
         MapNode: {
+            attack_paths: components["schemas"]["NodeAttackPaths"] | null;
             /** Boundary */
             boundary: boolean;
             /** Connection Id */
@@ -1701,6 +1702,7 @@ export interface components {
             type: string | null;
             /** Uid */
             uid: string;
+            vulnerabilities: components["schemas"]["NodeVulnerabilities"] | null;
         };
         /** MonthRow */
         MonthRow: {
@@ -1732,6 +1734,29 @@ export interface components {
             month: string;
             /** Pass Rate */
             pass_rate: number | null;
+        };
+        /**
+         * NodeAttackPaths
+         * @description The open paths through it, latent ones aside: what Attack paths lists through it.
+         */
+        NodeAttackPaths: {
+            /** Entry */
+            entry: number;
+            /** On */
+            on: number;
+        };
+        /**
+         * NodeVulnerabilities
+         * @description Its open CVEs (ADR-0042). Absent: none known, which a resource the scanner doesn't cover
+         *     can't tell apart from none.
+         */
+        NodeVulnerabilities: {
+            /** Exploitable */
+            exploitable: number;
+            /** Open */
+            open: number;
+            /** Worst */
+            worst: string | null;
         };
         /** Overview */
         Overview: {

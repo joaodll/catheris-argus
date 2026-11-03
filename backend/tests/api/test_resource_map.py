@@ -437,6 +437,41 @@ def test_a_wrong_query_is_a_bug_and_not_an_outage(monkeypatch: pytest.MonkeyPatc
         )
 
 
+def test_a_node_carries_its_facts_and_the_counts_match_their_screens(
+    signed_in: TestClient, owner: Engine, prod: int
+) -> None:
+    """The overlay (ADR-0044, M-5): stored facts only, and each number is what its link lists."""
+    with owner.connect() as conn:
+        path = conn.execute(
+            text(
+                "SELECT entry_uid, target_uid FROM attack_path WHERE state = 'open' "
+                "AND confidence IS DISTINCT FROM 'blocked' AND entry_uid <> target_uid LIMIT 1"
+            )
+        ).one()
+        cve = conn.execute(
+            text(
+                "SELECT r.resource_uid, count(*) AS n, "
+                "count(*) FILTER (WHERE v.exploit_available) AS exploitable "
+                "FROM finding f JOIN resource r ON r.id = f.resource_id "
+                "LEFT JOIN finding_vulnerability v ON v.finding_id = f.id "
+                "WHERE f.tool = 'vulnerabilities' AND f.state IN ('open', 'reopened') "
+                "AND r.connection_id = :c GROUP BY 1 LIMIT 1"
+            ),
+            {"c": prod},
+        ).first()
+    entry = _graph(signed_in, path.entry_uid, connection_id=prod)["nodes"][0]
+    listed = signed_in.get("/api/v1/attack-paths", params={"through": path.entry_uid}).json()
+    assert entry["attack_paths"]["on"] == listed["total"] > 0
+    assert entry["attack_paths"]["entry"] >= 1
+    if cve is not None:
+        node = _graph(signed_in, cve.resource_uid, connection_id=prod)["nodes"][0]
+        assert node["vulnerabilities"]["open"] == cve.n
+        assert node["vulnerabilities"]["exploitable"] == cve.exploitable
+    # Nothing to say about the internet, and no fact is a zero.
+    internet = _graph(signed_in, "internet", connection_id=prod)["nodes"][0]
+    assert internet["attack_paths"] is None and internet["vulnerabilities"] is None
+
+
 def test_the_map_says_how_current_it_is(
     signed_in: TestClient,
     owner: Engine,

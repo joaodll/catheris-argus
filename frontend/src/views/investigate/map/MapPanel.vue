@@ -15,6 +15,7 @@ import SeverityTag from '@/components/SeverityTag.vue'
 import { useResource } from '@/composables/useResource'
 import { originLabel, regionLabel } from '../labels'
 import { edgeTitle } from '../edgeWords'
+import ExploitMark from '../ExploitMark.vue'
 import ResourceDetail from '../ResourceDetail.vue'
 import { boundaryLabel, drawnEdges, nodeName, worstOf, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
 import { typeLabel } from './mapLanes'
@@ -81,6 +82,7 @@ defineExpose({ title, caption })
 const PAGE = 20
 const page = ref(1)
 watch(group, () => (page.value = 1))
+const misconfigurations = computed(() => (node.value ? worstOf(node.value).open : 0))
 const members = useResource(
   async () => {
     const g = group.value
@@ -153,6 +155,18 @@ function ports(edge: MapEdge): string | null {
           Open in Resources<span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
         </RouterLink>
       </div>
+      <ul v-if="misconfigurations || node.vulnerabilities || node.attack_paths" class="facts" aria-label="What is known about it">
+        <li v-if="misconfigurations && node.resource_id != null">
+          <RouterLink :to="{ name: 'misconfigurations', query: { resource: String(node.resource_id) } }" target="_blank">{{ misconfigurations }} {{ misconfigurations === 1 ? 'misconfiguration' : 'misconfigurations' }}<span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span></RouterLink>
+        </li>
+        <li v-if="node.vulnerabilities && node.resource_id != null">
+          <RouterLink :to="{ name: 'vulnerabilities', query: { resource: String(node.resource_id) } }" target="_blank">{{ node.vulnerabilities.open }} {{ node.vulnerabilities.open === 1 ? 'CVE' : 'CVEs' }}<span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span></RouterLink>
+          <ExploitMark v-if="node.vulnerabilities.exploitable" :count="node.vulnerabilities.exploitable" />
+        </li>
+        <li v-if="node.attack_paths">
+          <RouterLink :to="{ name: 'attack-paths', query: { through: node.uid } }" target="_blank">On {{ node.attack_paths.on }} attack {{ node.attack_paths.on === 1 ? 'path' : 'paths' }}<template v-if="node.attack_paths.entry">, entry of {{ node.attack_paths.entry }}</template><span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span></RouterLink>
+        </li>
+      </ul>
       <ResourceDetail
         v-if="node.resource_id != null"
         :resource-id="node.resource_id"
@@ -237,6 +251,22 @@ function ports(edge: MapEdge): string | null {
 </template>
 
 <style scoped>
+.facts {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.facts li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .panel-body {
   display: flex;
   flex-direction: column;

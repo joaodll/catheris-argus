@@ -19,6 +19,10 @@ export type Origin = (typeof ORIGINS)[number]
 export const ORIGIN_LABEL: Record<Origin, string> = { rule: 'Rules', cloudfox: 'CloudFox' }
 
 export type View = 'map' | 'list'
+/** What Highlight picks out on the canvas (ADR-0044, M-5): it never changes what is drawn. */
+export const FACTS = ['misconfigurations', 'cves', 'exploits', 'paths'] as const
+export type Fact = (typeof FACTS)[number]
+export const FACT_LABEL: Record<Fact, string> = { misconfigurations: 'Misconfigurations', cves: 'CVEs', exploits: 'Public exploits', paths: 'Attack paths' }
 export const DEPTHS = [1, 2, 3] as const
 export type Depth = (typeof DEPTHS)[number]
 
@@ -27,6 +31,7 @@ export interface MapState {
   depth: Depth
   layers: Layer[]
   origins: Origin[]
+  highlight: Fact | null
   view: View
   path: number | null
   open: string | null
@@ -67,11 +72,13 @@ export function parseMapQuery(query: LocationQuery, defaultView: View = 'map'): 
   const layers = ordered(strings(query.layer) as Layer[], LAYERS)
   const origins = ordered(strings(query.origin) as Origin[], ORIGINS)
   const view = one(query.view)
+  const highlight = one(query.highlight)
   return {
     focus: uid(query.focus),
     depth: (DEPTHS as readonly number[]).includes(depth) ? (depth as Depth) : 1,
     layers: layers.length ? layers : [...DEFAULT_LAYERS],
     origins: origins.length ? origins : [...ORIGINS],
+    highlight: (FACTS as readonly (string | null | undefined)[]).includes(highlight) ? (highlight as Fact) : null,
     view: view === 'map' || view === 'list' ? view : defaultView,
     path: id(query.path),
     open: uid(query.open),
@@ -88,6 +95,7 @@ export function mapQueryToUrl(s: MapState, defaultView: View = 'map'): LocationQ
     depth: s.depth === 1 ? undefined : String(s.depth),
     layer: same(layers, DEFAULT_LAYERS) ? undefined : layers,
     origin: same(origins, ORIGINS) ? undefined : origins,
+    highlight: s.highlight ?? undefined,
     view: s.view === defaultView ? undefined : s.view,
     path: s.path == null ? undefined : String(s.path),
     open: s.open ?? undefined,

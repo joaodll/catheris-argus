@@ -25,8 +25,8 @@ import MapList from './MapList.vue'
 import MapPanel from './MapPanel.vue'
 import MapStart from './MapStart.vue'
 import ResourceSearch from './ResourceSearch.vue'
-import { addMember, emptyGraph, graphNote, MAX_NODES, mergeGraph, nodeName, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
-import { DEPTHS, LAYER_LABEL, LAYERS, ORIGIN_LABEL, ORIGINS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapState, type Origin } from './mapQuery'
+import { addMember, emptyGraph, factOf, graphNote, MAX_NODES, mergeGraph, noFactNote, nodeName, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
+import { DEPTHS, FACT_LABEL, FACTS, LAYER_LABEL, LAYERS, ORIGIN_LABEL, ORIGINS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type Fact, type MapState, type Origin } from './mapQuery'
 
 const route = useRoute()
 const router = useRouter()
@@ -255,6 +255,10 @@ watch(selection, (sel, before) => {
 
 const alone = computed(() => started.value && !loading.value && graph.value.nodes.size === 1 && graph.value.edges.size === 0 && graph.value.groups.size === 0)
 const stale = computed(() => graphNote(graphState.value))
+// What Highlight says: about the resources drawn, since a group's members are not.
+const drawnNodes = computed(() => [...graph.value.nodes.values()].filter((n) => n.kind === 'resource' || n.kind === 'admin'))
+const noFact = computed(() => (state.value.view === 'map' && graph.value.nodes.size ? noFactNote(state.value.highlight, drawnNodes.value) : null))
+const factCount = computed(() => drawnNodes.value.filter((n) => factOf(n, state.value.highlight).count > 0).length)
 const banner = computed(() => {
   if (truncated.value) return 'This neighbourhood has more than 500 resources. Turn off a layer or lower the depth to see the rest.'
   if (full.value) return 'Showing 500 resources, the most this map draws. Turn off a layer or lower the depth to see the rest.'
@@ -300,6 +304,13 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         </div>
       </div>
     </template>
+    <div v-if="started && state.view === 'map'" class="field">
+      <label class="lbl" for="map-highlight">Highlight</label>
+      <select id="map-highlight" class="select" :value="state.highlight ?? ''" @change="navigate({ highlight: (($event.target as HTMLSelectElement).value || null) as Fact | null }, 'replace')">
+        <option value="">Nothing</option>
+        <option v-for="f in FACTS" :key="f" :value="f">{{ FACT_LABEL[f] }}</option>
+      </select>
+    </div>
     <div v-if="started" class="field">
       <span id="map-view" class="lbl">View</span>
       <div class="segmented" role="group" aria-labelledby="map-view">
@@ -317,6 +328,8 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
     <template #action><button type="button" class="btn btn-ghost btn-sm" @click="navigate({ path: null }, 'replace')">Clear</button></template>
   </AlertBanner>
   <AlertBanner v-else-if="pathError" kind="fail">The attack path didn't load: {{ pathError }}</AlertBanner>
+  <AlertBanner v-if="noFact" kind="info">{{ noFact }}</AlertBanner>
+  <p v-if="state.highlight && !noFact && state.view === 'map'" class="sr-only" role="status">{{ factCount }} of {{ drawnNodes.length }} resources drawn have {{ FACT_LABEL[state.highlight].toLowerCase() }}.</p>
   <AlertBanner v-if="alone" kind="info">No connections in the chosen layers. Turn on Network or IAM policy to see more.</AlertBanner>
   <p v-if="groupCount" class="sr-only" role="status">{{ groupCount }} groups stand for resources not drawn one by one.</p>
 
@@ -359,6 +372,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         :selection="selection"
         :highlight="highlight"
         :connection-name="connectionName"
+        :fact="state.highlight"
         @select="select"
         @expand="expand"
         @focus-here="focusHere"

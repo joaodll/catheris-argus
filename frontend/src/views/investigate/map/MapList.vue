@@ -7,7 +7,7 @@ import { computed, ref, watch } from 'vue'
 import AppPagination from '@/components/AppPagination.vue'
 import SeverityTag from '@/components/SeverityTag.vue'
 import { edgeWord } from '../edgeWords'
-import { degree, drawnEdges, groupNodeId, nodeName, worstOf, worstRank, type GraphState, type Selection } from './mapGraph'
+import { degree, drawnEdges, factsLine, groupNodeId, nodeName, worstOf, worstRank, type GraphState, type Selection } from './mapGraph'
 import { hopColumns, hopLabel, typeLabel } from './mapLanes'
 
 // The same columns as the canvas: hops from the focus (mapLanes.ts).
@@ -78,6 +78,7 @@ const selectedId = computed(() => (props.selection?.kind === 'node' ? props.sele
               <td data-label="Open findings">
                 <span v-if="row.findings.worst" class="findings"><SeverityTag :severity="row.findings.worst" compact /><span class="mono">{{ row.findings.open }}</span></span>
                 <span v-else class="cap">None</span>
+                <span v-if="factsLine(row.node)" class="sub">{{ factsLine(row.node) }}</span>
               </td>
             </tr>
             <tr v-for="g in groups" :key="g.id">

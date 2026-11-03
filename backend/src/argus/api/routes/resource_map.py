@@ -10,7 +10,7 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection
 
-from argus import connections, findings, graph, inventory, relationships
+from argus import attackpaths, connections, findings, graph, inventory, relationships
 from argus.api.deps import Db, Viewer
 
 router = APIRouter(tags=["map"])
@@ -22,6 +22,24 @@ TOOLS = ("prowler", "cloudfox")
 class ToolFindings(BaseModel):
     open: int
     worst: str
+
+
+class NodeVulnerabilities(BaseModel):
+    """Its open CVEs (ADR-0042). Absent: none known, which a resource the scanner doesn't cover
+    can't tell apart from none."""
+
+    open: int
+    worst: str | None
+    # How many have a public exploit.
+    exploitable: int
+
+
+class NodeAttackPaths(BaseModel):
+    """The open paths through it, latent ones aside: what Attack paths lists through it."""
+
+    on: int
+    # Those that start here.
+    entry: int
 
 
 class MapNode(BaseModel):
@@ -42,6 +60,9 @@ class MapNode(BaseModel):
     boundary: bool
     # Open findings per tool ("prowler", "cloudfox"); a tool with none is absent.
     findings: dict[str, ToolFindings]
+    # Stored facts, never a verdict (ADR-0044, M-5): absent when there are none.
+    vulnerabilities: NodeVulnerabilities | None
+    attack_paths: NodeAttackPaths | None
 
 
 class MapEdge(BaseModel):
@@ -123,23 +144,35 @@ def _through(state: dict[str, Any]) -> date | None:
 
 
 def with_findings(conn: Connection, nodes: list[dict[str, Any]]) -> list[MapNode]:
-    """Nodes with their open findings per tool, in one query for all of them."""
-    counts = findings.open_finding_counts_by_tool(
-        conn, [n["resource_id"] for n in nodes if n["resource_id"] is not None]
+    """Nodes with their facts: open findings per tool, open CVEs and attack paths, one query each
+    for all of them (ADR-0044, M-5)."""
+    ids = [n["resource_id"] for n in nodes if n["resource_id"] is not None]
+    counts = findings.open_finding_counts_by_tool(conn, ids)
+    cves = findings.vulnerability_counts(conn, ids)
+    # The internet and a wildcard are on paths as a matter of course: no fact about them.
+    paths = attackpaths.node_path_counts(
+        conn, [n["uid"] for n in nodes if n["kind"] in ("resource", "admin")]
     )
-    return [
-        MapNode.model_validate(
-            {
-                **n,
-                "findings": {
-                    tool: {"open": count, "worst": worst}
-                    for tool, (count, worst) in counts.get(n["resource_id"], {}).items()
-                    if tool in TOOLS
-                },
-            }
+    out = []
+    for n in nodes:
+        cve = cves.get(n["resource_id"])
+        on_paths = paths.get(n["uid"])
+        out.append(
+            MapNode.model_validate(
+                {
+                    **n,
+                    "findings": {
+                        tool: {"open": count, "worst": worst}
+                        for tool, (count, worst) in counts.get(n["resource_id"], {}).items()
+                        if tool in TOOLS
+                    },
+                    "vulnerabilities": cve
+                    and {"open": cve.open, "worst": cve.worst, "exploitable": cve.exploitable},
+                    "attack_paths": on_paths and {"on": on_paths[0], "entry": on_paths[1]},
+                }
+            )
         )
-        for n in nodes
-    ]
+    return out
 
 
 def _connection(conn: Connection, connection_id: int | None, focus: str) -> relationships.MapScope:

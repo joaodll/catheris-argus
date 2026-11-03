@@ -2414,6 +2414,16 @@
       },
       "MapNode": {
         "properties": {
+          "attack_paths": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeAttackPaths"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "boundary": {
             "title": "Boundary",
             "type": "boolean"
@@ -2510,6 +2520,16 @@
           "uid": {
             "title": "Uid",
             "type": "string"
+          },
+          "vulnerabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeVulnerabilities"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2523,7 +2543,9 @@
           "deleted_on",
           "expanded",
           "boundary",
-          "findings"
+          "findings",
+          "vulnerabilities",
+          "attack_paths"
         ],
         "title": "MapNode",
         "type": "object"
@@ -2643,6 +2665,56 @@
           "pass_rate"
         ],
         "title": "MonthlyPassRate",
+        "type": "object"
+      },
+      "NodeAttackPaths": {
+        "description": "The open paths through it, latent ones aside: what Attack paths lists through it.",
+        "properties": {
+          "entry": {
+            "title": "Entry",
+            "type": "integer"
+          },
+          "on": {
+            "title": "On",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "on",
+          "entry"
+        ],
+        "title": "NodeAttackPaths",
+        "type": "object"
+      },
+      "NodeVulnerabilities": {
+        "description": "Its open CVEs (ADR-0042). Absent: none known, which a resource the scanner doesn't cover\ncan't tell apart from none.",
+        "properties": {
+          "exploitable": {
+            "title": "Exploitable",
+            "type": "integer"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "worst": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst"
+          }
+        },
+        "required": [
+          "open",
+          "worst",
+          "exploitable"
+        ],
+        "title": "NodeVulnerabilities",
         "type": "object"
       },
       "Overview": {

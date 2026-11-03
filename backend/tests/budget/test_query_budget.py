@@ -628,6 +628,11 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         offset=0,
         filters=attackpaths.PathFilters(connection_id=7, passing_through=True),
     ),
+    "map overlay: attack paths on 50 nodes, one on every path": lambda c: (
+        attackpaths.node_path_counts(
+            c, ["admin:123456789012", *(f"t{g}" for g in range(4000, 4049))]
+        )
+    ),
     "attack paths, facets": lambda c: attackpaths.path_facets(c, connection_id=None),
     "attack paths, facets of a connection": lambda c: attackpaths.path_facets(c, connection_id=7),
     "attack paths, behind the scans": graph.paths_state,

@@ -632,6 +632,39 @@ test('resource map: says when the graph is unavailable or behind, never an empty
   await axe(page, 'map, behind the scans')
 })
 
+test('resource map: Highlight picks out a fact and never changes what is drawn', async ({ page }) => {
+  await signIn(page)
+  await page.goto('/investigate/map?focus=internet&connection=1')
+  const cards = page.locator('.world .node')
+  await expect(cards.first()).toBeVisible()
+  const drawn = await cards.count()
+  await expect(page.locator('.world .node.faded')).toHaveCount(0)
+  await page.locator('#map-highlight').selectOption('paths')
+  await expect(page).toHaveURL(/highlight=paths/)
+  await expect(cards).toHaveCount(drawn)
+  const faded = await page.locator('.world .node.faded').count()
+  expect(faded, 'the internet and any group have no paths of their own').toBeGreaterThan(0)
+  expect(faded).toBeLessThan(drawn)
+  await expect(page.locator('.world .node:not(.faded) .count.plain').first()).toBeVisible()
+  await axe(page, 'map, Highlight on')
+  await shot(page, '92c-map-highlight')
+  // Off again: every card back as it was. A selection lights its own trace, so before one.
+  await page.locator('#map-highlight').selectOption('')
+  await expect(page.locator('.world .node.faded')).toHaveCount(0)
+  await page.locator('#map-highlight').selectOption('paths')
+  // The panel's links: each fact goes to its own screen, filtered to the resource.
+  await page.locator('.world .node:not(.faded):has(.count.plain)').first().click()
+  const through = page.getByRole('link', { name: /^On \d+ attack path/ })
+  await expect(through).toHaveAttribute('href', /attack-paths\?through=/)
+  await axe(page, 'map, a resource with its facts')
+  await shot(page, '92d-map-facts-panel')
+  // Up close: the marks beside the name, and the Highlight's count.
+  await page.getByRole('button', { name: 'Focus here' }).click()
+  await expect(page.locator('.world .node').first()).toBeVisible()
+  await expect(page.locator('#map-highlight')).toHaveValue('paths')
+  await shot(page, '92e-map-card-up-close')
+})
+
 test('attack paths: says how many paths the cap kept out of the list', async ({ page }) => {
   await signIn(page)
   // The cap can't be reached on the demo estates, so the answer carries a cut (ADR-0044, amended 2026-11-02).

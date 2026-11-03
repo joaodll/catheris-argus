@@ -114,6 +114,25 @@ def get_path(conn: Connection, path_id: int) -> dict[str, Any] | None:
     return dict(row._mapping) if row else None
 
 
+def node_path_counts(conn: Connection, uids: list[str]) -> dict[str, tuple[int, int]]:
+    """{uid: (open paths through it, those it is the entry of)}, for the Resource map's nodes.
+    Latent paths don't count, so a number is what the list through that node shows. Bounded by
+    the caller (at most 500 uids)."""
+    if not uids:
+        return {}
+    rows = conn.execute(
+        text("""
+        SELECT u.uid, count(*) AS on_paths, count(*) FILTER (WHERE p.entry_uid = u.uid) AS entry
+        FROM unnest(CAST(:uids AS text[])) AS u(uid)
+        JOIN attack_path p ON p.node_uids @> ARRAY[u.uid]
+        WHERE p.state = 'open' AND p.confidence IS DISTINCT FROM 'blocked'
+        GROUP BY u.uid
+    """),
+        {"uids": uids},
+    )
+    return {r.uid: (int(r.on_paths), int(r.entry)) for r in rows}
+
+
 def path_facets(
     conn: Connection, *, connection_id: int | None, passing_through: bool = False
 ) -> dict[str, list[str]]:

@@ -27,7 +27,8 @@ import type { IconName } from '@/components/icons'
 import { SEVERITY_COLOR } from '@/views/overview/severity'
 import { regionLabel } from '../labels'
 import { edgeWord } from '../edgeWords'
-import { boundaryLabel, drawnEdges, groupNodeId, nodeName, traceOf, worstOf, worstRank, type GraphState, type MapGroup, type MapNode, type Selection } from './mapGraph'
+import type { Fact } from './mapQuery'
+import { boundaryLabel, drawnEdges, factOf, factsLine, groupNodeId, nodeName, traceOf, worstOf, worstRank, type GraphState, type MapGroup, type MapNode, type Selection } from './mapGraph'
 import { LANE_WIDTH, NODE_HEIGHT, NODE_WIDTH, layout, moveSelection, typeDisc, typeLabel, type LaidNode, type Move, type NodeKind } from './mapLanes'
 import { resolvedTheme } from '@/composables/useTheme'
 
@@ -38,6 +39,9 @@ const props = defineProps<{
   // An attack path (?path=): its nodes and edge ids show in accent, the rest dims.
   highlight: { nodes: string[]; edges: number[] } | null
   connectionName: (id: number) => string
+  // Highlight (?highlight=): cards with this fact stand out, and show its number. Nothing changes
+  // what is drawn (ADR-0044, M-5).
+  fact?: Fact | null
 }>()
 const emit = defineEmits<{ select: [selection: Selection | null]; expand: [uid: string]; focusHere: [uid: string] }>()
 
@@ -150,8 +154,11 @@ const pathLines = computed(() => {
   const edges = new Set(props.highlight.edges)
   return new Set(lines.value.filter((l) => l.edges.some((e) => edges.has(e.id))).map((l) => l.key))
 })
+function lacksFact(id: string): boolean {
+  return !!props.fact && factOf(props.graph.nodes.get(id) ?? null, props.fact).count === 0
+}
 function dimmed(id: string): boolean {
-  return lit.value != null && !lit.value.nodes.has(id) && id !== props.focus
+  return (lit.value != null && !lit.value.nodes.has(id) && id !== props.focus) || lacksFact(id)
 }
 
 // ---- Cytoscape: edges, and invisible node shapes for their ends.
@@ -280,7 +287,8 @@ function paint(): void {
       const isLit = lit.value?.lines.has(key) ?? false
       e.toggleClass('lit', isLit)
       e.toggleClass('path', pathLines.value.has(key))
-      e.toggleClass('dim', lit.value != null && !isLit && !pathLines.value.has(key))
+      const quiet = lacksFact(e.source().id()) && lacksFact(e.target().id())
+      e.toggleClass('dim', (lit.value != null || quiet) && !isLit && !pathLines.value.has(key))
     })
   })
   placeLabels()
@@ -596,7 +604,8 @@ const announcement = computed(() => {
   const card = active.value ? byId.value.get(active.value) : undefined
   if (!card || !focused.value) return ''
   const lane = laid.value.positions.get(card.id)?.lane
-  const findings = card.open ? `${card.open} open findings, worst ${card.worst}` : 'no open findings'
+  const facts = factsLine(card.node)
+  const findings = `${card.open ? `${card.open} open findings, worst ${card.worst}` : 'no open findings'}${facts ? `, ${facts}` : ''}`
   const where = lane ? `, ${laneLabel.value.get(lane)} lane` : ''
   return `${card.name}, ${card.typeLabel}${where}, ${card.kind === 'group' ? `${card.group?.count} resources` : findings}.`
 })
@@ -754,9 +763,16 @@ defineExpose({ fit })
                 <template v-if="card.kind === 'group'"><span class="mono">{{ card.group?.count }}</span> {{ card.name }}</template>
                 <template v-else>{{ card.name }}</template>
               </span>
-              <span class="line2 mono">{{ card.typeLabel }}</span>
+              <span class="line2-row">
+                <span class="line2 mono">{{ card.typeLabel }}</span>
+                <span v-if="card.node?.vulnerabilities?.exploitable" class="mark" title="A public exploit is available"><AppIcon name="warning" :size="12" /></span>
+                <span v-if="card.node?.attack_paths" class="mark" title="On an attack path"><AppIcon name="route" :size="12" /></span>
+              </span>
             </span>
-            <span v-if="card.worst" class="count mono" :style="countColor(card.worst)">{{ card.open }}</span>
+            <template v-if="factOf(card.node, fact).count">
+              <span v-if="factOf(card.node, fact).worst" class="count mono" :style="countColor(factOf(card.node, fact).worst!)">{{ factOf(card.node, fact).count }}</span>
+              <span v-else class="count plain mono">{{ factOf(card.node, fact).count }}</span>
+            </template>
           </span>
         </template>
       </div>
@@ -770,6 +786,7 @@ defineExpose({ fit })
       </span>
       <span v-if="tip.card.node">Prowler {{ toolCount(tip.card.node, 'prowler') }} · CloudFox {{ toolCount(tip.card.node, 'cloudfox') }}</span>
       <span v-if="tip.card.worst">Worst open finding: {{ tip.card.worst }}</span>
+      <span v-if="factsLine(tip.card.node)">{{ factsLine(tip.card.node) }}</span>
     </div>
 
     <p class="sr-only" aria-live="polite">{{ announcement }}</p>
@@ -787,6 +804,9 @@ defineExpose({ fit })
         <div><dt><span class="sw boundary-sw"></span></dt><dd>Other connection or account</dd></div>
         <div class="wide"><dt><span class="sw-disc"><AppIcon name="chip" :size="11" /></span></dt><dd>Icon colour: kind of resource</dd></div>
         <div class="wide"><dt><span class="sw-count mono">3</span></dt><dd>Open findings, coloured by the worst</dd></div>
+        <div class="wide"><dt><span class="mark"><AppIcon name="warning" :size="12" /></span></dt><dd>A public exploit is available</dd></div>
+        <div class="wide"><dt><span class="mark"><AppIcon name="route" :size="12" /></span></dt><dd>On an attack path</dd></div>
+        <div class="wide"><dd>With Highlight on, muted cards have none known.</dd></div>
         <div class="wide"><dd>Data access is what a role's policies allow, not observed traffic.</dd></div>
       </dl>
       <div class="buttons">
@@ -957,6 +977,40 @@ defineExpose({ fit })
   font-size: 10.5px;
   font-weight: 600;
   transition: opacity 160ms;
+}
+
+/* A count that is no severity: public exploits and attack paths. */
+.count.plain {
+  background: var(--chip-fill);
+  color: var(--text);
+}
+
+/* A severity's count keeps its contrast when faded, its fill fading with it. This one has no fill
+   to speak of, so it is muted instead, like the card's text. */
+.node.faded .count.plain {
+  opacity: 1;
+  color: var(--text-2);
+}
+
+/* Beside the type, so the name keeps its room. */
+.line2-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.line2-row .line2 {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* A fact on the card, never a severity colour: a public exploit, on an attack path. */
+.mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
 }
 
 /* Not on the trace: muted, not faded, so its text keeps the contrast floor (WCAG AA). */

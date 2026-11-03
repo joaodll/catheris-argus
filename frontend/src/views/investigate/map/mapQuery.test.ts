@@ -9,6 +9,7 @@ describe('Resource map state in the URL', () => {
       depth: 1,
       layers: ['traffic', 'identity'],
       origins: ['rule', 'cloudfox'],
+      highlight: null,
       view: 'map',
       path: null,
       open: null,
@@ -23,6 +24,7 @@ describe('Resource map state in the URL', () => {
       depth: '3',
       layer: ['network', 'traffic'],
       origin: 'cloudfox',
+      highlight: 'exploits',
       view: 'list',
       path: '42',
       open: 'internet',
@@ -33,8 +35,8 @@ describe('Resource map state in the URL', () => {
   })
 
   it('ignores values it does not know', () => {
-    const state = parseMapQuery({ depth: '9', layer: 'everything', origin: 'probe', view: 'graph', path: '-1', focus: 'x'.repeat(3000) })
-    expect(state).toMatchObject({ depth: 1, layers: ['traffic', 'identity'], origins: ['rule', 'cloudfox'], view: 'map', path: null, focus: null })
+    const state = parseMapQuery({ depth: '9', layer: 'everything', origin: 'probe', highlight: 'everything', view: 'graph', path: '-1', focus: 'x'.repeat(3000) })
+    expect(state).toMatchObject({ depth: 1, layers: ['traffic', 'identity'], origins: ['rule', 'cloudfox'], highlight: null, view: 'map', path: null, focus: null })
   })
 
   it('defaults to the List view on a phone, and keeps a chosen Map', () => {
