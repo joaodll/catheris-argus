@@ -328,6 +328,7 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 | --- | --- | --- |
 | `helm install` refused with a schema error | A required value is missing, an image has a tag, or a key is misspelled | The message names the path; set it |
 | `api` and the scheduler stay in `Init` | The migrate Job has not finished, or the role cannot log in yet | `kubectl -n argus logs job/argus-migrate-<hash>`; check the Secret's keys |
+| The `graph-sync` pod stays in `Init` | Memgraph isn't answering: `wait-for-graph` holds the pod until it does, for 10 minutes before each retry | Check the memgraph pod. Recovering a large snapshot can take minutes |
 | `helm test` fails: "accepted a connection" | NetworkPolicy is not enforced | Turn on the VPC CNI's network policy, then test again |
 | Runs stay queued; the scheduler logs `kubernetes refused` | A denial by the policy or the quota | The `detail` names the rule; reinstall with Helm rather than editing templates by hand |
 | Runs stay queued; the scheduler logs a reconcile error with a connection timeout | `networkPolicy.kubeApi.cidrs` no longer holds the API's addresses | Read them again (Values) and upgrade |

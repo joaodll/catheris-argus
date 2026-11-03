@@ -477,6 +477,53 @@ test_upgrade() {
   ok "a new rederive Job completed ($rederive -> $after)"
 }
 
+graph_sync_log_clean() {
+  # Shown before failing: `kind down` takes the log with it.
+  local errors
+  errors=$(k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -i 'graph sync failed\|loop error' || true)
+  if [ -n "$errors" ]; then
+    printf '%s\n' "$errors"
+    fail "graph-sync logged $(printf '%s\n' "$errors" | wc -l) errors"
+  fi
+}
+
+# graph-sync doesn't start its loop until Memgraph answers. Without this it logged an error whenever
+# Memgraph came up after it, at about 1 install in 4 (2026-11-03).
+test_graph_waits() {
+  step "graph-sync waits for Memgraph"
+  local selector="app.kubernetes.io/instance=$RELEASE,app.kubernetes.io/component=graph-sync" state=""
+  graph_sync_log_clean # the install's own log: deleting the pod below takes it with it
+  ok "graph-sync logged no error while the chart installed"
+  k scale statefulset "$FULL-memgraph" --replicas=0 > /dev/null
+  k wait --for=delete pod "$FULL-memgraph-0" --timeout 180s > /dev/null 2>&1 || true
+  k delete pod -l "$selector" --wait=true > /dev/null
+  for _ in $(seq 90); do
+    state=$(k get pods -l "$selector" -o json | jq -r '.items[] | select(.metadata.deletionTimestamp | not)
+      | .status.initContainerStatuses[]? | select(.name == "wait-for-graph") | .state | keys[0]')
+    [ "$state" = running ] && break
+    sleep 2
+  done
+  [ "$state" = running ] || fail "graph-sync's wait-for-graph is not running: '$state'"
+  sleep 20
+  state=$(k get pods -l "$selector" -o json | jq -r '.items[] | select(.metadata.deletionTimestamp | not)
+    | .status.containerStatuses[]? | select(.name == "graph-sync") | .state | keys[0]')
+  [ "$state" = waiting ] || fail "graph-sync's loop started without Memgraph: '$state'"
+  ok "with Memgraph down, a new graph-sync pod waits and its loop doesn't start"
+  k scale statefulset "$FULL-memgraph" --replicas=1 > /dev/null
+  k rollout status "statefulset/$FULL-memgraph" --timeout 300s > /dev/null
+  k rollout status "deploy/$FULL-graph-sync" --timeout 300s > /dev/null
+  # A first pass finished, so the log below has something to say: it has no readiness probe, so
+  # the rollout ends before the process has logged anything.
+  for _ in $(seq 90); do
+    k logs "deploy/$FULL-graph-sync" -c graph-sync 2>/dev/null | grep -q 'attack paths evaluated' && break
+    sleep 2
+  done
+  k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -q 'attack paths evaluated' \
+    || fail "graph-sync finished no pass after Memgraph came back"
+  graph_sync_log_clean
+  ok "Memgraph back: graph-sync finished a pass with no error"
+}
+
 test_helm_test() {
   step "helm test"
   local out
@@ -488,7 +535,7 @@ test_helm_test() {
 
 test_health() {
   step "afterwards"
-  local restarts denied errors
+  local restarts denied
   restarts=$(k get pods -l "app.kubernetes.io/instance=$RELEASE" -o json \
     | jq -r '.items[] | select([.status.containerStatuses[]?.restartCount] | add > 0) | .metadata.name')
   [ -z "$restarts" ] || fail "containers restarted: $restarts"
@@ -498,12 +545,7 @@ test_health() {
   ok "the scheduler logged no refusal"
   k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -q 'graph sync started' \
     || fail "graph-sync did not start its loop"
-  # Shown before failing: `kind down` takes the log with it.
-  errors=$(k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -i 'graph sync failed\|loop error' || true)
-  if [ -n "$errors" ]; then
-    printf '%s\n' "$errors"
-    fail "graph-sync logged $(printf '%s\n' "$errors" | wc -l) errors"
-  fi
+  graph_sync_log_clean
   ok "graph-sync running, no sync error"
 }
 
@@ -519,6 +561,7 @@ run_tests() {
   test_retention
   test_upgrade
   test_helm_test
+  test_graph_waits
   test_health
   printf '\nkind test passed\n'
 }
