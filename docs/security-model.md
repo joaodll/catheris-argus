@@ -83,7 +83,7 @@ when their checks need it. Argus never stores such a value:
 - **Network:** default-deny NetworkPolicies. Postgres accepts its clients only, the API accepts the
   web pods only, Memgraph accepts graph-sync and the API only and reaches nothing, and only scan Jobs reach
   port 443 outside the cluster, never instance metadata. `helm test` proves the cluster enforces
-  them.
+  them once a pod is running; see Known limits for a new pod's first moments.
 - **What a scan Job can be:** the scheduler is the only pod with a Kubernetes token, and may only
   create Jobs. An admission policy rejects any Job from it whose image, command, service account,
   environment, volumes and mounts, security context, placement, probes or hooks differ from the
@@ -156,6 +156,14 @@ Argus is pre-1.0. These are known and accepted for now:
   computed only from a graph it has just verified, and the lists and their history are read from
   Postgres. Telemetry is off, its metrics and monitoring listeners stay on the
   loopback, and it holds no secret value (ADR-0044).
+- **A new pod's egress rules don't hold for its first moments on some network plugins.** The plugin
+  lets its outgoing traffic through until it has applied the pod's policies. Measured on kind on
+  2026-11-03: a pod connecting at its start reached the internet 30 times out of 30, and a pod
+  waiting 10 seconds 0 out of 30. The VPC CNI's default `standard` mode documents the same
+  behaviour, and its `strict` mode closes it for the whole cluster. Postgres, the API and Memgraph
+  still refuse such a pod by their own ingress rules; running pods are enforced; taking advantage
+  of the gap needs code running in a pod's first moments. `helm test --logs` reports it on your
+  cluster, and the [runbook](runbook-kubernetes.md) has the choice.
 - **No Postgres backup is built in.** Back up the database yourself, or use a managed Postgres.
 - **Scan data is not encrypted by Argus at rest.** Only stored credentials are. The database holds
   the attack map: put it on an encrypted volume, or use a managed database with encryption on.
