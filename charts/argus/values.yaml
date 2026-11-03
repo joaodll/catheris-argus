@@ -145,6 +145,9 @@ memgraph:
     storageClassName: ""
   # Memgraph's own limit (MiB), kept below the container's.
   memoryLimitMiB: 3584
+  # The longest one graph transaction may run, up to Memgraph's own ceiling of 600 s. The API's map
+  # reads stop at 5 s whatever this says.
+  transactionTimeoutSeconds: 120
   resources:
     requests: {cpu: 250m, memory: 3Gi}
     limits: {memory: 4Gi}
@@ -168,6 +171,18 @@ api:
   # required: the address range web's pods come from (the pod CIDR). The API believes
   # X-Forwarded-For only from it; the NetworkPolicy lets only web reach the API.
   trustedProxies: ""
+  # A session ends after idleMinutes without use, and after absoluteHours whatever happens.
+  session:
+    idleMinutes: 30
+    absoluteHours: 12
+  # Failures within lockoutMinutes. One username from one address locks first; one address limits
+  # spraying across usernames; one username from anywhere only at a far higher count, so one
+  # attacker can't keep the administrator locked out.
+  signIn:
+    maxFailures: 5
+    lockoutMinutes: 15
+    maxFailuresPerAddress: 20
+    maxFailuresPerUsername: 100
   resources:
     requests: {cpu: 100m, memory: 128Mi}
     limits: {memory: 256Mi}
@@ -254,6 +269,9 @@ scanJobs:
 # rule loads. Without it the database grows for ever.
 retention:
   schedule: "17 3 * * *"
+  # The longest history an administrator may set in the UI. The API and retention both read it.
+  # Lowering it below what is set in the UI deletes the history above it at the next retention.
+  maxHistoryDays: 400
   resources:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {memory: 512Mi}

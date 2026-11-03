@@ -86,10 +86,33 @@ refused "a scan Job pool below a run's peak" --set database.pools.scanJob=2
 refused "a graph-sync pool below its peak" --set database.pools.graphSync=1
 refused "a Memgraph volume without a size" --set memgraph.storage.size=
 refused "the Memgraph image by tag" --set images.memgraph.digest=3.13.2
+refused "a session of no minutes" --set api.session.idleMinutes=0
+refused "no sign-in failures allowed" --set api.signIn.maxFailures=0
+refused "a history bound below the UI's minimum" --set retention.maxHistoryDays=10
+refused "a graph timeout above Memgraph's ceiling" --set memgraph.transactionTimeoutSeconds=601
 helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
   --set admissionPolicy.enabled=false --set admissionPolicy.acknowledgeUnenforced=true > /dev/null \
   || fail "the policy off, acknowledged, must render"
 echo "rendered: the admission policy off, acknowledged"
+
+step "the limits reach the pods that read them"
+limits=$(helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
+  --set retention.maxHistoryDays=500 --set api.session.idleMinutes=45 \
+  --set api.signIn.maxFailuresPerAddress=33 --set memgraph.transactionTimeoutSeconds=300)
+expect_env() { # <kind> <object> <variable> <value>
+  local got
+  got=$(printf '%s\n' "$limits" | yq -N "select(.kind == \"$1\" and .metadata.name == \"argus-$2\")
+    | .. | select(has(\"env\")) | .env[] | select(.name == \"$3\") | .value" | head -1)
+  [ "$got" = "$4" ] || fail "$2: $3 is '$got', expected $4"
+  echo "$2: $3=$4"
+}
+# Retention deletes what is above its bound, so it must always hold the API's.
+expect_env Deployment api ARGUS_MAX_HISTORY_DAYS 500
+expect_env CronJob retention ARGUS_MAX_HISTORY_DAYS 500
+expect_env Deployment api ARGUS_SESSION_IDLE_MINUTES 45
+expect_env Deployment api ARGUS_LOGIN_MAX_FAILURES_PER_IP 33
+expect_env Deployment api ARGUS_GRAPH_TIMEOUT_SECONDS 300
+expect_env Deployment graph-sync ARGUS_GRAPH_TIMEOUT_SECONDS 300
 
 step "the Postgres image is compose.yaml's"
 compose_digest=$(grep -o 'image: postgres:[^@]*@sha256:[0-9a-f]\{64\}' "$COMPOSE" | head -1 | sed 's/.*@//')

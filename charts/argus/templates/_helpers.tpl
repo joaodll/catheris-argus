@@ -140,6 +140,18 @@ Secret may lack it. */}}
     secretKeyRef:
       name: {{ .Values.secrets.existingSecret }}
       key: ARGUS_GRAPH_PASSWORD
+- name: ARGUS_GRAPH_TIMEOUT_SECONDS
+  value: {{ .Values.memgraph.transactionTimeoutSeconds | int | quote }}
+{{- end }}
+
+{{/*
+The longest history the UI may set (ADR-0023). The API refuses more, and retention cuts anything
+above it down to it, deleting that history. So both read this one value: the bound on only one
+of them would let an administrator save what retention then deletes.
+*/}}
+{{- define "argus.historyBound.env" -}}
+- name: ARGUS_MAX_HISTORY_DAYS
+  value: {{ .Values.retention.maxHistoryDays | int | quote }}
 {{- end }}
 
 {{- define "argus.keyringEnv" -}}
