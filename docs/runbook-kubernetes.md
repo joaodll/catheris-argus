@@ -226,28 +226,10 @@ postgres:
 
 The migrate Job is named by a hash of its pod, so it runs once per new image. `api` and the
 scheduler wait until the schema reaches their image's revision, and only a scheduler that has
-waited starts scan Jobs; the old scheduler stops before the new one starts. Migrations almost always only
-add, so pods of the old image keep working during the rollout. The exception is 0039 (below): until
-they are replaced, old pods fail on the removed screens' routes. A rederive Job, named the
+waited starts scan Jobs; the old scheduler stops before the new one starts. Migrations only add,
+so pods of the old image keep working during the rollout. A rederive Job, named the
 same way, derives again after a rule change; it waits behind any ingest running at the time. A
 failed migrate or rederive Job stays: read its logs, delete it, and upgrade again.
-
-### From a build with the Resource map and Attack paths
-
-Applies to an install from `9b22bea` (ADR-0045, 2026-11-03). Rebuild the images and pin their new
-digests first: the version number is the same, 0.1.0, so the digests are what tell them apart.
-
-1. Delete any `memgraph:`, `graphSync:`, `images.memgraph` and `database.pools.graphSync` from your
-   values. The schema refuses them.
-2. Run the upgrade above. Migration 0039 drops the path and graph tables and metrics, and the rederive
-   Job derives each connection once.
-3. Delete what Helm leaves behind, the Memgraph volume. It holds the same map of your accounts as the
-   database, in a snapshot and write-ahead log, so don't leave it behind:
-   `kubectl -n argus delete pvc -l app.kubernetes.io/component=memgraph`.
-   Deleting the claim destroys the data only when the storage class's reclaim policy is `Delete`. With
-   `Retain`, the disk stays: run `kubectl get pv`, then delete the `Released` volume and its disk in
-   your cloud.
-4. Delete the `ARGUS_GRAPH_PASSWORD` key from your Secret, or from Secrets Manager.
 
 ## Operating
 

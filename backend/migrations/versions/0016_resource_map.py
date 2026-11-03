@@ -1,4 +1,4 @@
-"""The Resource map and Attack paths screens (ADR-0033).
+"""Edge loads, and finding edges by uid (ADR-0033).
 
 Revision ID: 0016
 Revises: 0015
@@ -15,15 +15,9 @@ Create Date: 2026-10-08
   pseudo-nodes (`internet`, `admin:<account>`, `external:<host>`) and resources of another
   account have no `resource_id`. The existing indexes on the resource ids stay for the
   resource sheet.
-- `attack_path (node_uids)` GIN: "attack paths through this resource" (`node_uids @> {uid}`).
-- `attack_path.base_severity`, `entry_confirmed`, `has_failing`: why a path has its severity
-  (the rule's level, raised when the entry is confirmed, lowered when nothing on the path
-  fails), shown on the path page. NULL for paths not evaluated since this migration; the next
-  CloudFox ingest fills them.
 
-The indexes are built inside the migration's transaction (not CONCURRENTLY): edge and
-attack_path hold thousands of rows per account, built in seconds, and the worker is the only
-writer.
+The indexes are built inside the migration's transaction (not CONCURRENTLY): edge holds thousands
+of rows per account, built in seconds, and the worker is the only writer.
 """
 
 from alembic import op
@@ -57,22 +51,9 @@ def upgrade() -> None:
     op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON edge_load TO argus_worker")
     op.execute("CREATE INDEX edge_source_uid ON edge (source_uid)")
     op.execute("CREATE INDEX edge_target_uid ON edge (target_uid)")
-    op.execute("""
-        ALTER TABLE attack_path
-          ADD COLUMN base_severity text
-            CHECK (base_severity IN ('critical', 'high', 'medium', 'low', 'informational')),
-          ADD COLUMN entry_confirmed boolean,
-          ADD COLUMN has_failing boolean
-    """)
-    op.execute("CREATE INDEX attack_path_nodes ON attack_path USING gin (node_uids)")
 
 
 def downgrade() -> None:
-    op.execute("DROP INDEX attack_path_nodes")
-    op.execute(
-        "ALTER TABLE attack_path DROP COLUMN base_severity, DROP COLUMN entry_confirmed, "
-        "DROP COLUMN has_failing"
-    )
     op.execute("DROP INDEX edge_target_uid")
     op.execute("DROP INDEX edge_source_uid")
     op.execute("DROP TABLE edge_load")

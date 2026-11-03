@@ -425,22 +425,6 @@ To refresh the test fixtures from a real run (the Phase 0 spike), see
    is kept with the Value column blanked), `instance-userdata.txt` and `cloudformation-data.txt`
    (2026-10-14).
 
-**Upgrading from a build with the Resource map and Attack paths** (`9b22bea`; ADR-0045, 2026-11-03).
-Migration 0039 drops their tables and metrics, and the worker re-derives each connection once at its
-next start. Then delete what is left of Memgraph. Its volume holds the same map of your accounts as
-the database, in a snapshot and write-ahead log, so don't leave it behind:
-
-```bash
-docker compose up -d --remove-orphans      # stops the memgraph container
-docker volume rm argus_memgraph-data
-```
-
-On a shared host, add the override to the first command:
-`docker compose -f compose.yaml -f compose.single-instance.yaml up -d --remove-orphans`.
-
-Delete `ARGUS_GRAPH_PASSWORD`, `ARGUS_GRAPH_TIMEOUT_SECONDS` and `ARGUS_DEV_GRAPH_PASSWORD` from
-`.env`.
-
 **Starting over.** `docker compose down` stops the stack and keeps the data. `docker compose down -v`
 also **deletes every volume: the database with all history, and the raw files**. There is no
 undo.

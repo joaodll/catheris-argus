@@ -43,7 +43,7 @@ The MVP ships two screens, the executive Overview and Administration (ADR-0028),
 | History | Daily snapshots (snapshot\_date) kept six months in Postgres | The same retention unless a need for longer appears |
 | Clouds | AWS | GCP, then OCI |
 
-**No graph features in this release (2026-11-03, [ADR-0045](adr/0045-remove-graph-features.md)).** The Resource map, Attack paths and the Memgraph read model that served them were built, then removed by the owner's decision for v0.1. Postgres is the only database. Edges and every relationship rule stay, because reach verdicts and the resource panel read them. If a graph capability returns, it starts from a new study of other technologies and a new ADR, not from restoring Memgraph. The last commit with these features is tagged `archive/graph-features`.
+**No graph features in this release (2026-11-03, [ADR-0045](adr/0045-remove-graph-features.md)).** The Resource map, Attack paths and the Memgraph read model that served them were built, then removed by the owner's decision for v0.1. Postgres is the only database. Edges and every relationship rule stay, because reach verdicts and the resource panel read them. If a graph capability returns, it starts from a new study of other technologies and a new ADR, not from restoring Memgraph. The last commit with these features is `d0fb438`.
 
 ## How the MVP runs
 

@@ -1,7 +1,7 @@
 """CloudFox's loot commands, shown on a finding and the resource sheet (ADR-0038).
 
 Revision ID: 0022
-Revises: 0021
+Revises: 0020
 Create Date: 2026-10-14
 
 CloudFox's loot files hold the commands a person would run to follow up what it found. Argus
@@ -24,7 +24,7 @@ commands of one resource as the files list them.
 from alembic import op
 
 revision = "0022"
-down_revision = "0021"
+down_revision = "0020"
 branch_labels = None
 depends_on = None
 
