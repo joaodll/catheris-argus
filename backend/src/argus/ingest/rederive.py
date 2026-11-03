@@ -1,11 +1,13 @@
 """Derive again after a rule upgrade (ADR-0035, fifth amendment, point 6).
 
-Edges are derived when a Steampipe run is ingested, and attack paths after CloudFox. So after
-an upgrade, a connection kept the old rules' edges and paths until its next runs. When the
-worker starts, before its run threads, each enabled connection whose latest rule load was
-derived with another rule set (edge_load.ruleset, migration 0026; none before it) is derived
-again on that load's day: its edges, flows, reach checks and attack paths. A re-derive never
-resolves anything: it re-reads the same day's inventory with newer rules, it is not a scan.
+Edges are derived when a Steampipe run is ingested. So after an upgrade, a connection kept the
+old rules' edges until its next runs. When the worker starts, before its run threads, each
+enabled connection whose latest rule load was derived with another rule set (edge_load.ruleset,
+migration 0026; none before it) is derived again on that load's day: its edges and reach
+checks. The new rule set moves the graph read model's marker, so the graph loop re-projects the
+connection and evaluates the attack paths again (ADR-0044, M2). A path the new rules no longer
+find is resolved by that evaluation when the connection's newest runs are complete, on the
+upgrade's day rather than at the next complete scan, which would have closed it the same way.
 """
 
 import logging
@@ -15,9 +17,8 @@ from pathlib import Path
 from sqlalchemy import Engine, text
 
 from argus import connections
-from argus.attackpaths import evaluate_paths
-from argus.ingest.pipeline import REDERIVE_LOCK, check_reach, paths_day, rule_set
-from argus.relationships import latest_rule_loads, write_edges, write_flows
+from argus.ingest.pipeline import REDERIVE_LOCK, check_reach, rule_set
+from argus.relationships import latest_rule_loads, write_edges
 
 log = logging.getLogger(__name__)
 # Two re-derives starting together (two workers, a Job and a worker) do it once.
@@ -44,25 +45,15 @@ def rederive_connection(engine: Engine, *, rules_dir: Path, connection_id: int, 
     edges = write_edges(
         engine, rules_dir=rules_dir, connection_id=connection_id, day=day, ruleset=ruleset
     )
-    flows = write_flows(engine, connection_id=connection_id, day=day)
     with engine.begin() as conn:
         reach = check_reach(conn, connection_id=connection_id, day=day)
-        # Paths read both edge families: on a later CloudFox day, evaluate there, so the paths
-        # keep CloudFox's newest evidence (the rule edges re-derived on `day` still stand).
-        on = paths_day(conn, connection_id=connection_id, day=day)
-    paths = evaluate_paths(
-        engine, rules_dir=rules_dir, connection_id=connection_id, day=on, resolve=False
-    )
     log.info(
         "re-derived after a rule upgrade",
         extra={
             "connection_id": connection_id,
             "day": day.isoformat(),
             "edges": edges,
-            "flows": flows,
             "reach_checked": reach,
-            "paths": paths["paths"],
-            "paths_day": on.isoformat(),
         },
     )
 

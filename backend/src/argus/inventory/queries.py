@@ -2,16 +2,12 @@
 was on a given day."""
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, Literal
 
 from sqlalchemy import Connection, text
 
 from argus.core.db import count_sql, like_contains
-
-# A day's inventory is the latest snapshot within this window (the ingest carry-forward), so a
-# failed Steampipe run does not make every resource vanish.
-CARRY_FORWARD_DAYS = 31
 
 # Exported SQL. Other modules embed these instead of naming inventory's tables, so a change
 # to resource, resource_config or resource_snapshot is made here and nowhere else.
@@ -50,15 +46,28 @@ def uid_by_native_id(
 
 
 def effective_day(conn: Connection, *, connection_id: int, day: date) -> date | None:
-    """The snapshot that stands for `day`: the latest on or before it, within the window."""
+    """The inventory that stands for `day`: the connection's latest load on or before it,
+    however old (owner's decision, 2026-11-01: every screen shows each account's latest scan;
+    scans may be 60 days apart, and retention is the only limit). A primary-key read of
+    resource_load (migration 0036). A load with no resource counts, so an account whose
+    resources all went away reads empty, and a failed run records no load, so the previous
+    one still stands."""
     value: date | None = conn.execute(
-        text("""
-        SELECT max(s.snapshot_date) FROM resource_snapshot s JOIN resource r ON r.id = s.resource_id
-        WHERE r.connection_id = :c AND s.snapshot_date BETWEEN :start AND :d
-    """),
-        {"c": connection_id, "d": day, "start": day - timedelta(days=CARRY_FORWARD_DAYS)},
+        text(
+            "SELECT max(snapshot_date) FROM resource_load "
+            "WHERE connection_id = :c AND snapshot_date <= :d"
+        ),
+        {"c": connection_id, "d": day},
     ).scalar()
     return value
+
+
+def delete_loads_before(conn: Connection, *, cutoff: date) -> int:
+    """Retention: resource_load rows older than the history kept (their snapshots are gone)."""
+    deleted: int = conn.execute(
+        text("DELETE FROM resource_load WHERE snapshot_date < :c"), {"c": cutoff}
+    ).rowcount
+    return deleted
 
 
 ResourceOrder = Literal["name_asc", "name_desc", "last_seen_desc", "last_seen_asc"]
@@ -144,6 +153,17 @@ def resource_facets(conn: Connection, *, connection_id: int | None) -> dict[str,
         params,
     )
     return {"types": [r.type for r in types], "regions": [r.region for r in regions]}
+
+
+# Exported SQL: one connection's resources present on :resource_day (bind it to effective_day()),
+# without their configuration: the nodes of the graph read model (ADR-0044).
+RESOURCES_PRESENT_SQL = """
+  SELECT res.id, res.resource_uid AS uid, res.provider, res.type,
+         coalesce(res.name, res.native_id) AS name, res.region
+  FROM resource_snapshot s
+  JOIN resource res ON res.id = s.resource_id
+  WHERE s.snapshot_date = :resource_day AND res.connection_id = :connection_id
+"""
 
 
 # Exported SQL: one row per inventoried resource, as a node of the Resource map (ADR-0033).

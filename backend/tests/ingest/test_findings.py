@@ -137,7 +137,7 @@ def test_a_partial_run_resolves_nothing_and_keeps_its_results(
     target = make_demo(owner)
     run_tool(worker, store, target, "prowler", DAY)
     open_before = _count(owner, "SELECT count(*) FROM finding WHERE state = 'open'")
-    later = DAY + timedelta(days=1)  # carry-forward reaches back at most 31 days
+    later = DAY + timedelta(days=60)  # carry-forward reaches the previous scan however old
     partial = run_tool(
         worker, store, target, "prowler", later, CollectOptions(synthetic_throttle_share=1.0)
     )

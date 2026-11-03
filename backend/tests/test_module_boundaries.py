@@ -14,17 +14,8 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "argus"
 
 OWNERS: dict[str, set[str]] = {
     "connections": {"connection", "connection_test"},
-    "inventory": {"resource", "resource_config", "resource_snapshot"},
-    "relationships": {
-        "edge",
-        "edge_snapshot",
-        "edge_load",
-        "flow",
-        "flow_shape",
-        "flow_step",
-        "flow_chip",
-        "flow_snapshot",
-    },
+    "inventory": {"resource", "resource_config", "resource_snapshot", "resource_load"},
+    "relationships": {"edge", "edge_snapshot", "edge_load"},
     "findings": {
         "finding",
         "finding_command",
@@ -39,13 +30,14 @@ OWNERS: dict[str, set[str]] = {
         "compliance_framework",
         "compliance_rollup",
     },
-    "attackpaths": {"attack_path"},
+    "attackpaths": {"attack_path", "staged_path"},
     "metrics": {"metric_daily"},
     "ingest": {"scan_run"},
     "core": {"unresolved_ref", "audit_log"},
     "scheduling": {"run_request", "schedule", "schedule_connection"},
     "settings": {"platform_setting"},
     "auth": {"app_user", "user_session", "login_failure"},
+    "graph": {"graph_projection"},
 }
 ALL_TABLES = set().union(*OWNERS.values())
 _SQL_TABLE_RE = re.compile(

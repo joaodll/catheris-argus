@@ -1,15 +1,16 @@
 <script setup lang="ts">
 /**
  * Find a resource (docs/ui/screens.md, E11, Toolbar): a combobox over the Resources search
- * (GET /resources?q=). Each option shows the name, the type and the connection; choosing one
- * emits its uid. The ARIA 1.2 combobox pattern: focus stays in the input, the arrow keys move
- * the active option, Enter chooses, Esc closes.
+ * (GET /resources?q=), in one connection when `connectionId` is set. Each option shows the name,
+ * the type and the connection; choosing one emits its uid and its connection. The ARIA 1.2
+ * combobox pattern: focus stays in the input, the arrow keys move the active option, Enter
+ * chooses, Esc closes.
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api, unwrap, type Schemas } from '@/api/client'
 
-const props = defineProps<{ connectionName: (id: number) => string }>()
-const emit = defineEmits<{ choose: [uid: string] }>()
+const props = defineProps<{ connectionName: (id: number) => string; connectionId?: number | null }>()
+const emit = defineEmits<{ choose: [uid: string, connectionId: number] }>()
 
 const LIMIT = 8
 const id = 'map-find'
@@ -25,7 +26,8 @@ async function search(q: string): Promise<void> {
   const mine = ++generation
   status.value = 'loading'
   try {
-    const page = await unwrap(api.GET('/api/v1/resources', { params: { query: { q, limit: LIMIT } } }))
+    const query = { q, limit: LIMIT, connection_id: props.connectionId ?? undefined }
+    const page = await unwrap(api.GET('/api/v1/resources', { params: { query } }))
     if (mine !== generation) return
     options.value = page.items
     active.value = page.items.length ? 0 : -1
@@ -46,6 +48,17 @@ watch(term, (value) => {
   open.value = true
   typing = window.setTimeout(() => void search(q), 250)
 })
+// Another account: what is typed is searched again, so no result of the old one can be chosen.
+watch(
+  () => props.connectionId,
+  () => {
+    const q = term.value.trim()
+    if (q.length < 2) return
+    window.clearTimeout(typing)
+    options.value = []
+    void search(q)
+  },
+)
 onBeforeUnmount(() => window.clearTimeout(typing))
 
 const optionId = (i: number) => `${id}-opt-${i}`
@@ -57,7 +70,7 @@ const message = computed(() => {
 })
 
 function choose(row: Schemas['ResourceRow']): void {
-  emit('choose', row.resource_uid)
+  emit('choose', row.resource_uid, row.connection_id)
   term.value = ''
   open.value = false
 }
@@ -96,6 +109,7 @@ function onKey(event: KeyboardEvent): void {
       :aria-controls="`${id}-list`"
       :aria-activedescendant="open && active >= 0 ? optionId(active) : undefined"
       @keydown="onKey"
+      @focus="open = term.trim().length >= 2"
       @blur="open = false"
     >
     <div v-show="open" class="panel">
@@ -122,8 +136,8 @@ function onKey(event: KeyboardEvent): void {
 <style scoped>
 .find {
   position: relative;
-  min-width: 280px;
-  flex: 1 1 320px;
+  min-width: 220px;
+  flex: 1 1 220px;
 }
 
 .panel {

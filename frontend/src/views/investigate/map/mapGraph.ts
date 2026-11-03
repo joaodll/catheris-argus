@@ -6,6 +6,7 @@
  */
 import type { Schemas } from '@/api/client'
 import { SEVERITIES, type Severity } from '@/views/overview/severity'
+import type { Fact } from './mapQuery'
 
 export type MapNode = Schemas['MapNode']
 export type MapEdge = Schemas['MapEdge']
@@ -19,6 +20,16 @@ export function boundaryLabel(node: MapNode, connectionName: (id: number) => str
   if (node.connection_id != null) return `Other connection: ${connectionName(node.connection_id)}`
   const account = node.uid.startsWith('admin:') ? node.uid.slice(6) : node.uid.split(':')[4]
   return account ? `Other account: ${account}` : 'Other account'
+}
+
+/** The map's note when the graph has not caught up with the account's scans (ADR-0044, M-3): the map
+ * is that account's latest state in the graph, never a past day. */
+export function graphNote(state: Pick<Schemas['MapGraphState'], 'behind' | 'failed'> | null): { kind: 'info' | 'warn'; text: string } | null {
+  if (state?.failed) {
+    return { kind: 'warn', text: 'This map may be out of date: updating it from the newest scans failed. Argus keeps retrying.' }
+  }
+  if (state?.behind) return { kind: 'info', text: 'A newer scan of this account is being added to the map.' }
+  return null
 }
 
 /** What the map's panel shows: a node, a group (by its id) or a drawn line (by its key). */
@@ -193,25 +204,34 @@ export function traceOf(lines: Pick<DrawnEdge, 'key' | 'source' | 'target'>[], i
   return { nodes, lines: keys }
 }
 
-/** The shortest chain from the internet to a node along the drawn lines (Flow mode's "Path from
- * the internet"), each step with the line that reached it; null when none leads there. */
-export function pathFromInternet(lines: DrawnEdge[], id: string): { uid: string; line: DrawnEdge | null }[] | null {
-  const via = new Map<string, DrawnEdge | null>([['internet', null]])
-  const queue = ['internet']
-  while (queue.length && !via.has(id)) {
-    const at = queue.shift()!
-    for (const line of lines) {
-      if (line.source !== at || via.has(line.target)) continue
-      via.set(line.target, line)
-      queue.push(line.target)
-    }
-  }
-  if (!via.has(id)) return null
-  const out: { uid: string; line: DrawnEdge | null }[] = []
-  for (let at: string | undefined = id; at != null; ) {
-    const line: DrawnEdge | null = via.get(at) ?? null
-    out.unshift({ uid: at, line })
-    at = line?.source
-  }
-  return out
+/** The number a card shows for a Highlight, and the severity that colours it (none: neutral).
+ * Severity colours mean severity only, so exploits and paths have none. */
+export function factOf(node: MapNode | null, fact?: Fact | null): { count: number; worst: Severity | null } {
+  if (!node) return { count: 0, worst: null }
+  if (fact === 'cves') return { count: node.vulnerabilities?.open ?? 0, worst: (node.vulnerabilities?.worst as Severity | null | undefined) ?? null }
+  if (fact === 'exploits') return { count: node.vulnerabilities?.exploitable ?? 0, worst: null }
+  if (fact === 'paths') return { count: node.attack_paths?.on ?? 0, worst: null }
+  const { worst, open } = worstOf(node)
+  return { count: open, worst }
+}
+
+/** A node's CVEs and paths in words, for the list, the tooltip and the keyboard's announcement. */
+export function factsLine(node: MapNode | null): string {
+  if (!node) return ''
+  const parts: string[] = []
+  const cves = node.vulnerabilities
+  if (cves?.open) parts.push(`${cves.open} ${cves.open === 1 ? 'CVE' : 'CVEs'}`)
+  if (cves?.exploitable) parts.push('Exploit')
+  if (node.attack_paths?.on) parts.push(`On ${node.attack_paths.on} ${node.attack_paths.on === 1 ? 'path' : 'paths'}`)
+  return parts.join(' · ')
+}
+
+/** The note when no card drawn has the chosen fact: it says what that does and doesn't mean. */
+export function noFactNote(fact: Fact | null, cards: readonly (MapNode | null)[]): string | null {
+  if (!fact || cards.some((n) => factOf(n, fact).count > 0)) return null
+  const scanner = " Resources the scanner doesn't cover can't show any."
+  if (fact === 'cves') return `No open CVEs on the resources drawn.${scanner}`
+  if (fact === 'exploits') return `No public exploits on the resources drawn.${scanner}`
+  if (fact === 'paths') return 'No open attack paths through the resources drawn.'
+  return 'No open misconfigurations on the resources drawn.'
 }

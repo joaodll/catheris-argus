@@ -64,3 +64,60 @@ function rank(s: string): number {
   const i = ORDER.indexOf(s)
   return i < 0 ? ORDER.length : i
 }
+
+/** A connection a path passes through (ADR-0044, M2). */
+export interface PathAccount {
+  connection_id: number
+  name: string | null
+}
+
+function accountName(a: PathAccount): string {
+  return a.name ?? `Connection ${a.connection_id}`
+}
+
+/** "prod → shared → dev": every account on the path, the entry's first. */
+export function accountsChain(accounts: PathAccount[]): string {
+  return accounts.map(accountName).join(' → ')
+}
+
+/** The Connection column's second line when a path leaves its entry's account: "Crosses into
+ * shared", or "Crosses into 2 accounts"; the whole chain goes in the title. */
+export function crossesLine(accounts: PathAccount[]): { text: string; title: string } | null {
+  const others = accounts.slice(1)
+  if (!others.length) return null
+  const into = others.length === 1 ? accountName(others[0]!) : `${others.length} accounts`
+  return { text: `Crosses into ${into}`, title: accountsChain(accounts) }
+}
+
+/** The list's note when its paths are behind the scans (owner's decision, 2026-11-01): the
+ * graph has not evaluated the newest scans yet, or its last update failed. */
+export function staleNote(
+  graph: { evaluated_at: string | null; behind: boolean; failed: boolean },
+  when: (iso: string) => string,
+): { kind: 'info' | 'warn'; text: string } | null {
+  const shown = graph.evaluated_at ? ` Shown: the paths found ${when(graph.evaluated_at)}.` : ''
+  if (graph.failed) {
+    return { kind: 'warn', text: `Attack paths may be out of date: updating them from the newest scans failed.${shown} Argus keeps retrying.` }
+  }
+  if (graph.behind) {
+    return graph.evaluated_at
+      ? { kind: 'info', text: `Attack paths are being updated from the newest scans.${shown}` }
+      : { kind: 'info', text: 'Attack paths have not been evaluated from the newest scans yet.' }
+  }
+  return null
+}
+
+/** The list's note when the per-account cap kept found paths out of it (ADR-0044, amended
+ * 2026-11-02). It has only counts by severity and entry account, so it doesn't describe a filtered
+ * list; passing-through lists also show other accounts' paths, so it names where these enter. */
+export function notListedNote(n: { paths: number; latent: number; worst: Severity | null } | null | undefined, account: string | null): string | null {
+  if (!n || n.paths + n.latent === 0) return null
+  const where = account ? ` entering ${account}` : ''
+  const count = (total: number, word: string) => `${total.toLocaleString('en-US')} more ${word}${total === 1 ? '' : 's'}`
+  const found = (total: number) => `${total === 1 ? 'was' : 'were'} found but not listed`
+  const after = "Filters and counts here don't include them."
+  if (n.paths === 0) return `${count(n.latent, 'latent path')}${where} ${found(n.latent)}. ${after}`
+  const worst = n.worst === 'informational' ? SEVERITY_LABEL.informational : `${SEVERITY_LABEL[n.worst ?? 'informational']} or lower`
+  const latent = n.latent ? `, plus ${n.latent.toLocaleString('en-US')} latent path${n.latent === 1 ? '' : 's'}` : ''
+  return `${count(n.paths, 'path')}${where} ${found(n.paths)}: ${worst}${latent}. ${after}`
+}

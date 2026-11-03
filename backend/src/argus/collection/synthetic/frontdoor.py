@@ -1,5 +1,5 @@
-"""The front-door chain every synthetic estate carries (ADR-0033), so the Resource map has
-something to draw from the internet down to data and identity:
+"""The front-door chain every synthetic estate carries (ADR-0033), so the Resource map and
+Attack paths have a chain from the internet down to data and identity:
 
     Route53 app.<zone> -> CloudFront -> { assets bucket, HTTP API -> orders-api function,
                                           edge ALB -> target groups -> function, ECS service }

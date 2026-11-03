@@ -122,7 +122,7 @@ function goTo(page: number): void {
   <PageHeader title="Compliance">
     <template v-if="list.data.value?.data_through">Data through <span class="mono strong">{{ list.data.value.data_through }}</span></template>
     <template v-else-if="loaded">No Prowler scan yet</template>
-    <template v-if="!state.connection && list.data.value?.data_through"> · All connections: each account's latest scan, up to 31 days old</template>
+    <template v-if="!state.connection && list.data.value?.data_through"> · All connections: each account's latest scan</template>
   </PageHeader>
 
   <FilterBar label="Filter frameworks" :active="filtered" @clear="clearFilters">

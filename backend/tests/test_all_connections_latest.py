@@ -1,6 +1,7 @@
-"""All connections = each enabled connection's latest result on or before the day, at most 31
-days old (decided 2026-10-08): accounts scanned on different days still add up. Events, which
-happened on one day, are not carried."""
+"""All connections = each enabled connection's latest result on or before the day, however old
+(decided 2026-10-08; the 31-day limit lifted 2026-11-01: scans may run 15 to 60 days apart):
+accounts scanned on different days still add up. Events, which happened on one day, are not
+carried. A disabled account drops out."""
 
 from datetime import date, timedelta
 
@@ -50,11 +51,26 @@ def test_an_account_counts_with_its_latest_scan_until_the_next(
     assert _all(worker, DAY + timedelta(days=1), "assets.total") == 150  # A from the day before
     assert _all(worker, DAY + timedelta(days=1), "findings.events", "new") == 2  # not carried
 
-    # A's next scan replaces its value; an account last seen over 31 days ago drops out.
+    # A's next scan replaces its value; B, last scanned weeks ago, still counts however old.
     _put(worker, a, DAY + timedelta(days=2), {("assets.total", ""): 120})
     assert _all(worker, DAY + timedelta(days=2), "assets.total") == 170
     _put(worker, a, DAY + timedelta(days=40), {("assets.total", ""): 90})
-    assert _all(worker, DAY + timedelta(days=40), "assets.total") == 90
+    assert _all(worker, DAY + timedelta(days=40), "assets.total") == 140
+    _put(worker, a, DAY + timedelta(days=70), {("assets.total", ""): 95})
+    assert _all(worker, DAY + timedelta(days=70), "assets.total") == 145  # B: 69 days old
+
+
+def test_a_late_value_is_re_rolled_until_the_accounts_next_scan(
+    owner: Engine, worker: Engine
+) -> None:
+    """carried_days: the all-connections days that carried a value, up to that account's next
+    day with the metric, however far."""
+    a, b = (make_demo(owner, seed).connection_id for seed in (0, 1))
+    for connection_id, offset in ((a, 0), (b, 10), (b, 50), (a, 80), (b, 90)):
+        _put(worker, connection_id, DAY + timedelta(days=offset), {("assets.total", ""): 1})
+    with owner.connect() as conn:
+        carried = metrics.carried_days(conn, after=DAY, metrics=["assets.total"], connection_id=a)
+    assert carried == [DAY + timedelta(days=10), DAY + timedelta(days=50)]
 
 
 def test_a_disabled_connection_leaves_the_totals(owner: Engine, worker: Engine) -> None:
@@ -64,6 +80,24 @@ def test_a_disabled_connection_leaves_the_totals(owner: Engine, worker: Engine) 
         conn.execute(text("UPDATE connection SET enabled = false WHERE id = :i"), {"i": a})
     _put(worker, b, DAY + timedelta(days=1), {("assets.total", ""): 50})
     assert _all(worker, DAY + timedelta(days=1), "assets.total") == 50
+
+
+def test_compliance_counts_an_account_scanned_60_days_ago(
+    owner: Engine, worker: Engine, store: FilesystemRawStore
+) -> None:
+    a, b = make_demo(owner, 0), make_demo(owner, 2)
+    run_tool(worker, store, a, "prowler", DAY)
+    later = DAY + timedelta(days=60)
+    run_tool(worker, store, b, "prowler", later)
+    with owner.connect() as conn:
+        assessed = conn.execute(
+            text(
+                "SELECT max(fail_connections + manual_connections + pass_connections) "
+                "FROM compliance_rollup WHERE snapshot_date = :d"
+            ),
+            {"d": later},
+        ).scalar_one()
+    assert assessed == 2  # A's results of 60 days ago still count
 
 
 def test_the_requirement_list_and_score_combine_accounts_scanned_on_different_days(

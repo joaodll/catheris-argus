@@ -1,0 +1,90 @@
+{{- /* The graph read model (ADR-0044): Memgraph, the same pinned plain image as compose.yaml.
+It runs as the image's memgraph user (101), with its data one level below the volume's root;
+telemetry off (the image's memgraph.conf turns it on), the metrics and monitoring listeners on
+the loopback, logs to stderr only. Everything in it is rebuilt from Postgres, so the volume
+needs no backup. Only graph-sync reaches its Bolt port (networkpolicies.yaml). Its Service is
+in services.yaml. */ -}}
+{{- define "argus.memgraph.env" -}}
+# The first login, created when the volume is new.
+- name: MEMGRAPH_USER
+  value: argus
+- name: MEMGRAPH_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.secrets.existingSecret }}
+      key: ARGUS_GRAPH_PASSWORD
+{{- end }}
+{{- define "argus.memgraph.probes" -}}
+ports:
+  - {name: bolt, containerPort: 7687}
+# Recovering a large snapshot can take minutes; then ready while Bolt answers.
+startupProbe:
+  tcpSocket: {port: bolt}
+  periodSeconds: 5
+  failureThreshold: 120
+readinessProbe:
+  tcpSocket: {port: bolt}
+  periodSeconds: 5
+  failureThreshold: 3
+livenessProbe:
+  tcpSocket: {port: bolt}
+  periodSeconds: 10
+  failureThreshold: 6
+{{- end }}
+{{- $name := printf "%s-memgraph" (include "argus.fullname" .) }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "argus.labels" (dict "root" . "component" "memgraph") | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ $name }}
+  selector:
+    matchLabels:
+      {{- include "argus.selectorLabels" (dict "root" . "component" "memgraph") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "argus.labels" (dict "root" . "component" "memgraph") | nindent 8 }}
+    spec:
+      {{- /* A clean stop writes a snapshot; a killed one replays the WAL at the next start.
+      Community's login can do everything, and the API holds it (ADR-0044, M-2). No LOAD CSV and a
+      read-only module directory keep it to the graph: no reading files, no writing a Python query
+      module and running it inside Memgraph. Memgraph refuses a data directory it does not own, and a
+      volume's root is root's: the init container makes it, as Memgraph's user, for the read-only
+      mount to sit inside. */}}
+      {{- include "argus.podSpec" (dict "root" . "component" "memgraph" "uid" 101 "grace" 60
+        "fsGroupChangePolicy" "OnRootMismatch" "placement" .Values.memgraph
+        "containers" (include "argus.container" (dict "root" . "name" "memgraph"
+          "image" (include "argus.image" (dict "root" . "image" .Values.images.memgraph "registry" false))
+          "args" (list "--telemetry-enabled=false" "--metrics-address=127.0.0.1"
+            "--monitoring-address=127.0.0.1" "--storage-mode=IN_MEMORY_TRANSACTIONAL"
+            "--storage-wal-enabled=true" "--storage-snapshot-interval-sec=300"
+            "--storage-snapshot-on-exit=true" "--data-directory=/var/lib/memgraph/data"
+            "--query-execution-timeout-sec=600" "--allow-load-csv=false"
+            (printf "--memory-limit=%d" (int .Values.memgraph.memoryLimitMiB))
+            "--log-level=WARNING" "--log-file=" "--also-log-to-stderr=true")
+          "env" (include "argus.memgraph.env" .) "extra" (include "argus.memgraph.probes" .)
+          "resources" .Values.memgraph.resources
+          "mounts" "- {name: data, mountPath: /var/lib/memgraph}\n- {name: no-modules, mountPath: /var/lib/memgraph/data/internal_modules, readOnly: true}"))
+        "initContainers" (include "argus.container" (dict "root" . "name" "data-directory"
+          "image" (include "argus.image" (dict "root" . "image" .Values.images.memgraph "registry" false))
+          "command" (list "mkdir" "-p" "/var/lib/memgraph/data")
+          "resources" (dict "requests" (dict "cpu" "10m" "memory" "16Mi") "limits" (dict "memory" "32Mi"))
+          "mounts" "- {name: data, mountPath: /var/lib/memgraph}"))
+        "volumes" "- {name: no-modules, emptyDir: {sizeLimit: 1Mi}}") | nindent 6 }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "argus.selectorLabels" (dict "root" . "component" "memgraph") | nindent 10 }}
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.memgraph.storage.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.memgraph.storage.size }}

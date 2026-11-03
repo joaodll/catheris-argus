@@ -1,15 +1,19 @@
-"""One run, from committed raw files to canonical rows, snapshots, paths and metrics.
+"""One run, from committed raw files to canonical rows, snapshots and metrics.
 
     steampipe  inventory -> relationship rules -> inventory metrics
     prowler    findings lifecycle + compliance -> findings metrics
-    cloudfox   cloudfox edges + attacker findings -> attack paths -> path metrics
+    cloudfox   cloudfox edges + attacker findings
     vulnerabilities  CVE findings lifecycle + vulnerability facts + coverage, from the
                provider's own scanner (ADR-0042)
 
 A run that failed collection, or whose raw output cannot be trusted (no manifest, files that
 do not match it, an unsupported tool version), is recorded as failed, resolves nothing, and
 its tool's metrics carry the previous day forward, so charts show neither a gap nor a false
-improvement. Attack paths are only resolved when the day's CloudFox run is complete.
+improvement.
+
+Attack paths are not evaluated here (ADR-0044, M2): an ingested run moves the graph read
+model's marker, and the graph loop re-projects the connection and evaluates the paths across
+every account within one tick. A failed run moves no marker, so it changes no path.
 
 An unexpected error while loading is recorded the same way, so the Runs tab shows the run as
 failed with the error in its log tail, and the worker retries it like any failed run. A
@@ -29,13 +33,11 @@ from sqlalchemy import Connection, Engine, text
 from argus import connections, metrics
 from argus.attackpaths import (
     PUBLIC_ENDPOINT_CHECK,
-    evaluate_paths,
     load_cloudfox,
     load_path_kinds,
     parse_cloudfox,
 )
 from argus.attackpaths.cloudfox import UnsupportedVersionError as CloudFoxVersionError
-from argus.attackpaths.engine import PATH_METRICS
 from argus.core.manifest import Manifest
 from argus.core.rawstore import RawRun, RawRunError, RawStore, read_run
 from argus.core.redaction import redact_text
@@ -61,17 +63,11 @@ from argus.inventory import (
     put_inventory_metrics,
 )
 from argus.inventory.steampipe import UnsupportedVersionError as SteampipeVersionError
-from argus.relationships import (
-    internet_reach,
-    latest_load_day,
-    load_rules,
-    write_edges,
-    write_flows,
-)
+from argus.relationships import internet_reach, load_rules, write_edges
 
 log = logging.getLogger("argus.ingest")
 # Held shared by every ingest and exclusive by a re-derive after a rule upgrade (rederive.py),
-# so the two never interleave on one connection's edges, flows and paths (ADR-0039).
+# so the two never interleave on one connection's edges and paths (ADR-0039).
 REDERIVE_LOCK = "argus.rederive"
 VERSION_ERRORS = (
     SteampipeVersionError,
@@ -82,7 +78,8 @@ VERSION_ERRORS = (
 TOOL_METRICS = {
     "steampipe": INVENTORY_METRICS,
     "prowler": FINDING_ADDITIVE_METRICS,
-    "cloudfox": PATH_METRICS,
+    # Path metrics belong to the graph's evaluation (ADR-0044, M2), not to a CloudFox run.
+    "cloudfox": [],
     # No metric yet: the Overview does not show vulnerabilities (ADR-0042).
     VULNERABILITY_TOOL: [],
 }
@@ -248,48 +245,10 @@ def _steampipe(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[
         day=run.day,
         ruleset=rule_set(rules_dir),
     )
-    loaded["flows"] = write_flows(engine, connection_id=run.connection_id, day=run.day)
     with engine.begin() as conn:
         put_inventory_metrics(conn, connection_id=run.connection_id, day=run.day)
         loaded["reach_checked"] = check_reach(conn, connection_id=run.connection_id, day=run.day)
-    loaded |= evaluate_after(
-        engine,
-        rules_dir=rules_dir,
-        connection_id=run.connection_id,
-        day=run.day,
-        resolve=batch.complete,
-    )
     return loaded
-
-
-def paths_day(conn: Connection, *, connection_id: int, day: date) -> date:
-    """Where paths are evaluated after a run of `day`: the latest day either edge family stands
-    for, never an earlier one, so a run that lands late (a retry after the next day's runs)
-    never evaluates an older picture (ADR-0037, second amendment)."""
-    latest = latest_load_day(conn, connection_id=connection_id)
-    return max(day, latest) if latest else day
-
-
-def evaluate_after(
-    engine: Engine, *, rules_dir: Path, connection_id: int, day: date, resolve: bool
-) -> dict[str, int]:
-    """Attack paths after any ingest (ADR-0037, second amendment): Steampipe changes the rule
-    edges, CloudFox its own, Prowler the severities. Resolves only when asked and when the
-    paths are evaluated on the run's own day: a late run never closes what a later day found.
-    With no edge load yet (Prowler before Steampipe and CloudFox) there is nothing to search,
-    and the Overview keeps "not covered" instead of 0 paths."""
-    with engine.connect() as conn:
-        if latest_load_day(conn, connection_id=connection_id) is None:
-            return {}
-        on = paths_day(conn, connection_id=connection_id, day=day)
-    paths = evaluate_paths(
-        engine,
-        rules_dir=rules_dir,
-        connection_id=connection_id,
-        day=on,
-        resolve=resolve and on == day,
-    )
-    return {f"paths_{k}": v for k, v in paths.items()}
 
 
 def rule_set(rules_dir: Path) -> str:
@@ -325,7 +284,7 @@ def check_reach(conn: Connection, *, connection_id: int, day: date) -> int:
     return endpoints + exposure
 
 
-def _prowler(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[str, int]:
+def _prowler(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
     batch = parse_prowler(raw)
     with engine.begin() as conn:
         loaded = load_prowler(
@@ -338,14 +297,10 @@ def _prowler(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[st
         )
         put_findings_metrics(conn, connection_id=run.connection_id, day=run.day)
         loaded["reach_checked"] = check_reach(conn, connection_id=run.connection_id, day=run.day)
-    # Prowler changes severities (a failing finding on the way), never which paths exist.
-    loaded |= evaluate_after(
-        engine, rules_dir=rules_dir, connection_id=run.connection_id, day=run.day, resolve=False
-    )
     return loaded
 
 
-def _cloudfox(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[str, int]:
+def _cloudfox(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
     batch = parse_cloudfox(raw)
     with engine.begin() as conn:
         loaded = load_cloudfox(
@@ -357,13 +312,7 @@ def _cloudfox(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[s
             scan_run_id=run.scan_run_id,
         )
         loaded["reach_checked"] = check_reach(conn, connection_id=run.connection_id, day=run.day)
-    return loaded | evaluate_after(
-        engine,
-        rules_dir=rules_dir,
-        connection_id=run.connection_id,
-        day=run.day,
-        resolve=batch.complete,
-    )
+    return loaded
 
 
 def _vulnerabilities(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
@@ -412,9 +361,9 @@ def _ingest(engine: Engine, *, store: RawStore, scan_run_id: int, rules_dir: Pat
         if run.tool == "steampipe":
             loaded = _steampipe(engine, run, raw, rules_dir)
         elif run.tool == "prowler":
-            loaded = _prowler(engine, run, raw, rules_dir)
+            loaded = _prowler(engine, run, raw)
         elif run.tool == "cloudfox":
-            loaded = _cloudfox(engine, run, raw, rules_dir)
+            loaded = _cloudfox(engine, run, raw)
         elif run.tool == VULNERABILITY_TOOL:
             loaded = _vulnerabilities(engine, run, raw)
         else:

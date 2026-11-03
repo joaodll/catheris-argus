@@ -155,7 +155,7 @@ function setSearch(q: string): void {
       </div>
       <div>
         <dt><span aria-hidden="true">🖥 </span>Scope</dt>
-        <dd>{{ state.connection ? scope : "All connections · each account's latest scan, up to 31 days old" }}</dd>
+        <dd>{{ state.connection ? scope : "All connections · each account's latest scan" }}</dd>
       </div>
       <div>
         <dt><span aria-hidden="true">🏷 </span>Key</dt>

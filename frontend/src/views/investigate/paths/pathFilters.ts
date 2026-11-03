@@ -1,7 +1,8 @@
 /**
  * The Attack paths filters and the URL (docs/ui/screens.md, E12), as on Findings: every filter
  * in the query string, defaults left out, a value the page does not know ignored. ?path=<id>
- * opens one path in place of the table; ?through=<uid> arrives from a resource panel.
+ * opens one path in place of the table; ?through=<uid> arrives from a resource panel;
+ * ?passing=1 with a connection also lists the paths that pass through it (ADR-0044, M2).
  */
 import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 import { SEVERITIES, type Severity } from '@/views/overview/severity'
@@ -18,6 +19,8 @@ export interface PathFilters {
   // How sure (ADR-0037); it replaced the rule filter: one search finds every kind of path.
   confidence: Confidence[]
   connection: number | null
+  // With a connection: also the paths passing through it, not only those entering there.
+  passing: boolean
   state: PathState
   through: string | null
 }
@@ -40,12 +43,14 @@ function id(value: LocationQuery[string] | undefined): number | null {
 
 export function parsePathFilters(query: LocationQuery): PathFilters {
   const through = strings(query.through)[0] ?? null
+  const connection = id(query.connection)
   return {
     severity: strings(query.severity).filter((s): s is Severity => (SEVERITIES as readonly string[]).includes(s)),
     category: strings(query.category).filter((c) => c.length <= TEXT_MAX),
     kind: strings(query.kind).filter((k) => KIND.test(k)),
     confidence: CONFIDENCES.filter((c) => strings(query.confidence).includes(c)),
-    connection: id(query.connection),
+    connection,
+    passing: connection != null && strings(query.passing)[0] === '1',
     state: strings(query.state)[0] === 'resolved' ? 'resolved' : 'open',
     through: through && through.length <= UID_MAX ? through : null,
   }
@@ -59,6 +64,7 @@ export function pathFiltersToQuery(f: PathFilters): LocationQueryRaw {
     kind: list(f.kind),
     confidence: list(f.confidence),
     connection: f.connection == null ? undefined : String(f.connection),
+    passing: f.passing && f.connection != null ? '1' : undefined,
     state: f.state === 'open' ? undefined : f.state,
     through: f.through ?? undefined,
   }
@@ -84,7 +90,16 @@ export function isPathFiltered(f: PathFilters): boolean {
 
 /** The list request's filter parameters (GET /attack-paths). */
 export function pathApiFilters(f: PathFilters) {
-  return { severity: f.severity, category: f.category, kind: f.kind, confidence: f.confidence, connection_id: f.connection, state: f.state, through: f.through }
+  return {
+    severity: f.severity,
+    category: f.category,
+    kind: f.kind,
+    confidence: f.confidence,
+    connection_id: f.connection,
+    passing_through: f.passing && f.connection != null,
+    state: f.state,
+    through: f.through,
+  }
 }
 
 /** The next order when a date column's header is clicked: newest first, then oldest first. */

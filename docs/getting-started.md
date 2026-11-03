@@ -95,9 +95,13 @@ by CVE. **Resources** is the inventory, with each resource's configuration as of
 
 ![The resource map](images/resource-map.png)
 
-Starts from the **front doors**: every way traffic can arrive from the internet, judged from route
-tables, security groups and network ACLs as Reachable, Restricted or Unknown. Opening one draws the
-whole chain behind it, record by record and hop by hop, down to the roles and data it reaches.
+Shows what a resource depends on and connects to. Find one by name, id or ARN, narrow the search
+to an account, or reopen one you mapped recently. The map draws its network, the roles it runs as,
+the policies attached and what calls it, hop by hop, with each line saying what it is ("routes to",
+"runs as"). It shows each account's latest scan; for an earlier day, use Resources. A warning icon
+on a card means a public exploit, and a route icon means it is on an attack path. Highlight picks
+out one of these facts, and the panel links each to its own screen. Whether a resource is really reachable from the internet is on Misconfigurations,
+Resources and Attack paths.
 
 ### Investigate → Attack paths
 
@@ -106,7 +110,10 @@ whole chain behind it, record by record and hop by hop, down to the roles and da
 Paths from a way in (an exposed port, a resource public by its own policy, an outside principal,
 a leaked access key) to administrator or to data. Each row says how the path gets in, each step
 names its move ("can escalate via iam:CreatePolicyVersion"), and each link carries its evidence
-and the fix. A confidence per step says how sure Argus is.
+and the fix. A confidence per step says how sure Argus is. One search covers every account, so a
+path can cross from one account into another; it belongs to the account where it gets in, and
+"Include paths passing through" lists the paths that cross a chosen account. An account lists at
+least its 5,000 worst paths; a note says when more were found, and how severe they are.
 
 ### Operate and Administration
 

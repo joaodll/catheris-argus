@@ -29,12 +29,19 @@ images:
   postgres:
     repository: docker.io/library/postgres
     digest: "sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f"
+  # The graph read model (ADR-0044): the plain image (never memgraph-mage, which reaches out to
+  # the internet on start). The same image and digest as compose.yaml (checked by
+  # `chart-check`).
+  memgraph:
+    repository: docker.io/memgraph/memgraph
+    digest: "sha256:302a6622a9bd28191818801b7ea6e5931bc1cd0a0d1646333269a2237b1bdcb0"
 imagePullSecrets: []
 
 # One existing Secret holds every secret value; the chart never generates one (ADR-0040).
 # Keys: ARGUS_DB_PASSWORD (the schema owner), ARGUS_API_DB_PASSWORD,
 # ARGUS_WORKER_DB_PASSWORD, ARGUS_SCHEDULER_DB_PASSWORD, ARGUS_SECRET_KEYS,
-# ARGUS_SECRET_KEY_ID; for the first start only, ARGUS_BOOTSTRAP_ADMIN_PASSWORD or
+# ARGUS_SECRET_KEY_ID, ARGUS_GRAPH_PASSWORD (the Memgraph login, ADR-0044); for the first start
+# only, ARGUS_BOOTSTRAP_ADMIN_PASSWORD or
 # ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH (below, `admin`). Each pod references only its own keys.
 secrets:
   existingSecret: ""  # required
@@ -93,6 +100,7 @@ database:
   #   scanJob  x (scheduler.maxRunJobs + scheduler.maxTestJobs)
   #   task     x 3 (migrate, rederive and retention at once) + 1 (Alembic's own)
   #   scheduler
+  #   graphSync
   # A pod below its own peak refuses to start: a scan Job holds 3 at once, migrate, rederive and
   # retention 2. The api uses one per request in progress; more wait, then get 503.
   pools:
@@ -100,6 +108,7 @@ database:
     scheduler: 2
     scanJob: 3
     task: 2
+    graphSync: 2
 
 # Postgres 17 in the chart (a StatefulSet), or an external one with `enabled: false`.
 postgres:
@@ -125,6 +134,33 @@ postgres:
     caKey: ca.crt
     # Where the database is, for the NetworkPolicies: its address ranges, on `port`.
     cidrs: []
+
+# The graph read model (ADR-0044): Memgraph, holding every connection's current state, rebuilt
+# from Postgres (so its volume needs no backup). One replica; graph-sync and the API reach it.
+# 2.0-2.5 GiB held 1M resources and 2.4M edges (2026-10-31): size memory from the estate.
+memgraph:
+  storage:
+    size: 10Gi
+    # Its snapshots hold the attack map, as the database does: use an encrypted storage class.
+    storageClassName: ""
+  # Memgraph's own limit (MiB), kept below the container's.
+  memoryLimitMiB: 3584
+  resources:
+    requests: {cpu: 250m, memory: 3Gi}
+    limits: {memory: 4Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# graph-sync (ADR-0044): one replica that keeps Memgraph equal to Postgres, and the integrity
+# check. The only writer to Memgraph.
+graphSync:
+  resources:
+    requests: {cpu: 50m, memory: 256Mi}
+    limits: {memory: 1Gi}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
 
 api:
   # Ignored while autoscaling is on.

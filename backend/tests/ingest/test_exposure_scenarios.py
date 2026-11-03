@@ -19,9 +19,9 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import Engine, text
+from tests.conftest import Settle
 from tests.ingest.conftest import RULES_DIR
 
-from argus.attackpaths import evaluate_paths
 from argus.core.manifest import Manifest, Tool
 from argus.core.rawstore import FilesystemRawStore, describe_files
 from argus.findings import PROWLER_EXPOSURE_CHECKS
@@ -152,10 +152,11 @@ def _connection(owner: Engine) -> int:
 
 
 @pytest.fixture
-def estate(owner: Engine, worker: Engine, store: FilesystemRawStore) -> int:
+def estate(owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle) -> int:
     cid = _connection(owner)
     for tool in ("steampipe", "prowler"):
         _ingest(owner, worker, store, tool, cid)
+    settle(DAY)  # the graph loop's evaluation (ADR-0044, M2)
     return cid
 
 
@@ -306,7 +307,7 @@ def _paths(owner: Engine, cid: int) -> list[Any]:
 
 
 def test_every_door_is_an_attack_path_after_steampipe_alone(owner: Engine, estate: int) -> None:
-    """No CloudFox run: Steampipe's ingest computes the paths, Prowler's sets their severity."""
+    """No CloudFox run: Steampipe's edges give the paths, Prowler's findings their severity."""
     names = _names()
     exposed = {
         names[p.entry_uid]: (p.rule_id, p.confidence)
@@ -338,7 +339,7 @@ def test_a_managed_policy_gives_a_data_path(owner: Engine, estate: int) -> None:
 
 
 def test_a_failing_check_on_the_doors_security_group_is_the_doors(
-    owner: Engine, worker: Engine, estate: int
+    owner: Engine, estate: int, settle: Settle
 ) -> None:
     """Prowler's security-group checks sit on the group, not on the path's nodes: a failing one
     on a group attached to the door keeps the path from going down for "no failing finding"."""
@@ -346,7 +347,7 @@ def test_a_failing_check_on_the_doors_security_group_is_the_doors(
     door = names["exp-icmp-only"]
 
     def failing() -> bool:
-        evaluate_paths(worker, rules_dir=RULES_DIR, connection_id=estate, day=DAY, resolve=False)
+        settle(DAY)
         [path] = [
             p
             for p in _paths(owner, estate)

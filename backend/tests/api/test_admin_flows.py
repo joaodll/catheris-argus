@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from tests.api.conftest import csrf
+from tests.conftest import Settle
 from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
 from argus.collection import TOOL_ORDER
@@ -86,7 +87,7 @@ def test_a_schedule_changed_in_the_ui_runs_at_its_new_time(
 
 # --------------------------------------------------------------- gate check 8
 def test_a_demo_connection_created_in_the_ui_backfills_onto_the_overview(
-    signed_in: TestClient, worker: Engine, store: FilesystemRawStore
+    signed_in: TestClient, worker: Engine, store: FilesystemRawStore, settle: Settle
 ) -> None:
     _put_collection(signed_in, synthetic_throttle_share=0.0)
     created = signed_in.post(
@@ -106,6 +107,7 @@ def test_a_demo_connection_created_in_the_ui_backfills_onto_the_overview(
     ) is not None:
         statuses.append(status)
     assert statuses == ["complete"] * (2 * len(TOOL_ORDER))
+    settle(datetime.now(UTC).date())  # the graph loop's evaluation (ADR-0044, M2)
 
     today = datetime.now(UTC).date().isoformat()
     after = signed_in.get("/api/v1/overview", params={"connection_id": cid}).json()
@@ -210,7 +212,7 @@ def test_a_temporary_identity_key_needs_its_session_token(
 
 def _sweep_map(signed_in: TestClient, bodies: dict[str, str], connection_id: int) -> None:
     """The map: every resource's neighbourhood with every layer (so every edge and its
-    attributes), every anchor's members, the front doors, and every attack path."""
+    attributes), every anchor's members, and every attack path."""
 
     def sweep(path: str) -> Any:
         response = signed_in.get(path)
@@ -244,12 +246,6 @@ def _sweep_map(signed_in: TestClient, bodies: dict[str, str], connection_id: int
         if resource_type:
             query["resource_type"] = resource_type
         sweep(f"/api/v1/map/group?{urlencode(query)}&limit=100")
-    # Every front door, whatever its reach, and the flow each one starts (ADR-0036).
-    doors = sweep(f"/api/v1/map/front-doors?connection_id={connection_id}&limit=100")
-    flow_ids = [d["flow_id"] for d in doors["items"] if d["flow_id"] is not None]
-    assert flow_ids, "no flow swept"
-    for flow_id in flow_ids:
-        sweep(f"/api/v1/map/flows/{flow_id}")
     sweep("/api/v1/attack-paths/facets")
     for item in json.loads(bodies["/api/v1/attack-paths"])["items"]:
         sweep(f"/api/v1/attack-paths/{item['id']}")
@@ -263,6 +259,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     worker: Engine,
     store: FilesystemRawStore,
     caplog: pytest.LogCaptureFixture,
+    settle: Settle,
 ) -> None:
     caplog.set_level(logging.DEBUG)
     target = make_demo(owner)
@@ -271,6 +268,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     for day in (earlier, today):
         for tool in TOOL_ORDER:
             run_tool(worker, store, target, tool, day)
+    settle(today)
     raw = "".join(p.read_text(errors="ignore") for p in store.root.rglob("*") if p.is_file())
     assert MARKERS.search(raw), "the synthetic estate no longer plants secrets: fix this test"
 
@@ -346,7 +344,6 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     swept = {re.sub(r"/connection-tests/\d+$", "/connection-tests/{test_id}", p) for p in swept}
     swept = {re.sub(r"/compliance/cis_6\.0_aws", "/compliance/{framework}", p) for p in swept}
     swept = {re.sub(r"/attack-paths/\d+$", "/attack-paths/{path_id}", p) for p in swept}
-    swept = {re.sub(r"/map/flows/\d+$", "/map/flows/{flow_id}", p) for p in swept}
     assert routes == swept
 
     leaked = {path for path, body in bodies.items() if MARKERS.search(body)}

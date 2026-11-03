@@ -1,13 +1,52 @@
 import { describe, expect, it } from 'vitest'
-import { addMember, boundaryLabel, drawnEdges, emptyGraph, lineStyle, mergeGraph, nodeName, pathFromInternet, traceOf, worstOf, type MapEdge, type MapNode } from './mapGraph'
+import { addMember, boundaryLabel, drawnEdges, emptyGraph, factOf, factsLine, graphNote, noFactNote, lineStyle, mergeGraph, nodeName, traceOf, worstOf, type MapEdge, type MapNode } from './mapGraph'
 
 function node(uid: string, extra: Partial<MapNode> = {}): MapNode {
-  return { uid, kind: 'resource', resource_id: 1, type: 'aws_lambda_function', name: uid, region: 'us-east-1', connection_id: 1, deleted_on: null, expanded: false, boundary: false, findings: {}, ...extra }
+  return { uid, kind: 'resource', resource_id: 1, type: 'aws_lambda_function', name: uid, region: 'us-east-1', connection_id: 1, deleted_on: null, expanded: false, boundary: false, findings: {},
+    vulnerabilities: null,
+    attack_paths: null, ...extra }
 }
 let next = 1
 function edge(source: string, target: string, origin = 'rule:x@1', type = 'ROUTES_TO'): MapEdge {
   return { id: next++, source_uid: source, target_uid: target, type, origin, attributes: {}, first_seen: '2026-10-01', last_seen: '2026-10-08' }
 }
+
+describe('the overlay facts', () => {
+  const full = { findings: { prowler: { open: 3, worst: 'high' } }, vulnerabilities: { open: 12, worst: 'critical', exploitable: 2 }, attack_paths: { on: 4, entry: 1 } } as unknown as MapNode
+  const bare = { findings: {}, vulnerabilities: null, attack_paths: null } as unknown as MapNode
+
+  it('gives a card the chosen fact, in a severity colour only when it is a severity', () => {
+    expect(factOf(full, null)).toEqual({ count: 3, worst: 'high' })
+    expect(factOf(full, 'misconfigurations')).toEqual({ count: 3, worst: 'high' })
+    expect(factOf(full, 'cves')).toEqual({ count: 12, worst: 'critical' })
+    expect(factOf(full, 'exploits')).toEqual({ count: 2, worst: null })
+    expect(factOf(full, 'paths')).toEqual({ count: 4, worst: null })
+    expect(factOf(bare, 'cves').count).toBe(0)
+    expect(factOf(null, 'paths').count).toBe(0)
+  })
+
+  it('says the facts in words, and nothing when there are none', () => {
+    expect(factsLine(full)).toBe('12 CVEs · Exploit · On 4 paths')
+    expect(factsLine(bare)).toBe('')
+  })
+
+  it('says when no card has the chosen fact, and what that means for CVEs', () => {
+    expect(noFactNote(null, [bare])).toBeNull()
+    expect(noFactNote('cves', [full, bare])).toBeNull()
+    expect(noFactNote('cves', [bare])).toContain("scanner doesn't cover")
+    expect(noFactNote('paths', [bare])).toBe('No open attack paths through the resources drawn.')
+  })
+})
+
+describe('the graph note', () => {
+  it('says when the map has not caught up with the scans', () => {
+    expect(graphNote(null)).toBeNull()
+    expect(graphNote({ behind: false, failed: false })).toBeNull()
+    expect(graphNote({ behind: true, failed: false })?.kind).toBe('info')
+    expect(graphNote({ behind: true, failed: true })?.kind).toBe('warn')
+    expect(graphNote({ behind: false, failed: true })?.text).toContain('out of date')
+  })
+})
 
 describe('Resource map graph state', () => {
   it('merges responses, keeps a node expanded once its neighbours were read', () => {
@@ -98,13 +137,5 @@ describe('Tracing a node', () => {
     expect(trace.nodes.has('s3')).toBe(false)
     // What feeds a node downstream is not part of its trace.
     expect(trace.nodes.has('other')).toBe(false)
-  })
-
-  it('walks the shortest chain from the internet, with the line of each step', () => {
-    const path = pathFromInternet(lines, 'tg')!
-    expect(path.map((s) => s.uid)).toEqual(['internet', 'dns', 'cf', 'alb', 'tg'])
-    expect(path[0]!.line).toBeNull()
-    expect(path[4]!.line?.source).toBe('alb')
-    expect(pathFromInternet(lines, 'other')).toBeNull()
   })
 })

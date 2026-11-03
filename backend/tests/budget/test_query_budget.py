@@ -3,7 +3,8 @@
 partitions. The dataset is generated in SQL from a fixed seed, never committed.
 
 Shape (the design's "large" scenario, 36 accounts): 300,000 resources, 300,000 open findings,
-180 days of metric_daily for 36 accounts plus the rollup, 36 x 3 x 180 scan runs, 5,000 paths.
+180 days of metric_daily for 36 accounts plus the rollup, 36 x 3 x 180 scan runs, 105,000 paths
+(what the graph budget keeps at this size).
 Edges (ADR-0033): about 940,000, two days of snapshots, with the hubs the Resource map must
 group: `internet` reaching 5,000 resources of one account, a VPC holding 20,000, and an
 AWS-managed policy attached to 10,000 principals across accounts.
@@ -18,7 +19,6 @@ import math
 import time
 from collections.abc import Callable, Iterator
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Any
 
 import pytest
@@ -28,22 +28,25 @@ from argus import (
     attackpaths,
     connections,
     findings,
+    graph,
     ingest,
     inventory,
     metrics,
     relationships,
     scheduling,
 )
-from argus.attackpaths.engine import find_paths
 
 pytestmark = [pytest.mark.db, pytest.mark.budget]
-RULES_DIR = Path(__file__).resolve().parents[2] / "rules"
 BUDGET_MS = 300.0
 # p95 by nearest rank over 20 runs: the 19th fastest, so one stray run (a checkpoint, a cold
 # page) is tolerated and two are not. Never interpolated past the slowest run (2026-10-09).
 RUNS = 20
 TODAY = date(2026, 10, 3)
 ACCOUNTS = 36
+# The account last scanned 90 days ago (owner's decision, 2026-11-01: every screen shows each
+# account's latest scan, however old); every other account was scanned today.
+STALE = ACCOUNTS
+STALE_DAY = TODAY - timedelta(days=90)
 FRAMEWORKS = 40
 REQUIREMENTS = 100
 FRAMEWORK = "fw_7_aws"
@@ -76,6 +79,32 @@ def _generate(conn: Connection) -> None:
         FROM generate_series(1, 300000) g
     """),
         {"n": ACCOUNTS, "d": TODAY},
+    )
+    # Every resource's inventory row: today's, or STALE's 90 days ago, with its load.
+    conn.execute(
+        text("""
+        INSERT INTO resource_config (config_hash, config, created_on)
+        VALUES (sha256('budget'::bytea), '{}', :d)
+    """),
+        {"d": TODAY},
+    )
+    conn.execute(
+        text("""
+        INSERT INTO resource_snapshot (snapshot_date, resource_id, config_id)
+        SELECT CASE WHEN r.connection_id = :stale THEN CAST(:old AS date) ELSE :d END, r.id,
+               (SELECT id FROM resource_config WHERE config_hash = sha256('budget'::bytea))
+        FROM resource r
+    """),
+        {"stale": STALE, "old": STALE_DAY, "d": TODAY},
+    )
+    conn.execute(
+        text("""
+        INSERT INTO resource_load (connection_id, snapshot_date, resources)
+        SELECT connection_id, CASE WHEN connection_id = :stale THEN CAST(:old AS date) ELSE :d END,
+               count(*)
+        FROM resource GROUP BY connection_id
+    """),
+        {"stale": STALE, "old": STALE_DAY, "d": TODAY},
     )
     conn.execute(
         text("""
@@ -145,6 +174,7 @@ def _generate(conn: Connection) -> None:
                      ('findings.open_by_severity', 'low'),
                      ('findings.open_by_severity', 'informational'),
                      ('attack_paths.open_by_severity', 'critical'),
+                     ('attack_paths.not_listed', 'medium'),
                      ('attack_paths.open_by_category', 'IAM privilege escalation'),
                      ('assets.by_type', 'aws_ec2_instance'), ('assets.by_type', 'aws_s3_bucket'),
                      ('assets.by_type', 'aws_iam_role')) AS m(m, dim)
@@ -154,13 +184,22 @@ def _generate(conn: Connection) -> None:
     conn.execute(
         text("""
         INSERT INTO attack_path (path_id, rule_id, rule_version, category, severity,
-                                 connection_id, entry_uid, target_uid, node_uids, edge_ids, state,
-                                 first_seen, last_seen, confidence)
+                                 connection_id, connection_ids, entry_uid, target_uid, node_uids,
+                                 edge_ids, state, first_seen, last_seen, confidence)
         SELECT sha256(('p' || g)::bytea), 'r', 1, 'IAM privilege escalation',
-               (ARRAY['critical','high','medium'])[1 + g % 3], 1 + g % :n, 'internet',
-               't' || g, ARRAY['internet', 't' || g], ARRAY[]::bigint[], 'open', :d, :d,
-               (ARRAY['confirmed','supported','candidate','unknown'])[1 + g % 4]
-        FROM generate_series(1, 5000) g
+               (ARRAY['critical','high','medium'])[1 + g % 3], 1 + g % :n,
+               -- One path in ten crosses into another account (ADR-0044, M2).
+               CASE WHEN g % 10 = 0 THEN ARRAY[1 + g % :n, 1 + (g + 5) % :n]
+                    ELSE ARRAY[1 + g % :n] END,
+               'internet', 't' || g,
+               -- As wide as a real path's: five nodes, with ARNs (the 300k estate's mix).
+               ARRAY['internet', 't' || g,
+                     'arn:aws:iam::123456789012:role/budget-role-with-a-long-name-' || g % 997,
+                     'arn:aws:lambda:us-east-1:123456789012:function:budget-' || g % 991,
+                     'admin:123456789012'],
+               ARRAY[g, g + 1, g + 2, g + 3], 'open',
+               :d, :d, (ARRAY['confirmed','supported','candidate','unknown'])[1 + g % 4]
+        FROM generate_series(1, 105000) g
     """),
         {"n": ACCOUNTS, "d": TODAY},
     )
@@ -222,8 +261,6 @@ MAP_FOCUS = "arn:aws:ec2:us-east-1:200000000031:instance/i-30"
 # Connection c holds account 2000000000cc: every map read is for one connection (ADR-0033).
 MAP_SCOPE = {"scope": relationships.MapScope(31, "200000000031")}
 HUB_SCOPE = {"scope": relationships.MapScope(1, "200000000001")}
-FLOWS: dict[str, float] = {}
-PATHS: dict[str, float] = {}
 # Connection 1's instances (resource ids are the generator's g; g % 36 == 0, g % 5 == 0): one
 # page of the Resources list, each with 15 CVEs.
 VULNERABLE_PAGE = [180 * i for i in range(1, 21)]
@@ -234,11 +271,6 @@ def _vulnerability_cells(c: Connection) -> Any:
         findings.vulnerability_counts(c, VULNERABLE_PAGE),
         findings.scanned_resources(c, VULNERABLE_PAGE),
     )
-
-
-def _a_flow(c: Connection) -> Any:
-    flow_id = c.execute(text("SELECT min(flow_id) FROM flow_snapshot")).scalar_one()
-    return relationships.flow_detail(c, flow_id=flow_id, day=TODAY)
 
 
 # A literal ':word' would read as a bind parameter in text(): the colon is concatenated.
@@ -383,21 +415,12 @@ def estate(migrated: Engine) -> Engine:
             text(
                 "TRUNCATE connection, scan_run, resource, resource_config, edge, "
                 "audit_log, metric_daily, compliance_requirement, schedule, "
-                "platform_setting, flow_shape, flow_snapshot RESTART IDENTITY CASCADE"
+                "platform_setting RESTART IDENTITY CASCADE"
             )
         )
         _generate(conn)
-    # Flow mode: connection 1 holds the internet hub's 5,000 entries, each the head of a
-    # ROUTES_TO chain (g -> g+36 -> ...). Written by ingest's own code, which this also times.
-    started = time.perf_counter()
-    FLOWS["written"] = relationships.write_flows(migrated, connection_id=1, day=TODAY)
-    FLOWS["seconds"] = time.perf_counter() - started
-    # The attack-path search (ADR-0037) from the same 5,000 entries, read-only: timed, not
-    # written, so the seeded paths the list queries read stay as they are.
-    kinds = attackpaths.load_path_kinds(RULES_DIR)
-    started = time.perf_counter()
-    PATHS["found"] = len(find_paths(migrated, kinds=kinds, connection_id=1, day=TODAY))
-    PATHS["seconds"] = time.perf_counter() - started
+    # The attack-path search runs over the graph read model (ADR-0044, M2): its time is in the
+    # opt-in graph budget (test_graph_budget.py), with Memgraph.
     # A steady-state database: the first reads of freshly inserted rows would otherwise pay
     # for setting their hint bits and flushing the load, and time that instead of the query.
     with migrated.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -510,9 +533,6 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
             connection_ids=(7,), reaches=("confirmed", "restricted", "unknown", "not_covered")
         ),
     ),
-    "findings, Prowler exposure counts for a page of doors": lambda c: (
-        findings.open_exposure_counts(c, list(range(1, 2000, 100)))
-    ),
     "findings by check, no filter": lambda c: findings.finding_groups(c, limit=20, offset=0),
     "findings by check, past the last page": lambda c: findings.finding_groups(
         c, limit=20, offset=10000
@@ -579,6 +599,10 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "resources, facets": lambda c: inventory.resource_facets(c, connection_id=None),
     "resources, names for a page": lambda c: inventory.resource_names(c, list(range(1000, 1020))),
     "resource as of a day": lambda c: inventory.resource_at(c, resource_id=1234, day=TODAY),
+    # Resource 35 belongs to STALE (connection 1 + 35 % 36): its latest scan is 90 days old.
+    "resource as of a day, scanned 90 days ago": lambda c: inventory.resource_at(
+        c, resource_id=35, day=TODAY
+    ),
     "edges as of a day": lambda c: relationships.edges_at(
         c, resource_id=1234, connection_id=1234 % ACCOUNTS + 1, day=TODAY
     ),
@@ -595,47 +619,26 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "attack paths through a resource": lambda c: attackpaths.list_paths(
         c, limit=6, offset=0, filters=attackpaths.PathFilters(through_uid="t4242")
     ),
-    "map: a neighbourhood, depth 2": lambda c: relationships.neighbourhood(
-        c, focus=MAP_FOCUS, depth=2, day=TODAY, **MAP_SCOPE
+    "attack paths of a connection": lambda c: attackpaths.list_paths(
+        c, limit=50, offset=0, filters=attackpaths.PathFilters(connection_id=7)
     ),
-    "map: a neighbourhood, depth 3, every layer": lambda c: relationships.neighbourhood(
+    "attack paths passing through a connection": lambda c: attackpaths.list_paths(
         c,
-        focus=MAP_FOCUS,
-        **MAP_SCOPE,
-        depth=3,
-        day=TODAY,
-        layers=("traffic", "identity", "network", "policy"),
-    ),
-    "map: the internet hub": lambda c: relationships.neighbourhood(
-        c, focus="internet", depth=1, day=TODAY, **HUB_SCOPE
-    ),
-    "map: a group's first page": lambda c: relationships.group_members(
-        c,
-        anchor=HUB_VPC,
-        **HUB_SCOPE,
-        direction="in",
-        edge_type="IN_NETWORK",
-        resource_type="aws_ec2_instance",
-        day=TODAY,
-        limit=20,
+        limit=50,
         offset=0,
+        filters=attackpaths.PathFilters(connection_id=7, passing_through=True),
     ),
-    "map: front doors": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=0
+    "map overlay: attack paths on 50 nodes, one on every path": lambda c: (
+        attackpaths.node_path_counts(
+            c, ["admin:123456789012", *(f"t{g}" for g in range(4000, 4049))]
+        )
     ),
-    "map: front doors, a later page": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=4000
+    "attack paths, facets": lambda c: attackpaths.path_facets(c, connection_id=None),
+    "attack paths, facets of a connection": lambda c: attackpaths.path_facets(c, connection_id=7),
+    "attack paths, behind the scans": graph.paths_state,
+    "attack paths, not listed": lambda c: attackpaths.not_listed(
+        c, connection_id=None, as_of=TODAY
     ),
-    "map: front doors in one region": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=0, regions=("us-east-1",)
-    ),
-    "map: front doors Argus cannot judge": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=0, reach=("unknown",)
-    ),
-    "map: front doors matching a search": lambda c: relationships.front_doors(
-        c, connection_id=1, day=TODAY, limit=20, offset=0, q="s3"
-    ),
-    "map: a flow": _a_flow,
     "resources: the Vulnerabilities cells of a page": _vulnerability_cells,
     "resources: with an exploitable CVE, one account": lambda c: inventory.list_resources(
         c,
@@ -742,18 +745,19 @@ def test_edges_of_a_day_read_one_partition(estate: Engine) -> None:
     assert scanned == {f"edge_snapshot_{TODAY:%Y%m}"}, scanned
 
 
-def test_flows_are_written_for_every_entry_of_the_hub(estate: Engine) -> None:
-    """Ingest's flow walk at the hub's scale: 5,000 entries, each the head of a chain."""
-    print(f"flows: {FLOWS['written']:.0f} written in {FLOWS['seconds']:.1f} s")
-    assert FLOWS["written"] == 5000
-    assert FLOWS["seconds"] < 300
-    detail = relationships.flow_detail(estate.connect(), flow_id=1, day=TODAY)
-    assert detail and detail["depth"] >= 5  # the chain runs on, step by step
-
-
-def test_the_path_search_walks_every_entry_of_the_hub(estate: Engine) -> None:
-    """Ingest's attack-path search at the hub's scale (ADR-0037): 5,000 entries, each the head
-    of a chain, walked to depth 8."""
-    print(f"path search: {PATHS['found']:.0f} paths in {PATHS['seconds']:.1f} s")
-    assert PATHS["found"] > 1000  # rebuilt paths, not only the walk
-    assert PATHS["seconds"] < 300
+def test_an_account_scanned_90_days_ago_shows_its_latest_scan(estate: Engine) -> None:
+    """No age limit (owner's decision, 2026-11-01): the stale account's resource reads its
+    inventory of 90 days ago, found through resource_load, then one partition by equality."""
+    with estate.connect() as conn:
+        stale = inventory.resource_at(conn, resource_id=35, day=TODAY)
+        plan = conn.execute(
+            text("""
+            EXPLAIN (FORMAT JSON) SELECT config_id FROM resource_snapshot
+            WHERE snapshot_date = :d AND resource_id = 35
+        """),
+            {"d": STALE_DAY},
+        ).scalar_one()
+    assert stale is not None and stale["connection_id"] == STALE
+    assert stale["seen_on"] == STALE_DAY
+    scanned = {n for n in _relations(plan) if n.startswith("resource_snapshot")}
+    assert scanned == {f"resource_snapshot_{STALE_DAY:%Y%m}"}, scanned

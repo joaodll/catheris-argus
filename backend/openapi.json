@@ -860,105 +860,6 @@
         "title": "DemoIn",
         "type": "object"
       },
-      "DoorInterface": {
-        "properties": {
-          "interface": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Interface"
-          },
-          "open": {
-            "$ref": "#/components/schemas/DoorOpen"
-          },
-          "public": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Public",
-            "type": "array"
-          },
-          "subnets": {
-            "items": {
-              "$ref": "#/components/schemas/DoorSubnet"
-            },
-            "title": "Subnets",
-            "type": "array"
-          }
-        },
-        "required": [
-          "interface",
-          "public",
-          "open",
-          "subnets"
-        ],
-        "title": "DoorInterface",
-        "type": "object"
-      },
-      "DoorOpen": {
-        "properties": {
-          "ipv4": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Ipv4",
-            "type": "array"
-          },
-          "ipv6": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Ipv6",
-            "type": "array"
-          }
-        },
-        "required": [
-          "ipv4",
-          "ipv6"
-        ],
-        "title": "DoorOpen",
-        "type": "object"
-      },
-      "DoorSubnet": {
-        "properties": {
-          "acl": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Acl"
-          },
-          "family": {
-            "title": "Family",
-            "type": "string"
-          },
-          "route": {
-            "title": "Route",
-            "type": "string"
-          },
-          "subnet": {
-            "title": "Subnet",
-            "type": "string"
-          }
-        },
-        "required": [
-          "subnet",
-          "family",
-          "route",
-          "acl"
-        ],
-        "title": "DoorSubnet",
-        "type": "object"
-      },
       "EdgeOut": {
         "properties": {
           "attributes": {
@@ -1759,226 +1660,6 @@
         "title": "FindingPage",
         "type": "object"
       },
-      "FlowChip": {
-        "description": "What a node carries without being a step of the flow.",
-        "properties": {
-          "chip_uid": {
-            "title": "Chip Uid",
-            "type": "string"
-          },
-          "edge_id": {
-            "title": "Edge Id",
-            "type": "integer"
-          },
-          "kind": {
-            "enum": [
-              "security_group",
-              "role",
-              "waf"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "node_uid": {
-            "title": "Node Uid",
-            "type": "string"
-          }
-        },
-        "required": [
-          "node_uid",
-          "kind",
-          "chip_uid",
-          "name",
-          "edge_id"
-        ],
-        "title": "FlowChip",
-        "type": "object"
-      },
-      "FlowDetail": {
-        "properties": {
-          "as_of": {
-            "format": "date",
-            "title": "As Of",
-            "type": "string"
-          },
-          "chips": {
-            "items": {
-              "$ref": "#/components/schemas/FlowChip"
-            },
-            "title": "Chips",
-            "type": "array"
-          },
-          "connection_id": {
-            "title": "Connection Id",
-            "type": "integer"
-          },
-          "data_through": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Data Through"
-          },
-          "edges": {
-            "items": {
-              "$ref": "#/components/schemas/MapEdge"
-            },
-            "title": "Edges",
-            "type": "array"
-          },
-          "entry_uid": {
-            "title": "Entry Uid",
-            "type": "string"
-          },
-          "id": {
-            "title": "Id",
-            "type": "integer"
-          },
-          "nodes": {
-            "items": {
-              "$ref": "#/components/schemas/MapNode"
-            },
-            "title": "Nodes",
-            "type": "array"
-          },
-          "reach": {
-            "enum": [
-              "open",
-              "restricted",
-              "unknown"
-            ],
-            "title": "Reach",
-            "type": "string"
-          },
-          "steps": {
-            "items": {
-              "$ref": "#/components/schemas/FlowStep"
-            },
-            "title": "Steps",
-            "type": "array"
-          },
-          "truncated": {
-            "title": "Truncated",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "id",
-          "connection_id",
-          "entry_uid",
-          "reach",
-          "truncated",
-          "as_of",
-          "nodes",
-          "steps",
-          "chips",
-          "edges",
-          "data_through"
-        ],
-        "title": "FlowDetail",
-        "type": "object"
-      },
-      "FlowStep": {
-        "properties": {
-          "col": {
-            "title": "Col",
-            "type": "integer"
-          },
-          "edge_ids": {
-            "items": {
-              "type": "integer"
-            },
-            "title": "Edge Ids",
-            "type": "array"
-          },
-          "group_count": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Group Count"
-          },
-          "group_type": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Group Type"
-          },
-          "kind": {
-            "enum": [
-              "edge",
-              "dns",
-              "uses",
-              "group"
-            ],
-            "title": "Kind",
-            "type": "string"
-          },
-          "source_uid": {
-            "title": "Source Uid",
-            "type": "string"
-          },
-          "target_uid": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target Uid"
-          },
-          "via_uid": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Via Uid"
-          }
-        },
-        "required": [
-          "col",
-          "kind",
-          "source_uid",
-          "target_uid",
-          "via_uid",
-          "edge_ids",
-          "group_type",
-          "group_count"
-        ],
-        "title": "FlowStep",
-        "type": "object"
-      },
       "FrameworkDetail": {
         "properties": {
           "change": {
@@ -2238,206 +1919,6 @@
           "trend"
         ],
         "title": "FrameworkListItem",
-        "type": "object"
-      },
-      "FrontDoor": {
-        "properties": {
-          "default_routes": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Default Routes",
-            "type": "array"
-          },
-          "families": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Families",
-            "type": "array"
-          },
-          "flow_id": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Flow Id"
-          },
-          "listens": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Listens"
-          },
-          "missing": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Missing",
-            "type": "array"
-          },
-          "network": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/DoorInterface"
-            },
-            "title": "Network",
-            "type": "array"
-          },
-          "node": {
-            "$ref": "#/components/schemas/MapNode"
-          },
-          "open": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Open",
-            "type": "array"
-          },
-          "open_ports": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Open Ports",
-            "type": "array"
-          },
-          "policy_actions": {
-            "default": [],
-            "items": {
-              "type": "string"
-            },
-            "title": "Policy Actions",
-            "type": "array"
-          },
-          "prowler_exposure": {
-            "default": 0,
-            "title": "Prowler Exposure",
-            "type": "integer"
-          },
-          "reach": {
-            "enum": [
-              "open",
-              "unknown",
-              "restricted",
-              "cloudfox_only"
-            ],
-            "title": "Reach",
-            "type": "string"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "resources": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Resources"
-          },
-          "sources": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Sources",
-            "type": "array"
-          },
-          "state": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "State"
-          },
-          "truncated": {
-            "title": "Truncated",
-            "type": "boolean"
-          },
-          "via": {
-            "items": {
-              "type": "string"
-            },
-            "title": "Via",
-            "type": "array"
-          }
-        },
-        "required": [
-          "node",
-          "via",
-          "reach",
-          "reason",
-          "sources",
-          "missing",
-          "open",
-          "families",
-          "flow_id",
-          "resources",
-          "truncated"
-        ],
-        "title": "FrontDoor",
-        "type": "object"
-      },
-      "FrontDoorPage": {
-        "properties": {
-          "data_through": {
-            "anyOf": [
-              {
-                "format": "date",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Data Through"
-          },
-          "items": {
-            "items": {
-              "$ref": "#/components/schemas/FrontDoor"
-            },
-            "title": "Items",
-            "type": "array"
-          },
-          "total": {
-            "title": "Total",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "items",
-          "total",
-          "data_through"
-        ],
-        "title": "FrontDoorPage",
         "type": "object"
       },
       "GroupMember": {
@@ -2761,11 +2242,6 @@
       },
       "MapGraph": {
         "properties": {
-          "as_of": {
-            "format": "date",
-            "title": "As Of",
-            "type": "string"
-          },
           "connection_id": {
             "title": "Connection Id",
             "type": "integer"
@@ -2793,6 +2269,9 @@
             "title": "Focus",
             "type": "string"
           },
+          "graph": {
+            "$ref": "#/components/schemas/MapGraphState"
+          },
           "groups": {
             "items": {
               "$ref": "#/components/schemas/MapGroup"
@@ -2815,7 +2294,7 @@
         "required": [
           "focus",
           "connection_id",
-          "as_of",
+          "graph",
           "nodes",
           "edges",
           "groups",
@@ -2823,6 +2302,64 @@
           "data_through"
         ],
         "title": "MapGraph",
+        "type": "object"
+      },
+      "MapGraphState": {
+        "description": "How current the map is for its connection (ADR-0044, M-3).",
+        "properties": {
+          "behind": {
+            "title": "Behind",
+            "type": "boolean"
+          },
+          "cloudfox_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cloudfox Day"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "boolean"
+          },
+          "resource_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Day"
+          },
+          "rule_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Day"
+          }
+        },
+        "required": [
+          "resource_day",
+          "rule_day",
+          "cloudfox_day",
+          "behind",
+          "failed"
+        ],
+        "title": "MapGraphState",
         "type": "object"
       },
       "MapGroup": {
@@ -2877,6 +2414,16 @@
       },
       "MapNode": {
         "properties": {
+          "attack_paths": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeAttackPaths"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "boundary": {
             "title": "Boundary",
             "type": "boolean"
@@ -2973,6 +2520,16 @@
           "uid": {
             "title": "Uid",
             "type": "string"
+          },
+          "vulnerabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeVulnerabilities"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2986,7 +2543,9 @@
           "deleted_on",
           "expanded",
           "boundary",
-          "findings"
+          "findings",
+          "vulnerabilities",
+          "attack_paths"
         ],
         "title": "MapNode",
         "type": "object"
@@ -3108,6 +2667,56 @@
         "title": "MonthlyPassRate",
         "type": "object"
       },
+      "NodeAttackPaths": {
+        "description": "The open paths through it, latent ones aside: what Attack paths lists through it.",
+        "properties": {
+          "entry": {
+            "title": "Entry",
+            "type": "integer"
+          },
+          "on": {
+            "title": "On",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "on",
+          "entry"
+        ],
+        "title": "NodeAttackPaths",
+        "type": "object"
+      },
+      "NodeVulnerabilities": {
+        "description": "Its open CVEs (ADR-0042). Absent: none known, which a resource the scanner doesn't cover\ncan't tell apart from none.",
+        "properties": {
+          "exploitable": {
+            "title": "Exploitable",
+            "type": "integer"
+          },
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "worst": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst"
+          }
+        },
+        "required": [
+          "open",
+          "worst",
+          "exploitable"
+        ],
+        "title": "NodeVulnerabilities",
+        "type": "object"
+      },
       "Overview": {
         "properties": {
           "as_of": {
@@ -3216,8 +2825,41 @@
         "title": "PasswordIn",
         "type": "object"
       },
+      "PathAccount": {
+        "description": "A connection (account) the path passes through.",
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "required": [
+          "connection_id",
+          "name"
+        ],
+        "title": "PathAccount",
+        "type": "object"
+      },
       "PathDetail": {
         "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/PathAccount"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
           "base_severity": {
             "anyOf": [
               {
@@ -3431,6 +3073,7 @@
           "confidence",
           "connection_id",
           "connection",
+          "accounts",
           "entry_uid",
           "target_uid",
           "entry_name",
@@ -3614,6 +3257,13 @@
       },
       "PathOut": {
         "properties": {
+          "accounts": {
+            "items": {
+              "$ref": "#/components/schemas/PathAccount"
+            },
+            "title": "Accounts",
+            "type": "array"
+          },
           "base_severity": {
             "anyOf": [
               {
@@ -3803,6 +3453,7 @@
           "confidence",
           "connection_id",
           "connection",
+          "accounts",
           "entry_uid",
           "target_uid",
           "entry_name",
@@ -3832,12 +3483,25 @@
             ],
             "title": "Data Through"
           },
+          "graph": {
+            "$ref": "#/components/schemas/PathsGraphState"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/PathOut"
             },
             "title": "Items",
             "type": "array"
+          },
+          "not_listed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PathsNotListed"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "total": {
             "title": "Total",
@@ -3847,7 +3511,9 @@
         "required": [
           "items",
           "total",
-          "data_through"
+          "data_through",
+          "graph",
+          "not_listed"
         ],
         "title": "PathPage",
         "type": "object"
@@ -3883,6 +3549,76 @@
           "remediation"
         ],
         "title": "PathRuleOut",
+        "type": "object"
+      },
+      "PathsGraphState": {
+        "description": "Whether the paths are behind the scans (owner's decision, 2026-11-01): paths are\nevaluated by the graph read model after each ingested run; until then, or while its sync\nfails, the list shows the paths of an earlier evaluation.",
+        "properties": {
+          "behind": {
+            "title": "Behind",
+            "type": "boolean"
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "evaluated_at",
+          "behind",
+          "failed"
+        ],
+        "title": "PathsGraphState",
+        "type": "object"
+      },
+      "PathsNotListed": {
+        "description": "Paths the latest evaluation found but the per-account cap kept out of the list, entering\nthe connection asked for (all connections: every enabled one). Whatever the list's filters:\nthe cut has only these dimensions.",
+        "properties": {
+          "latent": {
+            "title": "Latent",
+            "type": "integer"
+          },
+          "paths": {
+            "title": "Paths",
+            "type": "integer"
+          },
+          "worst": {
+            "anyOf": [
+              {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low",
+                  "informational"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst"
+          }
+        },
+        "required": [
+          "paths",
+          "latent",
+          "worst"
+        ],
+        "title": "PathsNotListed",
         "type": "object"
       },
       "PendingRequest": {
@@ -6309,6 +6045,16 @@
           },
           {
             "in": "query",
+            "name": "passing_through",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Passing Through",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
             "name": "state",
             "required": false,
             "schema": {
@@ -6504,6 +6250,16 @@
                 }
               ],
               "title": "Connection Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "passing_through",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Passing Through",
+              "type": "boolean"
             }
           },
           {
@@ -9127,299 +8883,9 @@
         ]
       }
     },
-    "/api/v1/map/flows/{flow_id}": {
-      "get": {
-        "description": "One flow as it stood on a day: its steps left to right, each node's chips and findings.",
-        "operationId": "flow_api_v1_map_flows__flow_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "flow_id",
-            "required": true,
-            "schema": {
-              "title": "Flow Id",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "as_of",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "date",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "As Of"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Argus-CSRF",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Argus-Csrf"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "argus_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Argus Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "argus_csrf",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Argus Csrf"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FlowDetail"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Flow",
-        "tags": [
-          "map"
-        ]
-      }
-    },
-    "/api/v1/map/front-doors": {
-      "get": {
-        "description": "What faces the internet in one account: where the map starts. Open doors first, then\nunknown, restricted and CloudFox's alone, each by name (ADR-0035); `reach`, `region` and\n`q` narrow it.\nEach door names the flow that starts from it (ADR-0036).",
-        "operationId": "front_doors_api_v1_map_front_doors_get",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "connection_id",
-            "required": true,
-            "schema": {
-              "title": "Connection Id",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "as_of",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "date",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "As Of"
-            }
-          },
-          {
-            "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 100,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "reach",
-            "required": false,
-            "schema": {
-              "items": {
-                "enum": [
-                  "open",
-                  "unknown",
-                  "restricted",
-                  "cloudfox_only"
-                ],
-                "type": "string"
-              },
-              "maxItems": 4,
-              "title": "Reach",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "region",
-            "required": false,
-            "schema": {
-              "items": {
-                "maxLength": 64,
-                "minLength": 1,
-                "type": "string"
-              },
-              "maxItems": 50,
-              "title": "Region",
-              "type": "array"
-            }
-          },
-          {
-            "in": "query",
-            "name": "q",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "maxLength": 200,
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Q"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-Argus-CSRF",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Argus-Csrf"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "argus_session",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Argus Session"
-            }
-          },
-          {
-            "in": "cookie",
-            "name": "argus_csrf",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Argus Csrf"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FrontDoorPage"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Front Doors",
-        "tags": [
-          "map"
-        ]
-      }
-    },
     "/api/v1/map/graph": {
       "get": {
-        "operationId": "graph_api_v1_map_graph_get",
+        "operationId": "map_graph_api_v1_map_graph_get",
         "parameters": [
           {
             "in": "query",
@@ -9458,23 +8924,6 @@
               "minimum": 1,
               "title": "Depth",
               "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "as_of",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "date",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "As Of"
             }
           },
           {
@@ -9586,7 +9035,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Graph",
+        "summary": "Map Graph",
         "tags": [
           "map"
         ]
@@ -9655,23 +9104,6 @@
                 }
               ],
               "title": "Resource Type"
-            }
-          },
-          {
-            "in": "query",
-            "name": "as_of",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "format": "date",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "As Of"
             }
           },
           {

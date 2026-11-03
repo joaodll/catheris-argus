@@ -1,8 +1,9 @@
 """Writing an inventory batch for one connection and day.
 
 Re-running a day replaces that day's snapshot rows, so history never duplicates. A partial
-run updates what it saw and carries the previous snapshot forward for the tables it did not
-complete, so throttling does not look like resources disappearing. Only a table that was
+run updates what it saw and carries the previous load forward for the tables it did not
+complete, however old that load is, so throttling does not look like resources disappearing.
+Every load is recorded in resource_load with its resource count. Only a table that was
 complete marks resources of its type deleted (per-table completeness, argus_v8).
 
 A resource uid has one owning connection, the first to load it (ADR-0034). Another connection
@@ -116,10 +117,8 @@ def load_inventory(
                 FROM resource_snapshot prev
                 JOIN resource r ON r.id = prev.resource_id
                 WHERE prev.snapshot_date = (
-                        SELECT max(s.snapshot_date) FROM resource_snapshot s
-                        JOIN resource r2 ON r2.id = s.resource_id
-                        WHERE r2.connection_id = :c AND s.snapshot_date < :d
-                          AND s.snapshot_date >= :d - 31)
+                        SELECT max(snapshot_date) FROM resource_load
+                        WHERE connection_id = :c AND snapshot_date < :d)
                   AND r.connection_id = :c AND r.deleted_on IS NULL
                   AND (CAST(:types AS text[]) IS NULL OR r.type = ANY(CAST(:types AS text[])))
                 ON CONFLICT DO NOTHING
@@ -140,6 +139,16 @@ def load_inventory(
             reason=OWNED_ELSEWHERE,
             day=day,
         )
+
+    # The day's load, even with no resource: effective_day reads it (migration 0036).
+    conn.execute(
+        text("""
+            INSERT INTO resource_load (connection_id, snapshot_date, resources)
+            VALUES (:c, :d, :n)
+            ON CONFLICT (connection_id, snapshot_date) DO UPDATE SET resources = EXCLUDED.resources
+        """),
+        {"c": connection_id, "d": day, "n": inserted + carried},
+    )
 
     deleted = 0
     if batch.complete_types:

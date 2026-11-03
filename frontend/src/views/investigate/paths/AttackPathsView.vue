@@ -4,8 +4,10 @@
  * that let an attacker get from the internet, or a foothold, to something that matters, and
  * which link to break. One search (ADR-0037) chains CloudFox edges, relationship-rule edges and
  * failing Prowler checks from every internet entry; every row names the tools behind it and how
- * sure Argus is (its weakest step). Filters, order and page live in the URL (pathFilters.ts);
- * ?path=<id> opens one path in place of the table.
+ * sure Argus is (its weakest step). The search runs over every account at once (ADR-0044, M2):
+ * a path belongs to the account where the attacker gets in, and its row says which others it
+ * crosses. Filters, order and page live in the URL (pathFilters.ts); ?path=<id> opens one path
+ * in place of the table.
  */
 import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -21,6 +23,7 @@ import SeverityTag from '@/components/SeverityTag.vue'
 import SortHeader from '@/components/SortHeader.vue'
 import ToolChip from '@/components/ToolChip.vue'
 import { useResource } from '@/composables/useResource'
+import { utc } from '@/format'
 import { SEVERITIES, SEVERITY_LABEL, type Severity } from '@/views/overview/severity'
 import { uidTail } from '../labels'
 import { CONFIDENCE_LABEL, CONFIDENCE_MEANING, type Confidence } from './confidence'
@@ -38,6 +41,7 @@ import {
   pathFiltersToQuery,
   toggleDate,
 } from './pathFilters'
+import { crossesLine, notListedNote, staleNote } from './pathText'
 import { pathSubline, pathTitle } from './pathWords'
 
 const PAGE = 20
@@ -76,9 +80,15 @@ function connectionName(id: number): string {
 function connectionOf(account: string): string | null {
   return connections.data.value?.find((c) => c.account_id === account)?.name ?? null
 }
-const facets = useResource(() => unwrap(api.GET('/api/v1/attack-paths/facets', { params: { query: { connection_id: filters.value.connection } } })), {
-  watch: [() => filters.value.connection],
-})
+const facets = useResource(
+  () =>
+    unwrap(
+      api.GET('/api/v1/attack-paths/facets', {
+        params: { query: { connection_id: filters.value.connection, passing_through: pathApiFilters(filters.value).passing_through } },
+      }),
+    ),
+  { watch: [() => filters.value.connection, () => filters.value.passing] },
+)
 const facetStatus = computed(() => (facets.error.value ? 'error' : facets.data.value ? 'ready' : 'loading'))
 const severityOptions: MultiOption[] = SEVERITIES.map((s) => ({ value: s, label: SEVERITY_LABEL[s] }))
 const categoryOptions = computed<MultiOption[]>(() => (facets.data.value?.categories ?? []).map((c) => ({ value: c, label: c })))
@@ -147,6 +157,11 @@ function onLoaded(path: Schemas['PathDetail'] | null): void {
   openName.value = path ? (path.rule?.name ?? path.rule_name ?? path.rule_id) : null
 }
 const dataThrough = computed(() => list.data.value?.data_through ?? null)
+// The paths are behind the scans, or the graph's last update failed (owner's decision, 2026-11-01).
+const stale = computed(() => (list.data.value ? staleNote(list.data.value.graph, utc) : null))
+const notListed = computed(() => (filters.value.state === 'open' ? notListedNote(list.data.value?.not_listed, chosenConnection.value) : null))
+// Each row's "Crosses into …" line, by path id.
+const crossing = computed(() => new Map((list.data.value?.items ?? []).map((p) => [p.id, crossesLine(p.accounts)])))
 </script>
 
 <template>
@@ -188,6 +203,10 @@ const dataThrough = computed(() => list.data.value?.data_through ?? null)
           <option v-for="c in connections.data.value ?? []" :key="c.id" :value="c.id">{{ c.name }}</option>
         </select>
       </div>
+      <label v-if="filters.connection" class="check">
+        <input type="checkbox" :checked="filters.passing" @change="set('passing', ($event.target as HTMLInputElement).checked)">
+        Include paths passing through
+      </label>
       <div class="field">
         <span id="ap-state" class="lbl">State</span>
         <div class="segmented" role="group" aria-labelledby="ap-state">
@@ -210,12 +229,23 @@ const dataThrough = computed(() => list.data.value?.data_through ?? null)
         </div>
       </div>
 
+      <!-- The paths are evaluated after each ingested scan; until then, or while that fails, these are older ones. -->
+      <div v-if="stale" class="panel-body">
+        <AlertBanner :kind="stale.kind">
+          {{ stale.text }}
+          <template #action><button type="button" class="btn btn-secondary btn-sm" @click="list.reload">Refresh</button></template>
+        </AlertBanner>
+      </div>
       <!-- Latent paths (Blocked) start at a door Argus found closed: listed only when asked for (ADR-0037, amended). -->
       <div v-if="latentHidden" class="panel-body">
         <AlertBanner kind="info">
           Latent paths are hidden: they start at a door Argus found closed, and show what one change would open.
           <template #action><button type="button" class="btn btn-secondary btn-sm" @click="set('confidence', ['blocked'])">Show latent paths</button></template>
         </AlertBanner>
+      </div>
+      <!-- The per-account cap kept these out of the list: they have no row for it to count or filter (ADR-0044, amended 2026-11-02). -->
+      <div v-if="notListed" class="panel-body">
+        <AlertBanner kind="info">{{ notListed }}</AlertBanner>
       </div>
       <div v-if="list.error.value" class="panel-body">
         <AlertBanner kind="fail">
@@ -279,7 +309,10 @@ const dataThrough = computed(() => list.data.value?.data_through ?? null)
                     <span v-if="evidence(p).rule" class="chip">Rule</span>
                   </span>
                 </td>
-                <td data-label="Connection"><span class="conn-name" :title="p.connection">{{ p.connection }}</span></td>
+                <td data-label="Connection">
+                  <span class="conn-name" :title="p.connection">{{ p.connection }}</span>
+                  <span v-if="crossing.get(p.id)" class="crosses" :title="crossing.get(p.id)!.title">{{ crossing.get(p.id)!.text }}</span>
+                </td>
                 <td data-label="Last seen" class="right">
                   <span class="mono">{{ p.last_seen }}</span>
                   <span class="mono since">since {{ p.first_seen }}</span>
@@ -362,11 +395,19 @@ const dataThrough = computed(() => list.data.value?.data_through ?? null)
   vertical-align: bottom;
 }
 
-.since {
+.since,
+.crosses {
   display: block;
   margin-top: 2px;
   font-size: 11px;
   color: var(--text-3);
+}
+
+/* As the connection's name: the whole chain is in the title. */
+.crosses {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .through {

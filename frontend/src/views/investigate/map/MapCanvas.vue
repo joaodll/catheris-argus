@@ -9,6 +9,13 @@
  * map, hovering a node traces its path, an overview in the corner. Positions come from mapLanes
  * (Cytoscape's preset layout), so the same view always places a node in the same spot.
  *
+ * Each line says what it is in plain words (edgeWords.ts) at its midpoint, in the gap between
+ * columns, at one size on screen whatever the zoom (round M3a). The words are in the HTML layer
+ * too: Cytoscape paints an edge's label with its edge, so the next line would cross it. At rest
+ * every label shows while card text does (zoom >= 0.55) and no two overlap: the hovered line
+ * wins, then a lit trace or path, then lines touching the focus, then reading order; a hidden one
+ * shows when hovered.
+ *
  * The canvas is one focusable region: the arrow keys move a keyboard position between nodes,
  * Enter selects, E expands, F makes the focus, Esc clears. The List view is the accessible
  * equivalent of the whole picture.
@@ -19,10 +26,10 @@ import AppIcon from '@/components/AppIcon.vue'
 import type { IconName } from '@/components/icons'
 import { SEVERITY_COLOR } from '@/views/overview/severity'
 import { regionLabel } from '../labels'
-import { boundaryLabel, drawnEdges, groupNodeId, nodeName, traceOf, worstOf, worstRank, type GraphState, type MapGroup, type MapNode, type Selection } from './mapGraph'
-import { chipSummary, type FlowChip } from './flowGraph'
-import { LANE_WIDTH, NODE_HEIGHT, NODE_WIDTH, flowLayout, layout, moveSelection, typeDisc, typeLabel, type LaidNode, type Move, type NodeKind } from './mapLanes'
-import { REACH_LABEL, type Reach } from './mapQuery'
+import { edgeWord } from '../edgeWords'
+import type { Fact } from './mapQuery'
+import { boundaryLabel, drawnEdges, factOf, factsLine, groupNodeId, nodeName, traceOf, worstOf, worstRank, type GraphState, type MapGroup, type MapNode, type Selection } from './mapGraph'
+import { LANE_WIDTH, NODE_HEIGHT, NODE_WIDTH, layout, moveSelection, typeDisc, typeLabel, type LaidNode, type Move, type NodeKind } from './mapLanes'
 import { resolvedTheme } from '@/composables/useTheme'
 
 const props = defineProps<{
@@ -32,10 +39,9 @@ const props = defineProps<{
   // An attack path (?path=): its nodes and edge ids show in accent, the rest dims.
   highlight: { nodes: string[]; edges: number[] } | null
   connectionName: (id: number) => string
-  // Flow mode (ADR-0036): each card's column and the columns' headers; null in Explore.
-  flow?: { columns: ReadonlyMap<string, number>; label: (col: number) => string; chips: ReadonlyMap<string, FlowChip[]> } | null
-  // Flow mode: the door's reach, named under the internet.
-  reach?: Reach | null
+  // Highlight (?highlight=): cards with this fact stand out, and show its number. Nothing changes
+  // what is drawn (ADR-0044, M-5).
+  fact?: Fact | null
 }>()
 const emit = defineEmits<{ select: [selection: Selection | null]; expand: [uid: string]; focusHere: [uid: string] }>()
 
@@ -102,7 +108,7 @@ const cards = computed<Card[]>(() => {
       group,
       name: plural(group.resource_type ? typeLabel(group.resource_type) : 'resource', group.count),
       type: group.resource_type,
-      typeLabel: `${group.edge_type} ${group.direction === 'out' ? '←' : '→'} ${anchor ? nodeName(anchor) : group.anchor_uid}`,
+      typeLabel: `${edgeWord(group.edge_type)} ${group.direction === 'out' ? '←' : '→'} ${anchor ? nodeName(anchor) : group.anchor_uid}`,
       ...typeDisc('group', group.resource_type),
       worst: null,
       open: 0,
@@ -117,7 +123,6 @@ const lines = computed(() => drawnEdges(props.graph))
 
 const laid = computed(() => {
   const laidNodes = cards.value.map<LaidNode>((c) => ({ id: c.id, kind: c.kind, type: c.type, name: c.name, rank: c.node ? worstRank(c.node) : 6 }))
-  if (props.flow) return flowLayout(laidNodes, props.flow.columns, props.flow.label)
   return layout(
     laidNodes,
     lines.value.map((l) => ({ source: l.source, target: l.target })),
@@ -125,7 +130,6 @@ const laid = computed(() => {
   )
 })
 const laneLabel = computed(() => new Map(laid.value.lanes.map((l) => [l.lane, l.label])))
-const chipsOf = (id: string) => chipSummary(props.flow?.chips.get(id) ?? [])
 
 // ---- What is lit: the selection's trace (what reaches it and what it reaches), a highlighted
 // path, or, with nothing selected, the hovered node's trace.
@@ -150,8 +154,11 @@ const pathLines = computed(() => {
   const edges = new Set(props.highlight.edges)
   return new Set(lines.value.filter((l) => l.edges.some((e) => edges.has(e.id))).map((l) => l.key))
 })
+function lacksFact(id: string): boolean {
+  return !!props.fact && factOf(props.graph.nodes.get(id) ?? null, props.fact).count === 0
+}
 function dimmed(id: string): boolean {
-  return lit.value != null && !lit.value.nodes.has(id) && id !== props.focus
+  return (lit.value != null && !lit.value.nodes.has(id) && id !== props.focus) || lacksFact(id)
 }
 
 // ---- Cytoscape: edges, and invisible node shapes for their ends.
@@ -174,30 +181,43 @@ function token(name: string): string {
 interface Bend {
   weights: number[]
   distances: number[]
+  // Where Cytoscape puts the label: the middle of the S between lanes, the arc's apex in a lane.
+  mid: { x: number; y: number }
 }
 function bend(s: { x: number; y: number }, t: { x: number; y: number }): Bend {
   const dx = t.x - s.x
   const dy = t.y - s.y
   const length2 = dx * dx + dy * dy
-  if (length2 === 0) return { weights: [0.5], distances: [0] }
+  if (length2 === 0) return { weights: [0.5], distances: [0], mid: { ...s } }
   const length = Math.sqrt(length2)
-  const points =
-    Math.abs(dx) < 1
-      ? [{ x: s.x + 72 + Math.abs(dy) * 0.15, y: (s.y + t.y) / 2 }]
-      : [
-          { x: s.x + dx / 2, y: s.y },
-          { x: s.x + dx / 2, y: t.y },
-        ]
+  const arc = Math.abs(dx) < 1
+  const points = arc
+    ? [{ x: s.x + 72 + Math.abs(dy) * 0.15, y: (s.y + t.y) / 2 }]
+    : [
+        { x: s.x + dx / 2, y: s.y },
+        { x: s.x + dx / 2, y: t.y },
+      ]
+  const mid = arc ? { x: 0.25 * s.x + 0.5 * points[0]!.x + 0.25 * t.x, y: (s.y + t.y) / 2 } : { x: s.x + dx / 2, y: (s.y + t.y) / 2 }
   return {
     weights: points.map((p) => ((p.x - s.x) * dx + (p.y - s.y) * dy) / length2),
     distances: points.map((p) => ((p.x - s.x) * -dy + (p.y - s.y) * dx) / length),
+    mid,
   }
 }
 
-// The reach a door's link from the internet carries when traffic cannot arrive (ADR-0033,
-// amended 2026-10-21): drawn in the Traffic layer, labelled.
-const VERDICT: Partial<Record<string, string>> = { PUBLIC_RESTRICTED: 'Restricted', PUBLIC_UNVERIFIED: 'Unknown' }
-
+// ---- Line labels: one size on screen, never on top of each other.
+const LABEL_PX = 11
+const LABEL_MIN_ZOOM = 0.55 // the zoom below which card text hides (`far`)
+const CHAR_PX = 6.2 // Inter at 11 px, a lower-case word's average advance
+const LABEL_PAD = 4
+interface LineWord {
+  key: string
+  text: string
+  x: number
+  y: number
+  tone: 'rest' | 'hover' | 'lit'
+}
+const words = shallowRef<LineWord[]>([])
 function elements(): ElementDefinition[] {
   const positions = laid.value.positions
   const nodes: ElementDefinition[] = cards.value.map((c) => ({
@@ -208,8 +228,8 @@ function elements(): ElementDefinition[] {
   const edges: ElementDefinition[] = lines.value
     .filter((l) => positions.has(l.source) && positions.has(l.target) && l.source !== l.target)
     .map((l) => {
-      const { weights, distances } = bend(positions.get(l.source)!, positions.get(l.target)!)
-      return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: l.type, line: l.style, verdict: VERDICT[l.type], weights, distances } }
+      const { weights, distances, mid } = bend(positions.get(l.source)!, positions.get(l.target)!)
+      return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: edgeWord(l.type, l.target), line: l.style, weights, distances, mx: mid.x, my: mid.y } }
     })
   return [...nodes, ...edges]
 }
@@ -218,9 +238,7 @@ function style(): cytoscape.StylesheetJson {
   const edge = token('--graph-edge')
   const accent = token('--accent')
   const text2 = token('--text-2')
-  const canvas = token('--graph-canvas')
   const dim = Number(token('--graph-dim')) || 0.3
-  const mono = token('--font-mono')
   return [
     {
       selector: 'node',
@@ -241,18 +259,6 @@ function style(): cytoscape.StylesheetJson {
         'line-style': 'data(line)' as never,
         'line-dash-pattern': [6, 4],
         'line-dash-offset': 0,
-        'font-family': mono,
-        'font-size': 10,
-        color: text2,
-        'text-background-color': canvas,
-        'text-background-opacity': 1,
-        'text-background-padding': '2px',
-        'text-background-shape': 'roundrectangle',
-        'text-rotation': 'none',
-        label: '',
-        // The label rides near the target end of the line: the middle of a short line between
-        // two lanes is under the cards, which are drawn above the canvas.
-        'target-text-offset': 56,
         // The lit glow: an accent underlay, invisible until an edge is lit.
         'underlay-color': accent,
         'underlay-opacity': 0,
@@ -262,16 +268,12 @@ function style(): cytoscape.StylesheetJson {
       } as never,
     },
     { selector: 'edge[line = "dotted"]', style: { 'line-dash-pattern': [1.5, 3] } },
-    // A Restricted or Unknown door's link from the internet: fainter and thinner than a
-    // reachable one, always labelled with its reach (line style stays the origin's).
-    { selector: 'edge[verdict]', style: { width: 1.2, 'line-opacity': 0.55, 'target-label': 'data(verdict)' } as never },
-    { selector: 'edge.hover', style: { 'line-color': text2, 'target-arrow-color': text2, 'target-label': 'data(label)' } },
-    // Lit (a trace, the selection, a highlighted path): accent, with a soft glow and its label.
+    { selector: 'edge.hover', style: { 'line-color': text2, 'target-arrow-color': text2 } },
+    // Lit (a trace, the selection, a highlighted path): accent line with a soft glow.
     {
       selector: 'edge.lit, edge.path',
-      style: { width: 2.4, 'line-color': accent, 'target-arrow-color': accent, 'target-label': 'data(label)', color: accent, 'underlay-opacity': 0.14 } as never,
+      style: { width: 2.4, 'line-color': accent, 'target-arrow-color': accent, 'underlay-opacity': 0.14 } as never,
     },
-    { selector: 'edge[verdict].hover, edge[verdict].lit, edge[verdict].path', style: { 'line-opacity': 0.9, 'target-label': 'data(verdict)' } as never },
     { selector: 'edge.dim', style: { opacity: dim } },
   ]
 }
@@ -285,10 +287,59 @@ function paint(): void {
       const isLit = lit.value?.lines.has(key) ?? false
       e.toggleClass('lit', isLit)
       e.toggleClass('path', pathLines.value.has(key))
-      e.toggleClass('dim', lit.value != null && !isLit && !pathLines.value.has(key))
+      const quiet = lacksFact(e.source().id()) && lacksFact(e.target().id())
+      e.toggleClass('dim', (lit.value != null || quiet) && !isLit && !pathLines.value.has(key))
     })
   })
+  placeLabels()
 }
+
+/** Which lines show their words (`words`, drawn in the HTML layer). A word never sits under a
+ * card: one whose box would touch a card waits, unless hovered or lit, when it is drawn above.
+ * Then greedy by priority:
+ * the hovered line, then a lit trace or path, then lines touching the focus, then reading order;
+ * a label whose box would overlap one already placed waits until it is hovered or lit. Below
+ * LABEL_MIN_ZOOM only hovered and lit lines are labelled. */
+function placeLabels(): void {
+  const c = cy.value
+  if (!c) return
+  const z = c.zoom()
+  const rank = (e: EdgeSingular): number =>
+    e.hasClass('hover') ? 0 : e.hasClass('lit') || e.hasClass('path') ? 1 : e.data('source') === props.focus || e.data('target') === props.focus ? 2 : 3
+  const candidates = c
+    .edges()
+    .toArray()
+    .filter((e) => z >= LABEL_MIN_ZOOM || rank(e) <= 1)
+    .sort((a, b) => rank(a) - rank(b) || a.data('my') - b.data('my') || a.data('mx') - b.data('mx'))
+  const placed: { x1: number; x2: number; y1: number; y2: number }[] = []
+  const shown: LineWord[] = []
+  const blocks = cards.value.flatMap((card) => {
+    const p = laid.value.positions.get(card.id)
+    return p ? [{ x1: p.x - card.w / 2, x2: p.x + card.w / 2, y1: p.y - card.h / 2, y2: p.y + card.h / 2 }] : []
+  })
+  for (const e of candidates) {
+    const w = (String(e.data('label')).length * CHAR_PX + 2 * LABEL_PAD + 4) / z
+    const h = (LABEL_PX + 2 * LABEL_PAD + 2) / z
+    const box = { x1: e.data('mx') - w / 2, x2: e.data('mx') + w / 2, y1: e.data('my') - h / 2, y2: e.data('my') + h / 2 }
+    const touches = (p: typeof box) => box.x1 < p.x2 && p.x1 < box.x2 && box.y1 < p.y2 && p.y1 < box.y2
+    if (placed.some(touches) || (rank(e) > 1 && blocks.some(touches))) continue
+    placed.push(box)
+    const r = rank(e)
+    shown.push({ key: e.id(), text: e.data('label'), x: e.data('mx'), y: e.data('my'), tone: r === 0 ? 'hover' : r === 1 ? 'lit' : 'rest' })
+  }
+  words.value = shown
+}
+
+let labelFrame = 0
+/** placeLabels() once per frame at most (a wheel zooms in many small steps). */
+function scheduleLabels(): void {
+  if (labelFrame) return
+  labelFrame = window.requestAnimationFrame(() => {
+    labelFrame = 0
+    placeLabels()
+  })
+}
+onBeforeUnmount(() => window.cancelAnimationFrame(labelFrame))
 
 function rebuild(): void {
   const c = cy.value
@@ -315,19 +366,9 @@ function fit(eles?: cytoscape.CollectionArgument, animate = false): void {
   else c.viewport(viewport)
 }
 
-// A flow opens readable: when the whole chain only fits below this zoom (where text hides),
-// it opens at this zoom from the internet on the left, and the user pans along the chain.
-const FLOW_MIN_ZOOM = 0.8
-
-/** The first view of a graph: everything fitted; a long flow from its start instead. */
+/** The first view of a graph: everything fitted. */
 function firstView(): void {
-  const c = cy.value
-  if (!c || c.elements().length === 0) return
   fit()
-  if (!props.flow || c.zoom() >= FLOW_MIN_ZOOM) return
-  const box = c.elements().boundingBox()
-  c.zoom(FLOW_MIN_ZOOM)
-  c.pan({ x: 56 - box.x1 * FLOW_MIN_ZOOM, y: c.height() / 2 - ((box.y1 + box.y2) / 2) * FLOW_MIN_ZOOM })
 }
 
 /** The drawn elements with these ids (an id no longer drawn is skipped). */
@@ -351,6 +392,7 @@ function zoomBy(factor: number): void {
 
 function track(instance: Core): void {
   pan.value = { ...instance.pan() }
+  if (instance.zoom() !== zoom.value) scheduleLabels()
   zoom.value = instance.zoom()
   size.value = { w: instance.width(), h: instance.height() }
 }
@@ -376,8 +418,14 @@ onMounted(() => {
       if (!key.startsWith('group:')) emit('select', { kind: 'edge', key })
     }
   })
-  instance.on('mouseover', 'edge', (event) => event.target.addClass('hover'))
-  instance.on('mouseout', 'edge', (event) => event.target.removeClass('hover'))
+  instance.on('mouseover', 'edge', (event) => {
+    event.target.addClass('hover')
+    placeLabels()
+  })
+  instance.on('mouseout', 'edge', (event) => {
+    event.target.removeClass('hover')
+    placeLabels()
+  })
   cy.value = instance
   known = new Set(cards.value.map((c) => c.id))
   rebuild()
@@ -453,7 +501,8 @@ watch(
 )
 
 // ---- The HTML layer, the dot grid and the column names.
-const worldStyle = computed(() => ({ transform: `translate(${pan.value.x}px, ${pan.value.y}px) scale(${zoom.value})` }))
+// --word-scale undoes the layer's zoom: a line's words keep one size on screen.
+const worldStyle = computed(() => ({ transform: `translate(${pan.value.x}px, ${pan.value.y}px) scale(${zoom.value})`, '--word-scale': 1 / zoom.value }))
 const far = computed(() => zoom.value < 0.55)
 const GRID = 22
 // The dot grid moves and scales with the map.
@@ -473,7 +522,6 @@ function cardStyle(card: Card): Record<string, string> {
 function countColor(worst: string): Record<string, string> {
   return { '--sev': SEVERITY_COLOR[worst as keyof typeof SEVERITY_COLOR] ?? 'var(--text-2)' }
 }
-const reachText = computed(() => (props.flow && props.reach ? REACH_LABEL[props.reach] : null))
 
 // Cards sit above the canvas: a wheel over one still zooms the map.
 function onWheel(event: WheelEvent): void {
@@ -556,10 +604,10 @@ const announcement = computed(() => {
   const card = active.value ? byId.value.get(active.value) : undefined
   if (!card || !focused.value) return ''
   const lane = laid.value.positions.get(card.id)?.lane
-  const findings = card.open ? `${card.open} open findings, worst ${card.worst}` : 'no open findings'
-  const chips = chipsOf(card.id).map((c) => c.title)
-  const where = lane ? `, ${laneLabel.value.get(lane)} ${props.flow ? 'column' : 'lane'}` : ''
-  return `${card.name}, ${card.typeLabel}${where}, ${card.kind === 'group' ? `${card.group?.count} resources` : findings}${chips.length ? `, ${chips.join(', ')}` : ''}.`
+  const facts = factsLine(card.node)
+  const findings = `${card.open ? `${card.open} open findings, worst ${card.worst}` : 'no open findings'}${facts ? `, ${facts}` : ''}`
+  const where = lane ? `, ${laneLabel.value.get(lane)} lane` : ''
+  return `${card.name}, ${card.typeLabel}${where}, ${card.kind === 'group' ? `${card.group?.count} resources` : findings}.`
 })
 const regionLabelText = computed(() => `Resource map, ${props.graph.nodes.size} resources. The List view shows the same resources as a table.`)
 
@@ -675,6 +723,7 @@ defineExpose({ fit })
     <div ref="container" class="cy"></div>
     <div class="world" :class="{ far }" :style="worldStyle" aria-hidden="true" @wheel="onWheel">
       <span v-for="col in columnNames" :key="col.lane" class="eyebrow col-name" :style="{ left: `${col.left}px`, top: `${col.top}px` }">{{ col.label }}</span>
+      <span v-for="w in words" :key="w.key" class="line-word" :class="w.tone" :style="{ left: `${w.x}px`, top: `${w.y}px` }">{{ w.text }}</span>
       <div
         v-for="card in cards"
         :key="card.id"
@@ -699,7 +748,7 @@ defineExpose({ fit })
           <span class="ring"></span>
           <span class="ring late"></span>
           <span class="circle"><AppIcon name="globe" :size="26" :stroke="1.5" /></span>
-          <span class="under">Internet<template v-if="reachText"> · <span class="reach" :class="`reach-${reach}`">{{ reachText }}</span></template></span>
+          <span class="under">Internet</span>
         </template>
         <template v-else-if="card.kind === 'admin'">
           <span class="diamond"></span>
@@ -714,12 +763,16 @@ defineExpose({ fit })
                 <template v-if="card.kind === 'group'"><span class="mono">{{ card.group?.count }}</span> {{ card.name }}</template>
                 <template v-else>{{ card.name }}</template>
               </span>
-              <span class="line2 mono">{{ card.typeLabel }}</span>
+              <span class="line2-row">
+                <span class="line2 mono">{{ card.typeLabel }}</span>
+                <span v-if="card.node?.vulnerabilities?.exploitable" class="mark" title="A public exploit is available"><AppIcon name="warning" :size="12" /></span>
+                <span v-if="card.node?.attack_paths" class="mark" title="On an attack path"><AppIcon name="route" :size="12" /></span>
+              </span>
             </span>
-            <span v-if="card.worst" class="count mono" :style="countColor(card.worst)">{{ card.open }}</span>
-          </span>
-          <span v-if="chipsOf(card.id).length" class="chips">
-            <span v-for="chip in chipsOf(card.id)" :key="chip.kind" class="chip-tag mono" :title="chip.title">{{ chip.text }}</span>
+            <template v-if="factOf(card.node, fact).count">
+              <span v-if="factOf(card.node, fact).worst" class="count mono" :style="countColor(factOf(card.node, fact).worst!)">{{ factOf(card.node, fact).count }}</span>
+              <span v-else class="count plain mono">{{ factOf(card.node, fact).count }}</span>
+            </template>
           </span>
         </template>
       </div>
@@ -733,24 +786,27 @@ defineExpose({ fit })
       </span>
       <span v-if="tip.card.node">Prowler {{ toolCount(tip.card.node, 'prowler') }} · CloudFox {{ toolCount(tip.card.node, 'cloudfox') }}</span>
       <span v-if="tip.card.worst">Worst open finding: {{ tip.card.worst }}</span>
+      <span v-if="factsLine(tip.card.node)">{{ factsLine(tip.card.node) }}</span>
     </div>
 
     <p class="sr-only" aria-live="polite">{{ announcement }}</p>
 
-    <!-- The page's pills (a flow's summary, the first-use hint), top left. -->
+    <!-- The page's pill (the first-use hint), top left. -->
     <div class="overlay"><slot name="overlay" /></div>
 
     <div ref="controlsRef" class="controls" @keydown.esc.stop="legendOpen = false">
       <dl v-show="legendOpen" id="map-legend" class="legend-body">
         <div><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l solid" /></svg></dt><dd>Argus rule</dd></div>
         <div><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l dashed" /></svg></dt><dd>CloudFox only</dd></div>
-        <div class="wide"><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l faint" /></svg></dt><dd>Restricted or Unknown door: faint, labelled</dd></div>
         <div><dt><span class="sw node-sw"></span></dt><dd>Resource</dd></div>
         <div><dt><span class="sw group-sw"></span></dt><dd>Group of resources</dd></div>
         <div><dt><span class="sw ext-sw"></span></dt><dd>Not in the inventory</dd></div>
         <div><dt><span class="sw boundary-sw"></span></dt><dd>Other connection or account</dd></div>
         <div class="wide"><dt><span class="sw-disc"><AppIcon name="chip" :size="11" /></span></dt><dd>Icon colour: kind of resource</dd></div>
         <div class="wide"><dt><span class="sw-count mono">3</span></dt><dd>Open findings, coloured by the worst</dd></div>
+        <div class="wide"><dt><span class="mark"><AppIcon name="warning" :size="12" /></span></dt><dd>A public exploit is available</dd></div>
+        <div class="wide"><dt><span class="mark"><AppIcon name="route" :size="12" /></span></dt><dd>On an attack path</dd></div>
+        <div class="wide"><dd>With Highlight on, muted cards have none known.</dd></div>
         <div class="wide"><dd>Data access is what a role's policies allow, not observed traffic.</dd></div>
       </dl>
       <div class="buttons">
@@ -808,6 +864,27 @@ defineExpose({ fit })
   white-space: nowrap;
   letter-spacing: 0.12em;
   color: var(--text-3);
+}
+
+.line-word {
+  position: absolute;
+  z-index: 1;
+  transform: translate(-50%, -50%) scale(var(--word-scale));
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--graph-canvas);
+  font: 500 11px/1.2 var(--font-sans);
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.line-word.hover {
+  color: var(--text);
+}
+
+/* Lit: the strongest text colour (accent text would fail contrast). */
+.line-word.lit {
+  color: var(--text-strong);
 }
 
 .node {
@@ -902,6 +979,40 @@ defineExpose({ fit })
   transition: opacity 160ms;
 }
 
+/* A count that is no severity: public exploits and attack paths. */
+.count.plain {
+  background: var(--chip-fill);
+  color: var(--text);
+}
+
+/* A severity's count keeps its contrast when faded, its fill fading with it. This one has no fill
+   to speak of, so it is muted instead, like the card's text. */
+.node.faded .count.plain {
+  opacity: 1;
+  color: var(--text-2);
+}
+
+/* Beside the type, so the name keeps its room. */
+.line2-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.line2-row .line2 {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* A fact on the card, never a severity colour: a public exploit, on an attack path. */
+.mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+}
+
 /* Not on the trace: muted, not faded, so its text keeps the contrast floor (WCAG AA). */
 .node.faded .face {
   border-color: var(--border);
@@ -929,28 +1040,6 @@ defineExpose({ fit })
 .node.boundary .face {
   background: var(--graph-lane);
   border: 1.5px dotted var(--text-3);
-}
-
-/* Flow mode: what a node carries (security groups, role, WAF), under its pill. */
-.chips {
-  position: absolute;
-  top: calc(100% + 3px);
-  left: 18px;
-  display: flex;
-  gap: 4px;
-  max-width: calc(100% - 18px);
-  overflow: hidden;
-}
-
-.chip-tag {
-  padding: 0 4px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--surface-sunken);
-  color: var(--text-2);
-  font-size: 10px;
-  line-height: 12px;
-  white-space: nowrap;
 }
 
 .kind-group .back {
@@ -1018,18 +1107,6 @@ defineExpose({ fit })
   color: var(--text-2);
 }
 
-.reach {
-  font-weight: 600;
-}
-
-.reach-open {
-  color: var(--status-warn);
-}
-
-.reach-restricted {
-  color: var(--status-ok);
-}
-
 .node:hover .face {
   border-color: var(--border-control);
 }
@@ -1064,8 +1141,7 @@ defineExpose({ fit })
 }
 
 .world.far .lines,
-.world.far .under,
-.world.far .chips {
+.world.far .under {
   visibility: hidden;
 }
 
@@ -1170,11 +1246,6 @@ defineExpose({ fit })
 
 .l.dashed {
   stroke-dasharray: 6 4;
-}
-
-.l.faint {
-  stroke-width: 1.2;
-  stroke-opacity: 0.55;
 }
 
 .sw {

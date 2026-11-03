@@ -1,12 +1,11 @@
 """Read side of relationships: which edges stood on a given day."""
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, NamedTuple
 
 from sqlalchemy import Connection, text
 
-CARRY_FORWARD_DAYS = 31
 MAX_EDGES = 500  # the map's neighbourhood cap (design: "Queries")
 
 # Exported SQL: the view attack-path rules read as `e`. One connection's effective edges:
@@ -24,9 +23,10 @@ EFFECTIVE_EDGES_SQL = """
 
 
 def effective_days(conn: Connection, *, connection_id: int, day: date) -> dict[str, date | None]:
-    """Each edge family's latest snapshot on or before `day`, within the window. A family
-    (our relationship rules, CloudFox) is replaced whole by its next snapshot, so a family whose
-    tool did not run that day still stands, and a failed run does not erase edges."""
+    """Each edge family's latest load on or before `day`, however old (owner's decision,
+    2026-11-01: every screen shows each account's latest scan). A family (our relationship
+    rules, CloudFox) is replaced whole by its next load, so a family whose tool did not run that
+    day still stands, and a failed run does not erase edges."""
     return all_effective_days(conn, day=day, connection_ids=[connection_id]).get(
         connection_id, {"rule_day": None, "cloudfox_day": None}
     )
@@ -35,15 +35,16 @@ def effective_days(conn: Connection, *, connection_id: int, day: date) -> dict[s
 def all_effective_days(
     conn: Connection, *, day: date, connection_ids: list[int] | None = None
 ) -> dict[int, dict[str, date | None]]:
-    """effective_days() for several connections (None: every one) in one read of edge_load."""
+    """effective_days() for several connections (None: every one) in one read of edge_load,
+    a small table keyed by connection, family and day."""
     rows = conn.execute(
         text("""
         SELECT connection_id, family, max(snapshot_date) AS day FROM edge_load
-        WHERE snapshot_date BETWEEN :start AND :d
+        WHERE snapshot_date <= :d
           AND (CAST(:c AS bigint[]) IS NULL OR connection_id = ANY(CAST(:c AS bigint[])))
         GROUP BY connection_id, family
     """),
-        {"d": day, "start": day - timedelta(days=CARRY_FORWARD_DAYS), "c": connection_ids},
+        {"d": day, "c": connection_ids},
     )
     days: dict[int, dict[str, date | None]] = {}
     for r in rows:
@@ -62,16 +63,16 @@ def latest_load_day(conn: Connection, *, connection_id: int) -> date | None:
 
 
 def latest_rule_loads(conn: Connection, *, day: date) -> dict[int, tuple[date, str | None]]:
-    """Each connection's latest rule edge load still standing on `day` (within the window): its
-    day and the rule set it was derived with (None: before migration 0026)."""
+    """Each connection's latest rule edge load standing on `day`, however old: its day and the
+    rule set it was derived with (None: before migration 0026)."""
     rows = conn.execute(
         text("""
         SELECT DISTINCT ON (connection_id) connection_id, snapshot_date, ruleset
         FROM edge_load
-        WHERE family = 'rule' AND snapshot_date BETWEEN :start AND :d
+        WHERE family = 'rule' AND snapshot_date <= :d
         ORDER BY connection_id, snapshot_date DESC
     """),
-        {"d": day, "start": day - timedelta(days=CARRY_FORWARD_DAYS)},
+        {"d": day},
     )
     return {r.connection_id: (r.snapshot_date, r.ruleset) for r in rows}
 

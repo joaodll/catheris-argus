@@ -32,7 +32,7 @@ def test_each_load_records_its_day_even_without_edges(owner: Engine, worker: Eng
             conn, edges=[], connection_id=cid, day=later, origin_prefix="rule:"
         )
         assert relationships.effective_days(conn, connection_id=cid, day=later)["rule_day"] == later
-        # Before the window's start, nothing stands.
-        far = DAY + timedelta(days=40)
-        assert relationships.effective_days(conn, connection_id=cid, day=far)["rule_day"] is None
+        # The latest load stands however old (2026-11-01: scans may run 60 days apart).
+        far = DAY + timedelta(days=60)
+        assert relationships.effective_days(conn, connection_id=cid, day=far)["rule_day"] == later
         assert relationships.delete_loads_before(conn, cutoff=later) == 1

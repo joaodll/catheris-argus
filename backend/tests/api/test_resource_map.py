@@ -1,26 +1,34 @@
 """Investigate -> Resource map and Attack paths (ADR-0033) over the synthetic prod estate, whose
-front-door chain runs Route53 -> CloudFront -> HTTP API -> function -> role -> admin."""
+front-door chain runs Route53 -> CloudFront -> HTTP API -> function -> role -> admin. The map
+draws connections, not reach (round M3a)."""
 
 from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import Engine
+from neo4j.exceptions import ClientError, ServiceUnavailable, SessionExpired, TransientError
+from sqlalchemy import Engine, text
+from tests.conftest import Settle
 from tests.ingest.conftest import make_demo, run_tool
 
-from argus.collection import TOOL_ORDER
+from argus import graph
+from argus.collection import TOOL_ORDER, CollectTarget
 from argus.collection.synthetic.estate import SCENARIO_INSTANCE
+from argus.connections import demo_account_id
 from argus.core.rawstore import FilesystemRawStore
+from argus.graph import client
+from argus.relationships import EDGE_ATTRIBUTES, MapScope
 
-pytestmark = pytest.mark.db
+pytestmark = [pytest.mark.db, pytest.mark.graph]
 
 
 @pytest.fixture
-def prod(owner: Engine, worker: Engine, store: FilesystemRawStore) -> int:
+def prod(owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle) -> int:
     target = make_demo(owner)  # seed 0: the prod profile
     for tool in TOOL_ORDER:
         run_tool(worker, store, target, tool, datetime.now(UTC).date())
+    settle(datetime.now(UTC).date())  # the graph loop's evaluation (ADR-0044, M2)
     return target.connection_id
 
 
@@ -35,6 +43,12 @@ def _named(graph: dict[str, Any], prefix: str) -> dict[str, Any]:
     return next(n for n in graph["nodes"] if (n["name"] or "").startswith(prefix))
 
 
+def _resource(client: TestClient, name: str, **params: Any) -> dict[str, Any]:
+    """A resource found the way the map's start screen finds one: the Resources search."""
+    found = client.get("/api/v1/resources", params={"q": name, "limit": 50, **params}).json()
+    return next(r for r in found["items"] if (r["name"] or "").endswith(name))
+
+
 def _record(client: TestClient, prefix: str) -> str:
     found = client.get("/api/v1/resources", params={"q": prefix, "limit": 50}).json()["items"]
     return str(
@@ -46,34 +60,29 @@ def _record(client: TestClient, prefix: str) -> str:
     )
 
 
-def test_front_doors_then_the_chain_down_to_the_function(signed_in: TestClient, prod: int) -> None:
-    doors = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": prod, "limit": 100}
-    ).json()
-    by_type: dict[str, list[dict[str, Any]]] = {}
-    for door in doors["items"]:
-        by_type.setdefault(door["node"]["type"] or door["node"]["kind"], []).append(door)
-    assert {
-        "aws_cloudfront_distribution",
-        "aws_api_gatewayv2_api",
-        "aws_api_gateway_rest_api",
-        "aws_ec2_application_load_balancer",
-        "aws_eks_cluster",
-    } <= set(by_type)
+def test_the_chain_from_a_dns_record_down_to_the_function(
+    signed_in: TestClient, prod: int, owner: Engine
+) -> None:
     # A DNS record names an entry; it is not one (ADR-0035). Only a record whose chain ends
     # outside what Argus judges is a door, unknown (argus_v12): rest, an API custom domain
-    # (which API it serves is not collected), and status, a vendor's host.
-    records = {d["node"]["name"].split(".")[0]: d for d in by_type["aws_route53_record"]}
-    assert sorted(records) == ["rest", "status"]
-    assert {d["reach"] for d in records.values()} == {"unknown"}
-    assert records["rest"]["missing"][0].startswith("dns_target:arn:aws:apigateway:")
-    assert records["status"]["missing"][0].startswith("dns_target:external:status.")
-    assert doors["total"] == len(doors["items"]) and doors["data_through"]
-    # The edge ALB is found by our rule and by CloudFox.
-    alb = next(
-        d for d in by_type["aws_ec2_application_load_balancer"] if "edge-alb" in d["node"]["name"]
-    )
-    assert alb["via"] == ["cloudfox", "rule"]
+    # (which API it serves is not collected), and status, a vendor's host. The rule draws it;
+    # the map does not (a verdict, not a connection: round M3a), Attack paths and Findings do.
+    with owner.connect() as conn:
+        unknown = {
+            r.name.split(".")[0]: r.missing
+            for r in conn.execute(
+                text("""
+                SELECT r.name, e.attributes -> 'missing' ->> 0 AS missing
+                FROM edge e JOIN resource r ON r.id = e.target_resource_id
+                WHERE e.source_uid = 'internet' AND e.type = 'PUBLIC_UNVERIFIED'
+                  AND r.type = 'aws_route53_record' AND e.connection_id = :c
+            """),
+                {"c": prod},
+            )
+        }
+    assert sorted(unknown) == ["rest", "status"]
+    assert unknown["rest"].startswith("dns_target:arn:aws:apigateway:")
+    assert unknown["status"].startswith("dns_target:external:status.")
     record = _record(signed_in, "app.")
 
     graph = _graph(signed_in, record, connection_id=prod, depth=3)
@@ -94,13 +103,17 @@ def test_front_doors_then_the_chain_down_to_the_function(signed_in: TestClient, 
 
 
 def test_identity_and_findings_per_tool(signed_in: TestClient, prod: int) -> None:
-    doors = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": prod, "limit": 100}
-    ).json()
-    alb = next(d["node"] for d in doors["items"] if (d["node"]["name"] or "").endswith("edge-alb"))
+    alb = _resource(signed_in, "edge-alb", connection_id=prod)
+    # The edge ALB is found by our rule and by CloudFox: two lines from the internet.
+    from_internet = _graph(signed_in, "internet", connection_id=prod, layer=["traffic"])["edges"]
+    assert {
+        (e["type"], e["origin"].split(":")[0])
+        for e in from_internet
+        if e["source_uid"] == "internet" and e["target_uid"] == alb["resource_uid"]
+    } == {("ROUTES_TO", "rule"), ("INTERNET_REACHABLE", "cloudfox")}
     # The ALB's target group routes to the API function, which runs as a role CloudFox says
     # can escalate to administrator.
-    graph = _graph(signed_in, alb["uid"], depth=3)
+    graph = _graph(signed_in, alb["resource_uid"], depth=3)
     function = _named(graph, "prod-orders-api")
     assert function["kind"] == "resource" and function["resource_id"]
     near = _graph(signed_in, function["uid"], depth=2, layer=["identity"])
@@ -135,14 +148,13 @@ def test_identity_and_findings_per_tool(signed_in: TestClient, prod: int) -> Non
 def test_many_neighbours_of_one_kind_come_back_as_a_group(
     signed_in: TestClient, prod: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("argus.relationships.graph.GROUP_OVER", 1)
+    monkeypatch.setattr("argus.graph.resource_map.GROUP_OVER", 1)
     graph = _graph(signed_in, "internet", connection_id=prod)
     # Any kind with more than one front door (GROUP_OVER is 1 here) comes back as a group.
     group = next(g for g in graph["groups"] if g["edge_type"] == "ROUTES_TO")
     assert group["anchor_uid"] == "internet" and group["direction"] == "out"
     assert group["count"] >= 2
-    # Its members are not drawn one by one (a Restricted door of that type still is: another
-    # edge type, ADR-0033 amended 2026-10-21).
+    # Its members are not drawn one by one.
     types = {n["uid"]: n["type"] for n in graph["nodes"]}
     assert not any(
         e["source_uid"] == "internet"
@@ -173,12 +185,14 @@ def test_the_map_walks_one_connection(
     owner: Engine,
     worker: Engine,
     store: FilesystemRawStore,
+    settle: Settle,
 ) -> None:
     """Depth used to reach other connections through shared nodes such as `internet`
     (argus_v10); another connection's resource is now a boundary node, never expanded."""
     other = make_demo(owner, seed=1)
     for tool in TOOL_ORDER:
         run_tool(worker, store, other, tool, datetime.now(UTC).date())
+    settle(datetime.now(UTC).date())
     for cid in (prod, other.connection_id):
         graph = _graph(signed_in, "internet", connection_id=cid, depth=3)
         assert graph["connection_id"] == cid
@@ -186,16 +200,16 @@ def test_the_map_walks_one_connection(
         assert resources and {n["connection_id"] for n in resources if not n["boundary"]} == {cid}
         assert not any(n["expanded"] for n in graph["nodes"] if n["boundary"])
     # A resource's own connection is the default.
-    door = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": other.connection_id}
-    ).json()["items"][0]["node"]
-    assert _graph(signed_in, door["uid"])["connection_id"] == other.connection_id
+    resource = signed_in.get(
+        "/api/v1/resources", params={"connection_id": other.connection_id, "limit": 1}
+    ).json()["items"][0]
+    assert _graph(signed_in, resource["resource_uid"])["connection_id"] == other.connection_id
 
 
 def test_the_map_cap_and_bad_requests(
     signed_in: TestClient, prod: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("argus.relationships.graph.MAX_NODES", 3)
+    monkeypatch.setattr("argus.graph.resource_map.MAX_NODES", 3)
     capped = _graph(signed_in, "internet", connection_id=prod, layer=["traffic", "network"])
     assert capped["truncated"] and len(capped["nodes"]) + len(capped["groups"]) <= 3
     unknown = signed_in.get(
@@ -227,12 +241,22 @@ def test_the_map_cap_and_bad_requests(
 
 def test_attack_paths_list_detail_and_facets(signed_in: TestClient, prod: int) -> None:
     page = signed_in.get("/api/v1/attack-paths").json()
+    assert page["not_listed"] == {"paths": 0, "latent": 0, "worst": None}
     # The scenario's chain to administrator; the exposed doors are one-step paths of their own
     # (ADR-0037, second amendment).
     top = next(p for p in page["items"] if p["rule_id"] == "internet-to-admin")
     assert top["severity"] == "critical" and top["rule_name"]
     assert "cloudfox" in top["evidence"] and "rule" in top["evidence"]
     assert top["base_severity"] == "high" and top["entry_confirmed"] is True
+    # Inside one account: the entry's connection is the only one (ADR-0044, M2).
+    assert top["accounts"] == [{"connection_id": prod, "name": top["connection"]}]
+    # Evaluated from the newest scans: nothing to say about the graph.
+    assert page["graph"]["behind"] is False and page["graph"]["failed"] is False
+    assert page["graph"]["evaluated_at"]
+    passing = signed_in.get(
+        "/api/v1/attack-paths", params={"connection_id": prod, "passing_through": True}
+    ).json()
+    assert passing["total"] == page["total"]
     detail = signed_in.get(f"/api/v1/attack-paths/{top['id']}").json()
     assert [n["uid"] for n in detail["nodes"]] == top["node_uids"]
     assert detail["nodes"][0]["kind"] == "internet" and detail["nodes"][-1]["kind"] == "admin"
@@ -323,165 +347,159 @@ def test_the_front_door_chain_is_an_attack_path(signed_in: TestClient, prod: int
     assert len(set(detail["node_uids"])) == len(detail["node_uids"])  # no node twice
 
 
-def test_internet_only_where_traffic_can_arrive(signed_in: TestClient, prod: int) -> None:
-    """argus_v10: an internet-facing ALB whose security group admits one address range is not
-    a front door; the edge from `internet` says why (ADR-0035)."""
-    doors = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": prod, "reach": ["open"], "limit": 100}
-    ).json()
-    assert not any((d["node"]["name"] or "").endswith("admin-alb") for d in doors["items"])
-    # In the default Traffic layer: a door always shows its link (ADR-0033, amended 2026-10-21).
+def test_the_map_draws_connections_not_reach(
+    signed_in: TestClient, prod: int, owner: Engine
+) -> None:
+    """Round M3a (the owner's decision, 2026-11-01): the map shows dependencies and connections.
+    argus_v10's internet-facing ALB whose security group admits one address range is a door the
+    rules judge closed (PUBLIC_RESTRICTED): the map draws only CloudFox's line to it, never the
+    verdict, and no map edge carries the rules' evidence. The verdict and its evidence stay on
+    the edge row, where Attack paths and the Resources sheet read them (ADR-0035)."""
     graph = _graph(signed_in, "internet", connection_id=prod, layer=["traffic"])
+    assert {e["type"] for e in graph["edges"]} <= {"ROUTES_TO", "TRIGGERS", "INTERNET_REACHABLE"}
+    assert all(set(e["attributes"]) <= set(EDGE_ATTRIBUTES) for e in graph["edges"])
     admin = _named(graph, "prod-admin-alb")
-    [edge] = [
-        e
-        for e in graph["edges"]
-        if e["target_uid"] == admin["uid"] and e["origin"].startswith("rule:")
-    ]
-    assert edge["type"] == "PUBLIC_RESTRICTED"
-    evidence = edge["attributes"].pop("network")
-    assert edge["attributes"] == {
-        "via": "load_balancer",
-        "reason": "sg_no_public_source",
-        "sources": ["203.0.113.0/24"],
-        "checked": ["security_groups", "route_table", "network_acl"],
-        "open_ports": [],  # nothing open to the whole internet (ADR-0035, fourth amendment)
-    }
-    # The evidence (fifth amendment): one entry, no interface, nothing open to test the ACL.
-    [entry] = evidence
-    assert (entry["interface"], entry["public"], entry["open"]) == (
-        None,
-        ["ipv4"],
-        {"ipv4": [], "ipv6": []},
+    assert [
+        (e["type"], e["origin"]) for e in graph["edges"] if e["target_uid"] == admin["uid"]
+    ] == [("INTERNET_REACHABLE", "cloudfox")]
+    with owner.connect() as conn:
+        attributes = conn.execute(
+            text(
+                "SELECT attributes FROM edge WHERE source_uid = 'internet' "
+                "AND type = 'PUBLIC_RESTRICTED' AND target_uid = :u"
+            ),
+            {"u": admin["uid"]},
+        ).scalar_one()
+    assert (attributes["reason"], attributes["sources"]) == (
+        "sg_no_public_source",
+        ["203.0.113.0/24"],
     )
-    assert entry["subnets"] and {s["acl"] for s in entry["subnets"]} == {None}
-    assert "igw" in {s["route"] for s in entry["subnets"]}
-    # Asked for, it is listed as restricted: CloudFox calls it public, Argus's rule says why not.
-    restricted = signed_in.get(
-        "/api/v1/map/front-doors",
-        params={"connection_id": prod, "reach": ["restricted", "cloudfox_only"], "limit": 100},
-    ).json()["items"]
-    door = next(d for d in restricted if d["node"]["uid"] == admin["uid"])
-    assert (door["reach"], door["via"]) == ("restricted", ["cloudfox", "rule"])
-    assert (door["reason"], door["sources"]) == ("sg_no_public_source", ["203.0.113.0/24"])
-    # The list carries the evidence the edge holds, for the why-line and the expanded row.
-    assert door["network"] == evidence and door["state"] is None  # a load balancer: no state
-    assert all(d["reach"] == "open" for d in doors["items"])
-
-
-def test_one_door_list_opens_flows(signed_in: TestClient, prod: int) -> None:
-    """argus_v11: one start list, every reach by default, open doors first; each door the
-    rules found names its flow (ADR-0036), and the list narrows by region."""
-    doors = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": prod, "limit": 100}
-    ).json()["items"]
-    order = [d["reach"] for d in doors]
-    assert {"open", "restricted"} <= set(order)
-    assert order == sorted(order, key=["open", "unknown", "restricted", "cloudfox_only"].index)
-    for door in doors:
-        if door["reach"] == "cloudfox_only":
-            assert door["flow_id"] is None and door["resources"] is None
-        else:
-            assert door["flow_id"] and door["resources"] >= 1
-            flow = signed_in.get(f"/api/v1/map/flows/{door['flow_id']}").json()
-            assert (flow["entry_uid"], flow["reach"]) == (door["node"]["uid"], door["reach"])
-        if door["reach"] != "restricted":
-            assert (door["reason"], door["sources"]) == (None, [])
-    # Region: only the doors there; a region with none gives an empty page, not an error.
-    region = next(d["node"]["region"] for d in doors if d["node"]["region"])
-    there = signed_in.get(
-        "/api/v1/map/front-doors",
-        params={"connection_id": prod, "region": [region], "limit": 100},
+    assert attributes["network"]  # the evidence, one entry per interface (fifth amendment)
+    # A group page's edges are plain too.
+    page = signed_in.get(
+        "/api/v1/map/group",
+        params={
+            "anchor": "internet",
+            "connection_id": prod,
+            "direction": "out",
+            "edge_type": "ROUTES_TO",
+            "resource_type": admin["type"],
+            "limit": 20,
+        },
     ).json()
-    assert there["items"] and all(d["node"]["region"] == region for d in there["items"])
-    assert there["total"] == sum(d["node"]["region"] == region for d in doors)
-    nowhere = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": prod, "region": ["xx-none-1"]}
-    ).json()
-    assert (nowhere["items"], nowhere["total"]) == ([], 0)
-    # Paging keeps the order.
-    first = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": prod, "limit": 2, "offset": 2}
-    ).json()["items"]
-    assert [d["node"]["uid"] for d in first] == [d["node"]["uid"] for d in doors[2:4]]
+    assert all(set(i["edge"]["attributes"]) <= set(EDGE_ATTRIBUTES) for i in page["items"])
 
 
-def test_front_doors_narrow_by_a_search(signed_in: TestClient, prod: int) -> None:
-    """2026-10-15: a word keeps the doors whose name, uid or type holds it, in any case; the
-    type's underscores read as spaces too, and LIKE's wildcards are taken literally."""
-    doors = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": prod, "limit": 100}
-    ).json()["items"]
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ServiceUnavailable("connection refused"),
+        SessionExpired("gone"),
+        TransientError("transaction timed out"),
+        ClientError("failed to obtain a connection from the pool within 5.0s (timeout)"),
+        client.GraphNotConfigured("no password"),
+    ],
+    ids=["down", "session-lost", "over-its-timeout", "pool-full", "no-login"],
+)
+def test_the_map_says_so_when_the_graph_cannot_answer(
+    signed_in: TestClient, prod: int, monkeypatch: pytest.MonkeyPatch, failure: Exception
+) -> None:
+    """ADR-0044, M-1: 503 with Retry-After, never an empty map, and nothing of the error."""
 
-    def search(q: str) -> list[str]:
-        page = signed_in.get(
-            "/api/v1/map/front-doors", params={"connection_id": prod, "q": q, "limit": 100}
-        ).json()
-        assert page["total"] == len(page["items"])
-        return [d["node"]["uid"] for d in page["items"]]
+    def fails(*_args: Any, **_kwargs: Any) -> Any:
+        raise failure
 
-    door = next(d for d in doors if d["node"]["type"] and d["node"]["name"])
-    kind = door["node"]["type"]
-    by_type = search(kind.split("_", 1)[1].upper())  # "LB" for aws_lb: any case
-    assert door["node"]["uid"] in by_type
-    assert set(by_type) <= {d["node"]["uid"] for d in doors}
-    assert door["node"]["uid"] in search(kind.replace("_", " "))
-    assert door["node"]["uid"] in search(door["node"]["name"][1:-1])
-    assert search("no-such-door") == []
-    assert search("%") == []  # a wildcard is a literal: no door names one
-    too_long = {"connection_id": prod, "q": "x" * 201}
-    assert signed_in.get("/api/v1/map/front-doors", params=too_long).status_code == 422
-
-
-def test_routes_acls_and_missing_data_decide_the_reach(signed_in: TestClient, prod: int) -> None:
-    """ADR-0035, second amendment: a public address with no route to an internet gateway, a
-    subnet ACL that denies the port, and a VPC whose route tables were never collected. The
-    dual-stack edge ALB is open over IPv4 and IPv6; the list orders open, unknown, restricted."""
-    doors = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": prod, "limit": 100}
-    ).json()["items"]
-    by_name = {d["node"]["name"]: d for d in doors}
-    edge = by_name["prod-edge-alb"]
-    assert (edge["reach"], edge["open"]) == ("open", ["tcp/443"])
-    assert edge["families"] == ["ipv4", "ipv6"]  # dual-stack, open to anywhere in both
-    no_route = by_name["legacy-public-ip"]
-    assert (no_route["reach"], no_route["reason"]) == ("restricted", "no_internet_route")
-    acl = by_name["dmz-web-01"]
-    assert (acl["reach"], acl["reason"]) == ("restricted", "nacl_blocks")
-    unknown = by_name["legacy-vpc-app"]
-    assert unknown["reach"] == "unknown" and unknown["reason"] is None
-    [missing] = unknown["missing"]
-    assert missing.startswith("route_table:subnet-")  # its VPC has no route table rows
-    order = [d["reach"] for d in doors]
-    assert order == sorted(order, key=["open", "unknown", "restricted", "cloudfox_only"].index)
-    # An unknown door starts a flow of its own reach; the filter keeps only unknown doors.
-    flow = signed_in.get(f"/api/v1/map/flows/{unknown['flow_id']}")
-    assert flow.status_code == 200 and flow.json()["reach"] == "unknown"
-    only = signed_in.get(
-        "/api/v1/map/front-doors",
-        params={"connection_id": prod, "reach": ["unknown"], "limit": 100},
-    ).json()["items"]
-    assert only and {d["reach"] for d in only} == {"unknown"}
+    monkeypatch.setattr(client, "read", fails)
+    for path, params in (
+        ("/api/v1/map/graph", {"focus": "internet", "connection_id": prod}),
+        (
+            "/api/v1/map/group",
+            {"anchor": "internet", "connection_id": prod, "direction": "out", "edge_type": "X"},
+        ),
+    ):
+        answer = signed_in.get(path, params=params)
+        assert answer.status_code == 503
+        assert answer.headers["Retry-After"]
+        assert answer.json() == {"detail": "the graph is unavailable; try again shortly"}
 
 
-def test_a_door_counts_prowlers_exposure_findings(signed_in: TestClient, prod: int) -> None:
-    """A front door's "Prowler: N exposure checks failing" (ADR-0035, sixth amendment): the same
-    findings as the Findings list on that resource, Prowler only, any reach."""
-    doors = signed_in.get(
-        "/api/v1/map/front-doors", params={"connection_id": prod, "limit": 100}
-    ).json()["items"]
-    counted = [d for d in doors if d["prowler_exposure"]]
-    assert counted
-    every_reach = ["confirmed", "restricted", "unknown", "not_covered"]
-    for door in counted:
-        listed = signed_in.get(
-            "/api/v1/findings",
-            params={
-                "resource_id": door["node"]["resource_id"],
-                "tool": "prowler",
-                "reach": every_reach,
-                "limit": 200,
-            },
-        ).json()
-        assert listed["total"] == door["prowler_exposure"], door["node"]["name"]
-    assert all(d["prowler_exposure"] == 0 for d in doors if d["node"]["resource_id"] is None)
+def test_a_wrong_query_is_a_bug_and_not_an_outage(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fails(*_args: Any, **_kwargs: Any) -> Any:
+        raise ClientError("syntax error")
+
+    monkeypatch.setattr(client, "read", fails)
+    with pytest.raises(ClientError):
+        graph.neighbourhood(
+            None,  # type: ignore[arg-type]
+            focus="internet",
+            scope=MapScope(1, "100000000010"),
+            depth=1,
+        )
+
+
+def test_a_node_carries_its_facts_and_the_counts_match_their_screens(
+    signed_in: TestClient, owner: Engine, prod: int
+) -> None:
+    """The overlay (ADR-0044, M-5): stored facts only, and each number is what its link lists."""
+    with owner.connect() as conn:
+        path = conn.execute(
+            text(
+                "SELECT entry_uid, target_uid FROM attack_path WHERE state = 'open' "
+                "AND confidence IS DISTINCT FROM 'blocked' AND entry_uid <> target_uid LIMIT 1"
+            )
+        ).one()
+        cve = conn.execute(
+            text(
+                "SELECT r.resource_uid, count(*) AS n, "
+                "count(*) FILTER (WHERE v.exploit_available) AS exploitable "
+                "FROM finding f JOIN resource r ON r.id = f.resource_id "
+                "LEFT JOIN finding_vulnerability v ON v.finding_id = f.id "
+                "WHERE f.tool = 'vulnerabilities' AND f.state IN ('open', 'reopened') "
+                "AND r.connection_id = :c GROUP BY 1 LIMIT 1"
+            ),
+            {"c": prod},
+        ).first()
+    entry = _graph(signed_in, path.entry_uid, connection_id=prod)["nodes"][0]
+    listed = signed_in.get("/api/v1/attack-paths", params={"through": path.entry_uid}).json()
+    assert entry["attack_paths"]["on"] == listed["total"] > 0
+    assert entry["attack_paths"]["entry"] >= 1
+    if cve is not None:
+        node = _graph(signed_in, cve.resource_uid, connection_id=prod)["nodes"][0]
+        assert node["vulnerabilities"]["open"] == cve.n
+        assert node["vulnerabilities"]["exploitable"] == cve.exploitable
+    # Nothing to say about the internet, and no fact is a zero.
+    internet = _graph(signed_in, "internet", connection_id=prod)["nodes"][0]
+    assert internet["attack_paths"] is None and internet["vulnerabilities"] is None
+
+
+def test_the_map_says_how_current_it_is(
+    signed_in: TestClient,
+    owner: Engine,
+    worker: Engine,
+    store: FilesystemRawStore,
+    prod: int,
+) -> None:
+    """ADR-0044, M-3: the days its state was projected from, and whether a newer scan waits."""
+
+    def state() -> dict[str, Any]:
+        answer = _graph(signed_in, "internet", connection_id=prod)
+        assert isinstance(answer["graph"], dict)
+        assert "as_of" not in answer
+        return answer["graph"]
+
+    today = datetime.now(UTC).date()
+    current = state()
+    assert (current["behind"], current["failed"]) == (False, False)
+    assert current["resource_day"] == today.isoformat()
+    target = CollectTarget(prod, "demo", demo_account_id(0), 0)
+    run_tool(worker, store, target, "prowler", today)  # not in the graph yet
+    assert state()["behind"] is True
+    with owner.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE graph_projection SET status = 'failed', error = 'test' "
+                "WHERE connection_id = :c"
+            ),
+            {"c": prod},
+        )
+    assert state()["failed"] is True

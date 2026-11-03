@@ -6,15 +6,15 @@
 import { computed, ref, watch } from 'vue'
 import AppPagination from '@/components/AppPagination.vue'
 import SeverityTag from '@/components/SeverityTag.vue'
-import { degree, drawnEdges, groupNodeId, nodeName, worstOf, worstRank, type GraphState, type Selection } from './mapGraph'
+import { edgeWord } from '../edgeWords'
+import { degree, drawnEdges, factsLine, groupNodeId, nodeName, worstOf, worstRank, type GraphState, type Selection } from './mapGraph'
 import { hopColumns, hopLabel, typeLabel } from './mapLanes'
 
-// The same columns as the canvas: the flow's steps, or hops from the focus (mapLanes.ts).
+// The same columns as the canvas: hops from the focus (mapLanes.ts).
 const props = defineProps<{
   graph: GraphState
   selection: Selection | null
   focus: string | null
-  flow: { columns: ReadonlyMap<string, number>; label: (col: number) => string } | null
 }>()
 const emit = defineEmits<{ select: [selection: Selection] }>()
 
@@ -30,10 +30,6 @@ watch(
 )
 
 const position = computed<{ col: (uid: string) => number; label: (col: number) => string }>(() => {
-  if (props.flow) {
-    const flow = props.flow
-    return { col: (uid) => flow.columns.get(uid) ?? Number.MAX_SAFE_INTEGER, label: flow.label }
-  }
   const cols = hopColumns(
     [...props.graph.nodes.keys()],
     drawnEdges(props.graph).map((l) => ({ source: l.source, target: l.target })),
@@ -82,6 +78,7 @@ const selectedId = computed(() => (props.selection?.kind === 'node' ? props.sele
               <td data-label="Open findings">
                 <span v-if="row.findings.worst" class="findings"><SeverityTag :severity="row.findings.worst" compact /><span class="mono">{{ row.findings.open }}</span></span>
                 <span v-else class="cap">None</span>
+                <span v-if="factsLine(row.node)" class="sub">{{ factsLine(row.node) }}</span>
               </td>
             </tr>
             <tr v-for="g in groups" :key="g.id">
@@ -107,13 +104,14 @@ const selectedId = computed(() => (props.selection?.kind === 'node' ? props.sele
       <template v-else>
         <div class="table-wrap">
           <table class="table stackable">
-            <thead><tr><th scope="col">From</th><th scope="col">Edge type</th><th scope="col">To</th><th scope="col">Origins</th></tr></thead>
+            <thead><tr><th scope="col">From</th><th scope="col">Connection</th><th scope="col">To</th><th scope="col">Origins</th></tr></thead>
             <tbody>
               <tr v-for="l in pageOf(lines, edgePage)" :key="l.key">
                 <td data-label="From">{{ name(l.source) }}</td>
-                <td data-label="Edge type">
-                  <button v-if="!l.group" type="button" class="row-link mono small" @click="emit('select', { kind: 'edge', key: l.key })">{{ l.type }}</button>
-                  <span v-else class="mono small">{{ l.type }}</span>
+                <td data-label="Connection">
+                  <button v-if="!l.group" type="button" class="row-link" @click="emit('select', { kind: 'edge', key: l.key })">{{ edgeWord(l.type, l.target) }}</button>
+                  <span v-else>{{ edgeWord(l.type, l.target) }}</span>
+                  <span class="sub mono small">{{ l.type }}</span>
                 </td>
                 <td data-label="To">{{ name(l.target) }}</td>
                 <td data-label="Origins"><span class="chips"><span v-for="f in l.families" :key="f" class="chip">{{ ORIGIN[f] ?? f }}</span></span></td>

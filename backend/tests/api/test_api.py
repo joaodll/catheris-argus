@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, text
 from tests.api.conftest import PASSWORD, csrf
+from tests.conftest import Settle
 from tests.ingest.conftest import make_demo, run_tool
 
 from argus.api import deps
@@ -157,12 +158,17 @@ def test_security_headers(client: TestClient) -> None:
 
 # --------------------------------------------------------------- overview
 def test_overview_and_context_from_real_data(
-    signed_in: TestClient, owner: Engine, worker: Engine, store: FilesystemRawStore
+    signed_in: TestClient,
+    owner: Engine,
+    worker: Engine,
+    store: FilesystemRawStore,
+    settle: Settle,
 ) -> None:
     target = make_demo(owner)
     today = datetime.now(UTC).date()
     for tool in TOOL_ORDER:
         run_tool(worker, store, target, tool, today)
+    settle(today)
     data = signed_in.get("/api/v1/overview", params={"connection_id": 0}).json()
     assert data["data_through"] == today.isoformat()
     assert data["kpis"]["assets"]["value"] > 100
@@ -447,12 +453,17 @@ def test_raw_storage_setting(signed_in: TestClient, owner: Engine) -> None:
 
 
 def test_lists_are_paginated(
-    signed_in: TestClient, owner: Engine, worker: Engine, store: FilesystemRawStore
+    signed_in: TestClient,
+    owner: Engine,
+    worker: Engine,
+    store: FilesystemRawStore,
+    settle: Settle,
 ) -> None:
     target = make_demo(owner)
     today = datetime.now(UTC).date()
     for tool in TOOL_ORDER:
         run_tool(worker, store, target, tool, today)
+    settle(today)
     runs = signed_in.get("/api/v1/runs", params={"limit": 2}).json()
     assert len(runs["items"]) == 2 and runs["total"] == len(TOOL_ORDER)
     newest = [r["started_at"] for r in runs["items"]]

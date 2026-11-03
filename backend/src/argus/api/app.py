@@ -23,6 +23,7 @@ from argus.api.routes import (
 )
 from argus.auth import UserRuleError
 from argus.connections import ConnectionError as ConnectionValueError
+from argus.graph import GraphUnavailable
 from argus.scheduling import InvalidScheduleError
 from argus.settings import SettingsBoundError
 
@@ -68,6 +69,16 @@ def _busy(_: Request, __: Exception) -> JSONResponse:
     )
 
 
+def _graph_unavailable(_: Request, __: Exception) -> JSONResponse:
+    # Memgraph down, its pool full, or a read over its timeout (ADR-0044, M-1). The screen says so;
+    # it never draws an empty map.
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "the graph is unavailable; try again shortly"},
+        headers={"Retry-After": str(BUSY_RETRY_AFTER_SECONDS)},
+    )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="CatherIs Argus API",
@@ -83,6 +94,7 @@ def create_app() -> FastAPI:
         app.add_exception_handler(exc, _unprocessable)
     app.add_exception_handler(LookupError, _not_found)
     app.add_exception_handler(IntegrityError, _conflict)
+    app.add_exception_handler(GraphUnavailable, _graph_unavailable)
     app.add_exception_handler(PoolTimeoutError, _busy)
     app.add_exception_handler(UserRuleError, users.refused)
     for router in (

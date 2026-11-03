@@ -4,7 +4,8 @@ The `test` service points ARGUS_DB_NAME at argus_test. This fixture recreates th
 from the owner's connection to `postgres`, then runs every migration into it.
 """
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -13,11 +14,15 @@ from alembic.config import Config
 from psycopg import sql
 from sqlalchemy import Engine, create_engine, event, text
 
+from argus import graph
 from argus.core.config import get_settings
 from argus.core.db import CONNECT_ARGS, get_engine
 from argus.core.rawstore import FilesystemRawStore
+from argus.graph import client
 
 ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
+RULES_DIR = Path(__file__).resolve().parents[1] / "rules"
+Settle = Callable[[date], "dict[str, int] | None"]
 
 
 def alembic_config() -> Config:
@@ -57,7 +62,7 @@ def owner(migrated: Engine) -> Engine:
             text(
                 "TRUNCATE connection, scan_run, resource, resource_config, edge, audit_log, "
                 "metric_daily, compliance_requirement, schedule, platform_setting, login_failure, "
-                "user_session, app_user, flow_shape, flow_snapshot "
+                "user_session, app_user "
                 "RESTART IDENTITY CASCADE"
             )
         )
@@ -94,3 +99,19 @@ def scheduler(owner: Engine) -> Iterator[Engine]:
 @pytest.fixture
 def store(tmp_path: Path) -> FilesystemRawStore:
     return FilesystemRawStore(tmp_path)
+
+
+@pytest.fixture
+def settle(worker: Engine) -> Settle:
+    """What the graph loop does after ingest (ADR-0044, M2): project every connection into
+    Memgraph and evaluate the attack paths across accounts, dated `day`. Ingest no longer
+    evaluates paths, so a test that reads them settles first. Memgraph (the memgraph-test
+    service) is emptied once per test, as the database is."""
+    with client.write_session() as session:
+        session.run("MATCH (n) DETACH DELETE n").consume()
+
+    def _settle(day: date) -> dict[str, int] | None:
+        graph.reconcile(worker, today=day)
+        return graph.evaluate_paths(worker, today=day, rules_dir=RULES_DIR)
+
+    return _settle

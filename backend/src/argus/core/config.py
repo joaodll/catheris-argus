@@ -65,6 +65,13 @@ class Settings(BaseSettings):
     # only, owner-only, emptied after each run and at start (ADR-0032).
     raw_staging_root: Path = Path("/var/lib/argus-staging")
     rules_dir: Path = Path("/opt/argus/rules")
+    # The Memgraph graph read model (ADR-0044), deployment facts and a secret: where it is, the
+    # login of this process, and a bound on how long one graph transaction may run. Unset
+    # password: this process does not use the graph.
+    graph_uri: str = "bolt://memgraph:7687"
+    graph_user: str = "argus"
+    graph_password: SecretStr | None = None
+    graph_timeout_seconds: float = Field(default=120, gt=0, le=600)
 
     def database_url(self) -> URL:
         # URL.create keeps the password out of string formatting and repr(). TLS goes in the

@@ -39,7 +39,9 @@ metadata:
 {{- if .Values.networkPolicy.enabled }}
 {{- $np := .Values.networkPolicy }}
 {{- /* Every pod that connects to the database. */}}
-{{- $dbClients := list "api" "scheduler" "run" "migrate" "rederive" "retention" }}
+{{- $dbClients := list "api" "scheduler" "run" "migrate" "rederive" "retention" "graph-sync" }}
+{{- /* Every pod that connects to Memgraph (ADR-0044): graph-sync, and the API for the map. */}}
+{{- $graphClients := list "graph-sync" "api" }}
 {{ include "argus.np.meta" (dict "root" . "name" "default-deny") }}
 spec:
   podSelector: {}
@@ -84,6 +86,32 @@ spec:
       ports:
         - {protocol: TCP, port: 5432}
 {{- end }}
+---
+# Memgraph's clients reach its Bolt port, and nothing reaches it otherwise (ADR-0044). Memgraph
+# itself has no egress beyond default-deny's DNS: no telemetry, no updates.
+{{ include "argus.np.meta" (dict "root" . "name" "graph-clients") }}
+spec:
+  podSelector:
+    {{- include "argus.np.pods" (dict "root" . "components" $graphClients) | nindent 4 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            {{- include "argus.np.pods" (dict "root" . "components" (list "memgraph")) | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 7687}
+---
+{{ include "argus.np.meta" (dict "root" . "name" "memgraph") }}
+spec:
+  podSelector:
+    {{- include "argus.np.pods" (dict "root" . "components" (list "memgraph")) | nindent 4 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            {{- include "argus.np.pods" (dict "root" . "components" $graphClients) | nindent 12 }}
+      ports:
+        - {protocol: TCP, port: 7687}
 ---
 # web -> api: the only way in to the API, which is why it may trust web's X-Forwarded-For.
 {{ include "argus.np.meta" (dict "root" . "name" "api") }}

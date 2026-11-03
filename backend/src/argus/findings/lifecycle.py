@@ -30,7 +30,6 @@ from argus.inventory import RESOURCES_ON_DAY_SQL, resource_id_sql
 SEVERITY_CODE = {s: i + 1 for i, s in enumerate(SEVERITIES)}
 STATUS_CODE = {"FAIL": 1, "MANUAL": 2}
 CHECK_METRICS = ["checks.status", "checks.failed_by_severity"]
-CARRY_FORWARD_DAYS = 31
 
 
 def _record_unresolved(
@@ -248,10 +247,10 @@ def _snapshot(
                 SELECT max(s.snapshot_date) FROM finding_snapshot s
                 JOIN finding f2 ON f2.id = s.finding_id
                 WHERE f2.connection_id = :c AND f2.tool = :tool
-                  AND s.snapshot_date < :d AND s.snapshot_date >= :d - :window)
+                  AND s.snapshot_date < :d)
             ON CONFLICT DO NOTHING
         """),
-            {**params, "window": CARRY_FORWARD_DAYS},
+            params,
         ).rowcount
     return len(rows) + carried
 
@@ -353,8 +352,10 @@ def _frameworks(conn: Connection, batch: ProwlerBatch) -> None:
 
 def _rollup(conn: Connection, day: date) -> None:
     """Rebuilds the day's all-connections requirement status from each enabled connection's
-    latest requirement results on or before the day (at most CARRY_FORWARD_DAYS old), as the
-    all-connections metrics are (metrics.rollup, decided 2026-10-08).
+    latest requirement results on or before the day, however old, as the all-connections
+    metrics are (metrics.rollup, decided 2026-10-08; no age limit since 2026-11-01). Each
+    connection's latest day is a backward read of the primary key from the day, which stops at
+    its last scan, rather than a grouping over every kept day.
 
     Serialised per day like metrics.rollup: two workers finishing different connections would
     otherwise both delete and both insert."""
@@ -366,9 +367,10 @@ def _rollup(conn: Connection, day: date) -> None:
     conn.execute(
         text(f"""
         WITH latest AS (
-          SELECT connection_id, max(snapshot_date) AS day FROM compliance_snapshot
-          WHERE snapshot_date <= :d AND snapshot_date >= CAST(:d AS date) - :window
-          GROUP BY connection_id
+          SELECT c.id AS connection_id,
+                 (SELECT max(s.snapshot_date) FROM compliance_snapshot s
+                  WHERE s.connection_id = c.id AND s.snapshot_date <= :d) AS day
+          FROM ({connections.DIRECTORY_SQL}) c WHERE c.enabled
         )
         INSERT INTO compliance_rollup (snapshot_date, requirement_id, fail_connections,
                                        manual_connections, pass_connections, passed_checks,
@@ -380,17 +382,15 @@ def _rollup(conn: Connection, day: date) -> None:
         FROM latest l
         JOIN compliance_snapshot cs ON cs.connection_id = l.connection_id
                                    AND cs.snapshot_date = l.day
-        JOIN ({connections.DIRECTORY_SQL}) c ON c.id = l.connection_id AND c.enabled
-        WHERE cs.snapshot_date <= :d AND cs.snapshot_date >= CAST(:d AS date) - :window
         GROUP BY cs.requirement_id
     """),  # noqa: S608 - an exported SQL constant only
-        {"d": day, "window": CARRY_FORWARD_DAYS},
+        {"d": day},
     )
 
 
 def carry_forward_compliance(conn: Connection, *, day: date, connection_id: int) -> int:
     """For a failed Prowler run: the day keeps what it already has, otherwise the connection's
-    most recent earlier requirement results (within CARRY_FORWARD_DAYS), as its metrics are
+    most recent earlier requirement results, however old, as its metrics are
     (metrics.copy_previous). The all-connections rollup is rebuilt either way."""
     copied = int(
         conn.execute(
@@ -405,10 +405,9 @@ def carry_forward_compliance(conn: Connection, *, day: date, connection_id: int)
                           WHERE snapshot_date = :d AND connection_id = :c)
           AND snapshot_date = (
             SELECT max(snapshot_date) FROM compliance_snapshot
-            WHERE connection_id = :c AND snapshot_date < :d
-              AND snapshot_date >= :d - :window)
+            WHERE connection_id = :c AND snapshot_date < :d)
     """),
-            {"d": day, "c": connection_id, "window": CARRY_FORWARD_DAYS},
+            {"d": day, "c": connection_id},
         ).rowcount
     )
     _rollup(conn, day)

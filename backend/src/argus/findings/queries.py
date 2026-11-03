@@ -10,7 +10,6 @@ from sqlalchemy import Connection, text
 from argus.connections import DIRECTORY_SQL
 from argus.core.db import count_sql, like_contains
 from argus.findings.model import VULNERABILITY_TOOL
-from argus.findings.prowler import EXPOSURE_CHECKS
 
 # Exported SQL: the view attack-path rules read as `f`. One connection's failing findings now.
 # CVEs are left out (ADR-0042): any CVE would raise nearly every path through an instance or a
@@ -312,26 +311,6 @@ def open_finding_counts_by_tool(
     for r in rows:
         counts.setdefault(r.resource_id, {})[r.tool] = (int(r.n), r.worst)
     return counts
-
-
-def open_exposure_counts(conn: Connection, resource_ids: list[int]) -> dict[int, int]:
-    """For each of these resources: its open Prowler exposure findings, muted or not, which the
-    front doors list counts ("Prowler: N exposure checks failing", ADR-0035, sixth amendment).
-    The same findings as the list's tool and Reach filters on the resource. Bounded by the
-    caller (one page of doors)."""
-    if not resource_ids:
-        return {}
-    rows = conn.execute(
-        text("""
-        SELECT f.resource_id, count(*) AS n
-        FROM finding f
-        WHERE f.resource_id = ANY(CAST(:ids AS bigint[])) AND f.state IN ('open', 'reopened')
-          AND f.tool = 'prowler' AND f.check_id = ANY(CAST(:chk AS text[]))
-        GROUP BY f.resource_id
-    """),
-        {"ids": resource_ids, "chk": list(EXPOSURE_CHECKS)},
-    )
-    return {r.resource_id: int(r.n) for r in rows}
 
 
 def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, tuple[int, str]]:

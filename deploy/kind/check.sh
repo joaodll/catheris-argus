@@ -83,6 +83,9 @@ refused "IRSA without a role" --set identity.roleArn=
 refused "an unknown key" --set networkPolicy.enabeld=false
 refused "more database connections than Postgres allows" --set api.autoscaling.enabled=true --set api.autoscaling.maxReplicas=10 --set scheduler.maxRunJobs=20 --set postgres.maxConnections=100
 refused "a scan Job pool below a run's peak" --set database.pools.scanJob=2
+refused "a graph-sync pool below its peak" --set database.pools.graphSync=1
+refused "a Memgraph volume without a size" --set memgraph.storage.size=
+refused "the Memgraph image by tag" --set images.memgraph.digest=3.13.2
 helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
   --set admissionPolicy.enabled=false --set admissionPolicy.acknowledgeUnenforced=true > /dev/null \
   || fail "the policy off, acknowledged, must render"
@@ -94,5 +97,19 @@ chart_digest=$(yq '.images.postgres.digest' "$CHART/values.yaml")
 [ -n "$compose_digest" ] || fail "no pinned postgres image in compose.yaml"
 [ "$compose_digest" = "$chart_digest" ] || fail "postgres: compose.yaml $compose_digest, chart $chart_digest"
 echo "postgres $chart_digest"
+
+step "the Memgraph image is compose.yaml's"
+compose_digest=$(grep -o 'image: memgraph/memgraph:[^@]*@sha256:[0-9a-f]\{64\}' "$COMPOSE" | head -1 | sed 's/.*@//')
+chart_digest=$(yq '.images.memgraph.digest' "$CHART/values.yaml")
+[ -n "$compose_digest" ] || fail "no pinned memgraph image in compose.yaml"
+[ "$compose_digest" = "$chart_digest" ] || fail "memgraph: compose.yaml $compose_digest, chart $chart_digest"
+echo "memgraph $chart_digest"
+
+step "Memgraph's login stays inside the graph (ADR-0044, M-2)"
+memgraph=$(helm template argus "$CHART" -f "$CHART/ci/$(ls "$CHART/ci" | head -1)" --show-only templates/memgraph/statefulset.yaml)
+echo "$memgraph" | grep -q -- '--allow-load-csv=false' || fail "Memgraph allows LOAD CSV"
+echo "$memgraph" | yq -e '.spec.template.spec.containers[0].volumeMounts[] | select(.mountPath == "/var/lib/memgraph/data/internal_modules") | .readOnly == true' > /dev/null \
+  || fail "Memgraph's query module directory is writable"
+echo "no LOAD CSV, no writable module directory"
 
 printf '\nchart-check passed\n'

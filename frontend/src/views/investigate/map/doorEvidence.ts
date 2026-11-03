@@ -1,13 +1,31 @@
 /**
  * A door's evidence in words (ADR-0035, fifth amendment): per network interface, the address
  * families it is public in, what its security groups open to the whole internet per family,
- * and each subnet's default route and network ACL. Shown under a front door's why-line, on the
- * map's link from the internet and in the resource sheet.
+ * and each subnet's default route and network ACL. Shown in the Resources sheet's "From the
+ * internet" and on an attack path's first step.
+ *
+ * The shape the internet rules write in an edge's attributes (`network`, relationships engine,
+ * ADR-0035). The API returns attributes untyped; these types stood for the map's front-doors
+ * models, gone in round M3a.
  */
-import type { Schemas } from '@/api/client'
+export interface DoorSubnet {
+  subnet: string
+  family: string
+  // igw, the default route's target (nat-…, tgw-…, vpce-…), none, or unknown (no route table).
+  route: string
+  // allows, blocks, unknown (no ACL collected); null when nothing is open to test.
+  acl: string | null
+}
 
-export type DoorInterface = Schemas['DoorInterface']
-export type DoorSubnet = Schemas['DoorSubnet']
+export interface DoorInterface {
+  // The network interface; null for a load balancer, a database or an instance listing none.
+  interface: string | null
+  // The address families it has a public address of.
+  public: string[]
+  // What its security groups open to the whole internet, per family, ICMP included.
+  open: { ipv4: string[]; ipv6: string[] }
+  subnets: DoorSubnet[]
+}
 
 const FAMILY: Record<string, string> = { ipv4: 'IPv4', ipv6: 'IPv6' }
 export const familyLabel = (f: string): string => FAMILY[f] ?? f

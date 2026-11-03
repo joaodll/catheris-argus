@@ -1048,13 +1048,11 @@ def load_edges(
                 SELECT :d, es.edge_id FROM edge_snapshot es JOIN edge e ON e.id = es.edge_id
                 WHERE e.connection_id = :c AND starts_with(e.origin, :prefix)
                   AND es.snapshot_date = (
-                    SELECT max(s.snapshot_date) FROM edge_snapshot s JOIN edge e2
-                      ON e2.id = s.edge_id
-                    WHERE e2.connection_id = :c AND starts_with(e2.origin, :prefix)
-                      AND s.snapshot_date < :d AND s.snapshot_date >= :d - 31)
+                    SELECT max(snapshot_date) FROM edge_load
+                    WHERE connection_id = :c AND family = :family AND snapshot_date < :d)
                 ON CONFLICT DO NOTHING
             """),
-            params,
+            {**params, "family": FAMILIES[origin_prefix]},
         ).rowcount
     conn.execute(
         text("""
