@@ -57,13 +57,15 @@ x-backend-dev: &backend-dev
 
 services:
   postgres:
-    image: postgres:17-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
+    image: postgres:18-trixie@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
     environment:
       POSTGRES_DB: argus
       POSTGRES_USER: argus
       POSTGRES_PASSWORD: ${ARGUS_DEV_DB_PASSWORD:-argus-local-dev}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # From 18 the image keeps its data in 18/docker under this path, and refuses the old
+      # mount at .../data.
+      - pgdata:/var/lib/postgresql
     # Not published to the host, and only on the internal `data` network.
     networks: [data]
     <<: *hardened

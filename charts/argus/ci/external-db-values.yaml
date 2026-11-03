@@ -1,4 +1,4 @@
-# A managed Postgres 17 over verify-full, Pod Identity, the ExternalSecret and an internal
+# A managed Postgres 18 over verify-full, Pod Identity, the ExternalSecret and an internal
 # ingress: every optional branch of the templates.
 images:
   registry: 111122223333.dkr.ecr.eu-west-1.amazonaws.com

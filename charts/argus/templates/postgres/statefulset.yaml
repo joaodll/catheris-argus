@@ -1,7 +1,8 @@
-{{- /* Postgres 17 in the chart: the same pinned image as compose.yaml. It runs as the image's
+{{- /* Postgres 18 in the chart: the same pinned image as compose.yaml. It runs as the image's
 postgres user (999) from the start, so the entrypoint needs no root and no capabilities; the
-data lives one level below the volume's root (which holds lost+found on many volumes). Off with
-postgres.enabled=false for a managed database (ADR-0040). Its Service is in services.yaml. */ -}}
+image keeps its data in 18/docker, below the volume's root (which holds lost+found on many
+volumes). Off with postgres.enabled=false for a managed database (ADR-0040). Its Service is in
+services.yaml. */ -}}
 {{- define "argus.postgres.env" -}}
 - name: POSTGRES_DB
   value: {{ .Values.database.name | quote }}
@@ -12,8 +13,6 @@ postgres.enabled=false for a managed database (ADR-0040). Its Service is in serv
     secretKeyRef:
       name: {{ .Values.secrets.existingSecret }}
       key: ARGUS_DB_PASSWORD
-- name: PGDATA
-  value: /var/lib/postgresql/data/pgdata
 {{- end }}
 {{- define "argus.postgres.probes" -}}
 ports:
@@ -75,7 +74,7 @@ spec:
           "args" (list "-c" (printf "max_connections=%d" (int .Values.postgres.maxConnections)))
           "env" (include "argus.postgres.env" .) "extra" (include "argus.postgres.probes" .)
           "resources" .Values.postgres.resources
-          "mounts" "- {name: data, mountPath: /var/lib/postgresql/data}\n- {name: run, mountPath: /var/run/postgresql}\n- {name: tmp, mountPath: /tmp}\n- {name: shm, mountPath: /dev/shm}"))) | nindent 6 }}
+          "mounts" "- {name: data, mountPath: /var/lib/postgresql}\n- {name: run, mountPath: /var/run/postgresql}\n- {name: tmp, mountPath: /tmp}\n- {name: shm, mountPath: /dev/shm}"))) | nindent 6 }}
   volumeClaimTemplates:
     - metadata:
         name: data

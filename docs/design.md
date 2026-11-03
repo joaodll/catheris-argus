@@ -51,7 +51,7 @@ The architecture below is Argus on Kubernetes (the chart, built 2026-10-25: ADR-
 
 | Service | What it does | Database role | Networks |
 | --- | --- | --- | --- |
-| postgres | PostgreSQL 17, not published to the host | owner | `data` |
+| postgres | PostgreSQL 18, not published to the host | owner | `data` |
 | migrate | One-shot: Alembic migrations, then logins and passwords for the api and worker roles | owner | `data` |
 | api | FastAPI under `/api/v1`; only writes administration rows (connections, schedules, run requests, settings, sessions, audit log) | `argus_api`: data read-only, column grants, 5 s statement timeout | `edge`, `data` |
 | worker | Every 60 s: due schedules become run requests; claims one per account up to *max parallel runs*; collects into the raw volume, ingests; retention once a day (ADR-0019) | `argus_worker` | `data` |
@@ -460,7 +460,7 @@ One set of container images ships two ways: a Helm chart for Kubernetes (primary
 | Scheduler | Deployment, 1 replica, `Recreate`, no Service; RBAC: create, get and list Jobs in the namespace | The worker service; no Docker socket |
 | Collection and ingest | Scan Jobs from one fixed template (worker image): one Test connection or one AWS run per pod; AWS connections only (ADR-0039, amended 2026-10-26) | The worker service (ADR-0019), Demo connections included |
 | Migrations, rederive, retention | A Job per image for migrate and rederive; a daily CronJob for retention | The `migrate` one-shot; the worker |
-| Postgres | StatefulSet with a volume (the same image as Compose), or an external Postgres 17 over `verify-full`; monthly partitions; no backup yet (a nightly `pg_dump` to S3 is planned) | One service with a volume |
+| Postgres | StatefulSet with a volume (the same image as Compose), or an external Postgres 18 over `verify-full`; monthly partitions; no backup yet (a nightly `pg_dump` to S3 is planned) | One service with a volume |
 | Cloud credentials | IRSA on the run service account (Pod Identity by value), or an access key set in the UI; identity federation for GCP and OCI | The platform identity set in the UI: the instance's IAM role, or an access key (ADR-0024) |
 
 Cost stays near zero beyond the cluster itself: read-only API calls are free, and the new bills are S3 storage for raw output and the Postgres volume, where six months of history at about 100,000 resources is estimated at under 10 GB. The phase 0 spike measures both.

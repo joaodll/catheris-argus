@@ -14,7 +14,7 @@ says what the chart creates and which values matter.
 | `web` | Deployment (2 replicas, or an HPA) | The UI on nginx; proxies `/api` to `api`. ClusterIP only |
 | `scheduler` | Deployment (1 replica) | Queues the scans schedules call for and starts a **scan Job** for each. It never scans itself |
 | scan Jobs | Jobs the scheduler creates, from one template | Each answers one connection test (the Test connection button) or runs one AWS scan, then exits. Values under `scanJobs` |
-| `postgres` | StatefulSet (optional) | PostgreSQL 17, the same image as Compose; or an external database |
+| `postgres` | StatefulSet (optional) | PostgreSQL 18, the same image as Compose; or an external database |
 | `migrate`, `rederive` | Jobs, one per image | Schema migrations; deriving again after a rule change |
 | `retention` | CronJob | Daily: drops history older than the UI's **History** setting, unused configurations and old rule loads |
 
