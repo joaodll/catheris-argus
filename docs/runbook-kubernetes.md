@@ -91,7 +91,7 @@ keys it needs.
 | `ARGUS_SCHEDULER_DB_PASSWORD` | Role `argus_scheduler` |
 | `ARGUS_SECRET_KEYS` | The credential keyring, `k1:<base64 of 32 bytes>` |
 | `ARGUS_SECRET_KEY_ID` | The current key's id, `k1` |
-| `ARGUS_GRAPH_PASSWORD` | The Memgraph login: the memgraph pod creates it on a new volume, graph-sync uses it ([ADR-0044](adr/0044-graph-read-model-memgraph.md)). To change it later, delete the memgraph volume: the graph is rebuilt from Postgres |
+| `ARGUS_GRAPH_PASSWORD` | The Memgraph login: the memgraph pod creates it on a new volume, graph-sync and the API use it ([ADR-0044](adr/0044-graph-read-model-memgraph.md)). To change it later, delete the memgraph volume: the graph is rebuilt from Postgres |
 | `ARGUS_BOOTSTRAP_ADMIN_PASSWORD` or `ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH` | First start only: the first admin's password, or its argon2id hash. The migrate Job creates `admin.username` with it while no active admin exists ([ADR-0041](adr/0041-users-and-roles.md)). Remove the key after the first sign-in |
 
 Generate the values from the repository root. Every command runs in a container:

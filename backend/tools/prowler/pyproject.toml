@@ -11,5 +11,6 @@ dependencies = ["prowler==5.45.0"]
 package = false
 # Prowler's own lock carries the same override (pyproject.toml at 5.45.0): huaweicloudsdkcore
 # pins pymongo==4.15.1 exactly and only uses its bson types, so its official image ships 4.18.2
-# (CVE-2026-96748, CVE-2026-96749). Drop it when a Prowler release no longer needs it.
-override-dependencies = ["pymongo==4.18.2"]
+# (CVE-2026-96748, CVE-2026-96749). Ours is one patch above Prowler's 4.18.2, for CVE-2026-106435.
+# Drop it when a Prowler release no longer needs it.
+override-dependencies = ["pymongo==4.18.3"]

@@ -468,7 +468,7 @@ test_helm_test() {
 
 test_health() {
   step "afterwards"
-  local restarts denied
+  local restarts denied errors
   restarts=$(k get pods -l "app.kubernetes.io/instance=$RELEASE" -o json \
     | jq -r '.items[] | select([.status.containerStatuses[]?.restartCount] | add > 0) | .metadata.name')
   [ -z "$restarts" ] || fail "containers restarted: $restarts"
@@ -478,8 +478,12 @@ test_health() {
   ok "the scheduler logged no refusal"
   k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -q 'graph sync started' \
     || fail "graph-sync did not start its loop"
-  denied=$(k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -ci 'graph sync failed\|loop error' || true)
-  [ "$denied" -eq 0 ] || fail "graph-sync logged $denied errors"
+  # Shown before failing: `kind down` takes the log with it.
+  errors=$(k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -i 'graph sync failed\|loop error' || true)
+  if [ -n "$errors" ]; then
+    printf '%s\n' "$errors"
+    fail "graph-sync logged $(printf '%s\n' "$errors" | wc -l) errors"
+  fi
   ok "graph-sync running, no sync error"
 }
 

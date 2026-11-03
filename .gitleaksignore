@@ -1,0 +1,8 @@
+# False positives, each by its exact fingerprint, so every other finding still fails the scan
+# (the owner's decision, 2026-11-03).
+#
+# backend/src/argus/settings/topics.py:73 is the default S3 folder of the vulnerabilities tool,
+# which generic-api-key reads as a key. One line for the commit that added it, one for the working
+# tree, which needs updating if the line moves.
+7e51135160e4574bc12be197d4a0fe5e71258452:backend/src/argus/settings/topics.py:generic-api-key:73
+/repo/backend/src/argus/settings/topics.py:generic-api-key:73
