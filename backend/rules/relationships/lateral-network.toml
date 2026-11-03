@@ -6,8 +6,7 @@ connect to another running instance or a database in the same VPC whose security
 from a private range (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16), a remote-access port (SSH 22,
 RDP 3389, WinRM 5985/5986), a database or cache port (5432, 3306, 1433, 1521, 6379, 11211,
 27017) or, for a database, its own port (ADR-0037, second amendment, wave 3). A key, password or
-exploit from the first opens the second: the attack-path search walks it as a Candidate step,
-Blocked behind a Restricted door. A door counts when it is open or unknown, or Restricted with
+exploit from the first opens the second. A door counts when it is open or unknown, or Restricted with
 something its groups open to the internet (one change away); a public instance whose groups open
 nothing is no foothold, and leaving it out keeps a flat VPC from linking every public instance
 to every other. `ports` and `services` name what is admitted. Replaces ssh-lateral (port 22 from

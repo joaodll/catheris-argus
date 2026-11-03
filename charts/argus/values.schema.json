@@ -120,27 +120,6 @@
             "repository",
             "digest"
           ]
-        },
-        "memgraph": {
-          "type": "object",
-          "properties": {
-            "repository": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[^@:]+(:[0-9]+)?(/[^@:]+)*$",
-              "description": "Without a tag: the image is pulled by digest only."
-            },
-            "digest": {
-              "type": "string",
-              "pattern": "^sha256:[a-f0-9]{64}$",
-              "description": "required: sha256:<64 hex>"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "repository",
-            "digest"
-          ]
         }
       },
       "additionalProperties": false,
@@ -148,8 +127,7 @@
         "runtime",
         "worker",
         "web",
-        "postgres",
-        "memgraph"
+        "postgres"
       ]
     },
     "imagePullSecrets": {
@@ -307,19 +285,13 @@
               "type": "integer",
               "minimum": 2,
               "maximum": 50
-            },
-            "graphSync": {
-              "type": "integer",
-              "minimum": 2,
-              "maximum": 50
             }
           },
           "required": [
             "api",
             "scheduler",
             "scanJob",
-            "task",
-            "graphSync"
+            "task"
           ],
           "additionalProperties": false
         }
@@ -441,102 +413,6 @@
           }
         }
       }
-    },
-    "memgraph": {
-      "type": "object",
-      "properties": {
-        "storage": {
-          "type": "object",
-          "properties": {
-            "size": {
-              "type": "string",
-              "minLength": 1
-            },
-            "storageClassName": {
-              "type": "string"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "size"
-          ]
-        },
-        "memoryLimitMiB": {
-          "type": "integer",
-          "minimum": 256,
-          "maximum": 1048576
-        },
-        "resources": {
-          "type": "object",
-          "properties": {
-            "requests": {
-              "type": "object"
-            },
-            "limits": {
-              "type": "object"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "requests",
-            "limits"
-          ]
-        },
-        "nodeSelector": {
-          "type": "object"
-        },
-        "tolerations": {
-          "type": "array"
-        },
-        "affinity": {
-          "type": "object"
-        },
-        "transactionTimeoutSeconds": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 600
-        }
-      },
-      "required": [
-        "storage",
-        "memoryLimitMiB",
-        "resources"
-      ],
-      "additionalProperties": false
-    },
-    "graphSync": {
-      "type": "object",
-      "properties": {
-        "resources": {
-          "type": "object",
-          "properties": {
-            "requests": {
-              "type": "object"
-            },
-            "limits": {
-              "type": "object"
-            }
-          },
-          "additionalProperties": false,
-          "required": [
-            "requests",
-            "limits"
-          ]
-        },
-        "nodeSelector": {
-          "type": "object"
-        },
-        "tolerations": {
-          "type": "array"
-        },
-        "affinity": {
-          "type": "object"
-        }
-      },
-      "required": [
-        "resources"
-      ],
-      "additionalProperties": false
     },
     "api": {
       "type": "object",

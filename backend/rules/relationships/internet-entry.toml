@@ -7,7 +7,7 @@ addresses, internet-facing load balancers with a security group open to anywhere
 port, running instances with a public address and an open security group, publicly accessible
 databases with an open security group, function URLs without IAM auth and EKS endpoints open
 to 0.0.0.0/0. Route53 records are no longer front doors: they name an entry (route53-target).
-Attack paths start from these and Findings judge reach from them, so the API never reads
+Findings judge reach from these, so the API never reads
 configuration to find them.
 In a VPC, traffic must also pass the subnet's route to an internet gateway and its network ACL,
 per address family (version 3, ADR-0035 second amendment). Unconfirmed on real output for

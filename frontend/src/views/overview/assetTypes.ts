@@ -35,8 +35,8 @@ const GROUPS: { name: string; color: string; match: (type: string) => boolean }[
 const OTHER = { name: 'Other', color: 'var(--type-other)' }
 
 /** A type's group (Compute, Identity, Storage, Network or Other) and its colour token: the same
- * colour means the same kind of resource on every screen (the Resource map's node borders). */
-export function typeGroupOf(type: string): { name: string; color: string } {
+ * colour means the same kind of resource on every screen. */
+function typeGroupOf(type: string): { name: string; color: string } {
   const group = GROUPS.find((g) => g.match(type)) ?? OTHER
   return { name: group.name, color: group.color }
 }

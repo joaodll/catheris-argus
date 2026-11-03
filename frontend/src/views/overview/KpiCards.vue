@@ -4,14 +4,13 @@ import type { Schemas } from '@/api/client'
 import AppIcon from '@/components/AppIcon.vue'
 import ToolChip from '@/components/ToolChip.vue'
 import { decimal, int, scoreColor } from '@/format'
-import { attackPaths, failedFindings, resources, threatScore } from './drill'
+import { failedFindings, resources, threatScore } from './drill'
 
 const props = defineProps<{ data: Schemas['Overview'] | null; connectionCount: number; connectionId: number }>()
 
 const cards = computed(() => {
   const k = props.data?.kpis
   if (!k) return []
-  const topCategory = [...(props.data?.attack_paths_by_category ?? [])].sort((a, b) => b.count - a.count)[0]
   const score = k.threatscore.value
   return [
     {
@@ -47,24 +46,13 @@ const cards = computed(() => {
       to: failedFindings(props.connectionId, 'critical'),
       drill: 'Show in Misconfigurations',
     },
-    {
-      tool: 'cloudfox',
-      label: 'Exploitable attack paths',
-      value: int(k.exploitable_paths.value),
-      tone: k.exploitable_paths.value ? 'var(--status-fail)' : 'var(--border-control)',
-      color: k.exploitable_paths.value ? 'var(--sev-critical-text)' : 'var(--text)',
-      context: topCategory ? `Top category: ${topCategory.category} (${topCategory.count})` : 'Critical and high paths',
-      meter: null,
-      to: attackPaths(props.connectionId, { severity: ['critical', 'high'] }),
-      drill: 'Show in Attack paths',
-    },
   ]
 })
 </script>
 
 <template>
   <!-- The Platform's stat tiles (design-system.md, Card → Stat tile). -->
-  <section aria-label="Key metrics" class="stat-grid">
+  <section aria-label="Key metrics" class="stat-grid three">
     <template v-if="cards.length">
       <div v-for="c in cards" :key="c.label" class="stat-card kpi" :style="{ '--tone': c.tone }">
         <div class="stat-label"><span>{{ c.label }}</span><ToolChip :tool="c.tool" /></div>
@@ -80,12 +68,26 @@ const cards = computed(() => {
       </div>
     </template>
     <template v-else>
-      <div v-for="n in 4" :key="n" class="stat-card skeleton"></div>
+      <div v-for="n in 3" :key="n" class="stat-card skeleton"></div>
     </template>
   </section>
 </template>
 
 <style scoped>
+/* Three tiles fill the row. Below the grid's four-column step it has two columns, so the last
+   tile takes the whole second row; on a phone they stack. */
+@media (min-width: 1151px) {
+  .three {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 601px) and (max-width: 1150px) {
+  .three > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
 .kpi {
   gap: var(--s-4);
 }

@@ -1,15 +1,11 @@
-"""Ingest: turning one committed raw run into canonical rows (design: "Ingestion, snapshots
-and attack paths").
+"""Ingest: turning one committed raw run into canonical rows (design: "Ingestion and
+snapshots").
 
     register_run()         records a committed run in scan_run, from its manifest
     register_failed_run()  records a request that failed before it had a manifest to register
     ingest_run()           adapter -> load -> derived steps, for one scan_run
     rederive_stale()       at worker start: edges and reach again for each connection
-                           whose rules were upgraded (ADR-0035, fifth amendment); the graph
-                           read model then re-evaluates the paths (ADR-0044)
-    LATEST_INGESTED_RUNS_SQL   each connection's newest ingested run: the graph's marker
-    LATEST_EDGE_RUNS_SQL   each connection's newest standing Steampipe and CloudFox runs, with
-                           their status: whether a missing path is a fix
+                           whose rules were upgraded (ADR-0035, fifth amendment)
 
 A failed run is recorded and resolves nothing. A raw run that cannot be read (no manifest,
 files that do not match it, an unsupported tool version) marks the scan_run failed with the
@@ -18,8 +14,6 @@ reason, instead of being skipped silently.
 
 from argus.ingest.pipeline import IngestOutcome, ingest_run, register_failed_run, register_run
 from argus.ingest.queries import (
-    LATEST_EDGE_RUNS_SQL,
-    LATEST_INGESTED_RUNS_SQL,
     data_through,
     last_runs,
     list_runs,
@@ -28,8 +22,6 @@ from argus.ingest.queries import (
 from argus.ingest.rederive import REDERIVE_CONNECTIONS, rederive_stale
 
 __all__ = [
-    "LATEST_EDGE_RUNS_SQL",
-    "LATEST_INGESTED_RUNS_SQL",
     "REDERIVE_CONNECTIONS",
     "IngestOutcome",
     "data_through",

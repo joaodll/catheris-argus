@@ -74,28 +74,6 @@ def last_runs(conn: Connection, *, connection_id: int) -> list[dict[str, Any]]:
     return [dict(r._mapping) for r in rows]
 
 
-# Exported SQL: each connection's newest ingested run that did not fail, and when it was
-# ingested. A new run_id means the connection's data changed (inventory, edges, findings,
-# vulnerabilities): the graph read model's marker (ADR-0044). ingested_at tells how long the
-# graph has had to catch up with it.
-LATEST_INGESTED_RUNS_SQL = """
-  SELECT connection_id, max(id) AS run_id, max(ingested_at) AS ingested_at FROM scan_run
-  WHERE ingested_at IS NOT NULL AND status IN ('complete', 'partial')
-  GROUP BY connection_id
-"""
-
-# Exported SQL: each connection's newest ingested run of each edge tool that did not fail, with
-# its status. Its edges are the ones standing (a failed run moves nothing), and a path missing
-# from them is a fix only when that run is complete (ADR-0044, M2: when paths resolve).
-LATEST_EDGE_RUNS_SQL = """
-  SELECT DISTINCT ON (connection_id, tool) connection_id, tool, id AS run_id, status
-  FROM scan_run
-  WHERE ingested_at IS NOT NULL AND status IN ('complete', 'partial')
-    AND tool IN ('steampipe', 'cloudfox')
-  ORDER BY connection_id, tool, id DESC
-"""
-
-
 def data_through(
     conn: Connection,
     *,

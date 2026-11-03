@@ -7,16 +7,16 @@ A self-hosted cloud security platform. Argus runs three open-source scanners,
 the join between their results, the history, and one UI to read them. Argus only reads the
 clouds it scans; it never changes anything in them.
 
-![The Overview: monitored assets, ThreatScore, open critical findings and attack paths](docs/images/overview.png)
+![The Overview: monitored assets, ThreatScore and open critical findings](docs/images/overview.png)
 
 ## Why the join matters
 
 Each tool answers one question. Prowler says which checks fail. CloudFox says what an attacker can
-reach from a foothold. Steampipe says what exists and how it is configured. The findings that
-matter most need all three. For example: a resource reachable from the internet (CloudFox),
-with a failing high-severity check (Prowler), whose role can escalate to administrator (CloudFox
-again), on a configuration Steampipe recorded yesterday. Argus keys every result on the cloud's
-own resource id, so the three tools land on the same resource, every day.
+reach from a foothold. Steampipe says what exists and how it is configured. Argus keys every result
+on the cloud's own resource id, so the three tools land on the same resource, every day: one
+resource's panel shows what each of them found. Argus also judges Prowler's exposure checks and
+CloudFox's public endpoints against the configuration Steampipe recorded, and says whether traffic
+from the internet can really arrive, and why.
 
 ## What it does
 
@@ -25,14 +25,8 @@ own resource id, so the three tools land on the same resource, every day.
 | **Compliance** | Every framework Prowler maps, with Prowler's ThreatScore, per account and month over month |
 | **Misconfigurations** | Failing Prowler checks and CloudFox's attacker findings, with what each tool found on the resource, their history (new, resolved, reopened) and remediation, as a list or grouped by check |
 | **Vulnerabilities** | The CVEs each provider's own scanner reports (AWS Inspector on AWS), with package, fix, public exploit and EPSS, as a list or grouped by CVE |
-| **Resources** | The inventory Steampipe collects, with each resource's configuration on any past day, and the vulnerabilities each provider's own scanner reports (AWS Inspector on AWS) on instances, functions and container repositories |
-| **Resource map** | How resources connect: from the internet through DNS, load balancers and gateways to compute, roles and data |
-| **Attack paths** | Paths from an internet entry, an outside principal or a leaked key to administrator or data, each step with its evidence and fix |
+| **Resources** | The inventory Steampipe collects, with each resource's configuration and connections, and the vulnerabilities each provider's own scanner reports (AWS Inspector on AWS) on instances, functions and container repositories |
 | **Operations** | Schedules, run history, and connections added in the UI; every change audited |
-
-| Resource map | Attack paths |
-| --- | --- |
-| ![The resource map, following one internet entry](docs/images/resource-map.png) | ![Attack paths, each row saying how the path gets in](docs/images/attack-paths.png) |
 
 ## How it works
 
@@ -40,7 +34,7 @@ own resource id, so the three tools land on the same resource, every day.
 flowchart LR
   clouds[AWS accounts] -->|read-only role| collectors[Prowler · CloudFox · Steampipe]
   collectors -->|raw output + manifest| s3[(Your S3 bucket)]
-  collectors --> ingest[Ingest: adapters, rules, history, attack paths]
+  collectors --> ingest[Ingest: adapters, rules, history]
   ingest --> pg[(PostgreSQL)]
   pg --> api[API] --> ui[Web UI]
 ```

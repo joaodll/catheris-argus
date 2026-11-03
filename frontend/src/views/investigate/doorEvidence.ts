@@ -2,11 +2,10 @@
  * A door's evidence in words (ADR-0035, fifth amendment): per network interface, the address
  * families it is public in, what its security groups open to the whole internet per family,
  * and each subnet's default route and network ACL. Shown in the Resources sheet's "From the
- * internet" and on an attack path's first step.
+ * internet".
  *
  * The shape the internet rules write in an edge's attributes (`network`, relationships engine,
- * ADR-0035). The API returns attributes untyped; these types stood for the map's front-doors
- * models, gone in round M3a.
+ * ADR-0035). The API returns attributes untyped.
  */
 export interface DoorSubnet {
   subnet: string

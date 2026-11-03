@@ -3,11 +3,10 @@
 partitions. The dataset is generated in SQL from a fixed seed, never committed.
 
 Shape (the design's "large" scenario, 36 accounts): 300,000 resources, 300,000 open findings,
-180 days of metric_daily for 36 accounts plus the rollup, 36 x 3 x 180 scan runs, 105,000 paths
-(what the graph budget keeps at this size).
-Edges (ADR-0033): about 940,000, two days of snapshots, with the hubs the Resource map must
-group: `internet` reaching 5,000 resources of one account, a VPC holding 20,000, and an
-AWS-managed policy attached to 10,000 principals across accounts.
+180 days of metric_daily for 36 accounts plus the rollup, 36 x 3 x 180 scan runs.
+Edges (ADR-0033): about 940,000, two days of snapshots, with hubs: `internet` reaching 5,000
+resources of one account, a VPC holding 20,000, and an AWS-managed policy attached to 10,000
+principals across accounts.
 Compliance as real Prowler on AWS: 40 frameworks of 100 requirements, 180 days of scores and
 counts per account, and two days of requirement results per account plus their rollup.
 Vulnerabilities (ADR-0042, in AWS Inspector's shape): 50,000 CVE findings on connection 1's
@@ -25,10 +24,8 @@ import pytest
 from sqlalchemy import Connection, Engine, text
 
 from argus import (
-    attackpaths,
     connections,
     findings,
-    graph,
     ingest,
     inventory,
     metrics,
@@ -173,33 +170,8 @@ def _generate(conn: Connection) -> None:
                      ('findings.open_by_severity', 'medium'),
                      ('findings.open_by_severity', 'low'),
                      ('findings.open_by_severity', 'informational'),
-                     ('attack_paths.open_by_severity', 'critical'),
-                     ('attack_paths.not_listed', 'medium'),
-                     ('attack_paths.open_by_category', 'IAM privilege escalation'),
                      ('assets.by_type', 'aws_ec2_instance'), ('assets.by_type', 'aws_s3_bucket'),
                      ('assets.by_type', 'aws_iam_role')) AS m(m, dim)
-    """),
-        {"n": ACCOUNTS, "d": TODAY},
-    )
-    conn.execute(
-        text("""
-        INSERT INTO attack_path (path_id, rule_id, rule_version, category, severity,
-                                 connection_id, connection_ids, entry_uid, target_uid, node_uids,
-                                 edge_ids, state, first_seen, last_seen, confidence)
-        SELECT sha256(('p' || g)::bytea), 'r', 1, 'IAM privilege escalation',
-               (ARRAY['critical','high','medium'])[1 + g % 3], 1 + g % :n,
-               -- One path in ten crosses into another account (ADR-0044, M2).
-               CASE WHEN g % 10 = 0 THEN ARRAY[1 + g % :n, 1 + (g + 5) % :n]
-                    ELSE ARRAY[1 + g % :n] END,
-               'internet', 't' || g,
-               -- As wide as a real path's: five nodes, with ARNs (the 300k estate's mix).
-               ARRAY['internet', 't' || g,
-                     'arn:aws:iam::123456789012:role/budget-role-with-a-long-name-' || g % 997,
-                     'arn:aws:lambda:us-east-1:123456789012:function:budget-' || g % 991,
-                     'admin:123456789012'],
-               ARRAY[g, g + 1, g + 2, g + 3], 'open',
-               :d, :d, (ARRAY['confirmed','supported','candidate','unknown'])[1 + g % 4]
-        FROM generate_series(1, 105000) g
     """),
         {"n": ACCOUNTS, "d": TODAY},
     )
@@ -256,11 +228,6 @@ def _generate_vulnerabilities(conn: Connection) -> None:
 
 HUB_VPC = "arn:aws:ec2:us-east-1:200000000001:vpc/vpc-hub"
 HUB_POLICY = "arn:aws:iam::aws:policy/ReadOnlyAccess"
-# Resource 30 (an instance of connection 31): one of the VPC hub's 20,000 members.
-MAP_FOCUS = "arn:aws:ec2:us-east-1:200000000031:instance/i-30"
-# Connection c holds account 2000000000cc: every map read is for one connection (ADR-0033).
-MAP_SCOPE = {"scope": relationships.MapScope(31, "200000000031")}
-HUB_SCOPE = {"scope": relationships.MapScope(1, "200000000001")}
 # Connection 1's instances (resource ids are the generator's g; g % 36 == 0, g % 5 == 0): one
 # page of the Resources list, each with 15 CVEs.
 VULNERABLE_PAGE = [180 * i for i in range(1, 21)]
@@ -319,8 +286,7 @@ def _generate_edges(conn: Connection) -> None:
              (VALUES ('in', 'ROUTES_TO', 'rule:in@1'),
                      ('cf', 'INTERNET_REACHABLE', 'cloudfox')) o(kind, type, origin)
         UNION ALL
-        -- Every tenth resource on the hub's chains is an administrator (CloudFox): the
-        -- attack-path search has a target to rebuild paths to (ADR-0037).
+        -- Every tenth resource on the hub's chains is an administrator (CloudFox).
         SELECT sha256(('adm|' || g)::bytea), {RESOURCE_UID.format(g="g")},
                'admin:' || (200000000000 + 1), g, 'IS_ADMIN', 'cloudfox', :d - 30, :d, 1
         FROM generate_series(360, 300000, 360) g
@@ -419,8 +385,6 @@ def estate(migrated: Engine) -> Engine:
             )
         )
         _generate(conn)
-    # The attack-path search runs over the graph read model (ADR-0044, M2): its time is in the
-    # opt-in graph budget (test_graph_budget.py), with Memgraph.
     # A steady-state database: the first reads of freshly inserted rows would otherwise pay
     # for setting their hint bits and flushing the load, and time that instead of the query.
     with migrated.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -583,18 +547,11 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         offset=0,
         filters=inventory.ResourceFilters(connection_id=7, resource_type="aws_s3_bucket"),
     ),
-    # The Resource map's start: a type's list, across every account.
     "resources, one type, all accounts": lambda c: inventory.list_resources(
         c, limit=20, offset=0, filters=inventory.ResourceFilters(resource_type="aws_s3_bucket")
     ),
     "resources, one type, all accounts, a later page": lambda c: inventory.list_resources(
         c, limit=20, offset=2000, filters=inventory.ResourceFilters(resource_type="aws_s3_bucket")
-    ),
-    "resources, types, all accounts": lambda c: metrics.latest(
-        c, connection_id=0, metric="assets.by_type", as_of=TODAY
-    ),
-    "resources, types, one account": lambda c: metrics.latest(
-        c, connection_id=7, metric="assets.by_type", as_of=TODAY
     ),
     "resources, search": lambda c: inventory.list_resources(
         c, limit=20, offset=0, filters=inventory.ResourceFilters(q="i-4242")
@@ -618,39 +575,6 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     ),
     "edges as of a day": lambda c: relationships.edges_at(
         c, resource_id=1234, connection_id=1234 % ACCOUNTS + 1, day=TODAY
-    ),
-    "attack paths": lambda c: attackpaths.list_paths(c, limit=50, offset=0),
-    "attack paths, newest first": lambda c: attackpaths.list_paths(
-        c, limit=20, offset=0, order="last_seen_desc"
-    ),
-    "attack paths, one confidence": lambda c: attackpaths.list_paths(
-        c, limit=50, offset=0, filters=attackpaths.PathFilters(confidences=("candidate",))
-    ),
-    "attack paths, one kind": lambda c: attackpaths.list_paths(
-        c, limit=20, offset=0, filters=attackpaths.PathFilters(kinds=("r",))
-    ),
-    "attack paths through a resource": lambda c: attackpaths.list_paths(
-        c, limit=6, offset=0, filters=attackpaths.PathFilters(through_uid="t4242")
-    ),
-    "attack paths of a connection": lambda c: attackpaths.list_paths(
-        c, limit=50, offset=0, filters=attackpaths.PathFilters(connection_id=7)
-    ),
-    "attack paths passing through a connection": lambda c: attackpaths.list_paths(
-        c,
-        limit=50,
-        offset=0,
-        filters=attackpaths.PathFilters(connection_id=7, passing_through=True),
-    ),
-    "map overlay: attack paths on 50 nodes, one on every path": lambda c: (
-        attackpaths.node_path_counts(
-            c, ["admin:123456789012", *(f"t{g}" for g in range(4000, 4049))]
-        )
-    ),
-    "attack paths, facets": lambda c: attackpaths.path_facets(c, connection_id=None),
-    "attack paths, facets of a connection": lambda c: attackpaths.path_facets(c, connection_id=7),
-    "attack paths, behind the scans": graph.paths_state,
-    "attack paths, not listed": lambda c: attackpaths.not_listed(
-        c, connection_id=None, as_of=TODAY
     ),
     "resources: the Vulnerabilities cells of a page": _vulnerability_cells,
     "resources: with an exploitable CVE, one account": lambda c: inventory.list_resources(

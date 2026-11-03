@@ -6,7 +6,6 @@
  */
 import type { RouteLocationRaw } from 'vue-router'
 import { emptyFilters, filtersToQuery } from '@/views/investigate/findingFilters'
-import { pathFiltersToQuery, parsePathFilters } from '@/views/investigate/paths/pathFilters'
 import type { Severity } from './severity'
 
 // The Overview's failed-findings counts: Prowler, failed, not muted, still open (metric_daily
@@ -21,16 +20,6 @@ export function failedFindings(connectionId: number, severity: Severity): RouteL
     connection: connectionId ? [connectionId] : [],
   })
   return { name: 'misconfigurations', query }
-}
-
-export function attackPaths(connectionId: number, filter: { severity?: Severity[]; category?: string }): RouteLocationRaw {
-  const query = pathFiltersToQuery({
-    ...parsePathFilters({}),
-    severity: filter.severity ?? [],
-    category: filter.category ? [filter.category] : [],
-    connection: connectionId || null,
-  })
-  return { name: 'attack-paths', query }
 }
 
 export function resources(connectionId: number, type?: string): RouteLocationRaw {

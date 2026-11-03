@@ -26,7 +26,6 @@
 
   /* Text */
   --text: #f6f7f8;
-  --text-strong: #ffffff;
   --text-2: #b4b9c1;
   --text-3: #9297a0;
   --text-chip: #dadde2;
@@ -72,18 +71,8 @@
   --type-network: #b2e35a;
   --type-other: #6a6f77;
 
-  /* Graph (design-system.md "Graph tokens"): existing values named for the Resource map; the
-     canvas reads them once with getComputedStyle. */
-  --graph-canvas: var(--surface-sunken);
-  --graph-lane: var(--tile);
-  --graph-node: var(--surface-raised);
-  --graph-edge: var(--border-control);
-  --graph-dim: 0.3;
-  --graph-dot: rgb(255 255 255 / 7%); /* the map's dot grid (2026-10-14) */
-  --graph-ring: rgb(255 255 255 / 25%); /* the internet's rippling rings */
   --chart-band: rgb(255 255 255 / 2.5%); /* a chart's month bands */
   --chip-fill: rgb(255 255 255 / 5%); /* the neutral chip */
-  --on-sev: #08090a; /* digits on a filled severity mark */
 
   /* Tool tags (design-system.md "Tool chip"): provenance, not data. Pastel (OKLCH chroma 0.09
      to 0.12) so they never read as a signal, and never used for a series. */
@@ -200,7 +189,6 @@
   --overlay: rgb(20 24 28 / 45%);
 
   --text: #14171a;
-  --text-strong: #000000;
   --text-2: #434a53;
   --text-3: #5b636d;
   --text-chip: #2a3037;
@@ -243,11 +231,8 @@
   --type-network: #5a8213;
   --type-other: #7a828c;
 
-  --graph-dot: rgb(0 0 0 / 10%);
-  --graph-ring: rgb(0 0 0 / 22%);
   --chart-band: rgb(0 0 0 / 3%);
   --chip-fill: rgb(0 0 0 / 5%);
-  --on-sev: #ffffff;
 
   --tool-prowler: #4650c2;
   --tool-steampipe: #59641a;

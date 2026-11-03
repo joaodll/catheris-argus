@@ -11,15 +11,6 @@ from argus.connections import DIRECTORY_SQL
 from argus.core.db import count_sql, like_contains
 from argus.findings.model import VULNERABILITY_TOOL
 
-# Exported SQL: the view attack-path rules read as `f`. One connection's failing findings now.
-# CVEs are left out (ADR-0042): any CVE would raise nearly every path through an instance or a
-# function; a path kind built for them joins them on purpose.
-FAILING_FINDINGS_SQL = f"""
-  SELECT resource_uid, check_id, severity FROM finding
-  WHERE connection_id = :connection_id AND state IN ('open', 'reopened') AND NOT muted
-    AND status = 'FAIL' AND tool <> '{VULNERABILITY_TOOL}'
-"""  # noqa: S608 - a fixed constant
-
 FindingState = Literal["open", "reopened", "resolved", "accepted_risk"]
 FindingOrder = Literal["severity", "severity_asc", "last_seen_desc", "last_seen_asc"]
 # any: muted findings are listed with the rest; hide: left out; only: nothing else.
@@ -287,30 +278,6 @@ def finding_facets(
         categories=values.get("category", []),
         checks=checks,
     )
-
-
-def open_finding_counts_by_tool(
-    conn: Connection, resource_ids: list[int]
-) -> dict[int, dict[str, tuple[int, str]]]:
-    """open_finding_counts() per tool: {resource id: {tool: (count, worst severity)}}, for the
-    Resource map's badges and panel (ADR-0033). Bounded by the caller (at most 500 ids)."""
-    if not resource_ids:
-        return {}
-    rows = conn.execute(
-        text(f"""
-        SELECT f.resource_id, f.tool, count(*) AS n,
-               (ARRAY['critical','high','medium','low','informational'])[min({_SEVERITY_RANK})]
-                 AS worst
-        FROM finding f
-        WHERE f.resource_id = ANY(CAST(:ids AS bigint[])) AND f.state IN ('open', 'reopened')
-        GROUP BY f.resource_id, f.tool
-    """),  # noqa: S608 - fixed fragment
-        {"ids": resource_ids},
-    )
-    counts: dict[int, dict[str, tuple[int, str]]] = {}
-    for r in rows:
-        counts.setdefault(r.resource_id, {})[r.tool] = (int(r.n), r.worst)
-    return counts
 
 
 def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, tuple[int, str]]:

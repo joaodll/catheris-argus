@@ -43,7 +43,7 @@ async function signIn(page: Page): Promise<void> {
 }
 
 async function axe(page: Page, label: string): Promise<void> {
-  // Audit what a person sees at rest: let entrances (a map node's fade-in) finish first.
+  // Audit what a person sees at rest: let entrances finish first.
   // Endless animations (a spinner, the live pulse) are left running.
   await page.waitForFunction(() =>
     document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getTiming().iterations === Infinity),
@@ -86,7 +86,6 @@ test('overview: every block, current state only', async ({ page }) => {
     'Check results and failed findings',
     'Findings severity over time',
     'Month over month',
-    'Attack paths by category',
     'Inventory',
     'Assets by type, per provider',
   ]
@@ -405,20 +404,19 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await first.click()
   await expect(page).toHaveURL(/open=\d+/)
   const sheet = page.getByRole('dialog')
-  for (const block of ['Steampipe', 'Prowler', 'CloudFox', 'Attack paths through it', 'Connections']) {
+  for (const block of ['Steampipe', 'Prowler', 'CloudFox', 'Connections']) {
     await expect(sheet.getByRole('heading', { level: 3, name: new RegExp(`^${block}`) })).toBeVisible()
   }
-  await expect(sheet.getByRole('link', { name: 'Open in map' })).toBeVisible()
   await axe(page, 'resource sheet')
   await shot(page, '73-resource-sheet')
   await page.keyboard.press('Escape')
   await expect(page).not.toHaveURL(/open=/)
   await expect(first).toBeFocused()
-  // A resource facing the internet: the sheet keeps its verdict and evidence (the map does not show them).
+  // A resource facing the internet: the sheet shows its verdict and evidence.
   await page.getByLabel('Search', { exact: true }).fill('prod-edge-alb')
   await resources.locator('tbody tr', { hasText: 'prod-edge-alb' }).first().getByRole('link').click()
   await expect(sheet.getByRole('heading', { level: 3, name: 'From the internet' })).toBeVisible()
-  // The why-line reads the rule's evidence, which a map edge does not carry: the sheet has it all.
+  // The why-line reads the rule's evidence.
   await expect(sheet.getByText(/^tcp\/443 · IPv4 and IPv6/)).toBeVisible()
   await shot(page, '73a-resource-sheet-reach')
   // A bucket's sheet shows CloudFox's commands (ADR-0038): labelled, copy only, never run.
@@ -486,230 +484,6 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await expect(page).toHaveURL(/\/investigate\/vulnerabilities\?tool=vulnerabilities$/)
   await page.goto('/investigate/findings')
   await expect(page).toHaveURL(/\/investigate\/misconfigurations$/)
-})
-
-test('investigate: resource map and attack paths, read-only', async ({ page }) => {
-  await signIn(page)
-  await navLink(page, 'Resource map')
-  await expect(page).toHaveURL(/\/investigate\/map/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Resource map' })).toBeVisible()
-  // The start (round M3a): find a resource, or reopen a recent one. No front doors, no reach, no Flow.
-  await expect(page.getByRole('heading', { level: 2, name: 'Map a resource' })).toBeVisible()
-  await expect(page.getByText('Start from what the internet reaches')).toHaveCount(0)
-  await expect(page.getByLabel('Account')).toHaveValue('')
-  await expect(page.getByRole('heading', { level: 3, name: 'Recently opened' })).toHaveCount(0)
-  // No name needed: see what is here, choose a type, choose a resource; Back returns to the list.
-  await expect(page.getByRole('heading', { level: 3, name: "What's here" })).toBeVisible()
-  await axe(page, 'map start')
-  await shot(page, '90-map-start')
-  const aType = page.getByRole('link', { name: /^IAM role, [\d,]+ resources?$/ })
-  await aType.click()
-  await expect(page).toHaveURL(/type=aws_iam_role/)
-  await expect(page.getByRole('heading', { level: 3, name: 'IAM role' })).toBeFocused()
-  await axe(page, 'map start, a type')
-  await shot(page, '90b-map-start-type')
-  await page.getByRole('button', { name: 'Next page' }).click()
-  await expect(page).toHaveURL(/page=2/)
-  const aRow = page.getByRole('region', { name: 'IAM role' }).getByRole('listitem').getByRole('link').first()
-  await aRow.click()
-  await expect(page).toHaveURL(/focus=/)
-  await expect(page).toHaveURL(/type=aws_iam_role/)
-  await expect(page.getByRole('application', { name: /^Resource map, \d+ resources/ })).toBeVisible()
-  await page.goBack()
-  await expect(page.getByRole('heading', { level: 3, name: 'IAM role' })).toBeVisible()
-  await expect(page).toHaveURL(/page=2/)
-  await expect(page.getByText('2 / ', { exact: false })).toBeVisible()
-  // A page past the end shows the last one.
-  await page.goto('/investigate/map?type=aws_iam_role&page=999')
-  await expect(page).not.toHaveURL(/page=999/)
-  await expect(page.getByRole('region', { name: 'IAM role' }).getByRole('listitem').first()).toBeVisible()
-  // Another account keeps the type; an account with none says so and leads back.
-  await page.getByLabel('Account').selectOption({ label: 'demo-prod' })
-  await expect(page).toHaveURL(/type=aws_iam_role/)
-  await page.goto('/investigate/map?type=aws_not_a_type')
-  await expect(page.getByRole('heading', { name: 'No resources of this type in this account.' })).toBeVisible()
-  await page.getByRole('main').getByRole('link', { name: 'All types' }).last().click()
-  await expect(page.getByRole('heading', { level: 3, name: "What's here" })).toBeVisible()
-  // Find a resource: the combobox searches by name, id or ARN; choosing one draws its neighbourhood.
-  const find = page.getByRole('combobox', { name: 'Find a resource' })
-  await find.fill('edge-alb')
-  await expect(page.getByRole('option').filter({ hasText: 'edge-alb' }).first()).toBeVisible()
-  // Another account searches what is typed again: nothing of the others can be chosen.
-  await page.getByLabel('Account').selectOption({ label: 'demo-prod' })
-  await find.click()
-  const found = page.getByRole('listbox', { name: 'Resources' }).getByRole('option')
-  await expect(found.first()).toContainText('demo-prod')
-  await expect(found.filter({ hasNotText: 'demo-prod' })).toHaveCount(0)
-  await found.filter({ hasText: 'edge-alb' }).first().click()
-  await expect(page).toHaveURL(/focus=/)
-  const canvas = page.getByRole('application', { name: /^Resource map, \d+ resources/ })
-  await expect(canvas).toBeVisible()
-  // Connections, not reach: the open resource's panel has no "From the internet" block.
-  const focusPanel = page.getByRole('complementary', { name: 'Resource panel' })
-  await expect(focusPanel.getByRole('heading', { level: 3, name: 'Steampipe' })).toBeVisible()
-  await expect(focusPanel.getByRole('heading', { level: 3, name: 'From the internet' })).toHaveCount(0)
-  // A line says what it is, in words drawn above the lines.
-  await expect(page.locator('.line-word', { hasText: 'routes to' }).first()).toBeVisible()
-  await axe(page, 'map focus')
-  await shot(page, '91a-map-focus')
-  // Back to the start from the menu: the resource is in Recently opened, and reopens.
-  await navLink(page, 'Resource map')
-  await expect(page).not.toHaveURL(/focus=/)
-  const recent = page.getByRole('link', { name: /edge-alb/ }).first()
-  await expect(recent).toBeVisible()
-  await axe(page, 'map start with a recent resource')
-  await shot(page, '90a-map-recent')
-  await recent.click()
-  await expect(page).toHaveURL(/focus=/)
-  await expect(canvas).toBeVisible()
-  await expect(page.getByRole('group', { name: 'Depth' })).toBeVisible()
-  await page.getByRole('button', { name: 'Reset' }).click()
-  // Nothing selected: no panel, the map has the whole width.
-  await expect(page.getByRole('complementary', { name: 'Resource panel' })).toHaveCount(0)
-  await axe(page, 'map')
-  await shot(page, '91-map')
-  // The keyboard: the arrow keys move between nodes, Enter opens the panel, E expands.
-  await canvas.focus()
-  await page.keyboard.press('ArrowRight')
-  await page.keyboard.press('Enter')
-  const panel = page.getByRole('complementary', { name: 'Resource panel' })
-  await expect(panel.getByRole('button', { name: 'Expand' })).toBeVisible()
-  const before = await canvas.getAttribute('aria-label')
-  if (await panel.getByRole('button', { name: 'Expand' }).isEnabled()) {
-    await panel.getByRole('button', { name: 'Expand' }).click()
-    await expect(canvas).not.toHaveAttribute('aria-label', before ?? '')
-  }
-  for (const block of ['Steampipe', 'Prowler', 'CloudFox', 'Attack paths through it']) {
-    await expect(panel.getByRole('heading', { level: 3, name: new RegExp(`^${block}`) })).toBeVisible()
-  }
-  await axe(page, 'map with a resource')
-  await shot(page, '92-map-resource')
-  // The same picture as tables.
-  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'List' }).click()
-  await expect(page).toHaveURL(/view=list/)
-  await expect(page.getByRole('heading', { level: 3, name: 'Connections' }).first()).toBeVisible()
-  await axe(page, 'map list view')
-  await shot(page, '93-map-list')
-
-  await navLink(page, 'Attack paths')
-  await expect(page).toHaveURL(/\/investigate\/attack-paths/)
-  const paths = page.getByRole('table')
-  await expect(paths.locator('tbody tr').first()).toBeVisible()
-  // One search (ADR-0037): every path says how sure Argus is; the filter narrows to one level.
-  await expect(paths.getByRole('columnheader', { name: 'Confidence' })).toBeVisible()
-  // Each row says where the path goes; the line below, its type, way in and steps.
-  await expect(paths.locator('tbody tr').first().locator('.summary')).toHaveText(/ · \d+ steps?$/)
-  await expect(page.locator('#ap-rule')).toHaveCount(0)
-  await axe(page, 'attack paths')
-  await shot(page, '94-attack-paths')
-  await page.locator('#ap-conf').click()
-  await page.getByRole('listbox', { name: 'Confidence' }).getByRole('option', { name: 'Unknown' }).click()
-  await page.keyboard.press('Escape')
-  await expect(page).toHaveURL(/confidence=unknown/)
-  await expect(paths.locator('tbody tr').first().getByText('Unknown', { exact: true })).toBeVisible()
-  await paths.locator('tbody tr').first().getByRole('link').first().click()
-  await expect(page).toHaveURL(/path=\d+/)
-  await expect(page.getByRole('heading', { level: 2, name: 'Steps' })).toBeVisible()
-  // A detail page (2026-10-14): a breadcrumb back to the list and the path's name as the h1.
-  await expect(page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Attack paths' })).toBeVisible()
-  await expect(page.getByRole('heading', { level: 1 })).not.toHaveText('Attack paths')
-  await expect(page.getByText(/^Confidence: Unknown, its weakest step\./)).toBeVisible()
-  // The first link's evidence: Argus could not judge the entry.
-  await page.getByRole('button', { name: 'Evidence and fix' }).first().click()
-  const evidence = page.getByRole('region', { name: /^Evidence and fix for the link: / })
-  await expect(evidence).toBeVisible()
-  // The codes behind the words sit in a closed Technical details (2026-10-31 review).
-  await expect(evidence.getByText(/^rule internet-unverified@/)).toBeHidden()
-  await evidence.getByText('Technical details').click()
-  await expect(evidence.getByText(/^rule internet-unverified@/)).toBeVisible()
-  await expect(evidence.getByText(/^Break this link:/)).toBeVisible()
-  await axe(page, 'attack path')
-  await shot(page, '95-attack-path')
-  // Open in map: the path's steps lit on the canvas.
-  await page.getByRole('link', { name: 'Open in map' }).click()
-  await expect(page).toHaveURL(/\/investigate\/map\?.*path=\d+/)
-  await expect(page.getByRole('status').filter({ hasText: 'Showing attack path' })).toBeVisible()
-  await axe(page, 'map with a path')
-  await shot(page, '96-map-path')
-})
-
-test('resource map: says when the graph is unavailable or behind, never an empty map', async ({ page }) => {
-  allowed = [/503/] // the answer this test asks for
-  await signIn(page)
-  const map = '/investigate/map?focus=internet&connection=1'
-  // Memgraph down (ADR-0044, M-1): the API's answer, then the way back.
-  let down = true
-  await page.route(/\/api\/v1\/map\/graph\?/, async (route) => {
-    if (down) {
-      await route.fulfill({ status: 503, headers: { 'Retry-After': '5' }, json: { detail: 'the graph is unavailable; try again shortly' } })
-      return
-    }
-    const response = await route.fetch()
-    const body = await response.json()
-    await route.fulfill({ response, json: { ...body, graph: { ...body.graph, behind: true } } })
-  })
-  await page.goto(map)
-  await expect(page.getByText("The map didn't load: the graph is unavailable; try again shortly")).toBeVisible()
-  await axe(page, 'map, graph unavailable')
-  await shot(page, '92b-map-graph-unavailable')
-  // A newer scan is on its way (M-3).
-  down = false
-  await page.getByRole('button', { name: 'Retry' }).click()
-  await expect(page.getByText('A newer scan of this account is being added to the map.')).toBeVisible()
-  // The map has no past days (D1).
-  await expect(page.locator('#map-asof')).toHaveCount(0)
-  await axe(page, 'map, behind the scans')
-})
-
-test('resource map: Highlight picks out a fact and never changes what is drawn', async ({ page }) => {
-  await signIn(page)
-  await page.goto('/investigate/map?focus=internet&connection=1')
-  const cards = page.locator('.world .node')
-  await expect(cards.first()).toBeVisible()
-  const drawn = await cards.count()
-  await expect(page.locator('.world .node.faded')).toHaveCount(0)
-  await page.locator('#map-highlight').selectOption('paths')
-  await expect(page).toHaveURL(/highlight=paths/)
-  await expect(cards).toHaveCount(drawn)
-  const faded = await page.locator('.world .node.faded').count()
-  expect(faded, 'the internet and any group have no paths of their own').toBeGreaterThan(0)
-  expect(faded).toBeLessThan(drawn)
-  await expect(page.locator('.world .node:not(.faded) .count.plain').first()).toBeVisible()
-  await axe(page, 'map, Highlight on')
-  await shot(page, '92c-map-highlight')
-  // Off again: every card back as it was. A selection lights its own trace, so before one.
-  await page.locator('#map-highlight').selectOption('')
-  await expect(page.locator('.world .node.faded')).toHaveCount(0)
-  await page.locator('#map-highlight').selectOption('paths')
-  // The panel's links: each fact goes to its own screen, filtered to the resource.
-  await page.locator('.world .node:not(.faded):has(.count.plain)').first().click()
-  const through = page.getByRole('link', { name: /^On \d+ attack path/ })
-  await expect(through).toHaveAttribute('href', /attack-paths\?through=/)
-  await axe(page, 'map, a resource with its facts')
-  await shot(page, '92d-map-facts-panel')
-  // Up close: the marks beside the name, and the Highlight's count.
-  await page.getByRole('button', { name: 'Focus here' }).click()
-  await expect(page.locator('.world .node').first()).toBeVisible()
-  await expect(page.locator('#map-highlight')).toHaveValue('paths')
-  await shot(page, '92e-map-card-up-close')
-})
-
-test('attack paths: says how many paths the cap kept out of the list', async ({ page }) => {
-  await signIn(page)
-  // The cap can't be reached on the demo estates, so the answer carries a cut (ADR-0044, amended 2026-11-02).
-  await page.route(/\/api\/v1\/attack-paths(\?|$)/, async (route) => {
-    const response = await route.fetch()
-    await route.fulfill({ response, json: { ...(await response.json()), not_listed: { paths: 3210, latent: 12, worst: 'medium' } } })
-  })
-  await page.goto('/investigate/attack-paths')
-  const note = page.getByRole('status').filter({ hasText: '3,210 more paths' })
-  await expect(note).toHaveText(/3,210 more paths were found but not listed: Medium or lower, plus 12 latent paths\. Filters and counts here don't include them\./)
-  await axe(page, 'attack paths, cut at the cap')
-  await shot(page, '94b-attack-paths-cut')
-  // Cut paths were found, so they say nothing about what is resolved.
-  await page.goto('/investigate/attack-paths?state=resolved')
-  await expect(page.getByRole('heading', { level: 2, name: 'Resolved attack paths' })).toBeVisible()
-  await expect(note).toHaveCount(0)
 })
 
 test('posture: compliance frameworks and one framework, read-only', async ({ page }) => {
@@ -799,14 +573,6 @@ test('phone width: overview and connections', async ({ page }) => {
   const frameworkWidth = await page.evaluate(() => document.documentElement.scrollWidth)
   expect(frameworkWidth, 'no horizontal page scroll on a framework').toBeLessThanOrEqual(390)
   await shot(page, '63-phone-framework')
-  // The map's start fits too: the types in one column, then a type's list.
-  await page.goto('/investigate/map')
-  await expect(page.getByRole('heading', { level: 3, name: "What's here" })).toBeVisible()
-  await page.waitForLoadState('networkidle')
-  await shot(page, '64-phone-map-start')
-  await page.goto('/investigate/map?type=aws_iam_role')
-  await expect(page.getByRole('region', { name: 'IAM role' }).getByRole('listitem').first()).toBeVisible()
-  await shot(page, '65-phone-map-start-type')
 })
 
 test('light theme: every screen passes axe, and the toggle cycles', async ({ page }) => {
@@ -821,7 +587,6 @@ test('light theme: every screen passes axe, and the toggle cycles', async ({ pag
     ['/investigate/misconfigurations', 'Misconfigurations', 'L70-misconfigurations'],
     ['/investigate/vulnerabilities', 'Vulnerabilities', 'L75-vulnerabilities'],
     ['/investigate/resources', 'Resources', 'L72-resources'],
-    ['/investigate/attack-paths', 'Attack paths', 'L94-attack-paths'],
     ['/scans/schedules', 'Schedules', 'L30-schedules'],
     ['/scans/runs', 'Runs', 'L40-runs'],
     ['/admin/connections', 'Connections', 'L20-connections'],
@@ -834,28 +599,6 @@ test('light theme: every screen passes axe, and the toggle cycles', async ({ pag
     await axe(page, `light ${heading}`)
     await shot(page, name)
   }
-  // The map's start: the types, then one type's list.
-  await page.goto('/investigate/map')
-  await expect(page.getByRole('heading', { level: 3, name: "What's here" })).toBeVisible()
-  await page.waitForLoadState('networkidle')
-  await axe(page, 'light map start')
-  await shot(page, 'L90-map-start')
-  await page.goto('/investigate/map?type=aws_iam_role')
-  await expect(page.getByRole('region', { name: 'IAM role' }).getByRole('listitem').first()).toBeVisible()
-  await axe(page, 'light map start, a type')
-  await shot(page, 'L90b-map-start-type')
-  // The map: a resource found from the start, and a selected node.
-  await page.goto('/investigate/map')
-  await page.getByRole('combobox', { name: 'Find a resource' }).fill('edge-alb')
-  await page.getByRole('option').filter({ hasText: 'edge-alb' }).first().click()
-  const map = page.getByRole('application', { name: /^Resource map, \d+ resources/ })
-  await expect(map).toBeVisible()
-  await map.focus()
-  await page.keyboard.press('ArrowRight')
-  await page.keyboard.press('Enter')
-  await expect(page.getByRole('complementary', { name: 'Resource panel' })).toBeVisible()
-  await axe(page, 'light map')
-  await shot(page, 'L91-map')
   // The footer button cycles Light → Dark → System, and the page follows it.
   const theme = page.getByRole('button', { name: /^Theme: / })
   await expect(theme).toHaveAccessibleName('Theme: System — click to change')

@@ -54,9 +54,9 @@ def test_compose_gives_the_default_worker_its_pool(
     fresh: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     settings = get_settings()
-    # Two run threads at three each, the test thread, the graph thread's two (ADR-0044), the
-    # main loop's two: compose.yaml sets ARGUS_DB_POOL_MAX to this for the worker.
-    assert connections_needed(settings.worker_threads) == 11
-    monkeypatch.setenv("ARGUS_DB_POOL_MAX", "11")
+    # Two run threads at three each, the test thread, the main loop's two: compose.yaml sets
+    # ARGUS_DB_POOL_MAX to this for the worker.
+    assert connections_needed(settings.worker_threads) == 9
+    monkeypatch.setenv("ARGUS_DB_POOL_MAX", "9")
     get_settings.cache_clear()
     require_pool(connections_needed(settings.worker_threads), process="worker")

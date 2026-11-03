@@ -101,7 +101,7 @@ STABLE_TABLES = frozenset(
     {"aws_vpc", "aws_vpc_subnet", "aws_vpc_security_group", "aws_iam_instance_profile"}
 )
 
-# The fixed attack-path scenario (prod only).
+# The fixed exposed-and-escalating scenario (prod only).
 SCENARIO_INSTANCE = "web-public-01"
 SCENARIO_SG = "web-public-sg"
 SCENARIO_ROLE = "web-app-role"
@@ -161,7 +161,7 @@ class EstateDay:
         chosen = {n for n in names if u(self.account_id, "privesc", n) < 0.08}
         if self.profile.label == "prod":
             chosen.add(SCENARIO_ROLE)
-            # The front-door chain ends in an attack path (frontdoor.py).
+            # The front-door chain ends at an escalating role (frontdoor.py).
             chosen.add(f"{self.profile.label}-{ORDERS_API_ROLE}")
         return frozenset(chosen & names)
 
@@ -529,7 +529,7 @@ class Estate:
         )
 
     def _add_scenario(self, estate: EstateDay) -> None:
-        """Fixed resources for the attack paths and the regression (prod profile)."""
+        """Fixed resources for the exposure scenario and the regression (prod profile)."""
         region = self.profile.regions[0]
         res = estate.resources
         public_subnet = next(
@@ -689,7 +689,7 @@ class Estate:
         reach for sure: one with a public address in a private subnet (no route to an internet
         gateway), one in a DMZ subnet whose network ACL denies port 80, one in a VPC whose route
         tables were never collected (unknown). The unknown one runs as the escalating scenario
-        role, so its attack path to administrator is Unknown (ADR-0037)."""
+        role."""
 
         def ec2(table: str, key: str, kind: str, name: str, attrs: dict[str, Any]) -> Resource:
             prefix = {"aws_vpc": "vpc", "aws_vpc_subnet": "subnet", "aws_vpc_security_group": "sg"}

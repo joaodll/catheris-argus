@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attackPaths, failedFindings, framework, resources, threatScore } from './drill'
+import { failedFindings, framework, resources, threatScore } from './drill'
 
 const defined = (q: unknown) => Object.fromEntries(Object.entries(q as Record<string, unknown>).filter(([, v]) => v !== undefined))
 
@@ -9,13 +9,6 @@ describe('Overview drill-downs', () => {
     expect(to.name).toBe('misconfigurations')
     expect(defined(to.query)).toEqual({ severity: ['high'], tool: ['prowler'], result: ['FAIL'], muted: 'hide', connection: ['7'] })
     expect(defined((failedFindings(0, 'critical') as { query: object }).query)).not.toHaveProperty('connection')
-  })
-
-  it('opens Attack paths by severity or category', () => {
-    const top = attackPaths(3, { severity: ['critical', 'high'] }) as { name: string; query: Record<string, unknown> }
-    expect(top.name).toBe('attack-paths')
-    expect(defined(top.query)).toMatchObject({ severity: ['critical', 'high'], connection: '3' })
-    expect(defined((attackPaths(0, { category: 'privesc' }) as { query: object }).query)).toEqual({ category: ['privesc'] })
   })
 
   it('opens Resources and the ThreatScore framework for the same connection', () => {

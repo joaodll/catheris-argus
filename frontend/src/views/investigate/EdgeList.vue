@@ -6,7 +6,7 @@ import type { Schemas } from '@/api/client'
 import { originLabel } from './labels'
 
 type Edge = Schemas['EdgeOut']
-const props = defineProps<{ edges: Edge[]; resourceId: number; resourceLink: (id: number) => RouteLocationRaw; newTab?: boolean }>()
+const props = defineProps<{ edges: Edge[]; resourceId: number; resourceLink: (id: number) => RouteLocationRaw }>()
 
 function outgoing(e: Edge): boolean {
   return e.source_resource_id === props.resourceId
@@ -40,9 +40,8 @@ function pseudo(uid: string): string {
         class="btn btn-ghost btn-sm other"
         :title="otherUid(e)"
         :to="resourceLink(otherId(e)!)"
-        :target="newTab ? '_blank' : undefined"
       >
-        {{ otherName(e) ?? otherUid(e) }}<span v-if="newTab" class="sr-only"> (opens in a new tab)</span>
+        {{ otherName(e) ?? otherUid(e) }}
       </RouterLink>
       <span v-else class="mono other path">{{ pseudo(otherUid(e)) }}</span>
       <span class="chip" :title="e.origin">{{ originLabel(e.origin) }}</span>

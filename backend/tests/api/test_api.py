@@ -5,10 +5,8 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, text
 from tests.api.conftest import PASSWORD, csrf
-from tests.conftest import Settle
 from tests.ingest.conftest import make_demo, run_tool
 
-from argus import inventory
 from argus.api import deps
 from argus.auth.sessions import SignInError, TooManyAttemptsError, sign_in
 from argus.collection import TOOL_ORDER
@@ -163,22 +161,18 @@ def test_overview_and_context_from_real_data(
     owner: Engine,
     worker: Engine,
     store: FilesystemRawStore,
-    settle: Settle,
 ) -> None:
     target = make_demo(owner)
     today = datetime.now(UTC).date()
     for tool in TOOL_ORDER:
         run_tool(worker, store, target, tool, today)
-    settle(today)
     data = signed_in.get("/api/v1/overview", params={"connection_id": 0}).json()
     assert data["data_through"] == today.isoformat()
     assert data["kpis"]["assets"]["value"] > 100
     assert 0 < data["kpis"]["threatscore"]["value"] < 100
-    assert data["kpis"]["exploitable_paths"]["value"] >= 1
     assert "delta" not in data["kpis"]["assets"]  # current state only (2026-10-03)
     assert "compared_with" not in data and "daily" not in data["inventory"]
     assert data["coverage"]["gcp"] == "not covered"
-    assert {c["category"] for c in data["attack_paths_by_category"]} >= {"IAM privilege escalation"}
     context = signed_in.get("/api/v1/context").json()
     assert {r["tool"] for r in context["last_runs"]} == set(TOOL_ORDER)
 
@@ -458,13 +452,11 @@ def test_lists_are_paginated(
     owner: Engine,
     worker: Engine,
     store: FilesystemRawStore,
-    settle: Settle,
 ) -> None:
     target = make_demo(owner)
     today = datetime.now(UTC).date()
     for tool in TOOL_ORDER:
         run_tool(worker, store, target, tool, today)
-    settle(today)
     runs = signed_in.get("/api/v1/runs", params={"limit": 2}).json()
     assert len(runs["items"]) == 2 and runs["total"] == len(TOOL_ORDER)
     newest = [r["started_at"] for r in runs["items"]]
@@ -480,18 +472,15 @@ def test_lists_are_paginated(
     assert signed_in.get("/api/v1/runs", params={"order": "tool"}).status_code == 422
     findings = signed_in.get("/api/v1/findings", params={"limit": 5, "severity": "critical"}).json()
     assert findings["items"] and all(f["severity"] == "critical" for f in findings["items"])
-    paths = signed_in.get("/api/v1/attack-paths").json()
-    assert paths["items"][0]["severity"] == "critical"
     assert signed_in.get("/api/v1/runs", params={"limit": 500}).status_code == 422
     # Every data list says which scan it reflects.
     assert findings["data_through"] == today.isoformat()
-    assert paths["data_through"] == today.isoformat()
     resources = signed_in.get("/api/v1/resources", params={"limit": 1}).json()
     assert resources["data_through"] == today.isoformat()
 
 
 def test_a_list_without_data_says_so(signed_in: TestClient) -> None:
-    for path in ("/api/v1/findings", "/api/v1/attack-paths", "/api/v1/resources"):
+    for path in ("/api/v1/findings", "/api/v1/resources"):
         page = signed_in.get(path).json()
         assert page["items"] == [] and page["data_through"] is None
     assert signed_in.get("/api/v1/findings/facets").json() == {
@@ -743,42 +732,16 @@ def test_findings_reach_filter_and_reason(
         assert signed_in.get("/api/v1/findings", params=bad).status_code == 422
 
 
-def test_resource_types_are_the_overview_s_numbers(
-    signed_in: TestClient, owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
+def test_a_resource_says_which_tools_scanned_its_account(
+    signed_in: TestClient, owner: Engine, worker: Engine, store: FilesystemRawStore
 ) -> None:
     target = make_demo(owner)
-    other = make_demo(owner, seed=1)
     today = datetime.now(UTC).date()
-    run_tool(worker, store, target, "steampipe", today)
-    settle(today)
-
-    every = signed_in.get("/api/v1/resources/types").json()
-    assert every["data_through"] == today.isoformat()
-    assert every["types"]
-    counts = [t["count"] for t in every["types"]]
-    assert counts == sorted(counts, reverse=True)
-    # One number with the Overview, which leaves out parts, settings and links.
-    overview = signed_in.get("/api/v1/overview").json()["inventory"]["by_type"]
-    assert {t["type"]: t["count"] for t in every["types"]} == {
-        t["type"]: t["count"] for t in overview
-    }
-    assert not [t["type"] for t in every["types"] if not inventory.is_asset(t["type"])]
-
-    def of(connection_id: int) -> dict:
-        params = {"connection_id": connection_id}
-        return signed_in.get("/api/v1/resources/types", params=params).json()
-
-    one = of(target.connection_id)
-    assert one["types"] == every["types"]
-    # An account with no scan has no types and no scan time: nothing there is a zero.
-    assert of(other.connection_id) == {"types": [], "data_through": None}
-
-
-def test_resource_types_without_data(signed_in: TestClient) -> None:
-    assert signed_in.get("/api/v1/resources/types").json() == {"types": [], "data_through": None}
-    # 0 is the metric store's "all connections", never a connection a client can name.
-    params = {"connection_id": 0}
-    assert signed_in.get("/api/v1/resources/types", params=params).status_code == 422
+    for tool in TOOL_ORDER:
+        run_tool(worker, store, target, tool, today)
+    one = signed_in.get("/api/v1/resources", params={"limit": 1}).json()["items"][0]
+    detail = signed_in.get(f"/api/v1/resources/{one['id']}").json()
+    assert detail["scanned"] == dict.fromkeys(TOOL_ORDER, today.isoformat())
 
 
 def test_resources_filter_search_sort_and_count(

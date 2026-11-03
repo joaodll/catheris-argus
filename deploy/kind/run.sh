@@ -53,7 +53,6 @@ make_secret() {
     echo "ARGUS_SCHEDULER_DB_PASSWORD=$(rand 32)"
     echo "ARGUS_SECRET_KEYS=k1:$(head -c 32 /dev/urandom | base64 -w0)"
     echo "ARGUS_SECRET_KEY_ID=k1"
-    echo "ARGUS_GRAPH_PASSWORD=$(rand 32)"
     echo "ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH=$hash"
   } > "$env"
   k create secret generic argus-secrets --from-env-file="$env" > /dev/null
@@ -248,14 +247,12 @@ test_limits() {
 test_install() {
   step "the install"
   local d
-  for d in api web scheduler graph-sync; do
+  for d in api web scheduler; do
     k rollout status "deploy/$FULL-$d" --timeout 300s > /dev/null
     ok "deploy/$FULL-$d available"
   done
-  for d in postgres memgraph; do
-    k rollout status "statefulset/$FULL-$d" --timeout 300s > /dev/null
-    ok "statefulset/$FULL-$d ready"
-  done
+  k rollout status "statefulset/$FULL-postgres" --timeout 300s > /dev/null
+  ok "statefulset/$FULL-postgres ready"
   for d in migrate rederive; do
     k wait --for=condition=complete job -l "app.kubernetes.io/component=$d" --timeout 600s > /dev/null
     ok "the $d Job completed"
@@ -381,7 +378,6 @@ test_web() {
 test_network() {
   step "NetworkPolicies, enforced"
   local api_ip api_port db="$FULL-postgres:5432" api="$FULL-api:8000" web="$FULL-web:8080" out internet=no
-  local graph="$FULL-memgraph:7687"
   api_ip=$(kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes -o jsonpath='{.items[0].endpoints[0].addresses[0]}')
   api_port=$(kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes -o jsonpath='{.items[0].ports[0].port}')
   curl -s -m 5 -o /dev/null https://1.1.1.1 && internet=yes
@@ -393,33 +389,13 @@ test_network() {
     || fail "web cannot resolve $FULL-postgres"
   if k exec "deploy/$FULL-web" -- nc -z -w 3 "$FULL-postgres" 5432 2>/dev/null; then fail "web -> Postgres open"; fi
   ok "web -> $db closed"
-  if k exec "deploy/$FULL-web" -- nc -z -w 3 "$FULL-memgraph" 7687 2>/dev/null; then fail "web -> Memgraph open"; fi
-  ok "web -> $graph closed"
 
-  # Community's one login can do everything: its module directory must stay read-only (M-2).
-  if k exec "statefulset/$FULL-memgraph" -- touch /var/lib/memgraph/data/internal_modules/probe 2>/dev/null; then
-    fail "Memgraph's query module directory is writable"
-  fi
-  ok "Memgraph's query module directory is read-only"
-
-  # Memgraph (ADR-0044): graph-sync and the API reach it; it reaches nothing.
-  out=$(probe_from api api "$graph" "$db" 1.1.1.1:443)
-  expect_reach "$out" api "$graph" open
+  out=$(probe_from api api "$db" 1.1.1.1:443)
   expect_reach "$out" api "$db" open
   expect_reach "$out" api 1.1.1.1:443 closed
-  out=$(probe_from graph graph-sync "$graph" "$db" "$api" 1.1.1.1:443)
-  expect_reach "$out" graph-sync "$graph" open
-  expect_reach "$out" graph-sync "$db" open
-  expect_reach "$out" graph-sync "$api" closed
-  expect_reach "$out" graph-sync 1.1.1.1:443 closed
-  out=$(probe_from memgraph memgraph "$db" "$api" 1.1.1.1:443)
-  expect_reach "$out" memgraph "$db" closed
-  expect_reach "$out" memgraph "$api" closed
-  expect_reach "$out" memgraph 1.1.1.1:443 closed
 
-  out=$(probe_from scan run "$db" "$api" "$web" "$graph" 169.254.169.254:80 10.96.0.1:443 "$api_ip:$api_port" 1.1.1.1:443)
+  out=$(probe_from scan run "$db" "$api" "$web" 169.254.169.254:80 10.96.0.1:443 "$api_ip:$api_port" 1.1.1.1:443)
   expect_reach "$out" scan "$db" open
-  expect_reach "$out" scan "$graph" closed
   expect_reach "$out" scan "$api" closed
   expect_reach "$out" scan "$web" closed
   expect_reach "$out" scan 169.254.169.254:80 closed
@@ -431,16 +407,14 @@ test_network() {
     echo "      (no internet from this host: scan -> 443 outside not checked)"
   fi
 
-  out=$(probe_from scheduler scheduler "$db" "$api_ip:$api_port" "$api" "$graph" 1.1.1.1:443)
+  out=$(probe_from scheduler scheduler "$db" "$api_ip:$api_port" "$api" 1.1.1.1:443)
   expect_reach "$out" scheduler "$db" open
-  expect_reach "$out" scheduler "$graph" closed
   expect_reach "$out" scheduler "$api_ip:$api_port" open
   expect_reach "$out" scheduler "$api" closed
   expect_reach "$out" scheduler 1.1.1.1:443 closed
 
-  out=$(probe_from unlisted unlisted "$db" "$api" "$web" "$graph" 1.1.1.1:443)
+  out=$(probe_from unlisted unlisted "$db" "$api" "$web" 1.1.1.1:443)
   expect_reach "$out" unlisted "$db" closed
-  expect_reach "$out" unlisted "$graph" closed
   expect_reach "$out" unlisted "$api" closed
   expect_reach "$out" unlisted "$web" closed
   expect_reach "$out" unlisted 1.1.1.1:443 closed
@@ -477,53 +451,6 @@ test_upgrade() {
   ok "a new rederive Job completed ($rederive -> $after)"
 }
 
-graph_sync_log_clean() {
-  # Shown before failing: `kind down` takes the log with it.
-  local errors
-  errors=$(k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -i 'graph sync failed\|loop error' || true)
-  if [ -n "$errors" ]; then
-    printf '%s\n' "$errors"
-    fail "graph-sync logged $(printf '%s\n' "$errors" | wc -l) errors"
-  fi
-}
-
-# graph-sync doesn't start its loop until Memgraph answers. Without this it logged an error whenever
-# Memgraph came up after it, at about 1 install in 4 (2026-11-03).
-test_graph_waits() {
-  step "graph-sync waits for Memgraph"
-  local selector="app.kubernetes.io/instance=$RELEASE,app.kubernetes.io/component=graph-sync" state=""
-  graph_sync_log_clean # the install's own log: deleting the pod below takes it with it
-  ok "graph-sync logged no error while the chart installed"
-  k scale statefulset "$FULL-memgraph" --replicas=0 > /dev/null
-  k wait --for=delete pod "$FULL-memgraph-0" --timeout 180s > /dev/null 2>&1 || true
-  k delete pod -l "$selector" --wait=true > /dev/null
-  for _ in $(seq 90); do
-    state=$(k get pods -l "$selector" -o json | jq -r '.items[] | select(.metadata.deletionTimestamp | not)
-      | .status.initContainerStatuses[]? | select(.name == "wait-for-graph") | .state | keys[0]')
-    [ "$state" = running ] && break
-    sleep 2
-  done
-  [ "$state" = running ] || fail "graph-sync's wait-for-graph is not running: '$state'"
-  sleep 20
-  state=$(k get pods -l "$selector" -o json | jq -r '.items[] | select(.metadata.deletionTimestamp | not)
-    | .status.containerStatuses[]? | select(.name == "graph-sync") | .state | keys[0]')
-  [ "$state" = waiting ] || fail "graph-sync's loop started without Memgraph: '$state'"
-  ok "with Memgraph down, a new graph-sync pod waits and its loop doesn't start"
-  k scale statefulset "$FULL-memgraph" --replicas=1 > /dev/null
-  k rollout status "statefulset/$FULL-memgraph" --timeout 300s > /dev/null
-  k rollout status "deploy/$FULL-graph-sync" --timeout 300s > /dev/null
-  # A first pass finished, so the log below has something to say: it has no readiness probe, so
-  # the rollout ends before the process has logged anything.
-  for _ in $(seq 90); do
-    k logs "deploy/$FULL-graph-sync" -c graph-sync 2>/dev/null | grep -q 'attack paths evaluated' && break
-    sleep 2
-  done
-  k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -q 'attack paths evaluated' \
-    || fail "graph-sync finished no pass after Memgraph came back"
-  graph_sync_log_clean
-  ok "Memgraph back: graph-sync finished a pass with no error"
-}
-
 test_helm_test() {
   step "helm test"
   local out
@@ -543,10 +470,6 @@ test_health() {
   denied=$(k logs "deploy/$FULL-scheduler" -c scheduler | grep -ci 'denied\|forbidden' || true)
   [ "$denied" -eq 0 ] || fail "the scheduler logged $denied refusals"
   ok "the scheduler logged no refusal"
-  k logs "deploy/$FULL-graph-sync" -c graph-sync | grep -q 'graph sync started' \
-    || fail "graph-sync did not start its loop"
-  graph_sync_log_clean
-  ok "graph-sync running, no sync error"
 }
 
 run_tests() {
@@ -561,7 +484,6 @@ run_tests() {
   test_retention
   test_upgrade
   test_helm_test
-  test_graph_waits
   test_health
   printf '\nkind test passed\n'
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * The side panel for details read next to a list: a finding, a resource, a node of the map
+ * The side panel for details read next to a list: a finding, a resource
  * (design-system.md, Sheet). Forms open in AppModal since 2026-10-13. A native modal <dialog>:
  * the browser traps focus, makes the page inert, closes on Esc and returns focus to the opener.
  * Its title takes focus on open, and again when it shows another record (a connected resource).

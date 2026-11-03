@@ -9,7 +9,6 @@
 #   docker compose run --rm lint         gitleaks, read-only policy check, ruff, mypy, import-linter
 #   docker compose run --rm scan         Trivy: repo files, then the backend, worker and web images (CRITICAL gate)
 #   docker compose run --rm scrub-fixtures --run-id ID   spike run -> backend/tests/fixtures
-#   docker compose --profile budget run --rm budget   graph and map budgets on an 8 GiB Postgres (Phase 0)
 #   docker compose run --rm lock         re-resolve backend/uv.lock after editing pyproject.toml
 #     ... lock uv lock --directory tools/prowler   re-resolve Prowler's lock after changing its pin
 #   docker compose build migrate worker  build argus-backend:runtime and :worker (needed before `scan`)
@@ -126,7 +125,6 @@ services:
       ARGUS_LOGIN_MAX_FAILURES_PER_IP: ${ARGUS_LOGIN_MAX_FAILURES_PER_IP:-20}
       ARGUS_LOGIN_MAX_FAILURES_PER_USERNAME: ${ARGUS_LOGIN_MAX_FAILURES_PER_USERNAME:-100}
       ARGUS_MAX_HISTORY_DAYS: ${ARGUS_MAX_HISTORY_DAYS:-400}
-      ARGUS_GRAPH_TIMEOUT_SECONDS: ${ARGUS_GRAPH_TIMEOUT_SECONDS:-120}
       # From .env: docker compose run --rm admin-tools new-secret-key
       ARGUS_SECRET_KEYS: ${ARGUS_SECRET_KEYS:-}
       ARGUS_SECRET_KEY_ID: ${ARGUS_SECRET_KEY_ID:-}
@@ -134,10 +132,7 @@ services:
       # X-Forwarded-For with the real peer, so a browser can't choose the IP that the sign-in
       # limit and the audit log record. Any other caller is recorded by its own address.
       ARGUS_TRUSTED_PROXIES: 172.31.250.2
-      # The Resource map reads the graph (ADR-0044, M3b), by named queries in read transactions.
-      # The one login, which Memgraph Community can't limit: the owner's decision of 2026-11-02.
-      ARGUS_GRAPH_PASSWORD: ${ARGUS_DEV_GRAPH_PASSWORD:-argus-graph-local-dev}
-    networks: [edge, data, graph]
+    networks: [edge, data]
     <<: *hardened
     read_only: true
     tmpfs: [/tmp]
@@ -276,16 +271,12 @@ services:
       ARGUS_RAW_ROOT: /var/lib/argus
       # As the API's: retention deletes what is above the bound, so both must hold the same one.
       ARGUS_MAX_HISTORY_DAYS: ${ARGUS_MAX_HISTORY_DAYS:-400}
-      ARGUS_GRAPH_TIMEOUT_SECONDS: ${ARGUS_GRAPH_TIMEOUT_SECONDS:-120}
       ARGUS_WORKER_THREADS: "2"
-      # 3 connections per run thread, 1 for Test connection, 2 for the graph thread, 2 for the
-      # main loop: raise it with the threads, or the worker refuses to start. api, migrate and
-      # seed use the default, 10.
-      ARGUS_DB_POOL_MAX: "11"
+      # 3 connections per run thread, 1 for Test connection, 2 for the main loop: raise it with
+      # the threads, or the worker refuses to start. api, migrate and seed use the default, 10.
+      ARGUS_DB_POOL_MAX: "9"
       ARGUS_SECRET_KEYS: ${ARGUS_SECRET_KEYS:-}
       ARGUS_SECRET_KEY_ID: ${ARGUS_SECRET_KEY_ID:-}
-      # The graph read model's login (ADR-0044); the worker's graph thread is its only writer.
-      ARGUS_GRAPH_PASSWORD: ${ARGUS_DEV_GRAPH_PASSWORD:-argus-graph-local-dev}
     # staging holds an AWS run's raw output until it is uploaded to S3, then the run's folder
     # is deleted; the worker empties it at start (ADR-0032). It is on the host's disk and can
     # hold secret values: use an encrypted disk on a machine that scans a real account.
@@ -293,8 +284,7 @@ services:
       - raw:/var/lib/argus
       - staging:/var/lib/argus-staging
     # egress: the only service with a route out, to S3 (raw output) and, later, AWS APIs.
-    # graph: Memgraph, which only the worker and the API reach (ADR-0044).
-    networks: [data, egress, graph]
+    networks: [data, egress]
     <<: *hardened
     read_only: true
     tmpfs: [/tmp]
@@ -305,56 +295,9 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      memgraph:
-        condition: service_healthy
     command: ["python", "-m", "argus.entrypoints.worker"]
     restart: unless-stopped
     stop_grace_period: 2m
-
-  # The graph read model (ADR-0044): every connection's current state, rebuilt from Postgres,
-  # so its volume needs no backup. Only on the internal `graph` network, never published.
-  # Telemetry is off (the image's own memgraph.conf turns it on), and the metrics and monitoring
-  # listeners stay on the loopback. 2.0-2.5 GiB held 1M resources and 2.4M edges (2026-10-31).
-  memgraph:
-    image: memgraph/memgraph:3.13.2@sha256:302a6622a9bd28191818801b7ea6e5931bc1cd0a0d1646333269a2237b1bdcb0
-    environment:
-      # The first login, created when the volume is new (like POSTGRES_PASSWORD).
-      MEMGRAPH_USER: argus
-      MEMGRAPH_PASSWORD: ${ARGUS_DEV_GRAPH_PASSWORD:-argus-graph-local-dev}
-    command:
-      - --telemetry-enabled=false
-      - --metrics-address=127.0.0.1
-      - --monitoring-address=127.0.0.1
-      - --storage-mode=IN_MEMORY_TRANSACTIONAL
-      - --storage-wal-enabled=true
-      - --storage-snapshot-interval-sec=300
-      - --storage-snapshot-on-exit=true
-      - --query-execution-timeout-sec=600
-      - --memory-limit=3584
-      # Community's login can do everything, and the API holds it (ADR-0044, M-2). These keep it
-      # to the graph: no reading files, and, with the read-only directory below, no writing a
-      # Python query module and running it inside Memgraph.
-      - --allow-load-csv=false
-      - --log-level=WARNING
-      # Logs to stderr only: no log file on a read-only root.
-      - --log-file=
-      - --also-log-to-stderr=true
-    volumes:
-      - memgraph-data:/var/lib/memgraph
-    networks: [graph]
-    <<: *hardened
-    read_only: true
-    tmpfs:
-      - /tmp
-      - /var/lib/memgraph/internal_modules:ro
-    mem_limit: 4g
-    pids_limit: 512
-    healthcheck:
-      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/7687"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
-    restart: unless-stopped
 
   # Developer shortcut: three Demo connections with history. Connects as the API role, the
   # same identity the UI's "add connection" uses, so it proves those grants are enough.
@@ -434,163 +377,11 @@ services:
       ARGUS_RULES_DIR: /app/rules
       # A leaked connection or a stuck lock fails the test in seconds instead of hanging.
       PGOPTIONS: "-c lock_timeout=20s -c statement_timeout=120s"
-      # Its own Memgraph: Community holds one database, so tests never share the dev graph.
-      ARGUS_GRAPH_URI: bolt://memgraph-test:7687
-      ARGUS_GRAPH_PASSWORD: argus-graph-test
-    networks: [data, graph]
+    networks: [data]
     depends_on:
       postgres:
         condition: service_healthy
-      memgraph-test:
-        condition: service_healthy
     command: ["pytest"]
-
-  # The tests' Memgraph: no volume, emptied by the tests themselves (tests/graph).
-  memgraph-test:
-    image: memgraph/memgraph:3.13.2@sha256:302a6622a9bd28191818801b7ea6e5931bc1cd0a0d1646333269a2237b1bdcb0
-    profiles: [tools]
-    environment:
-      MEMGRAPH_USER: argus
-      MEMGRAPH_PASSWORD: argus-graph-test
-    # The dev flags, with the data in the container's /tmp and no durability: thrown away.
-    command:
-      - --telemetry-enabled=false
-      - --metrics-address=127.0.0.1
-      - --monitoring-address=127.0.0.1
-      - --storage-mode=IN_MEMORY_TRANSACTIONAL
-      - --storage-wal-enabled=false
-      - --storage-snapshot-interval-sec=0
-      - --storage-snapshot-on-exit=false
-      - --query-execution-timeout-sec=600
-      - --allow-load-csv=false
-      - --log-level=WARNING
-      - --log-file=
-      - --also-log-to-stderr=true
-    networks: [graph]
-    <<: *hardened
-    read_only: true
-    tmpfs:
-      - /tmp
-      # Its data never outlives it, and its module directory is read-only, as `memgraph`'s is.
-      - /var/lib/memgraph:uid=101,gid=103,mode=0750
-      - /var/lib/memgraph/internal_modules:ro
-    mem_limit: 4g
-    healthcheck:
-      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/7687"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
-
-  # Phase 0 (ADR-0044, round M3): the opt-in graph and map budgets, at 300,000 and 1,000,000
-  # resources. Its own Postgres sized like an 8 GiB RDS instance (the development one has 1 GiB,
-  # and a backend was killed generating 300,000 resources there on 2026-10-31), its own
-  # Memgraph with the production flags (durable, so the WAL's cost is measured), and a runner.
-  # All three share the internal `budget` network only: nothing is published, nothing reaches
-  # the development stack, and nothing has a route out.
-  #   docker compose --profile budget run --rm budget          (300,000 resources)
-  #   ARGUS_GRAPH_BUDGET_RESOURCES=1000000 docker compose --profile budget run --rm budget
-  # Stop and empty it afterwards, naming the services. A `stop` with no service names stops
-  # EVERY service of the project, including the development stack (a dead end, 2026-10-31):
-  #   docker compose --profile budget rm -sfv postgres-budget memgraph-budget
-  #   docker volume rm argus_pgdata-budget argus_memgraph-budget
-  postgres-budget:
-    image: postgres:17-trixie@sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f
-    profiles: [budget]
-    environment:
-      POSTGRES_DB: argus
-      POSTGRES_USER: argus
-      POSTGRES_PASSWORD: argus-budget
-    # RDS-like for 8 GiB: a quarter of it for shared buffers, JIT off as on Argus's RDS
-    # recommendation, room for the parallel workers' shared memory (shm_size).
-    command:
-      - postgres
-      - -c
-      - shared_buffers=2GB
-      - -c
-      - effective_cache_size=6GB
-      - -c
-      - work_mem=64MB
-      - -c
-      - maintenance_work_mem=512MB
-      - -c
-      - max_wal_size=8GB
-      - -c
-      - jit=off
-    volumes:
-      - pgdata-budget:/var/lib/postgresql/data
-    networks: [budget]
-    <<: *hardened
-    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
-    mem_limit: 8g
-    shm_size: 2g
-    pids_limit: 512
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U argus -d argus"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
-
-  # The `memgraph` service's image and flags, on its own volume.
-  memgraph-budget:
-    image: memgraph/memgraph:3.13.2@sha256:302a6622a9bd28191818801b7ea6e5931bc1cd0a0d1646333269a2237b1bdcb0
-    profiles: [budget]
-    environment:
-      MEMGRAPH_USER: argus
-      MEMGRAPH_PASSWORD: argus-graph-budget
-    command:
-      - --telemetry-enabled=false
-      - --metrics-address=127.0.0.1
-      - --monitoring-address=127.0.0.1
-      - --storage-mode=IN_MEMORY_TRANSACTIONAL
-      - --storage-wal-enabled=true
-      - --storage-snapshot-interval-sec=300
-      - --storage-snapshot-on-exit=false
-      - --query-execution-timeout-sec=600
-      - --memory-limit=3584
-      - --allow-load-csv=false
-      - --log-level=WARNING
-      - --log-file=
-      - --also-log-to-stderr=true
-    volumes:
-      - memgraph-budget:/var/lib/memgraph
-    networks: [budget]
-    <<: *hardened
-    read_only: true
-    tmpfs:
-      - /tmp
-      - /var/lib/memgraph/internal_modules:ro
-    mem_limit: 4g
-    pids_limit: 512
-    healthcheck:
-      test: ["CMD", "bash", "-c", "</dev/tcp/127.0.0.1/7687"]
-      interval: 2s
-      timeout: 3s
-      retries: 30
-
-  # The runner: the test image against the two above. Only the budget tests run here.
-  budget:
-    <<: [*backend-dev, *hardened]
-    profiles: [budget]
-    environment:
-      <<: *db-env
-      ARGUS_DB_HOST: postgres-budget
-      ARGUS_DB_NAME: argus_test   # the session fixture recreates it; never a dev database
-      ARGUS_DB_PASSWORD: argus-budget
-      ARGUS_RULES_DIR: /app/rules
-      # A stuck lock fails in seconds; generating 1,000,000 resources takes minutes per statement.
-      PGOPTIONS: "-c lock_timeout=20s -c statement_timeout=30min"
-      ARGUS_GRAPH_URI: bolt://memgraph-budget:7687
-      ARGUS_GRAPH_PASSWORD: argus-graph-budget
-      ARGUS_GRAPH_BUDGET: "1"
-      ARGUS_GRAPH_BUDGET_RESOURCES: ${ARGUS_GRAPH_BUDGET_RESOURCES:-300000}
-    networks: [budget]
-    depends_on:
-      postgres-budget:
-        condition: service_healthy
-      memgraph-budget:
-        condition: service_healthy
-    mem_limit: 6g
-    command: ["pytest", "-p", "no:cacheprovider", "-s", "tests/budget/test_graph_budget.py", "tests/budget/test_map_budget.py"]
 
   lint:
     <<: *backend-dev
@@ -687,10 +478,7 @@ services:
         trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL --ignore-unfixed
         --ignorefile /repo/.trivyignore argus-web:runtime &&
         trivy image --scanners vuln --exit-code 1 --severity CRITICAL --ignore-unfixed
-        --ignorefile /repo/.trivyignore argus-backend:worker &&
-        trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL --ignore-unfixed
-        --ignorefile /repo/.trivyignore
-        memgraph/memgraph:3.13.2@sha256:302a6622a9bd28191818801b7ea6e5931bc1cd0a0d1646333269a2237b1bdcb0
+        --ignorefile /repo/.trivyignore argus-backend:worker
 
   # The chart's static checks, offline (deploy/kind/check.sh): lint, render, kubeconform,
   # digests, the values that must be refused, the Postgres image the same as above.
@@ -741,21 +529,12 @@ networks:
     internal: true
   # worker -> the internet (S3). Not internal, and no other service joins it.
   egress: {}
-  # worker (and test) <-> Memgraph (ADR-0044). Internal: no route out.
-  graph:
-    internal: true
   # emulate <-> moto (dev only). Internal: no route out.
   emulate:
-    internal: true
-  # The budget profile's Postgres, Memgraph and runner. Internal: no route out.
-  budget:
     internal: true
 
 volumes:
   pgdata:
-  memgraph-data:
-  pgdata-budget:
-  memgraph-budget:
   raw:
   staging:
   trivy-cache:

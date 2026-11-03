@@ -29,12 +29,7 @@ const LOOK: Record<string, { icon: IconName; text: string; tone: string }> = {
   reach_restricted: { icon: 'blocked', text: 'Argus: Restricted', tone: 'ok' },
   reach_unknown: { icon: 'eye-off', text: 'Argus: Unknown', tone: 'idle' },
   reach_not_covered: { icon: 'info', text: 'Argus: Not checked', tone: 'idle' },
-  // A front door's reach on the Resource map (ADR-0035).
-  conf_confirmed: { icon: 'check', text: 'Confirmed', tone: 'ok' },
-  conf_supported: { icon: 'half', text: 'Supported', tone: 'idle' },
-  conf_candidate: { icon: 'info', text: 'Candidate', tone: 'warn' },
-  conf_unknown: { icon: 'eye-off', text: 'Unknown', tone: 'idle' },
-  conf_blocked: { icon: 'blocked', text: 'Blocked', tone: 'idle' },
+  // A resource's reach from the internet, in its Resources panel (ADR-0035).
   door_open: { icon: 'warning', text: 'Reachable', tone: 'warn' },
   door_unknown: { icon: 'eye-off', text: 'Unknown', tone: 'idle' },
   door_restricted: { icon: 'blocked', text: 'Restricted', tone: 'ok' },

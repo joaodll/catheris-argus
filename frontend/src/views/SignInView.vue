@@ -70,7 +70,7 @@ async function submit(): Promise<void> {
 <template>
   <AuthCard>
     <h1 data-page-title tabindex="-1">Sign in to continue</h1>
-    <p class="sub">Cloud security posture, attack paths and inventory</p>
+    <p class="sub">Cloud security posture, vulnerabilities and inventory</p>
 
     <AlertBanner v-if="error" kind="fail">{{ error }}</AlertBanner>
     <AlertBanner v-else-if="notice">{{ notice }}</AlertBanner>

@@ -53,7 +53,7 @@ COPY --from=builder /opt/venv /opt/venv
 # Migrations ship in the image so the one-shot `migrate` service runs exactly what was built.
 COPY alembic.ini /opt/argus/alembic.ini
 COPY migrations /opt/argus/migrations
-# Relationship and attack-path rules: versioned files the engines load at run time.
+# Relationship rules: versioned files the engines load at run time.
 COPY rules /opt/argus/rules
 # The raw archive in Compose (S3 later), and the worker's staging for AWS runs (ADR-0032).
 # Created here so a fresh named volume inherits the runtime user's ownership instead of root's;
