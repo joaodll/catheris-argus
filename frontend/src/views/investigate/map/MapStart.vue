@@ -1,18 +1,21 @@
 <script setup lang="ts">
 /**
- * The Resource map's start (round M3a; the spec is in the palace, frontend): with no resource
- * chosen, find one (in one account, or in all) or reopen one of the last eight mapped in this
- * tab. The map shows dependencies and connections; what the internet reaches is explained on
- * Attack paths and Findings, so nothing here judges reach.
+ * The Resource map's start (the spec is in the palace, frontend): with no resource chosen, see
+ * what is in the inventory and choose from a type's list, find one by name, or reopen one of the
+ * last eight mapped in this tab. The map shows dependencies and connections; what the internet
+ * reaches is explained on Attack paths and Findings, so nothing here judges reach.
  */
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
 import type { Schemas } from '@/api/client'
 import AppIcon from '@/components/AppIcon.vue'
 import { clearRecent, forgetRecent, readRecent, type RecentResource } from '@/composables/recentResources'
 import { username } from '@/composables/useSession'
+import MapStartList from './MapStartList.vue'
+import MapStartRow from './MapStartRow.vue'
+import MapStartTypes from './MapStartTypes.vue'
 import ResourceSearch from './ResourceSearch.vue'
-import { typeDisc, typeLabel } from './mapLanes'
+import { typeLabel } from './mapLanes'
 
 const props = defineProps<{
   connections: Schemas['ConnectionOut'][] | null
@@ -20,8 +23,21 @@ const props = defineProps<{
   connection: number | null
   connectionName: (id: number) => string
   recentLink: (entry: RecentResource) => RouteLocationRaw
+  type: string | null
+  page: number
+  typeLink: (type: string | null) => RouteLocationRaw
+  resourceLink: (row: Schemas['ResourceRow']) => RouteLocationRaw
 }>()
-const emit = defineEmits<{ choose: [uid: string, connectionId: number]; account: [connectionId: number | null] }>()
+const emit = defineEmits<{ choose: [uid: string, connectionId: number]; account: [connectionId: number | null]; page: [page: number] }>()
+
+// Moving between the types and a type's list takes focus to the new heading; arriving does not.
+const moved = ref(false)
+watch(
+  () => props.type,
+  () => {
+    moved.value = true
+  },
+)
 
 const recent = ref<RecentResource[]>(readRecent(username.value))
 function forget(uid: string): void {
@@ -63,29 +79,42 @@ const account = (r: RecentResource) =>
       </div>
       <p v-if="connectionsFailed" class="cap note">Accounts couldn't be loaded; the search covers all of them.</p>
 
-      <section class="recent" aria-labelledby="map-recent-h">
+      <section v-if="!type && recent.length" class="recent" aria-labelledby="map-recent-h">
         <div class="recent-head">
           <h3 id="map-recent-h" class="lbl">Recently opened</h3>
-          <button v-if="recent.length" type="button" class="btn btn-ghost btn-sm" @click="clear">Clear</button>
+          <button type="button" class="btn btn-ghost btn-sm" @click="clear">Clear</button>
         </div>
-        <ul v-if="recent.length" class="rows">
+        <ul class="rows">
           <li v-for="r in recent" :key="r.uid" class="row">
-            <RouterLink class="open" :to="recentLink(r)" :title="r.uid" :aria-label="`${label(r)}, ${typeLabel(r.type)}, ${account(r)}`">
-              <span class="disc" :style="{ '--type': typeDisc('resource', r.type).color }" aria-hidden="true">
-                <AppIcon :name="typeDisc('resource', r.type).icon" :size="15" />
-              </span>
-              <span class="text">
-                <span class="name">{{ label(r) }}</span>
-                <span class="meta">{{ typeLabel(r.type) }} · {{ account(r) }}</span>
-              </span>
-            </RouterLink>
+            <MapStartRow
+              :to="recentLink(r)"
+              :name="label(r)"
+              :label="`${label(r)}, ${typeLabel(r.type)}, ${account(r)}`"
+              :title="r.uid"
+              :type="r.type"
+              show-disc
+              :meta="`${typeLabel(r.type)} · ${account(r)}`"
+            />
             <button type="button" class="forget" :aria-label="`Forget ${label(r)}`" @click="forget(r.uid)">
               <AppIcon name="cross" :size="14" />
             </button>
           </li>
         </ul>
-        <p v-else class="empty">Resources you open on the map appear here.</p>
       </section>
+
+      <MapStartList
+        v-if="type"
+        :key="type"
+        :type="type"
+        :page="page"
+        :connection="connection"
+        :connection-name="connectionName"
+        :all-types-link="typeLink(null)"
+        :resource-link="resourceLink"
+        :take-focus="moved"
+        @page="(p) => emit('page', p)"
+      />
+      <MapStartTypes v-else :connection="connection" :type-link="typeLink" :take-focus="moved" />
 
       <p class="cap hint">
         Every resource on <RouterLink to="/investigate/resources">Resources</RouterLink> and every step on
@@ -181,59 +210,6 @@ const account = (r: RecentResource) =>
   background: var(--surface-active);
 }
 
-.open {
-  display: flex;
-  flex: 1 1 auto;
-  align-items: center;
-  gap: var(--s-12);
-  min-width: 0;
-  min-height: 44px;
-  padding: var(--s-6) var(--s-8);
-  border-radius: var(--r-control);
-  color: inherit;
-  text-decoration: none;
-}
-
-.open:focus-visible,
-.forget:focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.disc {
-  display: inline-flex;
-  flex: 0 0 28px;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--type) 16%, transparent);
-  color: var(--type);
-}
-
-.text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.name {
-  overflow: hidden;
-  color: var(--text);
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.meta {
-  overflow: hidden;
-  color: var(--text-2);
-  font-size: 12.5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .forget {
   display: inline-flex;
   flex: 0 0 32px;
@@ -252,9 +228,9 @@ const account = (r: RecentResource) =>
   color: var(--text);
 }
 
-.empty {
-  margin: 0;
-  color: var(--text-3);
+.forget:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 @media (max-width: 719px) {

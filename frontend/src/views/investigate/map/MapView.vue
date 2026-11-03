@@ -233,7 +233,11 @@ function reset(): void {
   void load()
 }
 const recentLink = (r: RecentResource) => ({ query: mapQueryToUrl({ ...state.value, focus: r.uid, open: r.uid, path: null, connection: r.connectionId }, defaultView) })
-// Back to the start: the day and the view stay.
+const typeLink = (type: string | null) => ({ query: mapQueryToUrl({ ...state.value, type, page: 1 }, defaultView) })
+const resourceLink = (r: Schemas['ResourceRow']) => ({
+  query: mapQueryToUrl({ ...state.value, focus: r.resource_uid, open: r.resource_uid, path: null, connection: state.value.connection != null ? r.connection_id : null }, defaultView),
+})
+// Back to the start: the view, the type and its page stay.
 const startLink = computed(() => ({ query: mapQueryToUrl({ ...state.value, focus: null, open: null, path: null }, defaultView) }))
 
 // ---- Panel frame: docked (≥ 1200 px), over the canvas (900–1200), the detail sheet (< 900).
@@ -271,54 +275,53 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
 
 <template>
   <PageHeader title="Resource map">
-    <template v-if="dataThrough">Data through <span class="mono strong">{{ dataThrough }}</span></template>
+    <!-- The map's day, so only with a map: the start says its own under "What's here". -->
+    <template v-if="started && dataThrough">Data through <span class="mono strong">{{ dataThrough }}</span></template>
   </PageHeader>
 
-  <section class="card toolbar" aria-label="Map controls">
-    <ResourceSearch v-if="started" :connection-name="connectionName" @choose="(uid) => navigate({ focus: uid, open: uid, path: null, connection: null })" />
-    <template v-if="started">
-      <div class="field">
-        <span id="map-depth" class="lbl">Depth</span>
-        <div class="segmented" role="group" aria-labelledby="map-depth">
-          <button v-for="d in DEPTHS" :key="d" type="button" :aria-pressed="state.depth === d" @click="navigate({ depth: d })">{{ d }}</button>
-        </div>
+  <section v-if="started" class="card toolbar" aria-label="Map controls">
+    <ResourceSearch :connection-name="connectionName" @choose="(uid) => navigate({ focus: uid, open: uid, path: null, connection: null })" />
+    <div class="field">
+      <span id="map-depth" class="lbl">Depth</span>
+      <div class="segmented" role="group" aria-labelledby="map-depth">
+        <button v-for="d in DEPTHS" :key="d" type="button" :aria-pressed="state.depth === d" @click="navigate({ depth: d })">{{ d }}</button>
       </div>
-      <div class="field">
-        <MultiSelect id="map-layers" label="Layers" :options="layerOptions" :model-value="state.layers" @update:model-value="setLayers" />
+    </div>
+    <div class="field">
+      <MultiSelect id="map-layers" label="Layers" :options="layerOptions" :model-value="state.layers" @update:model-value="setLayers" />
+    </div>
+    <div class="field">
+      <span id="map-origins" class="lbl">Origins</span>
+      <div class="origins" role="group" aria-labelledby="map-origins">
+        <button
+          v-for="o in ORIGINS"
+          :key="o"
+          type="button"
+          class="toggle-chip"
+          :aria-pressed="state.origins.includes(o)"
+          :disabled="state.origins.includes(o) && state.origins.length === 1"
+          :title="state.origins.includes(o) && state.origins.length === 1 ? 'One origin stays on' : undefined"
+          @click="toggleOrigin(o)"
+        >
+          <AppIcon v-if="state.origins.includes(o)" name="check" :size="14" :stroke="2.2" />{{ ORIGIN_LABEL[o] }}
+        </button>
       </div>
-      <div class="field">
-        <span id="map-origins" class="lbl">Origins</span>
-        <div class="origins" role="group" aria-labelledby="map-origins">
-          <button
-            v-for="o in ORIGINS"
-            :key="o"
-            type="button"
-            class="toggle-chip"
-            :aria-pressed="state.origins.includes(o)"
-            :disabled="state.origins.includes(o) && state.origins.length === 1"
-            :title="state.origins.includes(o) && state.origins.length === 1 ? 'One origin stays on' : undefined"
-            @click="toggleOrigin(o)"
-          >
-            <AppIcon v-if="state.origins.includes(o)" name="check" :size="14" :stroke="2.2" />{{ ORIGIN_LABEL[o] }}
-          </button>
-        </div>
-      </div>
-    </template>
-    <div v-if="started && state.view === 'map'" class="field">
+    </div>
+    <div v-if="state.view === 'map'" class="field">
       <label class="lbl" for="map-highlight">Highlight</label>
       <select id="map-highlight" class="select" :value="state.highlight ?? ''" @change="navigate({ highlight: (($event.target as HTMLSelectElement).value || null) as Fact | null }, 'replace')">
         <option value="">Nothing</option>
         <option v-for="f in FACTS" :key="f" :value="f">{{ FACT_LABEL[f] }}</option>
       </select>
     </div>
-    <div v-if="started" class="field">
+    <div class="field">
       <span id="map-view" class="lbl">View</span>
       <div class="segmented" role="group" aria-labelledby="map-view">
         <button type="button" :aria-pressed="state.view === 'map'" @click="navigate({ view: 'map' }, 'replace')">Map</button>
         <button type="button" :aria-pressed="state.view === 'list'" @click="navigate({ view: 'list' }, 'replace')">List</button>
       </div>
     </div>
-    <button v-if="started" type="button" class="btn btn-ghost reset" @click="reset">Reset</button>
+    <button type="button" class="btn btn-ghost reset" @click="reset">Reset</button>
   </section>
 
   <AlertBanner v-if="banner" kind="warn">{{ banner }}</AlertBanner>
@@ -342,8 +345,13 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         :connection="state.connection"
         :connection-name="connectionName"
         :recent-link="recentLink"
+        :type="state.type"
+        :page="state.page"
+        :type-link="typeLink"
+        :resource-link="resourceLink"
         @choose="(uid, cid) => navigate({ focus: uid, open: uid, path: null, connection: state.connection != null ? cid : null })"
-        @account="(cid) => navigate({ connection: cid }, 'replace')"
+        @account="(cid) => navigate({ connection: cid, page: 1 }, 'replace')"
+        @page="(p) => navigate({ page: p }, 'replace')"
       />
       <AlertBanner v-else-if="error" kind="fail" class="in-card">
         The map didn't load: {{ error }}

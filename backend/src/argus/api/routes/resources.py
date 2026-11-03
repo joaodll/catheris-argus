@@ -7,9 +7,10 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from argus import findings, ingest, inventory, relationships
+from argus import findings, ingest, inventory, metrics, relationships
 from argus.api.deps import Db, Viewer
 from argus.api.routes.findings import CommandOut, VulnerabilityOut
+from argus.api.routes.overview import TypeCount
 from argus.core.db import SEARCH_COUNT_CAP
 
 router = APIRouter(tags=["inventory"])
@@ -63,6 +64,12 @@ class ResourcePage(BaseModel):
 class ResourceFacets(BaseModel):
     types: list[str]
     regions: list[str]
+
+
+class ResourceTypes(BaseModel):
+    types: list[TypeCount]
+    # The scan time the counts reflect; null when nothing is ingested.
+    data_through: date | None
 
 
 class EdgeOut(BaseModel):
@@ -255,6 +262,27 @@ def resource_facets(conn: Db, _user: Viewer, connection_id: int | None = None) -
     """The options of the Resources filters that come from the data."""
     return ResourceFacets.model_validate(
         inventory.resource_facets(conn, connection_id=connection_id)
+    )
+
+
+@router.get("/resources/types")
+def resource_types(
+    conn: Db, _user: Viewer, connection_id: Annotated[int | None, Query(ge=1)] = None
+) -> ResourceTypes:
+    """What is in the inventory, per type and largest first: the Overview's stored numbers, so
+    both screens say the same, and parts, settings and links are left out."""
+    counts = metrics.latest(
+        conn,
+        connection_id=metrics.ALL_CONNECTIONS if connection_id is None else connection_id,
+        metric="assets.by_type",
+        as_of=datetime.now(UTC).date(),
+    )
+    return ResourceTypes(
+        types=[
+            TypeCount(type=t, count=n)
+            for t, n in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        ],
+        data_through=ingest.data_through(conn, connection_id=connection_id, tools=["steampipe"]),
     )
 
 
