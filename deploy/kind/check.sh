@@ -59,6 +59,9 @@ check_render() {
 
 check_render minimal -f "$CHART/ci/minimal-values.yaml"
 check_render external-db -f "$CHART/ci/external-db-values.yaml"
+# An external database needs only its host: the CA and its address ranges are optional.
+HOST_ONLY=(-f "$CHART/ci/minimal-values.yaml" --set postgres.enabled=false --set postgres.external.host=db)
+check_render external-db-host-only "${HOST_ONLY[@]}"
 check_render kind -f "$HERE/values-kind.yaml" "${KIND_SET[@]}"
 
 step "renders that must be refused"
@@ -74,7 +77,8 @@ refused "an image by tag" --set images.runtime.digest=latest
 refused "no Secret name" --set secrets.existingSecret=
 refused "the admission policy off, unacknowledged" --set admissionPolicy.enabled=false
 refused "an external database without a host" --set postgres.enabled=false --set "postgres.external.cidrs={10.0.0.0/24}"
-refused "an external database without addresses" --set postgres.enabled=false --set postgres.external.host=db
+refused "verify-full without a CA" --set postgres.enabled=false --set postgres.external.host=db --set postgres.external.sslmode=verify-full
+refused "verify-ca without a CA" --set postgres.enabled=false --set postgres.external.host=db --set postgres.external.sslmode=verify-ca
 refused "no Kubernetes API addresses" --set networkPolicy.kubeApi.cidrs=null
 refused "instance metadata reachable from scan Jobs" --set "networkPolicy.scanEgressExcept={10.0.0.0/8}"
 refused "autoscaling with min above max" --set api.autoscaling.enabled=true --set api.autoscaling.minReplicas=5 --set api.autoscaling.maxReplicas=3
@@ -107,6 +111,30 @@ expect_env Deployment api ARGUS_MAX_HISTORY_DAYS 500
 expect_env CronJob retention ARGUS_MAX_HISTORY_DAYS 500
 expect_env Deployment api ARGUS_SESSION_IDLE_MINUTES 45
 expect_env Deployment api ARGUS_LOGIN_MAX_FAILURES_PER_IP 33
+
+step "an external database with only a host"
+host_only="$OUT/external-db-host-only.yaml"
+db_env() { # <rendered file> <variable>
+  yq -N "select(.kind == \"Deployment\" and .metadata.name == \"argus-api\")
+    | .. | select(has(\"env\")) | .env[] | select(.name == \"$2\") | .value" "$1" | head -1
+}
+db_ranges() { # <rendered file>
+  yq -N 'select(.kind == "NetworkPolicy" and .metadata.name == "argus-database-clients")
+    | .spec.egress[0].to[].ipBlock.cidr' "$1" | paste -sd,
+}
+[ "$(db_env "$host_only" ARGUS_DB_SSLMODE)" = require ] || fail "no CA: sslmode is not require"
+[ -z "$(db_env "$host_only" ARGUS_DB_SSLROOTCERT)" ] || fail "no CA: a CA path is set"
+[ "$(db_ranges "$host_only")" = "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" ] \
+  || fail "no ranges: database egress is $(db_ranges "$host_only"), expected private addresses only"
+echo "no CA: sslmode=require; no ranges: private addresses only"
+[ "$(db_env "$OUT/external-db.yaml" ARGUS_DB_SSLMODE)" = verify-full ] || fail "a CA: sslmode is not verify-full"
+[ "$(db_ranges "$OUT/external-db.yaml")" = 10.0.32.0/20 ] || fail "ranges set: database egress is not exactly them"
+echo "a CA: sslmode=verify-full; ranges set: exactly them"
+notes=$(helm install argus "$CHART" -n argus --dry-run=client "${HOST_ONLY[@]}")
+for gap in "sslmode=require" "postgres.external.cidrs is empty"; do
+  printf '%s\n' "$notes" | grep -q "WARNING.*$gap" || fail "the install notes do not warn about: $gap"
+done
+echo "the install notes warn about both"
 
 step "the Postgres image is compose.yaml's"
 compose_digest=$(grep -o 'image: postgres:[^@]*@sha256:[0-9a-f]\{64\}' "$COMPOSE" | head -1 | sed 's/.*@//')

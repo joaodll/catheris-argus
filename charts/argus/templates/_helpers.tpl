@@ -65,6 +65,18 @@ affinity:
 {{- end }}
 {{- end }}
 
+{{/* The external database's TLS mode. The CA is optional: without one the connection is encrypted
+but the server is not verified (NOTES warns). A mode that verifies needs a CA, or every pod would
+fail at connect, so the render refuses it. */}}
+{{- define "argus.dbSslMode" -}}
+{{- $e := .Values.postgres.external -}}
+{{- $mode := $e.sslmode | default (ternary "verify-full" "require" (not (empty $e.caConfigMap))) -}}
+{{- if and (hasPrefix "verify-" $mode) (empty $e.caConfigMap) -}}
+{{- fail (printf "postgres.external.sslmode %s needs postgres.external.caConfigMap" $mode) -}}
+{{- end -}}
+{{- $mode -}}
+{{- end }}
+
 {{/* Database coordinates as one role, and the pod's pool (a key of database.pools).
 (dict "root" $ "user" "argus_api" "key" "ARGUS_API_DB_PASSWORD" "pool" "api") */}}
 {{- define "argus.dbEnv" -}}
@@ -84,7 +96,7 @@ affinity:
       key: {{ .key }}
 {{- if not $v.postgres.enabled }}
 - name: ARGUS_DB_SSLMODE
-  value: {{ $v.postgres.external.sslmode | quote }}
+  value: {{ include "argus.dbSslMode" .root | quote }}
 {{- if $v.postgres.external.caConfigMap }}
 - name: ARGUS_DB_SSLROOTCERT
   value: {{ printf "/etc/argus/db-ca/%s" $v.postgres.external.caKey | quote }}

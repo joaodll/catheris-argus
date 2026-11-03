@@ -47,8 +47,17 @@ make sure its controller is listed in networkPolicy.webIngressFrom, or it cannot
 The run service account assumes {{ .Values.identity.roleArn }}. Its trust policy must name exactly
 system:serviceaccount:{{ .Release.Namespace }}:{{ include "argus.serviceAccount" (dict "root" . "name" "run") }}.
 {{- end }}
-{{- if and (not .Values.postgres.enabled) (ne .Values.postgres.external.sslmode "verify-full") }}
+{{- if not .Values.postgres.enabled }}
+{{- $sslmode := include "argus.dbSslMode" . }}
+{{- if ne $sslmode "verify-full" }}
 
-WARNING: the external database is reached with sslmode={{ .Values.postgres.external.sslmode }}, which
-does not verify the server's name. Use verify-full with postgres.external.caConfigMap.
+WARNING: the external database is reached with sslmode={{ $sslmode }}, which does not verify the
+server's name. Set postgres.external.caConfigMap to verify it.
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (not .Values.postgres.external.cidrs) }}
+
+WARNING: postgres.external.cidrs is empty, so the database's clients can reach any private address
+on port {{ .Values.postgres.external.port }}. Set it to the database's subnets to narrow this. A
+database outside the private ranges cannot be reached until it is set.
+{{- end }}
 {{- end }}

@@ -152,7 +152,11 @@ Argus is pre-1.0. These are known and accepted for now:
   `kubectl port-forward`. Anything wider needs TLS in front: an internal ingress or a proxy.
 - **The in-chart Postgres is reached without TLS** inside the cluster (password authentication
   uses SCRAM, so the password does not cross the wire). An external database is reached with
-  `verify-full`.
+  `verify-full` when you give the chart its CA bundle. Without one it uses `require`: encrypted,
+  but the server is not verified, and the install notes warn about it.
+- **An external database's address ranges are optional.** Without them, the pods that use the
+  database can reach any private address on its port, not only the database, and the install notes
+  warn about it. Set `postgres.external.cidrs` to close that.
 - **`compose.yaml` is for development:** it uses fixed database passwords unless you set your own.
   On a shared host, use `compose.single-instance.yaml`, which refuses them
   ([runbook](runbook.md#single-instance)).
