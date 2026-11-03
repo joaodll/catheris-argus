@@ -8,16 +8,19 @@ own ceiling. The pool is capped as the process's database pool is: a request hol
 """
 
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
 
 from neo4j import Driver, GraphDatabase, ManagedTransaction, Session, unit_of_work
+from neo4j.exceptions import ServiceUnavailable
 
 from argus.core.config import get_settings
 from argus.graph.catalog import READ_QUERIES
 
 CONNECT_TIMEOUT_S = 5.0
+WAIT_POLL_SECONDS = 2.0
 _lock = threading.Lock()
 _drivers: dict[str, Driver] = {}  # one per process, under "default"
 
@@ -52,6 +55,22 @@ def close() -> None:
 
 def timeout() -> float:
     return get_settings().graph_timeout_seconds
+
+
+def wait_until_ready(timeout_seconds: float) -> bool:
+    """Whether Memgraph answered this login within the timeout. Only "not reachable yet" is waited
+    out: it can start long after this process, while a wrong login raises at once, because
+    waiting can't fix it."""
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            driver().verify_connectivity()
+        except ServiceUnavailable:
+            if time.monotonic() >= deadline:
+                return False
+        else:
+            return True
+        time.sleep(WAIT_POLL_SECONDS)
 
 
 def read(name: str, *, within: float | None = None, **params: Any) -> list[dict[str, Any]]:

@@ -26,7 +26,7 @@ Only projection.py writes to Memgraph. Every read goes through catalog.READ_QUER
 client never sends Cypher.
 """
 
-from argus.graph.client import read
+from argus.graph.client import read, wait_until_ready
 from argus.graph.paths import evaluate_paths, paths_state
 from argus.graph.projection import GRAPH_CONNECTIONS, reconcile, status, verify
 from argus.graph.resource_map import GraphUnavailable, group_members, map_state, neighbourhood
@@ -43,4 +43,5 @@ __all__ = [
     "reconcile",
     "status",
     "verify",
+    "wait_until_ready",
 ]

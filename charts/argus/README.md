@@ -16,7 +16,7 @@ says what the chart creates and which values matter.
 | scan Jobs | Jobs the scheduler creates, from one template | Each answers one connection test (the Test connection button) or runs one AWS scan, then exits. Values under `scanJobs` |
 | `postgres` | StatefulSet (optional) | PostgreSQL 17, the same image as Compose; or an external database |
 | `memgraph` | StatefulSet | The graph read model: Memgraph Community, the same image as Compose. Rebuilt from Postgres, so it needs no backup |
-| `graph-sync` | Deployment (1 replica) | Keeps Memgraph equal to Postgres, checks it, and evaluates attack paths. The only writer to Memgraph. It never scans anything |
+| `graph-sync` | Deployment (1 replica) | Keeps Memgraph equal to Postgres, checks it, and evaluates attack paths. The only writer to Memgraph. It never scans anything. Its init container waits for Memgraph, which can take minutes on a large snapshot |
 | `migrate`, `rederive` | Jobs, one per image | Schema migrations; deriving again after a rule change |
 | `retention` | CronJob | Daily: drops history older than the UI's **History** setting, unused configurations and old rule loads |
 
