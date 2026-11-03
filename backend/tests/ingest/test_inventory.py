@@ -35,6 +35,18 @@ def test_steampipe_run_loads_inventory_and_snapshot(
     assert _count(owner, "SELECT count(*) FROM scan_run WHERE ingested_at IS NULL") == 0
 
 
+def test_a_load_leaves_fresh_statistics_on_its_partitions(
+    owner: Engine, worker: Engine, store: FilesystemRawStore
+) -> None:
+    target = make_demo(owner)
+    outcome = run_tool(worker, store, target, "steampipe", DAY)
+    # The worker does not own the partition: only the ingest's own ANALYZE can set this so soon.
+    assert (
+        _count(owner, "SELECT reltuples FROM pg_class WHERE relname = 'resource_snapshot_202610'")
+        == outcome.loaded["resources"]
+    )
+
+
 def test_replaying_a_run_changes_nothing(
     owner: Engine, worker: Engine, store: FilesystemRawStore
 ) -> None:
