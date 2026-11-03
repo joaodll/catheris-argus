@@ -10,17 +10,17 @@ never evaluate paths.
                          into the reached nodes, the security groups of the entries
     Postgres             each kind's targets and the failing findings (argus.attackpaths), on
                          the days graph_projection says each connection was projected from
-    attackpaths          the search's rebuild, the path cap per entry connection, severity,
-                         and the storage: upsert, resolve, path metrics
+    attackpaths          the search's rebuild, severity, the path cap per entry connection,
+                         and the storage: changed paths only, resolve, path metrics
 
 A path belongs to the account where the attacker gets in: the connection of the first node on it
 that a connection owns, which is the entry's unless the entry is not inventoried (an outsider's
 principal, an endpoint only CloudFox saw), else the connection that drew its internet edge. It
 records every connection on it. A path the
 evaluation no longer finds is resolved only when every connection on it is resolvable: projected
-from its newest ingested run, with inventory and edge loads, its newest Steampipe and CloudFox
-runs complete, and none of its paths cut by the cap. A partial run, a failed sync or a disabled
-account never looks like a fix.
+from its newest ingested run, with inventory and edge loads, and its newest Steampipe and
+CloudFox runs complete. A partial run, a failed sync or a disabled account never looks like a
+fix, and neither does the cap: a path it cuts was still found (ADR-0044, amended 2026-11-02).
 
 graph_projection records the run each connection's paths were evaluated from (paths_run_id) and
 when; paths_state() compares it with the newest ingested run, so Attack paths says when its
@@ -195,10 +195,7 @@ def _evaluate(engine: Engine, *, today: date, rules_dir: Path) -> dict[str, int]
             return chain
         return Chain(chain.entry_uid, chain.target_uid, (mine, *chain.steps[1:]))
 
-    capped, cut = attackpaths.cap(found, owner)
-    chains = {kind: [_as_postgres(own_entry(c)) for c in cs] for kind, cs in capped.items()}
-    for connection_id, n in sorted(cut.items()):
-        log.warning("attack paths cut at the cap", extra={"connection": connection_id, "cut": n})
+    chains = {kind: [_as_postgres(own_entry(c)) for c in cs] for kind, cs in found.items()}
     entry_uids = sorted({c.entry_uid for cs in chains.values() for c in cs})
     groups: dict[str, set[str]] = {}
     for batch in _batches(entry_uids, NODE_BATCH):
@@ -214,7 +211,6 @@ def _evaluate(engine: Engine, *, today: date, rules_dir: Path) -> dict[str, int]
         and all(days[c][k] is not None for k in DAY_KEYS)
         and edge_runs.get(c, {}).get("steampipe") == "complete"
         and edge_runs.get(c, {}).get("cloudfox") == "complete"
-        and c not in cut
     ]
     counted = [c for c in synced if days[c]["rule_day"] or days[c]["cloudfox_day"]]
     with engine.begin() as conn:
@@ -224,11 +220,28 @@ def _evaluate(engine: Engine, *, today: date, rules_dir: Path) -> dict[str, int]
         paths = attackpaths.assess(
             kinds, chains, failing=failing, groups=groups, owner=owner, accounts=accounts
         )
+        have_rows = attackpaths.stored_path_ids(conn)
+        kept, cut = attackpaths.cap(paths, stored=have_rows)
+        for connection_id, by_severity in sorted(cut.items()):
+            log.warning(
+                "attack paths cut at the cap",
+                extra={"connection": connection_id, "cut": by_severity.total()},
+            )
         stored = attackpaths.store_paths(
-            conn, paths=paths, day=today, resolvable=resolvable, counted=counted
+            conn,
+            paths=kept,
+            stored=have_rows,
+            cut=cut,
+            day=today,
+            resolvable=resolvable,
+            counted=counted,
         )
         conn.execute(text(_STAMP_SQL), {"cs": synced})
-    done = {**stored, "cut": sum(cut.values()), "connections": len(synced)}
+    done = {
+        **stored,
+        "cut": sum(by_severity.total() for by_severity in cut.values()),
+        "connections": len(synced),
+    }
     log.info(
         "attack paths evaluated",
         extra={

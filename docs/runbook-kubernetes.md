@@ -191,7 +191,8 @@ there is no public entry. If you turn it on, add its controller to
 
 ### An external Postgres
 
-Postgres 17 (Amazon RDS, for example), with the database created and an owner role that has
+Postgres 17 (Amazon RDS, for example), with the database created, owned by the owner role (the
+migrate Job grants `argus_worker` `TEMPORARY` on it, and fails if it can't), and that role has
 `CREATEROLE`: the migrate Job creates `argus_api`, `argus_worker` and `argus_scheduler` and sets
 their passwords. Then:
 
@@ -273,7 +274,9 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 - **Attack paths come from it** (round M2, 2026-11-01): after each change `graph-sync` checks the
   graph and runs the attack-path search over every connection (log: `attack paths evaluated`).
   Scan Jobs no longer compute paths. When Attack paths says its paths are behind for more than a
-  minute, read `graph-sync`'s log and check the memgraph pod.
+  minute, read `graph-sync`'s log and check the memgraph pod. "N more paths ... not listed" means
+  that account found more than its cap of 5,000 new rows (log: `attack paths cut at the cap`); a
+  fixed path still resolves.
 - **When to rebuild it:** when Memgraph is broken, or the Secret's `ARGUS_GRAPH_PASSWORD` changed.
   1. Scale `graph-sync` to 0.
   2. Delete the memgraph StatefulSet's PVC and pod.

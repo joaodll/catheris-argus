@@ -3,7 +3,8 @@
 partitions. The dataset is generated in SQL from a fixed seed, never committed.
 
 Shape (the design's "large" scenario, 36 accounts): 300,000 resources, 300,000 open findings,
-180 days of metric_daily for 36 accounts plus the rollup, 36 x 3 x 180 scan runs, 5,000 paths.
+180 days of metric_daily for 36 accounts plus the rollup, 36 x 3 x 180 scan runs, 105,000 paths
+(what the graph budget keeps at this size).
 Edges (ADR-0033): about 940,000, two days of snapshots, with the hubs the Resource map must
 group: `internet` reaching 5,000 resources of one account, a VPC holding 20,000, and an
 AWS-managed policy attached to 10,000 principals across accounts.
@@ -27,6 +28,7 @@ from argus import (
     attackpaths,
     connections,
     findings,
+    graph,
     ingest,
     inventory,
     metrics,
@@ -172,6 +174,7 @@ def _generate(conn: Connection) -> None:
                      ('findings.open_by_severity', 'low'),
                      ('findings.open_by_severity', 'informational'),
                      ('attack_paths.open_by_severity', 'critical'),
+                     ('attack_paths.not_listed', 'medium'),
                      ('attack_paths.open_by_category', 'IAM privilege escalation'),
                      ('assets.by_type', 'aws_ec2_instance'), ('assets.by_type', 'aws_s3_bucket'),
                      ('assets.by_type', 'aws_iam_role')) AS m(m, dim)
@@ -188,9 +191,15 @@ def _generate(conn: Connection) -> None:
                -- One path in ten crosses into another account (ADR-0044, M2).
                CASE WHEN g % 10 = 0 THEN ARRAY[1 + g % :n, 1 + (g + 5) % :n]
                     ELSE ARRAY[1 + g % :n] END,
-               'internet', 't' || g, ARRAY['internet', 't' || g], ARRAY[]::bigint[], 'open',
+               'internet', 't' || g,
+               -- As wide as a real path's: five nodes, with ARNs (the 300k estate's mix).
+               ARRAY['internet', 't' || g,
+                     'arn:aws:iam::123456789012:role/budget-role-with-a-long-name-' || g % 997,
+                     'arn:aws:lambda:us-east-1:123456789012:function:budget-' || g % 991,
+                     'admin:123456789012'],
+               ARRAY[g, g + 1, g + 2, g + 3], 'open',
                :d, :d, (ARRAY['confirmed','supported','candidate','unknown'])[1 + g % 4]
-        FROM generate_series(1, 5000) g
+        FROM generate_series(1, 105000) g
     """),
         {"n": ACCOUNTS, "d": TODAY},
     )
@@ -618,6 +627,12 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         limit=50,
         offset=0,
         filters=attackpaths.PathFilters(connection_id=7, passing_through=True),
+    ),
+    "attack paths, facets": lambda c: attackpaths.path_facets(c, connection_id=None),
+    "attack paths, facets of a connection": lambda c: attackpaths.path_facets(c, connection_id=7),
+    "attack paths, behind the scans": graph.paths_state,
+    "attack paths, not listed": lambda c: attackpaths.not_listed(
+        c, connection_id=None, as_of=TODAY
     ),
     "map: a neighbourhood, depth 2": lambda c: relationships.neighbourhood(
         c, focus=MAP_FOCUS, depth=2, day=TODAY, **MAP_SCOPE

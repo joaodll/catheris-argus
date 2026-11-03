@@ -1,8 +1,9 @@
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import Connection, text
 
 from argus import connections
+from argus.metrics.series import HISTORY_DAYS
 
 ALL_CONNECTIONS = 0
 # What happened on a day, not how things stood: summed over that day only. Every other metric
@@ -53,6 +54,23 @@ def read(
         {"d": day, "c": connection_id, "m": metrics},
     ).all()
     return [(m, d, float(v)) for m, d, v in rows]
+
+
+def latest(conn: Connection, *, connection_id: int, metric: str, as_of: date) -> dict[str, float]:
+    """{dimension: value} of one metric on its latest day on or before `as_of`, within the
+    history kept. Empty when it has none."""
+    rows = conn.execute(
+        text(
+            """
+            SELECT dimension, value FROM metric_daily
+            WHERE connection_id = :c AND metric = :m AND snapshot_date = (
+              SELECT max(snapshot_date) FROM metric_daily
+              WHERE connection_id = :c AND metric = :m AND snapshot_date BETWEEN :s AND :e)
+            """
+        ),
+        {"c": connection_id, "m": metric, "s": as_of - timedelta(days=HISTORY_DAYS), "e": as_of},
+    ).all()
+    return {d: float(v) for d, v in rows}
 
 
 def carried_days(

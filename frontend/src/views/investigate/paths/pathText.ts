@@ -106,3 +106,18 @@ export function staleNote(
   }
   return null
 }
+
+/** The list's note when the per-account cap kept found paths out of it (ADR-0044, amended
+ * 2026-11-02). It has only counts by severity and entry account, so it doesn't describe a filtered
+ * list; passing-through lists also show other accounts' paths, so it names where these enter. */
+export function notListedNote(n: { paths: number; latent: number; worst: Severity | null } | null | undefined, account: string | null): string | null {
+  if (!n || n.paths + n.latent === 0) return null
+  const where = account ? ` entering ${account}` : ''
+  const count = (total: number, word: string) => `${total.toLocaleString('en-US')} more ${word}${total === 1 ? '' : 's'}`
+  const found = (total: number) => `${total === 1 ? 'was' : 'were'} found but not listed`
+  const after = "Filters and counts here don't include them."
+  if (n.paths === 0) return `${count(n.latent, 'latent path')}${where} ${found(n.latent)}. ${after}`
+  const worst = n.worst === 'informational' ? SEVERITY_LABEL.informational : `${SEVERITY_LABEL[n.worst ?? 'informational']} or lower`
+  const latent = n.latent ? `, plus ${n.latent.toLocaleString('en-US')} latent path${n.latent === 1 ? '' : 's'}` : ''
+  return `${count(n.paths, 'path')}${where} ${found(n.paths)}: ${worst}${latent}. ${after}`
+}

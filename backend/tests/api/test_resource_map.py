@@ -235,6 +235,7 @@ def test_the_map_cap_and_bad_requests(
 
 def test_attack_paths_list_detail_and_facets(signed_in: TestClient, prod: int) -> None:
     page = signed_in.get("/api/v1/attack-paths").json()
+    assert page["not_listed"] == {"paths": 0, "latent": 0, "worst": None}
     # The scenario's chain to administrator; the exposed doors are one-step paths of their own
     # (ADR-0037, second amendment).
     top = next(p for p in page["items"] if p["rule_id"] == "internet-to-admin")

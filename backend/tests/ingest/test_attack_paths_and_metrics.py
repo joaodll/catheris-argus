@@ -354,7 +354,7 @@ def test_the_search_stops_at_the_cap(
     caplog: pytest.LogCaptureFixture,
     settle: Settle,
 ) -> None:
-    monkeypatch.setattr("argus.attackpaths.search.MAX_PATHS", 2)
+    monkeypatch.setattr("argus.attackpaths.engine.MAX_PATHS", 2)
     target = make_demo(owner)
     _day(worker, store, target, DAY)
     settle(DAY)

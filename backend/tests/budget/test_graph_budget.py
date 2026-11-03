@@ -6,6 +6,8 @@ default). Phase 0 of round M3 adds what the evaluation costs graph-sync:
   storage
 - how many paths it finds, keeps and cuts at MAX_PATHS, per entry connection
 - its peak memory, measured in a process of its own, as graph-sync runs it (limit 1 GiB)
+- what it writes (ADR-0044, amended 2026-11-02): nothing on a repeat, once a day to move last_seen,
+  and a change in one account, which also proves a cut account still resolves
 - storing every path found, with the cap lifted, three times: time, WAL, table size, dead rows
 - Memgraph's own memory after the rebuild and after the evaluation
 
@@ -22,6 +24,7 @@ import time
 from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor
+from datetime import date, timedelta
 from multiprocessing import get_context
 from pathlib import Path
 from typing import Any
@@ -32,7 +35,7 @@ from tests.budget import graph_estate
 from tests.conftest import RULES_DIR
 
 from argus import attackpaths, graph
-from argus.attackpaths import search
+from argus.attackpaths import engine as path_engine
 from argus.core.db import get_engine
 from argus.graph import client
 from argus.graph import paths as graph_paths
@@ -75,12 +78,12 @@ def _timed(phases: dict[str, float], label: str, fn: Callable[..., Any]) -> Call
     return timed
 
 
-def _evaluate_alone(max_paths: int | None, rules_dir: str) -> dict[str, Any]:
+def _evaluate_alone(max_paths: int | None, rules_dir: str, today: date) -> dict[str, Any]:
     """One evaluation in a fresh process, as graph-sync runs it. Returns its time and peak
     memory, the time of each phase, and the paths found, kept and cut per entry connection.
     Runs in a child: the patches below die with it."""
     if max_paths is not None:
-        search.MAX_PATHS = max_paths
+        path_engine.MAX_PATHS = max_paths
     phases: dict[str, float] = {}
     counts: dict[str, Any] = {}
     for label, owner, name in (
@@ -88,30 +91,31 @@ def _evaluate_alone(max_paths: int | None, rules_dir: str) -> dict[str, Any]:
         ("walk (Memgraph) and rebuild", graph_paths, "_search"),
         ("failing findings (Postgres)", attackpaths, "failing_nodes"),
         ("assess", attackpaths, "assess"),
+        ("stored ids (Postgres)", attackpaths, "stored_path_ids"),
         ("store, resolve, metrics (Postgres)", attackpaths, "store_paths"),
     ):
         setattr(owner, name, _timed(phases, label, getattr(owner, name)))
     cap = attackpaths.cap
 
-    def counting_cap(found: Any, owner: Any) -> Any:
+    def counting_cap(paths: Any, *, stored: Any) -> Any:
         started = time.perf_counter()
-        kept, cut = cap(found, owner)
+        kept, cut = cap(paths, stored=stored)
         phases["cap"] = time.perf_counter() - started
-        per_found = Counter(owner(c) for cs in found.values() for c in cs)
-        per_kept = Counter(owner(c) for cs in kept.values() for c in cs)
+        per_found = Counter(p.connection_id for p in paths)
         counts.update(
             found=sum(per_found.values()),
-            kept=sum(per_kept.values()),
-            cut=sum(cut.values()),
+            kept=len(kept),
+            cut=sum(n.total() for n in cut.values()),
             connections_cut=len(cut),
             most_found=per_found.most_common(3),
+            most_cut=sorted(cut, key=lambda c: -cut[c].total())[:1],
         )
         return kept, cut
 
     attackpaths.cap = counting_cap
     baseline = _peak_mib()
     started = time.perf_counter()
-    done = graph.evaluate_paths(get_engine(), today=graph_estate.TODAY, rules_dir=Path(rules_dir))
+    done = graph.evaluate_paths(get_engine(), today=today, rules_dir=Path(rules_dir))
     seconds = time.perf_counter() - started
     client.close()
     return {
@@ -124,9 +128,11 @@ def _evaluate_alone(max_paths: int | None, rules_dir: str) -> dict[str, Any]:
     }
 
 
-def _in_child(max_paths: int | None) -> dict[str, Any]:
+def _in_child(max_paths: int | None, today: date = graph_estate.TODAY) -> dict[str, Any]:
     with ProcessPoolExecutor(max_workers=1, mp_context=get_context("spawn")) as pool:
-        result: dict[str, Any] = pool.submit(_evaluate_alone, max_paths, str(RULES_DIR)).result()
+        result: dict[str, Any] = pool.submit(
+            _evaluate_alone, max_paths, str(RULES_DIR), today
+        ).result()
         return result
 
 
@@ -158,7 +164,7 @@ def _table_state(engine: Engine) -> dict[str, Any]:
                 SELECT pg_total_relation_size('attack_path') AS total,
                        pg_relation_size('attack_path') AS heap,
                        pg_indexes_size('attack_path') AS indexes,
-                       s.n_live_tup, s.n_dead_tup, s.autovacuum_count,
+                       s.n_live_tup, s.n_dead_tup, s.autovacuum_count, s.n_tup_upd, s.n_tup_hot_upd,
                        pg_current_wal_lsn() AS lsn
                 FROM pg_stat_user_tables s WHERE s.relname = 'attack_path'
                 """
@@ -175,6 +181,54 @@ def _wal_bytes(engine: Engine, since: str) -> int:
                 {"l": str(since)},
             ).scalar_one()
         )
+
+
+def _measured(engine: Engine, label: str, max_paths: int | None, today: date) -> dict[str, Any]:
+    """One evaluation, what it took and what it wrote."""
+    time.sleep(2)  # table statistics reach pg_stat_user_tables within a second
+    before = _table_state(engine)
+    run = _in_child(max_paths, today)
+    run["wal_mib"] = _wal_bytes(engine, before["lsn"]) / 2**20
+    time.sleep(2)
+    after = _table_state(engine)
+    run["updates"] = after["n_tup_upd"] - before["n_tup_upd"]
+    done = run["done"]
+    _report(label, run)
+    print(
+        f"    {done['new']:,} new, {done['changed']:,} changed, {done['resolved']:,} resolved; "
+        f"WAL {run['wal_mib']:,.0f} MiB; {run['updates']:,} updates, "
+        f"{after['n_tup_hot_upd'] - before['n_tup_hot_upd']:,} HOT; "
+        f"{after['n_dead_tup']:,} dead rows"
+    )
+    return run
+
+
+def _later_evaluations(engine: Engine, capped: dict[str, Any]) -> tuple[dict[str, Any], date]:
+    """What later evaluations write (ADR-0044, amended 2026-11-02): nothing on a repeat, every path
+    once a day for last_seen, and only what changed when one account changes."""
+    paths = capped["done"]
+    repeat = _measured(engine, "the same day again, nothing changed", None, graph_estate.TODAY)
+    assert (repeat["done"]["new"], repeat["done"]["changed"], repeat["done"]["resolved"]) == (
+        0,
+        0,
+        0,
+    )
+    assert repeat["updates"] == 0
+    tomorrow = graph_estate.TODAY + timedelta(days=1)
+    daily = _measured(engine, "the next day: last_seen moves once", None, tomorrow)
+    assert daily["done"]["changed"] == paths["paths"]
+    # An account with paths past the cap loses internet entries: its paths from there resolve.
+    cut_account = capped["counts"]["most_cut"][0]
+    with client.write_session() as session:
+        session.run(
+            "MATCH (:R {uid: 'internet'})-[r]->(t:R) WHERE t.conn = $c "
+            "WITH r, t ORDER BY t.uid LIMIT 50 DELETE r",
+            {"c": cut_account},
+        ).consume()
+    changed = _measured(engine, f"one account changed ({cut_account})", None, tomorrow)
+    assert changed["done"]["resolved"] > 0
+    assert changed["updates"] < paths["paths"] / 2
+    return daily, tomorrow
 
 
 def test_rebuild_resync_verify_and_paths_within_budget(migrated: Engine) -> None:
@@ -244,17 +298,16 @@ def test_rebuild_resync_verify_and_paths_within_budget(migrated: Engine) -> None
         f"({paths['paths']:,} paths, {crossing:,} across accounts, {paths['cut']:,} cut)"
     )
     print(f"Memgraph after the rebuild: {after_rebuild}; after the evaluation: {after_evaluation}")
-    _report(f"evaluation, MAX_PATHS {search.MAX_PATHS:,}", capped)
+    _report(f"evaluation, MAX_PATHS {path_engine.MAX_PATHS:,}", capped)
+    assert capped["counts"]["found"] == paths["paths"] + paths["cut"]
+
+    daily, tomorrow = _later_evaluations(migrated, capped)
 
     # Every path found stored (D3d: the cap's value is measured before it is decided).
-    full = []
-    for run in range(FULL_VOLUME_RUNS):
-        before = _table_state(migrated)
-        result = _in_child(10**9)
-        result["wal_bytes"] = _wal_bytes(migrated, before["lsn"])
-        full.append(result)
-        _report(f"full volume, evaluation {run + 1}", result)
-        print(f"    WAL {result['wal_bytes'] / 2**20:,.0f} MiB")
+    full = [
+        _measured(migrated, f"full volume, evaluation {run + 1}", 10**9, tomorrow)
+        for run in range(FULL_VOLUME_RUNS)
+    ]
     time.sleep(2)  # table statistics reach pg_stat_user_tables within a second
     table = _table_state(migrated)
     print(
@@ -269,4 +322,6 @@ def test_rebuild_resync_verify_and_paths_within_budget(migrated: Engine) -> None
     assert verify < VERIFY_S
     assert capped["seconds"] < EVALUATE_S
     assert capped["peak_mib"] < GRAPH_SYNC_LIMIT_MIB * HEADROOM
+    assert daily["seconds"] < EVALUATE_S
+    assert daily["peak_mib"] < GRAPH_SYNC_LIMIT_MIB * HEADROOM
     assert all(run["seconds"] < EVALUATE_S for run in full)

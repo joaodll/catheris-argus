@@ -3,7 +3,7 @@ steps, how sure Argus is of each (ADR-0037) and what each tool says about them. 
 `rule_*` fields name its kind (backend/rules/attack_paths): one search finds every kind, over
 the graph read model and across accounts (ADR-0044, M2)."""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
@@ -97,12 +97,26 @@ class PathsGraphState(BaseModel):
     failed: bool
 
 
+class PathsNotListed(BaseModel):
+    """Paths the latest evaluation found but the per-account cap kept out of the list, entering
+    the connection asked for (all connections: every enabled one). Whatever the list's filters:
+    the cut has only these dimensions."""
+
+    paths: int
+    # Those that start at a door Argus found closed, which the list hides unless asked.
+    latent: int
+    # The worst severity among `paths`; null when there are none.
+    worst: Severity | None
+
+
 class PathPage(BaseModel):
     items: list[PathOut]
     total: int
     # The scan time the list reflects (newest day ingested); null when nothing is ingested.
     data_through: date | None
     graph: PathsGraphState
+    # Null: never evaluated.
+    not_listed: PathsNotListed | None
 
 
 class PathKindOut(BaseModel):
@@ -240,6 +254,9 @@ def list_paths(conn: Db, _user: Viewer, query: Annotated[PathQuery, Query()]) ->
         ),
         graph=PathsGraphState.model_validate(
             graph.paths_state(conn, connection_id=query.connection_id)
+        ),
+        not_listed=attackpaths.not_listed(
+            conn, connection_id=query.connection_id, as_of=datetime.now(UTC).date()
         ),
     )
 

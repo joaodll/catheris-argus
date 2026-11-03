@@ -284,13 +284,14 @@ _FINISH = [
     """,
     "DROP TABLE spike_edge",
     "DROP TABLE spike_cnt",
-    # One ingested run per connection: what the graph projection's marker reads.
+    # One complete Steampipe and CloudFox run per connection: what the graph projection's marker
+    # reads, and what makes an account's paths resolvable.
     """
     INSERT INTO scan_run (run_uid, connection_id, tool, tool_version, source, snapshot_date,
                           status, started_at, finished_at, raw_path, ingested_at)
-    SELECT gen_random_uuid(), a, 'steampipe', '1', 'synthetic', :d, 'complete',
+    SELECT gen_random_uuid(), a, tool, '1', 'synthetic', :d, 'complete',
            CAST(:d AS timestamptz), CAST(:d AS timestamptz) + interval '5 minutes', 'raw', now()
-    FROM generate_series(1, :accounts) a
+    FROM generate_series(1, :accounts) a, unnest(ARRAY['steampipe', 'cloudfox']) tool
     """,
 ]
 

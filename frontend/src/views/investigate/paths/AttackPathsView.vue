@@ -41,7 +41,7 @@ import {
   pathFiltersToQuery,
   toggleDate,
 } from './pathFilters'
-import { crossesLine, staleNote } from './pathText'
+import { crossesLine, notListedNote, staleNote } from './pathText'
 import { pathSubline, pathTitle } from './pathWords'
 
 const PAGE = 20
@@ -159,6 +159,7 @@ function onLoaded(path: Schemas['PathDetail'] | null): void {
 const dataThrough = computed(() => list.data.value?.data_through ?? null)
 // The paths are behind the scans, or the graph's last update failed (owner's decision, 2026-11-01).
 const stale = computed(() => (list.data.value ? staleNote(list.data.value.graph, utc) : null))
+const notListed = computed(() => (filters.value.state === 'open' ? notListedNote(list.data.value?.not_listed, chosenConnection.value) : null))
 // Each row's "Crosses into …" line, by path id.
 const crossing = computed(() => new Map((list.data.value?.items ?? []).map((p) => [p.id, crossesLine(p.accounts)])))
 </script>
@@ -241,6 +242,10 @@ const crossing = computed(() => new Map((list.data.value?.items ?? []).map((p) =
           Latent paths are hidden: they start at a door Argus found closed, and show what one change would open.
           <template #action><button type="button" class="btn btn-secondary btn-sm" @click="set('confidence', ['blocked'])">Show latent paths</button></template>
         </AlertBanner>
+      </div>
+      <!-- The per-account cap kept these out of the list: they have no row for it to count or filter (ADR-0044, amended 2026-11-02). -->
+      <div v-if="notListed" class="panel-body">
+        <AlertBanner kind="info">{{ notListed }}</AlertBanner>
       </div>
       <div v-if="list.error.value" class="panel-body">
         <AlertBanner kind="fail">

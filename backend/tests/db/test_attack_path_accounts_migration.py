@@ -51,12 +51,34 @@ def test_old_paths_are_backfilled_and_a_downgrade_keeps_them(owner: Engine) -> N
         command.upgrade(alembic_config(), "head")
 
 
+def test_0038_drops_last_seen_at_and_its_downgrade_restores_it(owner: Engine) -> None:
+    connection_id = make_demo(owner).connection_id
+    with owner.begin() as conn:
+        _path(conn, connection_id, [connection_id])
+    try:
+        command.downgrade(alembic_config(), "0037")
+        with owner.connect() as conn:
+            seen_at = conn.execute(text("SELECT last_seen_at FROM attack_path")).scalar_one()
+            assert seen_at.isoformat() == f"{DAY.isoformat()}T00:00:00+00:00"
+    finally:
+        command.upgrade(alembic_config(), "head")
+    with owner.connect() as conn:
+        assert conn.execute(
+            text("SELECT has_database_privilege('argus_worker', current_database(), 'TEMPORARY')")
+        ).scalar_one()
+        assert not conn.execute(
+            text(
+                "SELECT count(*) FROM information_schema.columns "
+                "WHERE table_name = 'attack_path' AND column_name = 'last_seen_at'"
+            )
+        ).scalar_one()
+
+
 def test_the_entry_account_comes_first(owner: Engine) -> None:
     entry = make_demo(owner, seed=0).connection_id
     other = make_demo(owner, seed=1).connection_id
     with owner.begin() as conn:
         _path(conn, entry, [entry, other])
-        assert conn.execute(text("SELECT last_seen_at IS NOT NULL FROM attack_path")).scalar_one()
     for ids in ([other, entry], []):
         with pytest.raises(IntegrityError), owner.begin() as conn:
             _path(conn, entry, ids)

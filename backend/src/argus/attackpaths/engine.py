@@ -18,20 +18,24 @@ The search (search.py) finds, from every internet entry, the shortest chain to e
 Severity starts from the kind's; it goes up one level when the entry step is confirmed (Argus's
 internet rules checked it) and down one level when nothing on the path, nor a security group of
 its entry, has a failing finding. A path's confidence is its weakest step's (confidence.py).
-Kinds are searched in severity order, so the path cap cuts the least severe first.
+
+An account can have more paths than anyone reads: cap() keeps the MAX_PATHS worst of each account,
+assessed, and every path found that already has a row. What it cuts has no row, and is counted
+(attack_paths.not_listed) so Attack paths can say so (ADR-0044, amended 2026-11-02).
 
 The search runs over the graph read model, across accounts (ADR-0044, M2): argus.graph
 orchestrates one evaluation over every connection's latest scan state and calls this module for
 the kinds' targets (in Postgres, on the days the graph was projected from), the scoring
-(assess) and the storage (store_paths). A path belongs to its entry's connection and records
-every connection it passes through. Paths are upserted with a stable path_id (kind id + ordered
-nodes) and resolved only when an evaluation no longer finds them and every connection on them
-has complete evidence (its newest Steampipe and CloudFox runs complete), so a partial run never
-looks like a fix.
+(assess), the cap and the storage (store_paths). A path belongs to its entry's connection and
+records every connection it passes through. Paths have a stable path_id (kind id + ordered nodes),
+are written only when something about them changed, and are resolved only when an evaluation no
+longer finds them and every connection on them has complete evidence (its newest Steampipe and
+CloudFox runs complete), so a partial run never looks like a fix.
 """
 
 import hashlib
 import tomllib
+from collections import Counter, defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
@@ -42,10 +46,12 @@ from typing import Any
 from sqlalchemy import Connection, text
 
 from argus import findings, inventory, metrics, relationships
+from argus.attackpaths.confidence import LEVELS
 from argus.attackpaths.doors import DOORS_SQL
 from argus.attackpaths.search import Chain, Targets
 
 SEVERITIES = ("informational", "low", "medium", "high", "critical")
+MAX_PATHS = 5000  # new rows per entry connection and evaluation: its worst paths (cap())
 VIEWS = f"""
 WITH r AS ({inventory.RESOURCES_ON_DAY_SQL}),
 e AS ({relationships.EFFECTIVE_EDGES_SQL}),
@@ -149,11 +155,10 @@ def kind_targets(
     days: dict[int, dict[str, Any]],
     scope: Callable[[int, str], str] = lambda _connection, uid: uid,
 ) -> Targets:
-    """Each kind's targets over every connection, most severe kind first (the path cap cuts
-    the least severe). `days` is {connection id: its resource_day, rule_day and cloudfox_day},
-    the days the graph read model was projected from, so the views here and the graph describe
-    the same state. `scope` names a connection's target as the graph does (an account's
-    wildcard pseudo-node). Read-only."""
+    """Each kind's targets over every connection, most severe kind first. `days` is {connection
+    id: its resource_day, rule_day and cloudfox_day}, the days the graph read model was projected
+    from, so the views here and the graph describe the same state. `scope` names a connection's
+    target as the graph does (an account's wildcard pseudo-node). Read-only."""
     ordered = sorted(kinds, key=lambda k: -SEVERITIES.index(k.severity))
     targets: Targets = {
         kind.id: (
@@ -228,89 +233,188 @@ def assess(
     return list(found.values())
 
 
-_UPSERT_SQL = """
-  INSERT INTO attack_path (path_id, rule_id, rule_version, category, severity, connection_id,
-                           connection_ids, entry_uid, target_uid, node_uids, edge_ids, state,
-                           first_seen, last_seen, last_seen_at, base_severity, entry_confirmed,
-                           has_failing, confidence)
-  VALUES (:pid, :rule, :version, :category, :severity, :c, :cs, :entry, :target, :nodes, :edges,
-          'open', :d, :d, now(), :base, :confirmed, :failing, :conf)
-  ON CONFLICT (path_id) DO UPDATE SET
-    severity = EXCLUDED.severity, rule_version = EXCLUDED.rule_version,
-    category = EXCLUDED.category, connection_id = EXCLUDED.connection_id,
-    connection_ids = EXCLUDED.connection_ids, edge_ids = EXCLUDED.edge_ids,
-    base_severity = EXCLUDED.base_severity, entry_confirmed = EXCLUDED.entry_confirmed,
-    has_failing = EXCLUDED.has_failing, confidence = EXCLUDED.confidence,
-    last_seen = GREATEST(attack_path.last_seen, EXCLUDED.last_seen), last_seen_at = now(),
-    state = 'open', resolved_on = NULL
-"""
-# An open path this evaluation did not find (its last_seen_at is older than this transaction's
-# now(), which the upsert above stamps on every path found) is resolved, when every account it
-# passes through is resolvable: its evidence is complete (ADR-0044, M2). A path of a kind this
-# release no longer has is never found again, so it resolves the same way.
+LATENT = "latent"
+_NOT_LISTED_DIMS = (*SEVERITIES, LATENT)
+
+
+def _worst_first(path: FoundPath) -> tuple[int, int, int, bytes]:
+    """Assessed severity, then confidence, then fewer steps; path_id only keeps it deterministic."""
+    return (
+        -SEVERITIES.index(path.severity),
+        -LEVELS.index(path.chain.confidence),
+        len(path.chain.steps),
+        path.path_id,
+    )
+
+
+def stored_path_ids(conn: Connection) -> set[bytes]:
+    """Every path that has a row, open or resolved."""
+    return {bytes(i) for i in conn.execute(text("SELECT path_id FROM attack_path")).scalars()}
+
+
+def cap(
+    paths: list[FoundPath], *, stored: set[bytes]
+) -> tuple[list[FoundPath], dict[int, Counter[str]]]:
+    """Which paths found keep a row: each entry connection's MAX_PATHS worst (ADR-0044, amended
+    2026-11-02), so a new path that matters always enters, and every path that already has one, so
+    no row goes stale and a resolved path found again reopens. MAX_PATHS limits new rows: stored
+    rows are bounded by what is found. Returns those paths and, per connection, the ones cut by
+    severity (`latent` for blocked paths, which the list hides unless asked)."""
+    by_owner: dict[int, list[FoundPath]] = defaultdict(list)
+    for path in paths:
+        by_owner[path.connection_id].append(path)
+    kept: list[FoundPath] = []
+    cut: dict[int, Counter[str]] = {}
+    for connection_id, mine in by_owner.items():
+        mine.sort(key=_worst_first)
+        kept += mine[:MAX_PATHS]
+        for path in mine[MAX_PATHS:]:
+            if path.path_id in stored:
+                kept.append(path)
+            else:
+                dimension = LATENT if path.chain.confidence == "blocked" else path.severity
+                cut.setdefault(connection_id, Counter())[dimension] += 1
+    return kept, cut
+
+
+# What may change on a path with the same path_id, whose nodes are part of its id.
+_FACTS = (
+    "rule_version",
+    "category",
+    "severity",
+    "connection_id",
+    "connection_ids",
+    "edge_ids",
+    "base_severity",
+    "entry_confirmed",
+    "has_failing",
+    "confidence",
+)
+_COLUMNS = ("path_id", "rule_id", "entry_uid", "target_uid", "node_uids", *_FACTS)
+_STAGE_CHUNK = 5000
+# The paths this evaluation keeps, for the three statements below: a path that is not here was not
+# found, since every stored path found is kept. A large array of ids would cost far more (the M2
+# amendment rejected it), and each statement here writes only what differs.
+_STAGE_SQL = f"""
+  CREATE TEMPORARY TABLE staged_path ON COMMIT DROP AS
+  SELECT {", ".join(_COLUMNS)}, true AS stored FROM attack_path WITH NO DATA
+"""  # noqa: S608 - constants only
+_STAGE_ROW_SQL = f"""
+  INSERT INTO staged_path ({", ".join(_COLUMNS)}, stored)
+  VALUES ({", ".join(f":{c}" for c in _COLUMNS)}, :stored)
+"""  # noqa: S608 - constants only
+# The first evaluation of a day moves last_seen on every path found. A later one that day writes
+# only real changes, and a resolved path found again reopens.
+_UPDATE_SQL = f"""
+  UPDATE attack_path p SET
+    {", ".join(f"{c} = s.{c}" for c in _FACTS)},
+    last_seen = GREATEST(p.last_seen, :d), state = 'open', resolved_on = NULL
+  FROM staged_path s
+  WHERE p.path_id = s.path_id
+    AND (p.state <> 'open' OR p.last_seen < :d
+         OR ({", ".join(f"p.{c}" for c in _FACTS)})
+            IS DISTINCT FROM ({", ".join(f"s.{c}" for c in _FACTS)}))
+"""  # noqa: S608 - constants only
+# No anti-join against attack_path: on a table the statistics call empty, that plan rescans the rows
+# this statement has just inserted (5 minutes for 105,000 paths; budget, 2026-11-02).
+_INSERT_SQL = f"""
+  INSERT INTO attack_path ({", ".join(_COLUMNS)}, state, first_seen, last_seen)
+  SELECT {", ".join(f"s.{c}" for c in _COLUMNS)}, 'open', :d, :d FROM staged_path s
+  WHERE NOT s.stored
+"""  # noqa: S608 - constants only
+# An open path this evaluation did not find is resolved, when every account it passes through is
+# resolvable: its evidence is complete (ADR-0044, M2). A path of a kind this release no longer has
+# is never found again, so it resolves the same way.
 _RESOLVE_SQL = """
-  UPDATE attack_path SET state = 'resolved', resolved_on = :d
-  WHERE state = 'open' AND last_seen_at < now()
-    AND connection_ids <@ CAST(:resolvable AS bigint[])
+  UPDATE attack_path p SET state = 'resolved', resolved_on = :d
+  WHERE p.state = 'open' AND p.connection_ids <@ CAST(:resolvable AS bigint[])
+    AND NOT EXISTS (SELECT 1 FROM staged_path s WHERE s.path_id = p.path_id)
 """
+
+
+def _stage(conn: Connection, paths: list[FoundPath], stored: set[bytes]) -> None:
+    conn.execute(text(_STAGE_SQL))
+    for i in range(0, len(paths), _STAGE_CHUNK):
+        conn.execute(
+            text(_STAGE_ROW_SQL),
+            [
+                {
+                    "path_id": p.path_id,
+                    "stored": p.path_id in stored,
+                    "rule_id": p.kind.id,
+                    "entry_uid": p.chain.entry_uid,
+                    "target_uid": p.chain.target_uid,
+                    "node_uids": list(p.chain.node_uids),
+                    "rule_version": p.kind.version,
+                    "category": p.kind.category,
+                    "severity": p.severity,
+                    "connection_id": p.connection_id,
+                    "connection_ids": list(p.connection_ids),
+                    "edge_ids": [s.id for s in p.chain.steps],
+                    "base_severity": p.kind.severity,
+                    "entry_confirmed": p.entry_confirmed,
+                    "has_failing": p.has_failing,
+                    "confidence": p.chain.confidence,
+                }
+                for p in paths[i : i + _STAGE_CHUNK]
+            ],
+        )
+    # Statistics on attack_path are out of date within this transaction, so the resolve may plan a
+    # nested loop over this table: the index keeps that cheap.
+    conn.execute(text("CREATE UNIQUE INDEX ON staged_path (path_id)"))
+    conn.execute(text("ANALYZE staged_path"))
 
 
 def store_paths(
     conn: Connection,
     *,
     paths: list[FoundPath],
+    stored: set[bytes],
+    cut: dict[int, Counter[str]],
     day: date,
     resolvable: list[int],
     counted: list[int],
 ) -> dict[str, int]:
-    """Upserts the paths one evaluation found, resolves what it no longer finds in the
-    `resolvable` connections, and puts path metrics for the `counted` ones (each connection
-    with an edge load), on `day`. In the caller's transaction: run it once per evaluation."""
-    if paths:
-        conn.execute(
-            text(_UPSERT_SQL),
-            [
-                {
-                    "pid": p.path_id,
-                    "rule": p.kind.id,
-                    "version": p.kind.version,
-                    "category": p.kind.category,
-                    "severity": p.severity,
-                    "c": p.connection_id,
-                    "cs": list(p.connection_ids),
-                    "entry": p.chain.entry_uid,
-                    "target": p.chain.target_uid,
-                    "nodes": list(p.chain.node_uids),
-                    "edges": [s.id for s in p.chain.steps],
-                    "d": day,
-                    "base": p.kind.severity,
-                    "confirmed": p.entry_confirmed,
-                    "failing": p.has_failing,
-                    "conf": p.chain.confidence,
-                }
-                for p in paths
-            ],
-        )
+    """Writes what changed among the `paths` cap() kept (`stored`: those that have a row, as
+    stored_path_ids() read them in this transaction; the graph lock makes this the only writer),
+    resolves what the evaluation no longer finds in the `resolvable` connections, and puts path
+    metrics for the `counted` ones (each connection with an edge load), on `day`. In the caller's
+    transaction: run it once per evaluation. A staged table lives only in that transaction."""
+    _stage(conn, paths, stored)
+    changed = conn.execute(text(_UPDATE_SQL), {"d": day}).rowcount
+    new = conn.execute(text(_INSERT_SQL), {"d": day}).rowcount
     resolved = 0
     if resolvable:
         resolved = conn.execute(
             text(_RESOLVE_SQL), {"d": day, "resolvable": sorted(resolvable)}
         ).rowcount
-    put_path_metrics(conn, connection_ids=counted, day=day)
-    return {"paths": len(paths), "resolved": resolved}
+    put_path_metrics(conn, connection_ids=counted, day=day, cut=cut)
+    return {"paths": len(paths), "new": new, "changed": changed, "resolved": resolved}
 
 
-PATH_METRICS = ["attack_paths.open_by_category", "attack_paths.open_by_severity"]
+NOT_LISTED = "attack_paths.not_listed"
+PATH_METRICS = ["attack_paths.open_by_category", "attack_paths.open_by_severity", NOT_LISTED]
 
 
-def put_path_metrics(conn: Connection, *, connection_ids: list[int], day: date) -> None:
+def put_path_metrics(
+    conn: Connection,
+    *,
+    connection_ids: list[int],
+    day: date,
+    cut: dict[int, Counter[str]],
+) -> None:
     # Every severity starts at 0: an evaluation that found no path is "0 open paths", which
     # the Overview must tell apart from "CloudFox has not run" (no rows). Latent (blocked)
-    # paths are not counted: they are what one change would open, not what is open.
+    # paths are not counted: they are what one change would open, not what is open. What the cap
+    # cut starts at 0 too: all connections takes each one's latest value, so a cut that went away
+    # needs its zero.
     if not connection_ids:
         return
     values: dict[int, dict[tuple[str, str], float]] = {
-        c: {("attack_paths.open_by_severity", severity): 0 for severity in SEVERITIES}
+        c: {
+            **{("attack_paths.open_by_severity", severity): 0 for severity in SEVERITIES},
+            **{(NOT_LISTED, dim): cut[c][dim] if c in cut else 0 for dim in _NOT_LISTED_DIMS},
+        }
         for c in connection_ids
     }
     for connection_id, category, severity, n in conn.execute(
@@ -330,3 +434,24 @@ def put_path_metrics(conn: Connection, *, connection_ids: list[int], day: date) 
     for connection_id, mine in sorted(values.items()):
         metrics.put(conn, day=day, connection_id=connection_id, values=mine, replace=PATH_METRICS)
     metrics.rollup(conn, day=day, metrics=PATH_METRICS)
+
+
+def not_listed(
+    conn: Connection, *, connection_id: int | None, as_of: date
+) -> dict[str, Any] | None:
+    """What the cap cut in the connection's latest evaluation (None: all connections): how many
+    paths, how many latent ones, and the worst severity among the paths. None: never evaluated."""
+    found = metrics.latest(
+        conn,
+        connection_id=metrics.ALL_CONNECTIONS if connection_id is None else connection_id,
+        metric=NOT_LISTED,
+        as_of=as_of,
+    )
+    if not found:
+        return None
+    present = [s for s in reversed(SEVERITIES) if found.get(s)]
+    return {
+        "paths": sum(int(found.get(s, 0)) for s in SEVERITIES),
+        "latent": int(found.get(LATENT, 0)),
+        "worst": present[0] if present else None,
+    }

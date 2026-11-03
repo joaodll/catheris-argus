@@ -604,6 +604,24 @@ test('investigate: resource map and attack paths, read-only', async ({ page }) =
   await shot(page, '96-map-path')
 })
 
+test('attack paths: says how many paths the cap kept out of the list', async ({ page }) => {
+  await signIn(page)
+  // The cap can't be reached on the demo estates, so the answer carries a cut (ADR-0044, amended 2026-11-02).
+  await page.route(/\/api\/v1\/attack-paths(\?|$)/, async (route) => {
+    const response = await route.fetch()
+    await route.fulfill({ response, json: { ...(await response.json()), not_listed: { paths: 3210, latent: 12, worst: 'medium' } } })
+  })
+  await page.goto('/investigate/attack-paths')
+  const note = page.getByRole('status').filter({ hasText: '3,210 more paths' })
+  await expect(note).toHaveText(/3,210 more paths were found but not listed: Medium or lower, plus 12 latent paths\. Filters and counts here don't include them\./)
+  await axe(page, 'attack paths, cut at the cap')
+  await shot(page, '94b-attack-paths-cut')
+  // Cut paths were found, so they say nothing about what is resolved.
+  await page.goto('/investigate/attack-paths?state=resolved')
+  await expect(page.getByRole('heading', { level: 2, name: 'Resolved attack paths' })).toBeVisible()
+  await expect(note).toHaveCount(0)
+})
+
 test('posture: compliance frameworks and one framework, read-only', async ({ page }) => {
   await signIn(page)
   await navLink(page, 'Compliance')

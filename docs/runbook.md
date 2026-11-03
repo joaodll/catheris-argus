@@ -435,6 +435,10 @@ To refresh the test fixtures from a real run (the Phase 0 spike), see
 - **Attack paths come from it** (round M2, 2026-11-01). After each copy, the graph thread checks
   the graph and runs the attack-path search over every connection; the log shows
   `attack paths evaluated` with the counts and seconds. Ingest no longer computes paths.
+  `new`, `changed` and `resolved` count rows written; a repeat with nothing changed writes none.
+- **When Attack paths says "N more paths ... not listed":** that account found more paths than its
+  cap of 5,000 new rows. They are not lost: an evaluation still looks at them, and none of this
+  stops a fixed path from resolving. The log shows `attack paths cut at the cap` per connection.
 - **Where to see its state:** the `graph_projection` table, one row per connection with `status`,
   counts and `synced_at`, and `paths_evaluated_at` and `paths_run_id` for its paths.
 - **When Attack paths says its paths are behind:** they were found before the newest scans. An

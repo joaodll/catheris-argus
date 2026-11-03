@@ -3365,6 +3365,16 @@
             "title": "Items",
             "type": "array"
           },
+          "not_listed": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PathsNotListed"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -3374,7 +3384,8 @@
           "items",
           "total",
           "data_through",
-          "graph"
+          "graph",
+          "not_listed"
         ],
         "title": "PathPage",
         "type": "object"
@@ -3442,6 +3453,44 @@
           "failed"
         ],
         "title": "PathsGraphState",
+        "type": "object"
+      },
+      "PathsNotListed": {
+        "description": "Paths the latest evaluation found but the per-account cap kept out of the list, entering\nthe connection asked for (all connections: every enabled one). Whatever the list's filters:\nthe cut has only these dimensions.",
+        "properties": {
+          "latent": {
+            "title": "Latent",
+            "type": "integer"
+          },
+          "paths": {
+            "title": "Paths",
+            "type": "integer"
+          },
+          "worst": {
+            "anyOf": [
+              {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low",
+                  "informational"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst"
+          }
+        },
+        "required": [
+          "paths",
+          "latent",
+          "worst"
+        ],
+        "title": "PathsNotListed",
         "type": "object"
       },
       "PendingRequest": {

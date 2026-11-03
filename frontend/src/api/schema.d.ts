@@ -1965,6 +1965,7 @@ export interface components {
             graph: components["schemas"]["PathsGraphState"];
             /** Items */
             items: components["schemas"]["PathOut"][];
+            not_listed: components["schemas"]["PathsNotListed"] | null;
             /** Total */
             total: number;
         };
@@ -1994,6 +1995,20 @@ export interface components {
             evaluated_at: string | null;
             /** Failed */
             failed: boolean;
+        };
+        /**
+         * PathsNotListed
+         * @description Paths the latest evaluation found but the per-account cap kept out of the list, entering
+         *     the connection asked for (all connections: every enabled one). Whatever the list's filters:
+         *     the cut has only these dimensions.
+         */
+        PathsNotListed: {
+            /** Latent */
+            latent: number;
+            /** Paths */
+            paths: number;
+            /** Worst */
+            worst: ("critical" | "high" | "medium" | "low" | "informational") | null;
         };
         /** PendingRequest */
         PendingRequest: {

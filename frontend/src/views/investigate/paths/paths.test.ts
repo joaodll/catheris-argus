@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { isPathFiltered, parsePathFilters, parsePathId, parsePathOrder, pathApiFilters, pathFiltersToQuery, toggleDate } from './pathFilters'
 import { confidenceLine } from './confidence'
-import { accountsChain, breakLink, crossesLine, severityLine, staleNote } from './pathText'
+import { accountsChain, breakLink, crossesLine, notListedNote, severityLine, staleNote } from './pathText'
 import { doorPorts, factsOf, moveWords, outsiderName, pathSubline, pathTitle, stepLabel, wayIn, type ChainEdge } from './pathWords'
 import { portLabel, sortPorts } from './ports'
 import type { MapNode } from '../map/mapGraph'
@@ -75,6 +75,16 @@ describe('Attack paths across accounts (ADR-0044, M2)', () => {
     expect(crossesLine([prod, shared])).toEqual({ text: 'Crosses into shared', title: 'prod → shared' })
     expect(crossesLine([prod, shared, { connection_id: 9, name: null }])).toEqual({ text: 'Crosses into 2 accounts', title: 'prod → shared → Connection 9' })
     expect(accountsChain([shared, prod])).toBe('shared → prod')
+  })
+
+  it('says how many found paths the cap kept out of the list', () => {
+    const after = "Filters and counts here don't include them."
+    expect(notListedNote(null, 'prod')).toBeNull()
+    expect(notListedNote({ paths: 0, latent: 0, worst: null }, 'prod')).toBeNull()
+    expect(notListedNote({ paths: 3210, latent: 0, worst: 'medium' }, 'prod')).toBe(`3,210 more paths entering prod were found but not listed: Medium or lower. ${after}`)
+    expect(notListedNote({ paths: 1, latent: 0, worst: 'informational' }, null)).toBe(`1 more path was found but not listed: Informational. ${after}`)
+    expect(notListedNote({ paths: 2, latent: 1, worst: 'low' }, null)).toBe(`2 more paths were found but not listed: Low or lower, plus 1 latent path. ${after}`)
+    expect(notListedNote({ paths: 0, latent: 40, worst: null }, 'prod')).toBe(`40 more latent paths entering prod were found but not listed. ${after}`)
   })
 
   it('notes when the paths are behind the scans', () => {

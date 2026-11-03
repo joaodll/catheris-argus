@@ -7,13 +7,15 @@ Owns attack_path. Public interface:
                        against Argus's internet rules (ADR-0035)
     the search (ADR-0037), pure, fed by the graph read model (ADR-0044, M2):
         MOVE_TYPES, ENTRY_TYPES, RULE_ENTRY_TYPES, MAX_DEPTH   what it walks
-        Step, Chain, step(), entries(), incoming(), rebuild(), cap()
+        Step, Chain, step(), entries(), incoming(), rebuild()
     the evaluation's Postgres side, which argus.graph calls once per evaluation:
         kind_targets()     each kind's target uids over every connection
         failing_nodes()    which path nodes have a failing finding now
         assess()           severity and ownership of each chain -> FoundPath
-        store_paths()      upsert, resolve what is gone, path metrics (attack_paths.*)
-    list_paths(), get_path(), path_facets(), PathFilters, kinds_by_id()   the read side
+        stored_path_ids(), cap()   which paths found keep a row, and what is cut
+        store_paths()      changed paths only, resolve what is gone, path metrics (attack_paths.*)
+    list_paths(), get_path(), path_facets(), not_listed(), PathFilters, kinds_by_id()   the read
+                       side
                        (Attack paths list and path page, ADR-0033)
     edge_confidence(), source_label(), LEVELS   how sure each step is, and where it is from
     DOORS_SQL          the doors view `d` the path kinds read (ports, admin_port)
@@ -32,11 +34,14 @@ from argus.attackpaths.engine import (
     FoundPath,
     PathKind,
     assess,
+    cap,
     failing_nodes,
     kind_targets,
     kinds_by_id,
     load_path_kinds,
+    not_listed,
     store_paths,
+    stored_path_ids,
 )
 from argus.attackpaths.load import load_cloudfox
 from argus.attackpaths.queries import PathFilters, get_path, list_paths, path_facets
@@ -49,7 +54,6 @@ from argus.attackpaths.search import (
     Chain,
     Step,
     Targets,
-    cap,
     entries,
     incoming,
     rebuild,
@@ -87,10 +91,12 @@ __all__ = [
     "list_paths",
     "load_cloudfox",
     "load_path_kinds",
+    "not_listed",
     "parse_cloudfox",
     "path_facets",
     "rebuild",
     "source_label",
     "step",
     "store_paths",
+    "stored_path_ids",
 ]

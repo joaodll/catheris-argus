@@ -7,11 +7,11 @@ from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import Engine, text
-from tests.conftest import Settle
+from tests.conftest import RULES_DIR, Settle
 from tests.graph.conftest import graph_write
 from tests.ingest.conftest import make_demo, run_tool
 
-from argus import attackpaths, graph
+from argus import attackpaths, graph, metrics
 from argus.collection import TOOL_ORDER, CollectOptions, CollectTarget, FilesystemRawStore
 from argus.collection.synthetic.estate import SCENARIO_INSTANCE, SCENARIO_ROLE
 
@@ -212,30 +212,155 @@ def test_a_fix_resolves_the_same_day_after_another_accounts_evaluation(
     }
 
 
-def test_a_connection_cut_at_the_cap_resolves_nothing(
+def _rows(owner: Engine) -> dict[bytes, tuple[str, int]]:
+    """Each stored path's state and the transaction that last wrote its row."""
+    with owner.connect() as conn:
+        rows = conn.execute(
+            text("SELECT path_id, state, xmin::text::bigint AS written FROM attack_path")
+        ).all()
+    return {bytes(r.path_id): (r.state, r.written) for r in rows}
+
+
+def _not_listed(owner: Engine, connection_id: int) -> dict[str, float]:
+    with owner.connect() as conn:
+        return metrics.latest(
+            conn,
+            connection_id=connection_id,
+            metric="attack_paths.not_listed",
+            as_of=DAY + timedelta(days=30),
+        )
+
+
+def test_a_path_gone_resolves_while_the_cap_keeps_the_rest_open(
+    owner: Engine,
+    worker: Engine,
+    store: FilesystemRawStore,
+    settle: Settle,
+    monkeypatch: pytest.MonkeyPatch,
+    two_accounts: tuple[CollectTarget, CollectTarget, int, str],
+) -> None:
+    """The cap decides what is listed, not what was found (ADR-0044, amended 2026-11-02): rows
+    past it stay open with fresh facts, and a path the evaluation no longer finds still resolves."""
+    a, b, edge_id, admin = two_accounts
+    assert {p["state"] for p in _crossing(owner, admin, edge_id)} == {"open"}
+    with owner.begin() as conn:
+        through = set(
+            conn.execute(
+                text("SELECT id FROM attack_path WHERE :e = ANY(edge_ids)"), {"e": edge_id}
+            ).scalars()
+        )
+        others = set(
+            conn.execute(
+                text("SELECT id FROM attack_path WHERE NOT :e = ANY(edge_ids)"), {"e": edge_id}
+            ).scalars()
+        )
+        # Stale facts on rows the cap will push out: they must be corrected anyway.
+        conn.execute(text("UPDATE attack_path SET has_failing = NOT has_failing"))
+    assert through and len(others) > 2
+    monkeypatch.setattr("argus.attackpaths.engine.MAX_PATHS", 2)
+    _break(owner, edge_id)
+    run_tool(worker, store, b, "cloudfox", DAY + timedelta(days=1))
+    settle(DAY + timedelta(days=1))
+    with owner.connect() as conn:
+        states = dict(conn.execute(text("SELECT id, state FROM attack_path")).all())
+    assert {states[i] for i in through} == {"resolved"}
+    assert {states[i] for i in others} == {"open"}
+    # Every path still found already has a row, so nothing is cut.
+    assert not any(_not_listed(owner, a.connection_id).values())
+    # Stale facts were rewritten, including past the cap: a second look changes nothing.
+    done = graph.evaluate_paths(worker, today=DAY + timedelta(days=1), rules_dir=RULES_DIR)
+    assert done is not None and (done["new"], done["changed"], done["resolved"]) == (0, 0, 0)
+
+
+def test_only_what_changed_is_written(
+    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
+) -> None:
+    """A second evaluation of the same day writes no row; one changed fact writes one row; a new
+    day moves last_seen on every path found, once."""
+    target = make_demo(owner)
+    _scan(worker, store, target, DAY)
+    settle(DAY)
+    first = _rows(owner)
+    assert first
+
+    def evaluate(day: date) -> dict[str, int]:
+        done = graph.evaluate_paths(worker, today=day, rules_dir=RULES_DIR)
+        assert done is not None
+        return done
+
+    done = evaluate(DAY)
+    assert (done["new"], done["changed"], done["resolved"]) == (0, 0, 0)
+    assert _rows(owner) == first
+
+    with owner.begin() as conn:
+        one = conn.execute(text("SELECT min(id) FROM attack_path")).scalar_one()
+        conn.execute(
+            text("UPDATE attack_path SET has_failing = NOT has_failing WHERE id = :i"), {"i": one}
+        )
+    wrote = _rows(owner)
+    done = evaluate(DAY)
+    assert done["changed"] == 1
+    after = _rows(owner)
+    assert sum(after[p] != wrote[p] for p in after) == 1
+
+    done = evaluate(DAY + timedelta(days=1))
+    assert done["changed"] == len(first)
+    with owner.connect() as conn:
+        seen = set(conn.execute(text("SELECT last_seen FROM attack_path")).scalars())
+    assert seen == {DAY + timedelta(days=1)}
+    assert evaluate(DAY + timedelta(days=1))["changed"] == 0
+
+
+def test_the_cut_is_counted_and_a_stored_path_is_never_cut(
     owner: Engine,
     worker: Engine,
     store: FilesystemRawStore,
     settle: Settle,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A path the cap cut was not found, not fixed."""
+    """What the cap keeps out has no row and is counted by severity, as all connections too. A
+    resolved path found again reopens though it ranks past the cap, and a later uncut evaluation
+    puts the count back to zero."""
     target = make_demo(owner)
     _scan(worker, store, target, DAY)
+    monkeypatch.setattr("argus.attackpaths.engine.MAX_PATHS", 2)
     settle(DAY)
+    rows = _rows(owner)
+    assert len(rows) == 2
     with owner.connect() as conn:
-        found = conn.execute(
-            text("SELECT count(*) FROM attack_path WHERE state = 'open'")
-        ).scalar_one()
-    assert found > 2
-    monkeypatch.setattr("argus.attackpaths.search.MAX_PATHS", 2)
-    run_tool(worker, store, target, "cloudfox", DAY + timedelta(days=1))
-    settle(DAY + timedelta(days=1))
-    with owner.connect() as conn:
-        states = dict(
-            conn.execute(text("SELECT state, count(*) FROM attack_path GROUP BY 1")).all()
+        api = attackpaths.not_listed(
+            conn, connection_id=target.connection_id, as_of=DAY + timedelta(days=30)
         )
-    assert states == {"open": found}
+        everywhere = attackpaths.not_listed(
+            conn, connection_id=None, as_of=DAY + timedelta(days=30)
+        )
+        kept = conn.execute(
+            text("SELECT array_agg(severity) FROM attack_path WHERE state = 'open'")
+        ).scalar_one()
+    assert api is not None and api["paths"] + api["latent"] > 0
+    assert everywhere == api
+    # Worst first: nothing cut is worse than what is listed.
+    order = ["informational", "low", "medium", "high", "critical"]
+    if api["worst"]:
+        assert order.index(api["worst"]) <= min(order.index(s) for s in kept)
+    with owner.begin() as conn:
+        conn.execute(
+            text("UPDATE attack_path SET state = 'resolved', resolved_on = :d"), {"d": DAY}
+        )
+    monkeypatch.setattr("argus.attackpaths.engine.MAX_PATHS", 0)
+    done = graph.evaluate_paths(worker, today=DAY, rules_dir=RULES_DIR)
+    assert done is not None and done["new"] == 0
+    assert {state for state, _ in _rows(owner).values()} == {"open"}
+    assert len(_rows(owner)) == 2
+
+    monkeypatch.setattr("argus.attackpaths.engine.MAX_PATHS", 5000)
+    done = graph.evaluate_paths(worker, today=DAY, rules_dir=RULES_DIR)
+    assert done is not None and done["new"] > 0 and done["cut"] == 0
+    with owner.connect() as conn:
+        cleared = attackpaths.not_listed(
+            conn, connection_id=target.connection_id, as_of=DAY + timedelta(days=30)
+        )
+    assert cleared == {"paths": 0, "latent": 0, "worst": None}
 
 
 def test_an_account_scanned_40_days_ago_keeps_its_graph_and_its_paths(

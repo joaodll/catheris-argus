@@ -22,18 +22,17 @@ fewest steps from each seed to every node it reaches (a breadth-first walk of at
 moves) and the moves into the reached nodes. rebuild() then rebuilds one path per (seed,
 target) backwards, one step shallower at a time, taking the most confident edge when several fit
 (a rule's edge before CloudFox's for the same step). A kind may name the types its last step
-must have (lateral movement ends with CAN_CONNECT_TO). cap() keeps MAX_PATHS per entry account.
+must have (lateral movement ends with CAN_CONNECT_TO).
 """
 
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from argus.attackpaths.confidence import LEVELS, Confidence
 
 MAX_DEPTH = 8  # attacker steps after the entry
-MAX_PATHS = 5000  # per entry connection and evaluation; the rest is cut, in a fixed order
 MOVE_TYPES = (
     "ROUTES_TO",
     "TRIGGERS",
@@ -135,7 +134,7 @@ def incoming(steps: Iterable[Step]) -> dict[str, list[Step]]:
 
 
 # {kind id: (its target uids, the types its last step must have (empty: any), whether the
-# target is the entry itself: "only", "too" or "never")}, searched and capped in this order.
+# target is the entry itself: "only", "too" or "never")}, searched in this order.
 Entry = Literal["only", "too", "never"]
 Targets = dict[str, tuple[set[str], tuple[str, ...], Entry]]
 
@@ -184,24 +183,3 @@ def rebuild(
                         found[kind].append(Chain(seed, target, (seeds[seed], *way, s)))
                         break
     return found
-
-
-def cap(
-    found: dict[str, list[Chain]], owner: Callable[[Chain], int]
-) -> tuple[dict[str, list[Chain]], dict[int, int]]:
-    """At most MAX_PATHS chains per owner (the entry's connection), cut in a fixed order: kinds
-    in the order given (most severe first), each kind's chains by seed then target. Returns the
-    chains kept and how many were cut per owner."""
-    budget: dict[int, int] = defaultdict(lambda: MAX_PATHS)
-    cut: dict[int, int] = defaultdict(int)
-    kept: dict[str, list[Chain]] = {}
-    for kind, chains in found.items():
-        kept[kind] = []
-        for chain in chains:
-            who = owner(chain)
-            if budget[who] > 0:
-                budget[who] -= 1
-                kept[kind].append(chain)
-            else:
-                cut[who] += 1
-    return kept, dict(cut)

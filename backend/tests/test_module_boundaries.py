@@ -30,7 +30,7 @@ OWNERS: dict[str, set[str]] = {
         "compliance_framework",
         "compliance_rollup",
     },
-    "attackpaths": {"attack_path"},
+    "attackpaths": {"attack_path", "staged_path"},
     "metrics": {"metric_daily"},
     "ingest": {"scan_run"},
     "core": {"unresolved_ref", "audit_log"},
