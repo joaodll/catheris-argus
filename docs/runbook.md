@@ -92,8 +92,7 @@ docker compose run --rm frontend pnpm api:generate # writes frontend/src/api/sch
 
 ### Fixtures from another machine
 
-Adapter fixtures come from real output ([ADR-0037](adr/0037-attack-path-search.md) relies on
-CloudFox's). When the real scans run on another machine, scrub there and bring only the result:
+Adapter fixtures come from real output. When the real scans run on another machine, scrub there and bring only the result:
 
 1. On the scanning machine, after one complete run per tool, note the three run ids (Operate →
    Runs).
@@ -134,8 +133,8 @@ fake estate's fake secrets.
 - `--skip-steampipe` runs CloudFox only, in about a minute.
 - **The exposure scenario** (2026-10-21). `... run --rm emulate --scenario exposure --prowler`
   seeds only `backend/tests/tooling/exposure_estate.py`: one instance per way Prowler's exposure
-  checks and Argus's internet rules can disagree, plus the entries and moves the attack-path
-  rounds need. It exports the fixture's tables with moto's permission checks off, runs
+  checks and Argus's internet rules can disagree, plus the entries and moves its rules derive.
+  It exports the fixture's tables with moto's permission checks off, runs
   the pinned Prowler's `ec2_instance_*` checks against the same estate, and writes
   `emulated/scenario/` (`scenario.json` holds Prowler's verdict per case). The committed copy is
   `backend/tests/fixtures/emulated/exposure/`. It is the emulator's own fake estate, so it keeps
@@ -165,11 +164,8 @@ After changing backend code that the running stack uses: `docker compose up -d -
 load records the rule set it came from. When the worker starts, before it claims any run, it
 checks each enabled connection's latest rule load, however old. If that load came from other
 rules (or from before migration 0026), the worker re-runs the load's day with the new rules:
-edges and the reach checks. The new rule set moves the graph's marker, so the graph thread
-then re-evaluates the attack paths; a path the new rules no longer find is resolved then, when the
-connection's newest Steampipe and CloudFox runs are complete (2026-11-01). So a new rule version
-shows on the map and in Attack paths at once, not after the next Steampipe and CloudFox runs. The same
-happens once when a release checks the reach of more findings (2026-10-22: Prowler's exposure
+edges and the reach checks. So a new rule version shows on the Resources sheet at once, not after
+the next Steampipe and CloudFox runs. The same happens once when a release checks the reach of more findings (2026-10-22: Prowler's exposure
 checks), so their Reach and reason show at once. The log
 shows `re-derived after a rule upgrade` per connection, then `rule set checked` with the counts.
 A failure is logged per connection (`re-derive failed`) and leaves that connection as it was
@@ -428,36 +424,6 @@ To refresh the test fixtures from a real run (the Phase 0 spike), see
    whole, and the command lists them as dropped: CloudFox's `env-vars` tables and loot (its CSV
    is kept with the Value column blanked), `instance-userdata.txt` and `cloudformation-data.txt`
    (2026-10-14).
-
-**The graph read model** ([ADR-0044](adr/0044-graph-read-model-memgraph.md)).
-- **What keeps it current:** the worker's graph thread copies each connection's current state into
-  Memgraph within about 15 seconds of an ingest, and checks it every 10 minutes.
-- **Attack paths come from it** (round M2, 2026-11-01). After each copy, the graph thread checks
-  the graph and runs the attack-path search over every connection; the log shows
-  `attack paths evaluated` with the counts and seconds. Ingest no longer computes paths.
-  `new`, `changed` and `resolved` count rows written; a repeat with nothing changed writes none.
-- **When Attack paths says "N more paths ... not listed":** that account found more paths than its
-  cap of 5,000 new rows. They are not lost: an evaluation still looks at them, and none of this
-  stops a fixed path from resolving. The log shows `attack paths cut at the cap` per connection.
-- **The Resource map reads it too** (round M3b, 2026-11-02). When the map says "the graph is
-  unavailable", the API can't get an answer from `memgraph` within 5 seconds: check that `memgraph`
-  is up, and look for `graph unavailable` in the `api` log. Every other screen keeps working.
-- **Where to see its state:** the `graph_projection` table, one row per connection with `status`,
-  counts and `synced_at`, and `paths_evaluated_at` and `paths_run_id` for its paths.
-- **When Attack paths says its paths are behind:** they were found before the newest scans. An
-  information note for a minute after a scan is normal. After 10 minutes behind, or when a sync
-  fails, it turns into a warning: look for `graph sync loop error` or `graph sync failed` in the
-  worker log, and check that `memgraph` is up. The paths catch up on the next successful pass.
-- **When drift is found:** Memgraph no longer holding what was copied in shows up as a
-  `graph.drift` row in the audit log. The connection is then rebuilt from Postgres.
-- **When to rebuild it:** Memgraph holds nothing Postgres doesn't, so rebuild it when it is broken
-  or its password must change:
-
-```bash
-docker compose stop memgraph worker
-docker compose rm -f memgraph && docker volume rm argus_memgraph-data
-docker compose up -d memgraph worker   # the worker re-projects every connection
-```
 
 **Starting over.** `docker compose down` stops the stack and keeps the data. `docker compose down -v`
 also **deletes every volume: the database with all history, and the raw files**. There is no

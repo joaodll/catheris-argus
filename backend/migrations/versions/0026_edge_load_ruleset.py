@@ -1,10 +1,10 @@
 """The rule set each rule edge load was derived with (ADR-0035, fifth amendment, point 6).
 
 Revision ID: 0026
-Revises: 0025
+Revises: 0024
 Create Date: 2026-10-21
 
-`edge_load.ruleset`: a SHA-256 (hex) of every relationship rule's and attack-path kind's id
+`edge_load.ruleset`: a SHA-256 (hex) of every relationship rule's id
 and version, written with each rule load (family 'rule'). When the worker starts, a connection
 whose latest rule load has another rule set, or none, is derived again on that day's
 inventory, so a rule upgrade shows at once instead of after the next Steampipe and CloudFox
@@ -17,7 +17,7 @@ A nullable column without a default: a catalogue change only, no table rewrite.
 from alembic import op
 
 revision = "0026"
-down_revision = "0025"
+down_revision = "0024"
 branch_labels = None
 depends_on = None
 

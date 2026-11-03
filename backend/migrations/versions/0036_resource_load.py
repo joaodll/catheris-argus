@@ -1,7 +1,7 @@
 """Each account's latest scan, however old: the inventory's loads (owner's decision, 2026-11-01).
 
 Revision ID: 0036
-Revises: 0035
+Revises: 0033
 Create Date: 2026-11-01
 
 - `resource_load`: one row per connection and day an inventory was loaded, with its resource
@@ -27,7 +27,7 @@ history's resource rows), seconds at the budget's 300,000 resources.
 from alembic import op
 
 revision = "0036"
-down_revision = "0035"
+down_revision = "0033"
 branch_labels = None
 depends_on = None
 

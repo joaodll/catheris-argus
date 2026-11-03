@@ -26,7 +26,6 @@ class Kpis(BaseModel):
     assets: Kpi
     threatscore: ThreatScoreKpi
     open_critical: Kpi
-    exploitable_paths: Kpi
 
 
 class StripPoint(BaseModel):
@@ -87,11 +86,6 @@ class SeverityOverTime(BaseModel):
     month_table: list[MonthRow]
 
 
-class CategoryCount(BaseModel):
-    category: str
-    count: float
-
-
 class TypeCount(BaseModel):
     type: str
     count: float
@@ -109,7 +103,6 @@ class Overview(BaseModel):
     check_results: CheckResults
     failed_by_severity: list[SeverityCount]
     severity_over_time: SeverityOverTime
-    attack_paths_by_category: list[CategoryCount]
     inventory: Inventory
     coverage: dict[str, str]
 

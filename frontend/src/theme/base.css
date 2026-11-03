@@ -279,7 +279,7 @@ h1:focus {
 }
 
 /* A detail page (design-system.md, Page header → detail page): a breadcrumb, then a header card
-   holding the h1, its badges and a row of emoji-led facts. A framework page, an attack path. */
+   holding the h1, its badges and a row of emoji-led facts. A framework page. */
 .breadcrumb {
   display: flex;
   flex-wrap: wrap;
@@ -1114,10 +1114,6 @@ legend {
 
 .sk-120 {
   height: 120px;
-}
-
-.sk-160 {
-  height: 160px;
 }
 
 .sk-190 {

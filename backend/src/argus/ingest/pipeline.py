@@ -11,10 +11,6 @@ do not match it, an unsupported tool version), is recorded as failed, resolves n
 its tool's metrics carry the previous day forward, so charts show neither a gap nor a false
 improvement.
 
-Attack paths are not evaluated here (ADR-0044, M2): an ingested run moves the graph read
-model's marker, and the graph loop re-projects the connection and evaluates the paths across
-every account within one tick. A failed run moves no marker, so it changes no path.
-
 An unexpected error while loading is recorded the same way, so the Runs tab shows the run as
 failed with the error in its log tail, and the worker retries it like any failed run. A
 Steampipe or CloudFox load commits before its rules run, so a failure in the rules can leave
@@ -31,13 +27,8 @@ from uuid import UUID
 from sqlalchemy import Connection, Engine, text
 
 from argus import connections, metrics
-from argus.attackpaths import (
-    PUBLIC_ENDPOINT_CHECK,
-    load_cloudfox,
-    load_path_kinds,
-    parse_cloudfox,
-)
-from argus.attackpaths.cloudfox import UnsupportedVersionError as CloudFoxVersionError
+from argus.cloudfox import PUBLIC_ENDPOINT_CHECK, load_cloudfox, parse_cloudfox
+from argus.cloudfox.parse import UnsupportedVersionError as CloudFoxVersionError
 from argus.core.manifest import Manifest
 from argus.core.rawstore import RawRun, RawRunError, RawStore, read_run
 from argus.core.redaction import redact_text
@@ -67,7 +58,7 @@ from argus.relationships import internet_reach, load_rules, write_edges
 
 log = logging.getLogger("argus.ingest")
 # Held shared by every ingest and exclusive by a re-derive after a rule upgrade (rederive.py),
-# so the two never interleave on one connection's edges and paths (ADR-0039).
+# so the two never interleave on one connection's edges (ADR-0039).
 REDERIVE_LOCK = "argus.rederive"
 VERSION_ERRORS = (
     SteampipeVersionError,
@@ -78,7 +69,7 @@ VERSION_ERRORS = (
 TOOL_METRICS = {
     "steampipe": INVENTORY_METRICS,
     "prowler": FINDING_ADDITIVE_METRICS,
-    # Path metrics belong to the graph's evaluation (ADR-0044, M2), not to a CloudFox run.
+    # No metric: the Overview shows no CloudFox number, so its scan date ignores CloudFox.
     "cloudfox": [],
     # No metric yet: the Overview does not show vulnerabilities (ADR-0042).
     VULNERABILITY_TOOL: [],
@@ -252,13 +243,12 @@ def _steampipe(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[
 
 
 def rule_set(rules_dir: Path) -> str:
-    """What derived a day's edges, reach checks and paths: a SHA-256 of every relationship
-    rule's and path kind's id and version (edge_load.ruleset, ADR-0035 fifth amendment) and of
-    the checks whose findings carry Argus's reach (sixth amendment). So a release that starts
-    checking more findings re-derives once at start, and findings already stored get their
-    verdict then, not at the next scan."""
+    """What derived a day's edges and reach checks: a SHA-256 of every relationship rule's id
+    and version (edge_load.ruleset, ADR-0035 fifth amendment) and of the checks whose findings
+    carry Argus's reach (sixth amendment). So a release that starts checking more findings
+    re-derives once at start, and findings already stored get their verdict then, not at the
+    next scan."""
     names = [f"relationship:{r.id}@{r.version}" for r in load_rules(rules_dir)]
-    names += [f"path:{k.id}@{k.version}" for k in load_path_kinds(rules_dir)]
     names += [f"reach:{c}" for c in (PUBLIC_ENDPOINT_CHECK, *PROWLER_EXPOSURE_CHECKS)]
     return hashlib.sha256("\n".join(sorted(names)).encode()).hexdigest()
 
@@ -316,7 +306,7 @@ def _cloudfox(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
 
 
 def _vulnerabilities(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
-    """CVEs touch no edge, path or metric (ADR-0042): one transaction, nothing re-evaluated."""
+    """CVEs touch no edge or metric (ADR-0042): one transaction, nothing re-evaluated."""
     batch = parse_vulnerabilities(raw)
     with engine.begin() as conn:
         return load_vulnerabilities(

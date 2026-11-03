@@ -1,9 +1,8 @@
 <script setup lang="ts">
 /**
  * One resource, read-only, a block per tool (docs/ui/screens.md, E11, Resource panel): what
- * Steampipe describes, what Prowler checks, what CloudFox shows an attacker could use, the attack
- * paths through it, then its connections, tags and configuration. The Resources sheet (E8) and
- * the map's docked panel both show this body: one implementation, two frames.
+ * Steampipe describes, what Prowler checks, what CloudFox shows an attacker could use, then its
+ * connections, tags and configuration. The Resources sheet (E8) shows this body.
  */
 import { computed, ref, watch } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
@@ -16,8 +15,8 @@ import ToolChip from '@/components/ToolChip.vue'
 import { useResource } from '@/composables/useResource'
 import EdgeList from './EdgeList.vue'
 import { findingLine, regionLabel } from './labels'
-import DoorEvidence from './map/DoorEvidence.vue'
-import { doorOfEdge, doorWhy } from './map/doorWhy'
+import DoorEvidence from './DoorEvidence.vue'
+import { doorOfEdge, doorWhy } from './doorWhy'
 import ReachBadge from './ReachBadge.vue'
 import ExploitMark from './ExploitMark.vue'
 import { coverageReason, epssPercent, lastScanned, packageLine } from './vulnerability'
@@ -27,18 +26,12 @@ import { scannerName } from '@/tools'
 
 const props = defineProps<{
   resourceId: number
-  asOf?: string | null
   connectionName: (id: number) => string
-  // Where a connected resource opens (the Resources sheet: in place; the map: a new tab).
+  // Where a connected resource opens.
   resourceLink: (id: number) => RouteLocationRaw
-  newTab?: boolean
   // A block to bring into view once it shows: a finding's See the evidence opens the sheet at
   // From the internet (ADR-0035, sixth amendment).
   at?: 'from-internet' | null
-  // The Resource map's panel: no "From the internet" block (reach and its evidence). The map
-  // shows connections, not reach (the owner's decision, 2026-11-01); the Resources sheet, Attack
-  // paths and Findings' "See the evidence" keep it.
-  hideInternet?: boolean
 }>()
 const emit = defineEmits<{ loaded: [resource: Schemas['ResourceDetail'] | null] }>()
 
@@ -49,10 +42,10 @@ const detail = useResource(
   () =>
     unwrap(
       api.GET('/api/v1/resources/{resource_id}', {
-        params: { path: { resource_id: props.resourceId }, query: { as_of: props.asOf ?? null } },
+        params: { path: { resource_id: props.resourceId } },
       }),
     ),
-  { watch: [() => props.resourceId, () => props.asOf] },
+  { watch: [() => props.resourceId] },
 )
 const toolFindings = (tool: Tool) =>
   useResource(
@@ -64,12 +57,6 @@ const findings: Record<Tool, ReturnType<typeof toolFindings>> = { prowler: toolF
 // Until the detail arrives (or while another resource loads), nothing of the old one shows.
 const current = computed(() => (detail.data.value?.id === props.resourceId ? detail.data.value : null))
 watch(current, (r) => emit('loaded', r), { immediate: true })
-
-const uid = computed(() => current.value?.resource_uid ?? null)
-const paths = useResource(
-  async () => (uid.value == null ? null : await unwrap(api.GET('/api/v1/attack-paths', { params: { query: { through: uid.value, limit: SHOWN } } }))),
-  { watch: [uid] },
-)
 
 const connection = computed(() => (current.value ? props.connectionName(current.value.connection_id) : ''))
 const cloudfoxEdges = computed(() => (current.value?.edges ?? []).filter((e) => e.origin === 'cloudfox'))
@@ -93,7 +80,6 @@ const TOOLS: { tool: Tool; name: string }[] = [
   { tool: 'prowler', name: 'Prowler' },
   { tool: 'cloudfox', name: 'CloudFox' },
 ]
-const target = computed(() => (props.newTab ? '_blank' : undefined))
 
 // The provider's vulnerability scanner's view of this resource (ADR-0042, AWS Inspector on AWS);
 // null for a provider and type no scanner covers.
@@ -114,10 +100,6 @@ const vulns = computed(() => {
     counts: SEVERITIES.flatMap((s) => (section.by_severity[s] ? [{ severity: s, count: section.by_severity[s]! }] : [])),
   }
 })
-function step(path: Schemas['PathOut']): string {
-  const at = uid.value == null ? -1 : path.node_uids.indexOf(uid.value)
-  return `step ${at + 1} of ${path.node_uids.length}`
-}
 </script>
 
 <template>
@@ -177,7 +159,6 @@ function step(path: Schemas['PathOut']): string {
         <RouterLink
           class="btn btn-ghost btn-sm see-all"
           :to="{ name: 'misconfigurations', query: { resource: String(resourceId), tool: t.tool } }"
-          :target="target"
         >
           See all {{ findings[t.tool].data.value!.total }} {{ t.name }} findings
         </RouterLink>
@@ -185,7 +166,7 @@ function step(path: Schemas['PathOut']): string {
       <template v-if="t.tool === 'cloudfox' && current.scanned.cloudfox">
         <h4 class="lbl sub">Attacker view</h4>
         <p v-if="cloudfoxEdges.length === 0" class="cap">CloudFox found no connection for this resource.</p>
-        <EdgeList v-else :edges="cloudfoxEdges" :resource-id="resourceId" :resource-link="resourceLink" :new-tab="newTab" />
+        <EdgeList v-else :edges="cloudfoxEdges" :resource-id="resourceId" :resource-link="resourceLink" />
       </template>
     </section>
 
@@ -240,7 +221,6 @@ function step(path: Schemas['PathOut']): string {
           <RouterLink
             class="btn btn-ghost btn-sm see-all"
             :to="{ name: 'vulnerabilities', query: { resource: String(resourceId) } }"
-            :target="target"
           >
             See all {{ vulns.open + vulns.suppressed }} vulnerabilit{{ vulns.open + vulns.suppressed === 1 ? 'y' : 'ies' }}
           </RouterLink>
@@ -248,31 +228,7 @@ function step(path: Schemas['PathOut']): string {
       </template>
     </section>
 
-    <section class="block" aria-labelledby="rd-paths">
-      <h3 id="rd-paths" class="lbl">Attack paths through it</h3>
-      <AlertBanner v-if="paths.error.value" kind="fail">
-        Attack paths didn't load: {{ paths.error.value }}
-        <template #action><button type="button" class="btn btn-secondary btn-sm" @click="paths.reload">Retry</button></template>
-      </AlertBanner>
-      <div v-else-if="!paths.data.value" aria-busy="true" class="skeleton sk-48"></div>
-      <p v-else-if="paths.data.value.total === 0" class="cap">No attack paths run through this resource.</p>
-      <template v-else>
-        <ul class="rows">
-          <li v-for="p in paths.data.value.items" :key="p.id" class="finding-row">
-            <SeverityTag :severity="p.severity" />
-            <RouterLink class="one-line finding-link" :to="{ name: 'attack-paths', query: { path: String(p.id) } }" target="_blank" :title="p.rule_name ?? p.rule_id">
-              {{ p.rule_name ?? p.rule_id }}<span class="sr-only"> (opens in a new tab)</span>
-            </RouterLink>
-            <span class="mono step">{{ step(p) }}</span>
-          </li>
-        </ul>
-        <RouterLink class="btn btn-ghost btn-sm see-all" :to="{ name: 'attack-paths', query: { through: current.resource_uid } }" target="_blank">
-          See all {{ paths.data.value.total }}<span class="sr-only"> attack paths (opens in a new tab)</span>
-        </RouterLink>
-      </template>
-    </section>
-
-    <section v-if="door && !hideInternet" ref="doorBlock" class="block" aria-labelledby="rd-door">
+    <section v-if="door" ref="doorBlock" class="block" aria-labelledby="rd-door">
       <h3 id="rd-door" class="lbl">From the internet</h3>
       <div class="door">
         <ReachBadge door :reach="door.reach" />
@@ -284,7 +240,7 @@ function step(path: Schemas['PathOut']): string {
     <section class="block" aria-labelledby="rd-edges">
       <h3 id="rd-edges" class="lbl">Connections</h3>
       <p v-if="current.edges.length === 0" class="cap">No connections found for this resource.</p>
-      <EdgeList v-else :edges="current.edges" :resource-id="resourceId" :resource-link="resourceLink" :new-tab="newTab" />
+      <EdgeList v-else :edges="current.edges" :resource-id="resourceId" :resource-link="resourceLink" />
     </section>
 
     <section class="block" aria-labelledby="rd-tags">
@@ -427,7 +383,7 @@ function step(path: Schemas['PathOut']): string {
   white-space: nowrap;
 }
 
-/* Each finding and path opens alone, in its own tab: the page behind stays as it was. */
+/* Each finding opens alone, in its own tab: the page behind stays as it was. */
 .finding-link {
   color: var(--text);
   text-decoration: underline;

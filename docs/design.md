@@ -17,9 +17,8 @@ We build our own platform that runs three open-source tools as collectors and ow
 Goals:
 
 - Compliance scores and misconfigurations per framework, account and cloud, with remediation guidance
-- A clickable dependency map with a resource detail panel, where users can add manual connections
-- Attack paths drawn over the map, built from all three tools together
-- History dashboards: compliance trend, findings opened and fixed, attack paths over time
+- A resource detail panel that shows what each tool found on a resource and what it connects to
+- History dashboards: compliance trend, findings opened and fixed
 - Team use: SSO, roles and an audit log
 
 Non-goals for v1:
@@ -32,42 +31,19 @@ Non-goals for v1:
 
 ## MVP scope
 
-The MVP ships two screens, the executive Overview and Administration (ADR-0028), on AWS only, fed by three collectors: Prowler, CloudFox and Steampipe (inventory). It is built and proven on a synthetic estate first; connecting a real AWS account is its last step (ADR-0020). Postgres is the only database: relationship rules write edges to it and the API builds the graph from it. The dependency map and manual edges move to phase 2.
+The MVP ships two screens, the executive Overview and Administration (ADR-0028), on AWS only, fed by three collectors: Prowler, CloudFox and Steampipe (inventory). It is built and proven on a synthetic estate first; connecting a real AWS account is its last step (ADR-0020). Postgres is the only database: relationship rules write edges to it. Manual edges come later.
 
 | Area | In the MVP | After the MVP |
 | --- | --- | --- |
 | Collectors | Prowler, CloudFox, Steampipe (inventory with full configuration) | GCP and OCI connections for the same collectors; more relationship rules; later outside-in probing |
 | Compliance and findings | Scores, history, lifecycle, remediation | — |
-| Attack paths | Chains of CloudFox steps, joined with failing Prowler checks; counted by category on the Overview | A step-by-step path screen, then paths drawn on the dependency map (Investigate → Attack paths, ADR-0033) |
-| Resources | Inventory from Steampipe with each resource's full configuration and its daily versions, joined to Prowler and CloudFox findings by resource\_uid | The dependency map, drawn from rule-derived, CloudFox and manual edges |
-| Graph storage | `Edge, snapshot` and `attack_path` tables in Postgres, queried with SQL | Postgres stays the record; since 2026-10-31 a Memgraph read model holds every connection's current state for the map and attack paths, rebuilt from Postgres ([ADR-0044](adr/0044-graph-read-model-memgraph.md)) |
-| Map and manual edges | Not included | Inventory map (Investigate → Resource map, ADR-0033) and resource panel; the edge editor after it |
-| Screens | Two, plus Sign in: the executive Overview and Administration (Connections, Schedules with Run now and the queue, Runs, Settings), in the Titanium Signal theme | Read-only Findings and Resources with the resource panel (built 2026-10-06, ADR-0028 second amendment); Posture → Compliance, read-only (built 2026-10-07, ADR-0028 third amendment); Attack paths, the inventory map; finding states, users, roles and audit log in Admin |
+| Resources | Inventory from Steampipe with each resource's full configuration and its daily versions, joined to Prowler and CloudFox findings by resource\_uid | What it connects to, from rule-derived and CloudFox edges, in the resource panel |
+| Manual edges | Not included | The edge editor, not built |
+| Screens | Two, plus Sign in: the executive Overview and Administration (Connections, Schedules with Run now and the queue, Runs, Settings), in the Titanium Signal theme | Read-only Findings and Resources with the resource panel (built 2026-10-06, ADR-0028 second amendment); Posture → Compliance, read-only (built 2026-10-07, ADR-0028 third amendment); finding states, users, roles and audit log in Admin |
 | History | Daily snapshots (snapshot\_date) kept six months in Postgres | The same retention unless a need for longer appears |
 | Clouds | AWS | GCP, then OCI |
 
-**A graph read model, not a graph database of record (2026-10-31, [ADR-0044](adr/0044-graph-read-model-memgraph.md)).**
-Until then the map and the paths were indexed joins and recursive SQL over the edge table, one
-connection at a time (ADR-002).
-
-Three needs changed that:
-- a scale target of about 1M resources
-- new providers and sources (GCP, OCI, Cloudflare, Identity Center, GitHub)
-- paths that cross accounts and clouds
-
-The owner chose Memgraph as a **derived read model** beside Postgres, for graph queries that are
-easier to build and change:
-- **Postgres stays the system of record.** History, lifecycles and paths stay there.
-- **Memgraph holds only each connection's current state,** in one graph across connections and
-  providers, and is rebuilt from Postgres whenever it is empty, stale or tampered with. The
-  current state is each connection's latest scan, however old: scans may run 15 to 60 days
-  apart (2026-11-01), and every screen shows each account's latest scan (see "All
-  connections").
-- **The attack-path search runs over it, across accounts** (round M2, 2026-11-01): see
-  [Ingestion, snapshots and attack paths](#ingestion-snapshots-and-attack-paths).
-- **The Resource map reads it** (round M3b, 2026-11-02): each connection's latest state, one named read per hop, with names and edge details from Postgres. So the map has no past days; a past day of a resource's configuration and edges is on the Resources sheet. While Memgraph can't answer, the map says the graph is unavailable (503 with Retry-After), never an empty map, and there is no SQL fallback.
-- **Correlation stays SQL in ingest.** The relationship rules are unchanged.
-- **Apache AGE was out:** the managed Postgres (RDS) does not offer it.
+**No graph features in this release (2026-11-03, [ADR-0045](adr/0045-remove-graph-features.md)).** The Resource map, Attack paths and the Memgraph read model that served them were built, then removed by the owner's decision for v0.1. Postgres is the only database. Edges and every relationship rule stay, because reach verdicts and the resource panel read them. If a graph capability returns, it starts from a new study of other technologies and a new ADR, not from restoring Memgraph. The last commit with these features is `d0fb438`.
 
 ## How the MVP runs
 
@@ -121,7 +97,7 @@ Assumptions, each with what changes if it is wrong:
 
 &#91;embedded content: platform architecture · 3 collectors, 2 stores, 1 API\]
 
-This section describes Argus on Kubernetes, as the chart in `charts/argus/` deploys it (ADR-0039, ADR-0040; built 2026-10-25). Compose runs the same code as one worker ([How the MVP runs](#how-the-mvp-runs)). Data moves one way: clouds → collectors → S3 (and the run's staged copy) → ingest → Postgres → API → UI. Schedules saved in the UI go through the API to Postgres; the scheduler queues the runs they call for and starts a Job for claimable work, and each Job claims its run from the queue. Manual edges go in through the API to Postgres, and the API adds them to every graph it returns.
+This section describes Argus on Kubernetes, as the chart in `charts/argus/` deploys it (ADR-0039, ADR-0040; built 2026-10-25). Compose runs the same code as one worker ([How the MVP runs](#how-the-mvp-runs)). Data moves one way: clouds → collectors → S3 (and the run's staged copy) → ingest → Postgres → API → UI. Schedules saved in the UI go through the API to Postgres; the scheduler queues the runs they call for and starts a Job for claimable work, and each Job claims its run from the queue.
 
 **Shape: a modular monolith.** Our code is one Python package and one image, plus a worker variant of the image that adds the three tools (ADR-0030). It runs as processes that differ only in command and service account, so each gets only the permissions its job needs without splitting the code into services.
 
@@ -130,8 +106,6 @@ This section describes Argus on Kubernetes, as the chart in `charts/argus/` depl
 | api | Deployment, 2 replicas | Postgres: read on data, write on schedules, manual edges, sessions and audit log; no Kubernetes or cloud access |
 | scheduler | Deployment, 1 replica | Postgres as `argus_scheduler` (no secrets); the Kubernetes API: create, get and list Jobs in its namespace |
 | scan Jobs | A Job per unit of work, from one fixed template: a queued Test connection first, otherwise one AWS run (collect and ingest), then exit. No Demo connections on Kubernetes | Postgres as `argus_worker`; the cloud identity and port 443 outside the cluster |
-| graph-sync | Deployment, 1 replica (ADR-0044) | Postgres as `argus_worker`; Memgraph with its login. Keeps the read model equal to Postgres and checks it every 10 minutes |
-| memgraph | StatefulSet, 1 replica, with a volume for snapshots and WAL; no backup needed (rebuilt from Postgres) | Nothing: no egress; only graph-sync reaches its Bolt port |
 | migrate, rederive | One Job per image | Postgres (the schema owner; `argus_worker`) |
 | retention | Daily CronJob | Postgres partition maintenance |
 
@@ -141,14 +115,12 @@ Modules inside the package own their tables and expose a small public interface;
 - connections: the accounts collected from, and their credentials
 - settings: administration settings and their bounds
 - collection: the raw store, the manifest and the sources (synthetic now, AWS later)
-- ingest: one run through its adapter, rules, lifecycle, snapshots, paths and metrics
-- graph: the Memgraph read model; projects each connection's current state, verifies it, and
-  holds the named read queries (ADR-0044)
+- ingest: one run through its adapter, rules, lifecycle, snapshots and metrics
 - retention: partition maintenance and raw-file pruning
 - inventory: Steampipe adapter, resources, snapshots, configurations
 - relationships: the edge-rule engine and edge snapshots
 - findings: Prowler adapter, lifecycle, compliance snapshots
-- attackpaths: CloudFox adapter and the attack-path engine
+- cloudfox: CloudFox adapter (attacker-view findings and edges)
 - metrics: metric\_daily rollups
 - scheduling: schedules, run requests, claims, the worker loop (the reconciler on Kubernetes)
 - auth: admin login, sessions, sign-in limits
@@ -160,26 +132,24 @@ A module becomes its own service only when it needs a different scaling profile,
 | --- | --- | --- |
 | Collectors | Run each tool unmodified; write raw output and a manifest to S3 | Prowler, CloudFox and Steampipe export CLIs in the worker image (ADR-0030); a scan Job on Kubernetes |
 | S3 raw archive | Unchanged record of every run, replayable | S3; SSE-KMS recommended, encryption recorded per run (ADR-0031) |
-| Ingest | Adapters, relationship rules, lifecycle rules, daily snapshots, attack-path engine, daily metrics | Python, in the process that collected the run (the run Job on Kubernetes) |
+| Ingest | Adapters, relationship rules, lifecycle rules, daily snapshots, daily metrics | Python, in the process that collected the run (the run Job on Kubernetes) |
 | Postgres | Canonical models, daily snapshots, schedules, manual edges, users, audit log | PostgreSQL |
-| Graph read model | Every connection's current state as one graph, rebuilt from Postgres; never the record (ADR-0044) | Memgraph Community, the plain image |
 | Scheduler | Queues the runs schedules call for and starts run Jobs for claimable work, from fixed templates | Python, a standard-library Kubernetes client (`core/kube.py`) |
-| API | Authentication, roles, named graph queries, every read and write | FastAPI |
-| UI | Map, findings, compliance, attack paths, trends, admin | Vue with SVG chart components (ADR-0027); Cytoscape.js for the map in phase 2 |
+| API | Authentication, roles, every read and write | FastAPI |
+| UI | Findings, compliance, vulnerabilities, resources, trends, admin | Vue with SVG chart components (ADR-0027) |
 
 ## Canonical data models
 
-Six tables in Postgres are the platform's real contract: every tool maps into them, and the graph is built from them. Swapping a tool means rewriting one adapter, never these models.
+Five tables in Postgres are the platform's real contract: every tool maps into them. Swapping a tool means rewriting one adapter, never these models.
 
 | Model | Key | Main fields | Why it exists |
 | --- | --- | --- | --- |
 | `scan_run` | `run_id` | tool, tool version, provider, account, region scope, started, finished, status, S3 path of raw output | Every row elsewhere points to the run that produced it; failed runs are visible |
 | `resource` | `resource_uid` | provider, account, region, type, native id, name, tags, config hash (the configuration itself is in resource\_config), first seen, last seen, deleted at | The join key across all tools; inventory history |
-| `edge` | `edge_id` | source uid, target uid, type, origin (rule with its id and version, cloudfox, probe, manual), attributes (ports, policy), first seen, last seen; for manual edges also author and reason | The dependency map and the attacker's moves |
+| `edge` | `edge_id` | source uid, target uid, type, origin (rule with its id and version, cloudfox, probe, manual), attributes (ports, policy), first seen, last seen; for manual edges also author and reason | The resource panel's connections and the attacker's moves; reach verdicts are judged from them |
 | `finding` | `finding_uid` | tool, check id, resource uid, severity, status, title, remediation text and link, compliance references, service, resource type and categories (Prowler's names for every tool, 2026-10-07), state (open, resolved, reopened, accepted risk), first seen, last seen, resolved at | Misconfigurations with a lifecycle instead of a snapshot |
 | `compliance_snapshot` | run, framework, requirement | framework and version, account, requirement id, status (pass, fail, manual), passed checks, failed checks | One row per requirement per scan; the compliance trend |
 | `compliance_framework` | framework key (`cis_6.0_aws`) | family and name as Prowler writes them in its compliance CSV (`FRAMEWORK`, `NAME`), version, provider | The Compliance screen names about 40 frameworks per provider (2026-10-07) |
-| `attack_path` | `path_id` | rule id, severity, entry uid, target uid, ordered node uids, edge ids, first seen, last seen, resolved at | Paths tracked over time like findings |
 
 History is kept as daily snapshots, so any past day is read with WHERE snapshot\_date = that day:
 
@@ -200,7 +170,7 @@ History is kept as daily snapshots, so any past day is read with WHERE snapshot\
 
 **Resource identity.** `resource_uid` = provider + the cloud's own global id: the ARN on AWS, the full resource name on GCP, the OCID on OCI. When a tool reports a short id (an instance id, a security group id), the resolver builds the global id from account, region and type. Anything it cannot resolve lands in an `unresolved_refs` table that the UI shows, so a broken join is visible instead of silently dropped.
 
-**Stable ids for history.** `finding_uid` uses Prowler's own finding uid; CloudFox findings use a hash of tool, check and resource. `path_id` is a hash of the rule id and the ordered node uids, so the same path keeps its id across scans.
+**Stable ids for history.** `finding_uid` uses Prowler's own finding uid; CloudFox findings use a hash of tool, check and resource.
 
 ## Database load and query rules
 
@@ -221,7 +191,7 @@ Query rules, enforced in code review and by the query-budget test:
 - Trends and every Overview block read metric\_daily, computed by ingest; the API never counts snapshot rows for a chart.
 - Filter on integer ids and the snapshot date first, then join dimension tables for names, tags and configuration.
 - JSONB is read by relationship rules inside ingest, never by the API. Columns the UI filters on (account, region, type, VPC) are plain indexed columns on resource.
-- Multi-hop queries are bounded and never run in an API request. The attack-path search is a breadth-first walk of at most 8 moves in the graph read model, run by the graph loop over every connection (ADR-0044, round M2); its results are stored in attack\_path. The map's neighbourhood query stops at 3 hops and 500 nodes, and reads one connection's edges ([ADR-0033](adr/0033-resource-map.md), amended 2026-10-09).
+- No API request walks the edges: a resource's panel reads only its own edges, at most 500.
 - The API connects with a read-only role that has a 5-second statement timeout; every list is paginated.
 - No server-side prepared statements (`core/db.py`, `prepare_threshold` off). A prepared statement turns into a generic plan after a few runs, and a generic plan cannot prune partitions at plan time or choose the index for the connection asked for: the query budget measured the Overview at 8 ms planned per call and 120 ms generic, with a 1.7 s run at the switch (2026-10-07).
 - metric\_daily's key starts with the date, so it has two more indexes (migration 0013): by connection, metric and dimension (the Overview and the Compliance pages, one connection over six months) and by metric and dimension (one framework across every connection). Real Prowler writes six compliance rows per framework a day for about 40 frameworks; without them, six months of one connection was a scan of whole partitions.
@@ -267,7 +237,7 @@ A check counts as run, so a complete run can resolve it, only when its file exis
 
 **Steampipe exports secret values too.** Every column of a table includes `aws_lambda_function.environment_variables` and `aws_ec2_instance.user_data`, and Prowler's OCSF resource metadata can carry the same fields. Before anything reaches `resource_config`, the Steampipe and Prowler adapters redact every value under a secret-bearing key (environment, variables, user data, password, secret, token, private key, credential), keeping the shape, as `********` (eight asterisks whatever the value; the word REDACTED before 2026-10-23, ADR-0024 amended), and mask a credential written inside any URL value (its userinfo, and the value of a credential-bearing query parameter such as `sig`, `key`, `code` or `X-Amz-Signature`; added 2026-10-09 after the Resource map's security review found API Gateway integration URLs carrying them under an ordinary key). So "Argus never stores a secret value in Postgres" holds for the inventory as well. Found 2026-10-02 in the secure code review of the fixture scrubber, which already applies the same rule. Open for work item 7b: whether to exclude these columns at collection with `--select` instead, so raw S3 never holds them either.
 
-**Every configuration table** (2026-10-08, [ADR-0012](adr/0012-steampipe-export-clis.md) amended). The Steampipe list holds every configuration table of the pinned plugin (412 of 588 since 2026-10-21) except four classes: contents and data plane, activity/metrics/cost and other tools' findings, reference data, and tables that need a fixed filter. A few tables are narrowed (`collection/tables.py`): only customer-managed IAM policies, and no column the role denies or Argus must not hold (Lambda code, API key values, CloudFormation template bodies). Tables export `steampipe_parallel_tables` at a time (Settings → Collection). **Completeness is per table**: a table that failed, or whose export logged a denied call or throttling, is listed in the run's `incomplete_tables`, its resources carry forward and none of its type is deleted; every other table of the run is complete. Redaction also covers name/value pairs (CloudFormation parameters and outputs, Beanstalk option settings) and secret assignments inside text values (inline buildspecs, state machine definitions, event inputs). Parts, settings and links (rules, versions, attachments, associations) are stored but not counted as assets. **What a table's errors mean** (2026-10-21, ADR-0012 second amendment): a table whose every error says the service does not apply to the account (Organizations not in use, Timestream for LiveAnalytics to a non-customer) is *not applicable*, and one whose every error is a resource's own refusal ("no resource-based policy allows") is *refused*. Both carry their resources forward and neither makes the run Partial; the Runs page lists them apart from the actions missing from the role. Columns that fail on resources the account does not own are left out with `--select` (VPC endpoint service permissions, AppStream image and KMS key tags, WAF logging configuration), and `aws_api_gateway_api_key` is excluded: the scanner role denies the API key paths, whose GET returns key values. **One exception to "other tools' findings"** (2026-10-30, [ADR-0042](adr/0042-inspector-vulnerabilities.md)): each provider's own vulnerability scanner comes in through a fourth collector, `vulnerabilities`, which is provider-neutral the way Prowler is (amended 2026-10-31): the provider's scanner sits behind it, and every row names it in `scanner`. On AWS the scanner is AWS Inspector (`aws-inspector`): the collector runs the same export binary over `aws_inspector2_finding` and `aws_inspector2_coverage` in a run of its own. GCP and OCI add their scanner to `findings.vulnerabilities.SCANNERS`, with no new tool. Each connection exports only its own account's open findings, so a delegated administrator account never imports its members' CVEs. CVEs are findings of the tool `vulnerabilities`, with their kind (package or code), package, fixed version, CVSS, EPSS, exploit and the scanner's own score in `finding_vulnerability`, and the scanner's per-resource scan status in `vulnerability_coverage` (`active` is the adapter's verdict; the status words stay the scanner's own). They are counted apart from Prowler's and CloudFox's findings and do not change attack-path severity. GuardDuty, Security Hub, Macie and Access Analyzer findings stay out.
+**Every configuration table** (2026-10-08, [ADR-0012](adr/0012-steampipe-export-clis.md) amended). The Steampipe list holds every configuration table of the pinned plugin (412 of 588 since 2026-10-21) except four classes: contents and data plane, activity/metrics/cost and other tools' findings, reference data, and tables that need a fixed filter. A few tables are narrowed (`collection/tables.py`): only customer-managed IAM policies, and no column the role denies or Argus must not hold (Lambda code, API key values, CloudFormation template bodies). Tables export `steampipe_parallel_tables` at a time (Settings → Collection). **Completeness is per table**: a table that failed, or whose export logged a denied call or throttling, is listed in the run's `incomplete_tables`, its resources carry forward and none of its type is deleted; every other table of the run is complete. Redaction also covers name/value pairs (CloudFormation parameters and outputs, Beanstalk option settings) and secret assignments inside text values (inline buildspecs, state machine definitions, event inputs). Parts, settings and links (rules, versions, attachments, associations) are stored but not counted as assets. **What a table's errors mean** (2026-10-21, ADR-0012 second amendment): a table whose every error says the service does not apply to the account (Organizations not in use, Timestream for LiveAnalytics to a non-customer) is *not applicable*, and one whose every error is a resource's own refusal ("no resource-based policy allows") is *refused*. Both carry their resources forward and neither makes the run Partial; the Runs page lists them apart from the actions missing from the role. Columns that fail on resources the account does not own are left out with `--select` (VPC endpoint service permissions, AppStream image and KMS key tags, WAF logging configuration), and `aws_api_gateway_api_key` is excluded: the scanner role denies the API key paths, whose GET returns key values. **One exception to "other tools' findings"** (2026-10-30, [ADR-0042](adr/0042-inspector-vulnerabilities.md)): each provider's own vulnerability scanner comes in through a fourth collector, `vulnerabilities`, which is provider-neutral the way Prowler is (amended 2026-10-31): the provider's scanner sits behind it, and every row names it in `scanner`. On AWS the scanner is AWS Inspector (`aws-inspector`): the collector runs the same export binary over `aws_inspector2_finding` and `aws_inspector2_coverage` in a run of its own. GCP and OCI add their scanner to `findings.vulnerabilities.SCANNERS`, with no new tool. Each connection exports only its own account's open findings, so a delegated administrator account never imports its members' CVEs. CVEs are findings of the tool `vulnerabilities`, with their kind (package or code), package, fixed version, CVSS, EPSS, exploit and the scanner's own score in `finding_vulnerability`, and the scanner's per-resource scan status in `vulnerability_coverage` (`active` is the adapter's verdict; the status words stay the scanner's own). They are counted apart from Prowler's and CloudFox's findings. GuardDuty, Security Hub, Macie and Access Analyzer findings stay out.
 
 **IAM users and access keys** (2026-10-07). `aws_iam_user` and `aws_iam_access_key` are in the inventory, and the rule `access-key-user` links each key to its user (`BELONGS_TO`). A key is part of its user, not an asset of its own. The secret-key rule would hide `access_key_id`, the last-use columns and `password_last_used`. These are identifiers and dates an operator needs to judge a key, and the secret half of a key pair is not in these tables. So `core.redaction.NOT_SECRET_COLUMNS` names them exactly, for that table and the top level of its rows only. Every other key, table and tool still goes through the rule, so a Lambda variable named `access_key_id` stays secret. Last use is kept in the configuration on purpose (a key used on a day gets a new configuration that day). The fixture scrubber gives each key id a stable pseudonym without a credential shape.
 
@@ -277,7 +247,7 @@ A check counts as run, so a complete run can resolve it, only when its file exis
 
 ## Relationship rules
 
-Steampipe only collects; our relationship rules turn its configuration into edges, so the platform, not a tool, decides how resources connect. A rule is a versioned file in the repository, like an attack-path rule: id, version, source and target resource types, edge type, and one read-only SQL query over resource.properties that returns source uid, target uid and attributes.
+Steampipe only collects; our relationship rules turn its configuration into edges, so the platform, not a tool, decides how resources connect. A rule is a versioned file in the repository: id, version, source and target resource types, edge type, and one read-only SQL query over resource.properties that returns source uid, target uid and attributes.
 
 | Example rule | Reads | Edge |
 | --- | --- | --- |
@@ -288,7 +258,7 @@ Steampipe only collects; our relationship rules turn its configuration into edge
 | User in group (`user-group`, 2026-10-08) | aws\_iam\_user.groups | user → IAM group, MEMBER\_OF |
 | Attached policy (`principal-policy`, 2026-10-08) | attached\_policy\_arns of users, groups and roles | principal → managed policy, HAS\_POLICY (an AWS-managed policy is not inventoried: the edge points to its ARN) |
 | Role trust (`role-trust` v2: federated principals too, 2026-10-22) | aws\_iam\_role.assume\_role\_policy | principal → role, CAN\_ASSUME |
-| Outsider (`outsider-trust`, 2026-10-22, [ADR-0037](adr/0037-attack-path-search.md) second amendment) | role trusts naming another account, anyone (`*`), or an OpenID Connect provider with no condition on the token's subject | internet → that principal, OUTSIDER (an attack-path entry; the role trust is the move) |
+| Outsider (`outsider-trust`, 2026-10-22, [ADR-0037](adr/0037-attack-path-search.md) second amendment) | role trusts naming another account, anyone (`*`), or an OpenID Connect provider with no condition on the token's subject | internet → that principal, OUTSIDER |
 | Leaked credential (`exposed-user-credential`, 2026-10-22) | users with an active access key, or a console password without MFA | internet → user, HAS\_CREDENTIAL (an entry; which credential, how many keys, the oldest key's date, never a key id) |
 | Escalation (`privilege-escalation`, 2026-10-22, wave 3) | roles and users, with their groups: a documented IAM escalation method by permission name (CreatePolicyVersion, Put\*Policy, PassRole with a compute create, …; IAMFullAccess) | principal → admin:<account>, CAN\_ESCALATE\_TO (Candidate; resources, conditions, boundaries and SCPs not evaluated) |
 | Lateral movement (`lateral-network`, 2026-10-22, replaces `ssh-lateral`) | an instance door (open, unknown, or Restricted with something open) and the groups of instances and databases in its VPC | door → neighbour admitting SSH, RDP, WinRM or a database or cache port from a private range, CAN\_CONNECT\_TO (ports, services) |
@@ -296,7 +266,7 @@ Steampipe only collects; our relationship rules turn its configuration into edge
 | Administrator (`principal-admin`, 2026-10-22) | roles and users, with their groups: AdministratorAccess, or an unconditional Allow of `*` on `*` | principal → admin:<account>, IS\_ADMIN (Supported; CloudFox's own stays Confirmed) |
 | Load balancer target | aws\_ec2\_target\_group.load\_balancer\_arns and target\_health\_descriptions | load balancer → target, ROUTES\_TO (version 2, ADR-0033: load balancer → target group → instance, function or IP) |
 | Resource in subnet | subnet ids on instances, functions and databases | resource → subnet → VPC, IN\_NETWORK |
-| Internet entry (`internet-entry` v7, [ADR-0035](adr/0035-internet-reachability.md)) | resources where traffic can really arrive (and, since v7, 2026-10-22, a bucket, queue, topic, function, KMS key, secret or ECR repository public by its own policy: `via` resource\_policy, restricted by S3 Block Public Access, unknown under a condition): enabled CloudFront, API Gateway APIs not private or address-limited, internet-facing load balancers with a security group open to anywhere on a listener port, public running instances and publicly accessible databases with an open security group, function URLs without IAM auth, EKS endpoints open to 0.0.0.0/0 (Route53 records name an entry, they are not one; a public record whose chain ends where Argus does not look is an unknown door, `internet-dns`, ADR-0035 third amendment) | internet → resource, ROUTES\_TO (where Attack paths start and what Findings' reach is judged from), with the open ports |
+| Internet entry (`internet-entry` v7, [ADR-0035](adr/0035-internet-reachability.md)) | resources where traffic can really arrive (and, since v7, 2026-10-22, a bucket, queue, topic, function, KMS key, secret or ECR repository public by its own policy: `via` resource\_policy, restricted by S3 Block Public Access, unknown under a condition): enabled CloudFront, API Gateway APIs not private or address-limited, internet-facing load balancers with a security group open to anywhere on a listener port, public running instances and publicly accessible databases with an open security group, function URLs without IAM auth, EKS endpoints open to 0.0.0.0/0 (Route53 records name an entry, they are not one; a public record whose chain ends where Argus does not look is an unknown door, `internet-dns`, ADR-0035 third amendment) | internet → resource, ROUTES\_TO (what Misconfigurations' reach is judged from), with the open ports |
 | Internet restricted (`internet-restricted`, ADR-0035) | the same candidates, public by their settings but closed by security groups, IAM auth or address lists | internet → resource, PUBLIC\_RESTRICTED, with the reason and the sources admitted. CloudFox's "public" endpoints and Prowler's exposure checks (`ec2_instance_port_*`, `ec2_instance_public_ip`, `ec2_instance_internet_facing_with_instance_profile`, `rds_instance_no_public_access`, `elb_internet_facing`, `elbv2_internet_facing`; 2026-10-22, ADR-0035 sixth amendment) are checked against these rules: `finding.reach` and `finding.reach_reason` (the door's reason; `no_door` when a Prowler check names a resource the rules judged and found no way into, `not_in_inventory` when they had nothing of it) |
 | Exposure evidence (2026-10-21, ADR-0035 fifth amendment) | instances judged per network interface; a stopped instance with an open group is restricted (`not_running`); ICMP opens nothing | every VPC door's edge carries `network` (per interface: public families, what its groups open per family, each subnet's route and ACL) and an instance's `state` |
 | Role access (`role-accesses`, [ADR-0036](adr/0036-flow-mode.md); users with their groups since v3, 2026-10-22) | Allow statements of a role's or user's inline and customer-managed policies (the views `ps` and `pa`); since v2 (2026-10-22, [ADR-0037](adr/0037-attack-path-search.md) second amendment) the AWS-managed policies of a curated list, their data access per service derived from AWS's policy documents (`ReadOnlyAccess` reads S3, DynamoDB, SQS and Kinesis, not Secrets Manager) | role → DynamoDB, S3, SQS, SNS, Kinesis, Secrets Manager, KMS, Lambda, Step Functions resource, ACCESSES (`Resource: "*"` and a managed policy → `any:<service>`; Deny, conditions, boundaries, SCPs and unlisted AWS-managed policies not evaluated) |
@@ -309,9 +279,9 @@ Steampipe only collects; our relationship rules turn its configuration into edge
 - Every edge carries origin rule:\<id>@\<version> with first seen and last seen, so a rule change shows up in history.
 - Rules run after the Steampipe adapter, in the same step as the lifecycle rules; an edge a complete run no longer produces is absent from that day's snapshot, and past days keep it.
 - Raw output stays in S3 and resource\_config keeps every configuration of the last six months, so a new or fixed rule can be replayed over past days.
-- A rule upgrade re-derives at once (2026-10-21): each rule load records its rule set (`edge_load.ruleset`: the rules' and path kinds' ids and versions, and since 2026-10-22 the checks whose findings carry a reach), and the worker, when it starts, re-runs the latest standing day of each enabled connection derived with other rules (edges, reach checks). The new rule set moves the graph read model's marker, so the graph loop re-evaluates the attack paths; since 2026-11-01 a path the new rules no longer find is resolved then, when the connection's newest Steampipe and CloudFox runs are complete, rather than at its next complete scan.
+- A rule upgrade re-derives at once (2026-10-21): each rule load records its rule set (`edge_load.ruleset`: the rules' ids and versions, and since 2026-10-22 the checks whose findings carry a reach), and the worker, when it starts, re-runs the latest standing day of each enabled connection derived with other rules (edges, reach checks).
 - Each rule has a fixture: configuration rows in, expected edges out. A coverage report lists resource types that no rule reads, so gaps are visible.
-- CloudFox edges such as CAN\_ASSUME and CAN\_PRIVESC\_TO stay; when a rule and CloudFox find the same connection, each origin keeps its own edge and the map merges them.
+- CloudFox edges such as CAN\_ASSUME and CAN\_PRIVESC\_TO stay; when a rule and CloudFox find the same connection, each origin keeps its own edge and the resource panel lists both.
 - A host name no inventoried resource owns (a custom origin, another account's load balancer) becomes the pseudo-node `external:<hostname>`; an AWS-owned host also records an unresolved reference (ADR-0033). The rows above marked ADR-0033 are planned on 2026-10-08 and stay unconfirmed until a fixture cut from a real Steampipe run proves their shapes.
 
 ## Keyless multi-account access
@@ -328,9 +298,9 @@ Prowler and CloudFox use the same per-account profiles, so each account has one 
 
 Sources: [AWS plugin](https://hub.steampipe.io/plugins/turbot/aws), [GCP plugin](https://hub.steampipe.io/plugins/turbot/gcp), [OCI plugin](https://hub.steampipe.io/plugins/turbot/oci), [OCI Workload Identity Federation](https://www.ateam-oracle.com/post/workload-identity-federation).
 
-## Ingestion, snapshots and attack paths
+## Ingestion and snapshots
 
-A run becomes visible only after four steps succeed in order; a failed step leaves the previous state untouched.
+A run becomes visible only after three steps succeed in order; a failed step leaves the previous state untouched.
 
 1. **Collect.** The run writes raw files, then the manifest, and uploads them; the same process then ingests the run from its staged copy (Argus never reads raw output back from S3). On Kubernetes that process is the run Job; there is no separate ingest Job and no S3 sweep (ADR-0039).
 2. **Ingest.** Ingest runs the tool's adapter and upserts the canonical models. Relationship rules then derive edges from the new inventory, and lifecycle rules update states:
@@ -340,24 +310,8 @@ A run becomes visible only after four steps succeed in order; a failed step leav
    - A failed or partial run never resolves anything. This rule prevents a scan timeout from looking like a fix.
    - A partial run still records what it evaluated: a partial Prowler run's check results and compliance (ThreatScore) are that day's values. Prowler on a real account is often throttled somewhere, and carrying the previous day forward would hide its results for good; the cost is that a throttled day can undercount, and the run shows as Partial (2026-10-06). A failed run has no results: the day keeps what it has, or the previous day's values are carried forward. For Prowler that includes the connection's requirement results (`compliance_snapshot`, however old), and the framework scores are recomputed for the connection and for all connections, so a score history has no gap on a failed day (2026-10-07; before, the scores were left out that day).
 3. **Snapshot.** The job writes the day's rows under snapshot\_date: resources with their config hash, new configurations, edges, failing findings and metric\_daily. Running the same day again replaces that day's rows, so a re-run never duplicates history.
-4. **Find paths, outside the run** (ADR-0044, round M2, 2026-11-01). An ingested run moves the graph read model's marker. Within one tick (15 s), the graph loop re-projects the connection into Memgraph, runs the integrity check, and runs the attack-path search over every connection at once. A failed run moves no marker, so it changes no path.
 
-**Manual edges** live only in Postgres, with author, reason and creation time, ingestion never deletes them, and the API adds them to every graph it returns. An endpoint can also be an external node (an on-prem network, a partner SaaS) that no collector will ever see. When a real endpoint disappears from the inventory, the edge is flagged stale in the UI instead of being dropped.
-
-**Path kinds** are versioned files in the repository (`backend/rules/attack_paths/`): id, name, severity, MITRE ATT&CK technique, description, remediation, and one read-only SQL query that selects the kind's targets in one connection ([ADR-0037](adr/0037-attack-path-search.md)). One search then finds, from every internet entry, the shortest chain to each target, whatever rule or tool drew each step.
-
-**The search across accounts** (ADR-0044, round M2, 2026-11-01; decided by the owner on 2026-10-31 and 2026-11-01):
-- **Where it runs.** In the graph loop (the Compose worker's graph thread, the `graph-sync` Deployment on Kubernetes), under the graph lock, after the integrity check. Memgraph supplies the internet edges, a breadth-first walk of at most 8 moves from every entry over the move types, and the moves into the nodes reached. Postgres supplies each kind's targets and the failing findings, on the days each connection was projected from. A role another account can assume no longer ends a path at the account boundary.
-- **What the paths show.** Each connection's latest scan state, however old. A path is stamped with the day it was evaluated; history builds from 2026-11-01 on, and a backfilled past day gets no path counts.
-- **Who owns a path.** The account where the attacker gets in: the connection of the first node on the path that a connection owns. That is the entry's, unless the entry is not inventoried (an outsider's principal, an endpoint only CloudFox saw), when it is the first account the path enters. The path is counted once there on the Overview, and `attack_path.connection_ids` records every account it passes through, the entry's first.
-- **When an account has more paths than the cap** (ADR-0044, amended 2026-11-02). Every path found is assessed. An entry account gets new rows for its 5,000 worst, by assessed severity, then confidence, then fewer steps. Any other path found that already has a row, open or resolved, keeps it with its facts up to date, and a resolved one reopens. The cap therefore limits new rows, not stored rows: rows are bounded by what the evaluation finds. What is left has no row and is counted in `attack_paths.not_listed` by severity, with latent paths apart, so Attack paths can say so. The Overview does not mention it yet, so its attack paths total is low by that count (owner's decision, 2026-11-02). The value itself is decided when the real resource count is known.
-- **What an evaluation writes.** Only what changed: a new path, a changed fact, a path that resolved or reopened. The first evaluation of a day also moves `last_seen` on every path found, once.
-- **When a path resolves.** When the evaluation that just ran no longer finds it, and every account it passes through has complete evidence: projected from its newest ingested run, with inventory and edge loads, and its newest Steampipe and CloudFox runs complete. The cap does not stop this: a path it cuts was still found. A partial run, a failed sync or a disabled account never looks like a fix, and a fix found later the same day resolves that day. A path whose middle account is disabled stays open until that account returns.
-- **When the paths are behind.** `graph_projection` records the run each connection's paths were evaluated from. The Attack paths list says when they are behind the newest scans, or when the graph's last update failed (owner's decision, 2026-11-01).
-
-The rules worth most are the ones no single tool can produce. For example: a resource CloudFox marks as reachable from the internet, with a failing high-severity Prowler check, whose role CloudFox says can escalate to an admin role or read a sensitive data store.
-
-Path severity starts from the rule. It goes up one level when the entry point is confirmed reachable and down one level when no resource on the path has a failing finding.
+**Manual edges** live only in Postgres, with author, reason and creation time, ingestion never deletes them. An endpoint can also be an external node (an on-prem network, a partner SaaS) that no collector will ever see. When a real endpoint disappears from the inventory, the edge is flagged stale in the UI instead of being dropped.
 
 ## History and dashboards
 
@@ -371,7 +325,6 @@ History comes from the daily snapshots, the compliance snapshots and the finding
 | Opened vs resolved per week | `finding_event` | Bars about zero: opened above, resolved below |
 | Mean time to resolve | Resolved at minus first seen, by severity | Bars per severity, last 90 days |
 | Regressions | `finding_event` reopened rows | Count over time plus a list |
-| Open attack paths | `attack_path` by severity | Line per severity over time |
 | Inventory change | `resource`\_snapshot, day over day | Resources added and removed per week |
 
 Every chart filters by cloud, account, framework and date range, and every point drills down to the findings or resources behind it. Charts are drawn in the Vue UI as SVG components built from the theme tokens (ADR-0027).
@@ -384,49 +337,44 @@ The UI is a Vue app over a FastAPI backend, the same stack as Catheris. Users ne
 
 | Screen | What people do there |
 | --- | --- |
-| Overview | MVP: KPIs, ThreatScore history, check results, findings by severity over time, attack paths by category and inventory (see Overview screen below) |
+| Overview | MVP: KPIs, ThreatScore history, check results, findings by severity over time and inventory (see Overview screen below) |
 | Compliance | Read-only since 2026-10-07 (Posture → Compliance; [ui/screens.md](ui/screens.md) E9, E10): every Prowler framework with its score and trend; per framework the score history (6M, 3M, 1M), each account month by month, and the requirements by section. Later: requirement → failing checks → resources, export CSV and PDF, the Regressions view, and an overall average across accounts per provider (proposed by the user, set aside on 2026-10-07) |
 | Vulnerabilities | Since 2026-10-31 (Investigate → Vulnerabilities, owner's decision; ADR-0042 amended): the vulnerabilities tool's CVEs, apart from Misconfigurations. Each row leads with the CVE (a code vulnerability's title), then the package and its fix, a public exploit and EPSS; the resource, connection, state and last seen. Filters: search, severity, state, connection, provider, Fix (any, available, none yet) and Public exploit, and under More filters resource type, region, Suppressed and new in latest scan, all kept in the URL. A **By CVE** view (`?view=cves`) lists each CVE once, counting findings like By check. `GET /vulnerabilities`, `/vulnerabilities/groups` and `/vulnerabilities/facets`; a CVE's own link and details are `/findings/{id}`, opened on this screen (`?finding=`). No scanner filter while each provider has one scanner: the provider filter is the same choice |
 | Misconfigurations | Named **Findings** until 2026-10-31, when its CVEs moved to Vulnerabilities (owner's decision; the rename is in the UI only: the API and storage keep "finding", one lifecycle). `GET /findings` lists Prowler and CloudFox findings only and refuses `tool=vulnerabilities`; `/investigate/findings` redirects here, or to Vulnerabilities when its tool filter is vulnerabilities. Read-only since 2026-10-06 (Investigate → Findings: filter, search, sort, remediation; [ui/screens.md](ui/screens.md) E7). Prowler-style filters since 2026-10-07: several values per filter (severity, connection, tool, category, service, resource type, check, region, result), muted, new in latest scan, all kept in the URL. A Reach filter (2026-10-22): Argus's verdict on a CloudFox public endpoint or a Prowler exposure check, with its reason in the expanded row; Prowler's exposure findings at Restricted are every disagreement between the tools. Since 2026-10-31 a Prowler row leads with Prowler's result for the resource (`status_extended`, "Root account does not have a hardware MFA device enabled"), with the check's title on the second line beside the tool and reach; other tools, and Prowler rows with no result sentence, keep the title. A **By check** view (`?view=checks`, `GET /findings/groups`) lists each check once with its worst severity, how many findings and accounts it has, and when it was last seen, under the same filters; a check opens the list filtered to it. It counts findings, not distinct resources: counting distinct resources over every open finding took about 3 s on the budget estate (owner's decision, 2026-10-31). After roles: assign, accept a risk with an expiry date and a reason |
-| Inventory map | Investigate → Resource map ([ADR-0033](adr/0033-resource-map.md), [ADR-0036](adr/0036-flow-mode.md); [ui/screens.md](ui/screens.md) E11). It shows what a resource depends on and connects to, not whether it can be reached (owner's decision, 2026-11-01, round M3a: the front-doors list, the reach verdicts on lines and in the panel, and Flow mode, [ADR-0036](adr/0036-flow-mode.md), left the map; the verdicts stay in Misconfigurations, the Resources sheet and Attack paths). It starts from "What's here" (owner's decision 2026-11-03, so nobody needs a name first): the inventory's types with their counts, in the Overview's groups and from the same stored numbers (`assets.by_type`, so parts, settings and links are left out and stay reachable by search). Choosing a type lists its resources a page at a time, and choosing one maps it; the type and page stay in the URL, so Back returns to the same list. These read Postgres only, so the start works while the graph is down. It also has a search by name, id or ARN, an account picker that narrows all of it, and the last 8 resources mapped in this tab (session storage per user, owner's decision 2026-11-02: gone when the tab closes, cleared when the session ends; the Resources and Attack paths screens also have Open in map). A resource draws its neighbourhood: expand neighbours step by step within one connection (another connection's resource is a boundary node); group nodes for many neighbours of one kind; columns by hop from the chosen resource, so a chain reads in order (2026-10-13); toggle layers by origin and kind; finding counts per tool as badges. A line says what it is in a plain word at one size on screen ("routes to", "runs as"; one vocabulary with Attack paths), never under a card or on top of another: a word with no room waits until the line is hovered or lit. The edge panel adds the raw type, origin, first and last seen, and plain attributes only (protocol and ports). The Internet node draws real connections only (ROUTES\_TO and CloudFox's INTERNET\_REACHABLE), not PUBLIC\_RESTRICTED or PUBLIC\_UNVERIFIED, except as a step of an attack path opened on the map. A List view shows the same data. Since 2026-11-02 (ADR-0044, M3b) the map is each account's latest state in the graph, with no past-day picker: it shows the newest day that state came from, and a note says when a newer scan is on its way or the last update failed. Since 2026-11-03 (ADR-0044, M-5) a card also marks a public exploit and being on an attack path, and Highlight picks out one fact (misconfigurations, CVEs, public exploits, attack paths), showing its count and muting cards without it; it never changes what is drawn. The panel links each fact to its screen. These are stored facts read from Postgres, never a reach verdict |
-| Resource panel | Read-only since 2026-10-06 (Investigate → Resources and its sheet: properties, open findings, edges, tags, configuration; [ui/screens.md](ui/screens.md) E8). With the Resource map: one panel on both screens, a section per tool (Steampipe, Prowler, CloudFox, and Vulnerabilities, naming its scanner, for instances, functions and ECR repositories since 2026-10-30), and the attack paths through it. The Resources list has a Vulnerabilities column and filter (ADR-0042) |
-| Edge editor | After the Resource map, with the analyst role. Draw a manual connection between two resources or an external node, with a type and a reason |
-| Attack paths | Investigate → Attack paths (planned 2026-10-08, ADR-0028 fourth amendment; [ui/screens.md](ui/screens.md) E12). One search from every internet entry to administrator, data stores, a neighbour on the network or a secret in a workload's environment, over every tool's edges, with moves by escalation permission name, lateral network ports and Systems Manager (2026-10-22, wave 3); every door is itself a path since 2026-10-22, high on an administrative or data port (Prowler 5.44.0's port lists) or when public by its own policy, low otherwise; outsiders' principals and users' leaked credentials are entries too; and paths are recomputed after every ingest (Steampipe, Prowler, CloudFox), so a Steampipe run alone shows them, since 2026-11-01 over every account at once (ADR-0044, M2); with a confidence per step and per path (Confirmed, Supported, Candidate, Unknown, and Blocked for latent paths from a door Argus found closed, listed only when asked for and never counted on the Overview, 2026-10-21; [ADR-0037](adr/0037-attack-path-search.md)). Ranked list; each path shown as a chain of steps with its evidence and remediation per link (which edge to break); Open in map highlights it. Since 2026-10-23 (wave 4) every row says how the path gets in ("Exposed: tcp/22 (SSH)", "Leaked credential: access key"), every link names its move in words ("can escalate via iam:CreatePolicyVersion"), and a Kind filter sits beside Category. Since 2026-10-31 a row is titled by where the path goes ("prod-orders-http → administrator of demo-prod", the connection's name for the account), with the kind, the way in and the step count below; kind descriptions are plain words (the rule's history is in its file's comments), and a link's type and rule source sit in a closed Technical details. Since 2026-11-01 (ADR-0044, M2) a path that crosses accounts says so: "Crosses into shared" under its connection, an Accounts fact and an account tag on each step in another account; "Include paths passing through" beside the connection filter also lists the paths that pass through it (the default stays the entry's account, as the Overview counts); and a note says when the paths are behind the newest scans or their last update failed. Since 2026-11-02 a note also says how many paths the per-account cap kept out of the list and how severe they are; its count doesn't follow the list's filters |
+| Resource panel | Read-only since 2026-10-06 (Investigate → Resources and its sheet: properties, open findings, edges, tags, configuration; [ui/screens.md](ui/screens.md) E8). A section per tool (Steampipe, Prowler, CloudFox, and Vulnerabilities, naming its scanner, for instances, functions and ECR repositories since 2026-10-30). The Resources list has a Vulnerabilities column and filter (ADR-0042) |
+| Edge editor | Not built. With the analyst role, Draw a manual connection between two resources or an external node, with a type and a reason |
 | Administration | MVP: connections, schedules with Run now and the queue, runs with their logs, and settings (see Administration screen below). Users since 2026-10-28 (ADR-0041). Later: the audit log |
-
-The map renders with Cytoscape.js and never loads the whole estate ([ADR-0033](adr/0033-resource-map.md)): the API builds nodes and edges for the chosen resource from the graph read model, with names and edge details from Postgres (ADR-0044, M3b), the neighbourhood endpoint caps depth at 3 hops and the response at 500 nodes, and more than 25 neighbours of one direction, edge type and resource type come back as one group node.
 
 API rules:
 
 - Versioned under `/api/v1`, described by an OpenAPI document committed with the code; the frontend's client is generated from it, and the running API never serves it (ADR-0025).
-- Graph reads go through named server-side queries with parameters only; clients never send SQL.
+- Reads go through named server-side queries with parameters only; clients never send SQL.
 - Every list is paginated; every response carries the scan time it reflects (data lists carry `data_through`, null when nothing has been ingested).
 - Roles ([ADR-0041](adr/0041-users-and-roles.md), 2026-10-28; replaces viewer, analyst, admin): **Viewer** reads every screen except Users and Settings; **Operator** also manages connections, schedules and the queue; **Admin** also manages Settings and Users. Finding states and manual edges get their role when they are built. Every write is recorded in the audit log.
 
 ## Overview screen (MVP)
 
-The Overview is the main MVP screen: one page that reads Prowler, CloudFox and Steampipe together, for any provider, as of the latest scan. The approved design is board D1 on the v3 page of the [CloudSec MVP Wireframes canvas](https://claude.ai/artifact/NEgBG5HKmBM6aD2KvP2JJs), in the R2 Titanium Signal theme on the v6 page. The UI is in English. Each block reads its own tool's latest scan on or before the day shown, so the page fills in whichever tool runs first and a tool that has not run leaves only its own blocks empty; zero open attack paths reads 0, not "no data" (2026-10-06). Changes from board D1 decided on 2026-10-03: the Overview shows the current state only (no point-in-time selector, no deltas against an earlier day; history stays in the strip, the pass-rate months and the severity series), and Inventory shows assets by type per provider instead of a 30-day chart.
+The Overview is the main MVP screen: one page that reads Prowler and Steampipe together, for any provider, as of the latest scan. The approved design is board D1 on the v3 page of the [CloudSec MVP Wireframes canvas](https://claude.ai/artifact/NEgBG5HKmBM6aD2KvP2JJs), in the R2 Titanium Signal theme on the v6 page. The UI is in English. Each block reads its own tool's latest scan on or before the day shown, so the page fills in whichever tool runs first and a tool that has not run leaves only its own blocks empty (2026-10-06). It shows no CloudFox number, so its scan date ignores a CloudFox scan (ADR-0045). Changes from board D1 decided on 2026-10-03: the Overview shows the current state only (no point-in-time selector, no deltas against an earlier day; history stays in the strip, the pass-rate months and the severity series), and Inventory shows assets by type per provider instead of a 30-day chart.
 
 | Block | What it shows | Source | History |
 | --- | --- | --- | --- |
 | Context bar | Provider, accounts, the date of the latest scan shown; last run time per tool | Run metadata | — |
-| KPI cards | Monitored assets; ThreatScore with a bar to the 80 target; open critical findings; exploitable attack paths. Each shows the current value | Steampipe, Prowler, Prowler, CloudFox | — |
+| KPI cards | Monitored assets; ThreatScore with a bar to the 80 target; open critical findings. Each shows the current value | Steampipe, Prowler, Prowler | — |
 | ThreatScore strip | Month-end ThreatScore for the last 6 months, change per month, change since the first month; a select shows any framework with results instead (its requirement pass rate), remembered per browser (2026-10-15) | Prowler ThreatScore framework, or the chosen framework | 6 months, month-end; the current month is to date |
 | Check results | Donut of all checks by Pass, Fail, Muted with the pass rate in the centre; not a link, because passed checks are not findings and no list holds that number (2026-10-10) | Prowler | Pass-rate columns by month, 6 months |
 | Failed findings by severity | Bars for Critical, High, Medium, Low, Informational | Prowler | — |
 | Findings severity over time | One line per severity with month bands; ranges 6M (month-end), 3M (weekly), 1M (daily); a legend that hides or shows each severity. Before two points of history it says so instead (2026-10-31), as the pass-rate months and the score strip say "Needs two months of history" | Prowler | Month-over-month table under the chart: value and change per severity, plus a Total row |
-| Attack paths by category | Paths per category (internet exposure, IAM privilege escalation, public data exposure, lateral movement, credential access), split by provider, with the CloudFox modules behind each | CloudFox, chained by our rules | — |
 | Inventory | Assets by type, per provider: one section per provider with a bar per type group, on one scale; a provider not yet collected shows "not covered" | Steampipe | — |
 
-**Drill-downs (2026-10-10).** Each number opens the list that holds it, filtered so the list reproduces it: KPIs, failed findings per severity, attack paths per category and the ThreatScore strip open Findings, Attack paths or the framework page, and an inventory type group opens in place to its largest types, each linked to Resources. The field-level map is in [`ui/screens.md`](ui/screens.md), "Overview drill-downs".
+**Drill-downs (2026-10-10).** Each number opens the list that holds it, filtered so the list reproduces it: KPIs, failed findings per severity and the ThreatScore strip open Misconfigurations or the framework page, and an inventory type group opens in place to its largest types, each linked to Resources. The field-level map is in [`ui/screens.md`](ui/screens.md), "Overview drill-downs".
 
 When data is missing the screen says why, never a zero: Prowler has no ThreatScore for OCI and CloudFox does not support OCI, so those blocks show "not covered". The MVP scans AWS only, so the provider selector lists GCP and OCI only once their collectors exist.
 
-The history behind these blocks needs one daily rollup per provider, account and day in `metric_daily`: assets by type, ThreatScore and its pillars, checks by Pass, Fail and Muted, failed findings by severity, and attack paths by category. Month-end values and the 3M and 1M views are read from it.
+The history behind these blocks needs one daily rollup per provider, account and day in `metric_daily`: assets by type, ThreatScore and its pillars, checks by Pass, Fail and Muted and failed findings by severity. Month-end values and the 3M and 1M views are read from it.
 
 ## Administration screen (MVP)
 
-The second MVP screen is where the platform is operated, so nothing needs a deploy (ADR-0028). Since 2026-10-06 its four parts are pages in the sidebar, following CatherIs Platform's navigation: **Operate** (Schedules, Runs) and **Administration** (Connections, Settings); an **Investigate** section above them holds the read-only pages (since 2026-10-31: Misconfigurations, Vulnerabilities, Resources, Resource map, Attack paths). The field-level specification is [`ui/screens.md`](ui/screens.md).
+The second MVP screen is where the platform is operated, so nothing needs a deploy (ADR-0028). Since 2026-10-06 its four parts are pages in the sidebar, following CatherIs Platform's navigation: **Operate** (Schedules, Runs) and **Administration** (Connections, Settings); an **Investigate** section above them holds the read-only pages (since 2026-10-31: Misconfigurations, Vulnerabilities, Resources). The field-level specification is [`ui/screens.md`](ui/screens.md).
 
 | Page | What it does |
 | --- | --- |
@@ -499,7 +447,7 @@ The platform holds a complete map of how to attack the organization, so it is tr
 | API surface | No OpenAPI document or docs UI served (ADR-0025); every route but health needs a session |
 | Compose network | Two internal networks; Postgres reachable only from the API and the worker; the UI published on the loopback interface only; nginx the only trusted proxy |
 | Supply chain | Tool versions and image digests pinned; images scanned with Trivy in CI; SBOM per release |
-| Later outside-in probing | Only IPs the graph says we own, rate-limited, within AWS's penetration-testing policy; dangling DNS reported, never scanned |
+| Later outside-in probing | Only IPs the inventory says we own, rate-limited, within AWS's penetration-testing policy; dangling DNS reported, never scanned |
 
 ## Deployment
 
@@ -524,16 +472,16 @@ These decisions shape the platform; each is an ADR in [`adr/`](adr/README.md), w
 | ADR | Decision | Why | Revisit if |
 | --- | --- | --- | --- |
 | 001 | Build our own platform and use Prowler, CloudFox and Steampipe as collectors, instead of extending Prowler's self-hosted server | Multi-cloud attack paths, manual edges, history dashboards and team workflow don't exist upstream, and a fork becomes maintenance debt | Prowler's server ships history and manual edges |
-| 002 | Postgres is the only database of record; the API builds the graph from its edge tables | At our size the map and path queries are indexed joins or recursive SQL; one database to run, back up and secure | Amended 2026-10-31 by ADR-0044: a Memgraph read model beside Postgres, never the record |
+| 002 | Postgres is the only database of record; the API builds the graph from its edge tables | At our size the map and path queries are indexed joins or recursive SQL; one database to run, back up and secure | Amended 2026-10-31 by ADR-0044 (a Memgraph read model); Postgres alone again since 2026-11-03 (ADR-0045) |
 | 003 | Raw output of every run is kept, unchanged, in S3 | Adapters can be replayed after a bug fix; raw evidence for audits | Storage cost becomes material |
 | 004 | `resource_uid` = provider + the cloud's global id (ARN, full resource name, OCID) | It is the one join key across tools; most integration bugs are id mismatches | A cloud has resources with no global id |
 | 005 | The graph the API returns uses our canonical model and our own edge types for every origin (relationship rules, CloudFox, manual) | Stays tool-agnostic; Prowler's Attack Paths queries give the logic we port to SQL | A provider needs a relationship our edge model can't express |
 | 006 | Relationships come from our own versioned rules over the raw inventory configuration, not from a graph-building tool | Collectors stay collectors; rules are reviewable, testable and replayable over past raw data; one edge model for AWS, GCP and OCI | Writing rules for the resource types we need costs more than adopting a graph tool |
 | 007 | Manual edges are stored in Postgres and added to every graph the API returns | They survive re-ingestion and carry author and reason | — |
 | 008 | Collectors and ingestion run as Kubernetes Jobs; no broker or long-running workers (superseded by 019 on Compose; restored on Kubernetes by 039) | Jobs isolate tool dependencies and credentials, and nothing runs between scans | On-demand runs need queueing or retries that Jobs can't give |
-| 009 | Attack-path rules are versioned files (metadata plus SQL), and their results are stored | Paths get history like findings, and rules are reviewable and testable | — |
+| 009 | Attack-path rules are versioned files (metadata plus SQL), and their results are stored | Paths get history like findings, and rules are reviewable and testable | Removed 2026-11-03 (ADR-0045) |
 | 010 | The MVP ships Prowler, CloudFox and Steampipe inventory with the first relationship rules (ADR-006, ADR-012); the map and manual edges move to phase 2 | Delivers compliance history and attacker paths soonest, with the fewest moving parts | The team needs network-level dependencies before phase 2 |
-| 011 | Attack-path rules run as SQL over the Postgres edge tables, with recursive queries for multi-hop paths | CloudFox already supplies multi-step paths, so a few joins don't justify a second database | Rules need deep or variable-length graph searches. Replaced by one search (ADR-0037), which since 2026-11-01 runs over the Memgraph read model across accounts (ADR-0044, round M2) |
+| 011 | Attack-path rules run as SQL over the Postgres edge tables, with recursive queries for multi-hop paths | CloudFox already supplies multi-step paths, so a few joins don't justify a second database | Rules need deep or variable-length graph searches. Replaced by one search (ADR-0037); removed 2026-11-03 (ADR-0045) |
 | 012 | Steampipe export CLIs collect the inventory: every column of a versioned table list, per account, as JSONL in S3 | Apache-2.0 plugins for AWS, GCP and OCI; standalone binaries with no database, service or login; batch output fits the raw archive. CloudQuery's official plugins became paid per row, and Cartography would decide relationships we want to own | Plugin coverage, schema churn or API throttling falls short for our accounts |
 | 013 | The MVP UI is two screens, the executive Overview and Schedules, in the Titanium Signal theme (the second screen became Administration: 028) | Smallest UI that proves the pipeline end to end and lets the team run it without deploys; later screens reuse its components and tokens | Users can't act on what the Overview shows without the Findings list |
 | 014 | Collectors authenticate without long-lived keys: Pod Identity and per-account roles on AWS; identity federation from the cluster's OIDC issuer on GCP and OCI | The platform is tier-0; one trust per account to audit and no key to rotate or leak | OCI federation can't be made to work from EKS |
@@ -551,12 +499,15 @@ These decisions shape the platform; each is an ADR in [`adr/`](adr/README.md), w
 | 026 | Module table ownership is enforced in SQL through exported queries and a test | import-linter cannot see SQL | A module becomes a service |
 | 027 | Charts are SVG components; no global state store | Pixel-exact to the board, small bundle, strict CSP holds | Charts or shared state the components cannot handle |
 | 028 | The second MVP screen is Administration; since 2026-10-06 its pages sit in two sidebar modules, Scans and Administration | Connections and settings moved into the UI | Users and roles arrived before SSO (ADR-0041) |
+| 045 | The Resource map, Attack paths and the Memgraph read model leave the product for v0.1 (2026-11-03) | The owner's decision. Edges, relationship rules and CloudFox stay, because reach verdicts and the resource panel read them | A new study of other technologies, then a new ADR |
 
 ## Roadmap and MVP plan
 
 &#91;embedded content: roadmap · 5 phases, each with an exit gate\]
 
 Phase 1 is the MVP: the executive Overview and Administration screens on AWS, over Prowler compliance history, CloudFox attack paths and Steampipe inventory with the first relationship rules, built on the data models every later phase uses. Re-planned on 2026-10-02 (ADR-0019 to ADR-0024): the MVP is built in Compose on a synthetic estate, and the Phase 0 spike on a real account opens the AWS phase that follows it. The spike produces the fixtures the adapters are re-verified against, and proves the per-account role.
+
+**2026-11-03:** the Resource map, Attack paths and Memgraph, built in later phases, were removed for v0.1 (ADR-0045). A study of other technologies comes before any graph capability returns. The MVP rows below are history.
 
 Phase 0 (spike):
 
@@ -610,12 +561,12 @@ catheris-argus/
 │   │       ├── connections/         accounts and their credentials
 │   │       ├── settings/            administration settings and their bounds
 │   │       ├── collection/          raw stores (volume, S3), manifest, sources (synthetic, aws)
-│   │       ├── ingest/              one run: adapter, rules, lifecycle, snapshots, paths, metrics
+│   │       ├── ingest/              one run: adapter, rules, lifecycle, snapshots, metrics
 │   │       ├── retention/           partitions and raw-file pruning
 │   │       ├── inventory/           Steampipe adapter, resources, snapshots, configurations
 │   │       ├── relationships/       edge-rule engine, edge snapshots
 │   │       ├── findings/            Prowler adapter, lifecycle, compliance
-│   │       ├── attackpaths/         CloudFox adapter, attack-path engine
+│   │       ├── cloudfox/            CloudFox adapter
 │   │       ├── metrics/             metric_daily rollups
 │   │       ├── scheduling/          schedules, run requests, claims, the worker loop
 │   │       ├── auth/                admin sign-in, sessions, sign-in limits
@@ -623,8 +574,7 @@ catheris-argus/
 │   │       └── entrypoints/         api, worker, scheduler, job, migrate, rederive, retention, seed, openapi, admin_tools
 │   │
 │   ├── rules/                       loaded by the engines at run time
-│   │   ├── relationships/           edge rules (metadata + SQL)
-│   │   └── attack_paths/            attack-path rules (metadata + SQL)
+│   │   └── relationships/           edge rules (metadata + SQL)
 │   │
 │   ├── migrations/                  Alembic
 │   ├── tools/prowler/               Prowler's own uv project and lock, for the worker image
@@ -723,7 +673,7 @@ Rules:
 
 ## Risks and open questions
 
-The biggest risk is ids that fail to match across tools, which would silently disconnect findings from the map; it is addressed first, in phase 1.
+The biggest risk is ids that fail to match across tools, which would silently disconnect findings from their resources; it is addressed first, in phase 1.
 
 | Risk | Likelihood | Impact | Mitigation |
 | --- | --- | --- | --- |
@@ -732,11 +682,10 @@ The biggest risk is ids that fail to match across tools, which would silently di
 | CloudFox output exposes secret values | Medium | High | Adapter drops values; KMS-encrypted bucket with narrow access |
 | The platform itself is compromised and the attack map leaks | Low | High | Tier-0 controls (Security section) |
 | A tool upgrade changes its output format | Medium | Medium | Pinned versions, adapter version checks, fixture refresh, replay from S3 |
-| The graph is too large to draw | Medium | Medium | Neighbourhood views only, with depth and node caps, group nodes for high-degree neighbours, noisy layers off by default (ADR-0033) |
 | Scope creep into more clouds before AWS is solid | Medium | Medium | Phase gates; GCP and OCI only in phase 4 |
 | One maintainer for many moving parts | High | Medium | Reuse tools unmodified; keep adapters small; no feature without an owner |
-| Coverage gaps: CloudFox has no OCI support and Prowler has no OCI ThreatScore | High | Medium | The Overview shows "not covered", never zero; OCI attack paths need another source, decided before phase 4 |
-| Relationship rules miss connections, so the map and paths look safer than they are | Medium | High | Coverage report of resource types no rule reads; a fixture per rule; CloudFox edges as a second source |
+| Coverage gaps: CloudFox has no OCI support and Prowler has no OCI ThreatScore | High | Medium | The Overview shows "not covered", never zero; an OCI attacker view needs another source, decided before phase 4 |
+| Relationship rules miss connections, so reach verdicts and a resource's connections look safer than they are | Medium | High | Coverage report of resource types no rule reads; a fixture per rule; CloudFox edges as a second source |
 | Accounts × tables × regions hit API rate limits | Medium | Medium | Concurrency caps per account, the plugins' built-in retries, runs spread across the night, a parallel-tables setting, and per-table completeness so one throttled table does not freeze the others (the list covers every configuration table since 2026-10-08) |
 | Keyless access for GCP or OCI doesn't work from EKS as designed | Medium | Medium | A spike before each provider is enabled; fallback to a rotated key in Secrets Manager for that provider only |
 | The Administration screen can start scans while the MVP has one shared admin login | Medium | High | UI published only on the loopback interface (Compose) or inside the cluster network (Kubernetes) until SSO; a run is only a tool, an account and a time, executed by fixed code paths; the API holds no Kubernetes permissions or Docker socket |

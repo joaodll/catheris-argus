@@ -290,27 +290,6 @@ CREATE TABLE compliance_requirement (
   UNIQUE (framework, framework_version, requirement_id)
 );
 
-CREATE TABLE attack_path (
-  id                  bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  path_id             bytea NOT NULL UNIQUE CHECK (length(path_id) = 32),
-  rule_id             text NOT NULL,
-  rule_version        integer NOT NULL,
-  category            text NOT NULL,
-  severity            text NOT NULL
-                        CHECK (severity IN ('critical', 'high', 'medium', 'low', 'informational')),
-  connection_id       bigint NOT NULL REFERENCES connection (id),
-  entry_uid           text NOT NULL,
-  target_uid          text NOT NULL,
-  node_uids           text[] NOT NULL,
-  edge_ids            bigint[] NOT NULL,
-  state               text NOT NULL CHECK (state IN ('open', 'resolved')),
-  first_seen          date NOT NULL,
-  last_seen           date NOT NULL,
-  resolved_on         date,
-  CHECK ((state = 'resolved') = (resolved_on IS NOT NULL))
-);
-CREATE INDEX attack_path_connection_state ON attack_path (connection_id, state);
-
 -- ---------------------------------------------------------------- daily history (partitioned)
 CREATE TABLE resource_snapshot (
   snapshot_date       date NOT NULL,
@@ -472,7 +451,7 @@ GRANT USAGE ON SCHEMA public TO argus_api, argus_worker;
 -- API: reads data; writes administration rows only. Partitions inherit nothing, so reads go
 -- through the parent tables, which is also what keeps queries pruned.
 GRANT SELECT ON scan_run, unresolved_ref, resource, resource_config, edge, finding,
-  compliance_requirement, attack_path, resource_snapshot, edge_snapshot, finding_snapshot,
+  compliance_requirement, resource_snapshot, edge_snapshot, finding_snapshot,
   finding_event, compliance_snapshot, metric_daily, schedule, schedule_connection, run_request
   TO argus_api;
 -- Connections: every column except the stored secret, which the API may write but never read.
@@ -493,7 +472,7 @@ GRANT UPDATE (state, accepted_until) ON finding TO argus_api;     -- accept a ri
 -- Worker: collection, ingest, scheduling, retention. No sessions, no login data.
 GRANT SELECT ON connection, platform_setting, schedule, schedule_connection TO argus_worker;
 GRANT SELECT, INSERT, UPDATE ON run_request, scan_run, unresolved_ref, resource,
-  resource_config, edge, finding, compliance_requirement, attack_path TO argus_worker;
+  resource_config, edge, finding, compliance_requirement TO argus_worker;
 GRANT DELETE ON resource_config TO argus_worker;                  -- orphan cleanup in retention
 GRANT SELECT, INSERT, UPDATE, DELETE ON resource_snapshot, edge_snapshot, finding_snapshot,
   compliance_snapshot, metric_daily TO argus_worker;               -- a re-run replaces its day
@@ -508,7 +487,7 @@ GRANT EXECUTE ON FUNCTION argus_drop_partitions_before(date) TO argus_worker;
 DOWNGRADE = r"""
 DROP TABLE IF EXISTS audit_log, login_failure, admin_session,
   metric_daily, compliance_snapshot, finding_event, finding_snapshot, edge_snapshot,
-  resource_snapshot, attack_path, compliance_requirement, finding, edge, resource,
+  resource_snapshot, compliance_requirement, finding, edge, resource,
   resource_config, unresolved_ref, run_request, scan_run, schedule_connection, schedule,
   platform_setting, connection CASCADE;
 DROP FUNCTION IF EXISTS argus_ensure_partitions(date, date);

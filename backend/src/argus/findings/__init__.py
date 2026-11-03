@@ -8,7 +8,6 @@ Public interface:
     load_prowler()      lifecycle + day snapshots for one connection and day
     list_findings(), finding_facets(), open_finding_counts()   the read side (Findings page)
     finding_groups()    the Findings list by check
-    open_finding_counts_by_tool()   per-tool counts for the Resource map
     framework_catalog(), list_requirements()                   the read side (Compliance page)
     carry_forward_compliance(), rederive_scores()              a failed Prowler run (ingest)
     set_reach()         CloudFox's public endpoints and Prowler's exposure checks
@@ -53,7 +52,6 @@ from argus.findings.model import (
 from argus.findings.prowler import EXPOSURE_CHECKS as PROWLER_EXPOSURE_CHECKS
 from argus.findings.prowler import SUPPORTED_VERSIONS, ProwlerBatch, parse_prowler
 from argus.findings.queries import (
-    FAILING_FINDINGS_SQL,
     FindingFacets,
     FindingFilters,
     FindingOrder,
@@ -66,7 +64,6 @@ from argus.findings.queries import (
     get_finding,
     list_findings,
     open_finding_counts,
-    open_finding_counts_by_tool,
 )
 from argus.findings.repair import remove_compliance_items
 from argus.findings.vulnerabilities import (
@@ -89,7 +86,6 @@ from argus.findings.vulnerabilities import (
 __all__ = [
     "ANY_CHECK",
     "ANY_REGION",
-    "FAILING_FINDINGS_SQL",
     "FINDING_ADDITIVE_METRICS",
     "PROWLER_EXPOSURE_CHECKS",
     "SEVERITIES",
@@ -129,7 +125,6 @@ __all__ = [
     "load_tool_findings",
     "load_vulnerabilities",
     "open_finding_counts",
-    "open_finding_counts_by_tool",
     "parse_prowler",
     "parse_vulnerabilities",
     "put_findings_metrics",

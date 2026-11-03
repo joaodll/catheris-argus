@@ -9,7 +9,6 @@ from sqlalchemy import Engine, text
 from tests.ingest.conftest import make_demo
 
 from argus import metrics
-from argus.attackpaths import load_path_kinds
 from argus.relationships import load_rules
 from argus.relationships.engine import RuleError
 
@@ -17,12 +16,10 @@ RULES_DIR = Path(__file__).resolve().parents[1] / "rules"
 
 
 def test_a_missing_rules_directory_fails_loudly(tmp_path: Path) -> None:
-    # The worker once got a dev-container path: no rules, no edges, no attack paths, no error.
+    # The worker once got a dev-container path: no rules, no edges, no error.
     with pytest.raises(RuleError, match="no relationship rules"):
         load_rules(tmp_path)
-    with pytest.raises(ValueError, match="no attack-path kinds"):
-        load_path_kinds(tmp_path)
-    assert load_rules(RULES_DIR) and load_path_kinds(RULES_DIR)
+    assert load_rules(RULES_DIR)
 
 
 @pytest.mark.db

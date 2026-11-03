@@ -28,7 +28,7 @@ Each of these is a control the chart relies on but cannot set itself.
   are not enforced; run it after every install and upgrade.
   - **A new pod's first moments.** In the VPC CNI's default `standard` mode, a new pod starts with
     a default allow until its policies are configured, so its egress rules don't hold for its first
-    moments. Postgres, the API and Memgraph still refuse it by their own ingress rules. Anything
+    moments. Postgres and the API still refuse it by their own ingress rules. Anything
     without such a rule stays reachable in that moment, including an external database and the
     Kubernetes API. `helm test --logs` reports it: `note at its start, a new pod's outgoing traffic
     passes before its policies apply`.
@@ -101,7 +101,6 @@ keys it needs.
 | `ARGUS_SCHEDULER_DB_PASSWORD` | Role `argus_scheduler` |
 | `ARGUS_SECRET_KEYS` | The credential keyring, `k1:<base64 of 32 bytes>` |
 | `ARGUS_SECRET_KEY_ID` | The current key's id, `k1` |
-| `ARGUS_GRAPH_PASSWORD` | The Memgraph login: the memgraph pod creates it on a new volume, graph-sync and the API use it ([ADR-0044](adr/0044-graph-read-model-memgraph.md)). To change it later, delete the memgraph volume: the graph is rebuilt from Postgres |
 | `ARGUS_BOOTSTRAP_ADMIN_PASSWORD` or `ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH` | First start only: the first admin's password, or its argon2id hash. The migrate Job creates `admin.username` with it while no active admin exists ([ADR-0041](adr/0041-users-and-roles.md)). Remove the key after the first sign-in |
 
 Generate the values from the repository root. Every command runs in a container:
@@ -201,9 +200,8 @@ there is no public entry. If you turn it on, add its controller to
 
 ### An external Postgres
 
-Postgres 17 (Amazon RDS, for example), with the database created, owned by the owner role (the
-migrate Job grants `argus_worker` `TEMPORARY` on it, and fails if it can't), and that role has
-`CREATEROLE`: the migrate Job creates `argus_api`, `argus_worker` and `argus_scheduler` and sets
+Postgres 17 (Amazon RDS, for example), with the database created, owned by the owner role, and
+that role has `CREATEROLE`: the migrate Job creates `argus_api`, `argus_worker` and `argus_scheduler` and sets
 their passwords. Then:
 
 ```yaml
@@ -278,26 +276,6 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 **Locked out of sign-in.** Wait 15 minutes, or ask an admin to choose **Unlock** on the user in
 **Administration → Users**.
 
-**The graph read model** ([ADR-0044](adr/0044-graph-read-model-memgraph.md)).
-- **What keeps it current:** `graph-sync` keeps Memgraph equal to Postgres and checks it every 10
-  minutes. Its state is in `graph_projection`; drift appears as `graph.drift` in the audit log.
-- **Attack paths come from it** (round M2, 2026-11-01): after each change `graph-sync` checks the
-  graph and runs the attack-path search over every connection (log: `attack paths evaluated`).
-  Scan Jobs no longer compute paths. When Attack paths says its paths are behind for more than a
-  minute, read `graph-sync`'s log and check the memgraph pod. "N more paths ... not listed" means
-  that account found more than its cap of 5,000 new rows (log: `attack paths cut at the cap`); a
-  fixed path still resolves.
-- **The Resource map reads it too** (round M3b, 2026-11-02). When the map says "the graph is
-  unavailable", the API can't get an answer from Memgraph within 5 seconds: check the memgraph pod,
-  and look for `graph unavailable` in the `api` log. Every other screen keeps working. The API
-  holds `ARGUS_GRAPH_PASSWORD` too, so restart `api` as well as `graph-sync` when it changes.
-- **When to rebuild it:** when Memgraph is broken, or the Secret's `ARGUS_GRAPH_PASSWORD` changed.
-  1. Scale `graph-sync` to 0.
-  2. Delete the memgraph StatefulSet's PVC and pod.
-  3. Scale `graph-sync` back to 1.
-
-  It re-projects every connection from Postgres, in minutes at about 1M resources.
-
 ## Keeping the controls true
 
 - **`helm test` after every install, upgrade and cluster upgrade.** It is the only proof that
@@ -328,7 +306,6 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 | --- | --- | --- |
 | `helm install` refused with a schema error | A required value is missing, an image has a tag, or a key is misspelled | The message names the path; set it |
 | `api` and the scheduler stay in `Init` | The migrate Job has not finished, or the role cannot log in yet | `kubectl -n argus logs job/argus-migrate-<hash>`; check the Secret's keys |
-| The `graph-sync` pod stays in `Init` | Memgraph isn't answering: `wait-for-graph` holds the pod until it does, for 10 minutes before each retry | Check the memgraph pod. Recovering a large snapshot can take minutes |
 | `helm test` fails: "accepted a connection" | NetworkPolicy is not enforced | Turn on the VPC CNI's network policy, then test again |
 | Runs stay queued; the scheduler logs `kubernetes refused` | A denial by the policy or the quota | The `detail` names the rule; reinstall with Helm rather than editing templates by hand |
 | Runs stay queued; the scheduler logs a reconcile error with a connection timeout | `networkPolicy.kubeApi.cidrs` no longer holds the API's addresses | Read them again (Values) and upgrade |

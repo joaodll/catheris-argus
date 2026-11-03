@@ -19,8 +19,6 @@ dependencies = [
     "argon2-cffi>=23.1",
     # S3 uploads of raw output (SA-8) and, in the AWS phase, sts:AssumeRole into scanner roles.
     "boto3>=1.35",
-    # Bolt client for the Memgraph graph read model (ADR-0044). Apache-2.0.
-    "neo4j>=6.4,<7",
 ]
 
 [dependency-groups]
@@ -81,7 +79,6 @@ addopts = "-ra --strict-markers"
 markers = [
     "db: needs the Postgres service from compose",
     "budget: the query-budget test (300,000 resources; about a minute)",
-    "graph: needs the memgraph-test service from compose (ADR-0044)",
 ]
 
 [tool.importlinter]
@@ -91,8 +88,7 @@ root_package = "argus"
 # before its module exists. Siblings separated by ':' may call each other's public interface.
 #   scheduling   claims run requests, then calls collection and ingest
 #   collection   raw store, manifest, sources (synthetic now, aws later)
-#   ingest       runs adapters, rules, lifecycle, snapshots, paths and metrics for one run
-#   graph        projects Postgres's current state into the Memgraph read model (ADR-0044)
+#   ingest       runs adapters, rules, lifecycle, snapshots and metrics for one run
 #   metrics      the metric_daily store; each domain module computes and puts its own rollups
 [[tool.importlinter.contracts]]
 name = "Layering: entrypoints > api > scheduling > collection/ingest > domain > core"
@@ -101,8 +97,8 @@ layers = [
     "(argus.entrypoints)",
     "(argus.api)",
     "(argus.scheduling)",
-    "(argus.collection) : (argus.ingest) : (argus.retention) : (argus.graph)",
-    "(argus.attackpaths) : (argus.auth)",
+    "(argus.collection) : (argus.ingest) : (argus.retention)",
+    "(argus.cloudfox) : (argus.auth)",
     "(argus.findings) : (argus.relationships)",
     "(argus.inventory) : (argus.connections) : (argus.metrics) : (argus.settings)",
     "argus.core",

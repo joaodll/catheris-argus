@@ -4,10 +4,7 @@ Edges are derived when a Steampipe run is ingested. So after an upgrade, a conne
 old rules' edges until its next runs. When the worker starts, before its run threads, each
 enabled connection whose latest rule load was derived with another rule set (edge_load.ruleset,
 migration 0026; none before it) is derived again on that load's day: its edges and reach
-checks. The new rule set moves the graph read model's marker, so the graph loop re-projects the
-connection and evaluates the attack paths again (ADR-0044, M2). A path the new rules no longer
-find is resolved by that evaluation when the connection's newest runs are complete, on the
-upgrade's day rather than at the next complete scan, which would have closed it the same way.
+checks.
 """
 
 import logging

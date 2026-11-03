@@ -5,7 +5,7 @@ from datetime import date
 
 from sqlalchemy import Connection
 
-from argus.attackpaths.cloudfox import CloudFoxBatch
+from argus.cloudfox.parse import CloudFoxBatch
 from argus.core.resolver import record_unresolved
 from argus.findings import ResolvedCommand, load_commands, load_tool_findings
 from argus.inventory import uid_by_native_id

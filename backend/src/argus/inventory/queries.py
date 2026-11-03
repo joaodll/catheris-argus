@@ -12,7 +12,7 @@ from argus.core.db import count_sql, like_contains
 # Exported SQL. Other modules embed these instead of naming inventory's tables, so a change
 # to resource, resource_config or resource_snapshot is made here and nowhere else.
 
-# The view relationship and attack-path rules read as `r`: one connection's resources as of
+# The view relationship rules read as `r`: one connection's resources as of
 # :resource_day (bind it to effective_day()).
 RESOURCES_ON_DAY_SQL = """
   SELECT res.resource_uid AS uid, res.type, res.native_id, res.name, res.region, res.vpc_id,
@@ -153,38 +153,6 @@ def resource_facets(conn: Connection, *, connection_id: int | None) -> dict[str,
         params,
     )
     return {"types": [r.type for r in types], "regions": [r.region for r in regions]}
-
-
-# Exported SQL: one connection's resources present on :resource_day (bind it to effective_day()),
-# without their configuration: the nodes of the graph read model (ADR-0044).
-RESOURCES_PRESENT_SQL = """
-  SELECT res.id, res.resource_uid AS uid, res.provider, res.type,
-         coalesce(res.name, res.native_id) AS name, res.region
-  FROM resource_snapshot s
-  JOIN resource res ON res.id = s.resource_id
-  WHERE s.snapshot_date = :resource_day AND res.connection_id = :connection_id
-"""
-
-
-# Exported SQL: one row per inventoried resource, as a node of the Resource map (ADR-0033).
-# Joined by uid, so another module can place resources on a graph without naming the table.
-RESOURCE_NODES_SQL = """
-  SELECT id, resource_uid AS uid, type, coalesce(name, native_id) AS name, region,
-         connection_id, deleted_on
-  FROM resource
-"""
-
-
-def resource_nodes(conn: Connection, uids: list[str]) -> dict[str, dict[str, Any]]:
-    """The inventoried resources among these uids, as map nodes. Bounded by the caller (a map
-    response holds at most 500 nodes)."""
-    if not uids:
-        return {}
-    rows = conn.execute(
-        text(f"SELECT * FROM ({RESOURCE_NODES_SQL}) n WHERE n.uid = ANY(CAST(:u AS text[]))"),  # noqa: S608 - constant SQL
-        {"u": uids},
-    )
-    return {r.uid: dict(r._mapping) for r in rows}
 
 
 def resource_names(conn: Connection, resource_ids: list[int]) -> dict[int, str]:

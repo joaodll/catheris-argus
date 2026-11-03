@@ -35,7 +35,7 @@ const route = useRoute()
 const router = useRouter()
 
 const connections = useResource(() => unwrap(api.GET('/api/v1/connections')))
-// A link may arrive filtered (the Resource map's "See all in Resources": ?type=&connection=).
+// A link may arrive filtered (an Overview drill-down: ?type=&connection=).
 const linkedConnection = Number(route.query.connection)
 const linkedType = typeof route.query.type === 'string' && route.query.type ? route.query.type : null
 const connectionId = ref<number | null>(Number.isInteger(linkedConnection) && linkedConnection > 0 ? linkedConnection : null)

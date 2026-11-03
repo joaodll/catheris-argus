@@ -1,5 +1,5 @@
-"""Finding lifecycle and day snapshots for one run (design: "Ingestion, snapshots and attack
-paths", step 2). The same rules apply to every tool's findings:
+"""Finding lifecycle and day snapshots for one run (design: "Ingestion and snapshots", step 2).
+The same rules apply to every tool's findings:
 
 - A finding seen again stays open (last_seen moves).
 - A finding missing from a COMPLETE run that evaluated the same check in the same region is

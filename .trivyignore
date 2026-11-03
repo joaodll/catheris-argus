@@ -10,10 +10,3 @@
 CVE-2026-33815 exp:2026-12-31
 CVE-2026-33816 exp:2026-12-31
 
-# memgraph/memgraph:3.13.2 (and 3.14.0, checked 2026-10-31) bundles certifi 2026.7.22 under
-# /home/memgraph/.local for its Python query modules (fixed 2026.10.18): the CA bundle trusts
-# emSign roots with compromised keys. A CA bundle matters only to outbound TLS, and Memgraph has
-# none: telemetry is off, the chart's NetworkPolicy gives it no egress, Compose puts it on an
-# internal network, and Argus loads no Python query module (ADR-0044). Accepted by the owner on
-# 2026-10-31; re-check at the next Memgraph pin, at the latest by the expiry.
-GHSA-6q48-6c7w-9gw2 exp:2026-12-31

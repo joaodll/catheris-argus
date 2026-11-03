@@ -1,7 +1,7 @@
 # Security model
 
 **Owner:** `security-architecture-reviewer` (attests) · `documentation-writer` (document)
-**Applies to:** Argus 0.1.0 (2026-10-25)
+**Applies to:** Argus 0.1.0 (2026-11-03)
 
 This page is for anyone deciding whether to run Argus, and for the people operating it. It
 summarizes how Argus protects what it holds; each section links to the decision record that
@@ -72,16 +72,13 @@ when their checks need it. Argus never stores such a value:
   worker and the one-shot migration
 - the API has no route out; only the worker, which runs the scans, and the web server sit on
   networks that have one
-- Memgraph, the graph read model, sits on its own internal network that only the worker and the
-  API join
-  ([ADR-0044](adr/0044-graph-read-model-memgraph.md)); it is never published and has no route out
 - no service of the running stack mounts the Docker socket (two development tools do: `scan`,
   to read local images, and `kind`, to create a test cluster)
 
 **Kubernetes** ([ADR-0040](adr/0040-helm-chart-trust-boundaries.md)):
 
 - **Network:** default-deny NetworkPolicies. Postgres accepts its clients only, the API accepts the
-  web pods only, Memgraph accepts graph-sync and the API only and reaches nothing, and only scan Jobs reach
+  web pods only, and only scan Jobs reach
   port 443 outside the cluster, never instance metadata. `helm test` proves the cluster enforces
   them once a pod is running; see Known limits for a new pod's first moments.
 - **What a scan Job can be:** the scheduler is the only pod with a Kubernetes token, and may only
@@ -106,10 +103,7 @@ when their checks need it. Argus never stores such a value:
   second factor until single sign-on.
 - **Sessions:** HttpOnly, Secure, SameSite=Strict cookies, double-submit CSRF protection on every
   write, and limits of 30 minutes idle and 12 hours in total.
-- **What stays in the browser:** the Resource map's "Recently opened" list keeps the names, types
-  and identifiers (on AWS, ARNs) of the last 8 resources mapped, per user, in the tab's session
-  storage. It goes when the tab closes, on sign-out, and when a request finds the session expired.
-  Nothing else about scan data is stored in the browser.
+- **What stays in the browser:** no scan data is stored in the browser.
 - **Sign-in limits** per 15 minutes: 5 failures for a username from one address, 20 from one
   address, 100 for a username from anywhere. One attacker cannot lock an administrator out, and
   guessing the current password in a password change counts against the same limits.
@@ -143,24 +137,11 @@ Argus is pre-1.0. These are known and accepted for now:
   that way.
 - **The tools can read their own credentials** while they run: the role session or the IRSA
   token. That identity can only assume scanner roles and write to the bucket.
-- **The graph read model has no read-only login.** Memgraph Community has no roles, so any login
-  can write. graph-sync (the Compose worker) and, since round M3b, the API share one (the owner's
-  decision, 2026-11-02): a second login would limit nothing. The API reads only by named queries
-  in read transactions, and a test forbids writes outside the projection. Memgraph runs with
-  `LOAD CSV` off and a read-only query module directory, so the login can't read its files or run
-  Python inside it (found in the M3b review, 2026-11-02). A compromised API could still alter what
-  the map shows until the integrity check, at most 10 minutes later, finds the drift, audits it as
-  `graph.drift` and rebuilds the connection from Postgres, and it could change the login, which
-  stops the graph updating, visibly, until the Secret and the volume are reset. Since 2026-11-01 the attack-path search runs over the
-  graph (round M2), so graph-sync runs the integrity check before every search: paths are
-  computed only from a graph it has just verified, and the lists and their history are read from
-  Postgres. Telemetry is off, its metrics and monitoring listeners stay on the
-  loopback, and it holds no secret value (ADR-0044).
 - **A new pod's egress rules don't hold for its first moments on some network plugins.** The plugin
   lets its outgoing traffic through until it has applied the pod's policies. Measured on kind on
   2026-11-03: a pod connecting at its start reached the internet 30 times out of 30, and a pod
   waiting 10 seconds 0 out of 30. The VPC CNI's default `standard` mode documents the same
-  behaviour, and its `strict` mode closes it for the whole cluster. Postgres, the API and Memgraph
+  behaviour, and its `strict` mode closes it for the whole cluster. Postgres and the API
   still refuse such a pod by their own ingress rules; running pods are enforced; taking advantage
   of the gap needs code running in a pod's first moments. `helm test --logs` reports it on your
   cluster, and the [runbook](runbook-kubernetes.md) has the choice.

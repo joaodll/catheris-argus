@@ -1,5 +1,5 @@
 """The exposure scenario estate (2026-10-21): one case per way Prowler's exposure checks and
-Argus's internet rules can disagree, and per entry or move an attack path should take.
+Argus's internet rules can disagree, and per entry or move the relationship rules derive.
 
 Seeded into moto by `emulate.py --scenario exposure`; its Steampipe export, with every secret
 value redacted, is the fixture behind tests/ingest/test_exposure_scenarios.py. Each instance is
@@ -56,8 +56,8 @@ AZ = "us-east-1a"
 OUTSIDE_ACCOUNT = "999988887777"
 GITHUB_OIDC = "token.actions.githubusercontent.com"
 
-# The tables the relationship rules, the internet rules and the attack-path rules read, plus the
-# IAM and endpoint tables the later attack-path waves need. Only these go into the fixture.
+# The tables the relationship rules and the internet rules read, plus the IAM and endpoint tables
+# their entries and moves need. Only these go into the fixture.
 FIXTURE_TABLES = (
     "aws_ec2_instance",
     "aws_ec2_network_interface",

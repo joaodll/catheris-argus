@@ -1,6 +1,6 @@
 """After a rule upgrade the worker derives again at start (ADR-0035, fifth amendment, point 6):
 each enabled connection whose latest rule load has another rule set, on that load's day,
-under an advisory lock. The graph then re-evaluates the paths (ADR-0044, M2)."""
+under an advisory lock."""
 
 import logging
 import threading
@@ -9,13 +9,13 @@ from datetime import date
 
 import pytest
 from sqlalchemy import Engine, text
-from tests.conftest import Settle
 from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
 from argus.collection import TOOL_ORDER, CollectTarget, FilesystemRawStore
 from argus.ingest import rederive_stale
 from argus.ingest.pipeline import REDERIVE_LOCK, rule_set
 from argus.ingest.rederive import REDERIVE_ONCE_LOCK
+from argus.relationships import effective_days
 
 pytestmark = pytest.mark.db
 DAY = date(2026, 10, 20)
@@ -73,15 +73,6 @@ def _old_edges(owner: Engine, cid: int) -> int:
     return n
 
 
-def _paths(owner: Engine, cid: int) -> dict[str, int]:
-    with owner.connect() as conn:
-        rows = conn.execute(
-            text("SELECT state, count(*) FROM attack_path WHERE connection_id = :c GROUP BY 1"),
-            {"c": cid},
-        ).all()
-    return {r.state: r.count for r in rows}
-
-
 def test_a_load_with_the_current_rules_is_left_alone(
     owner: Engine, worker: Engine, store: FilesystemRawStore
 ) -> None:
@@ -91,20 +82,15 @@ def test_a_load_with_the_current_rules_is_left_alone(
 
 
 def test_a_load_from_before_the_upgrade_is_derived_again(
-    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
+    owner: Engine, worker: Engine, store: FilesystemRawStore
 ) -> None:
     cid = _scanned(owner, worker, store)
-    settle(DAY)
-    paths = _paths(owner, cid)
-    assert paths.get("open")
     _as_before_the_upgrade(owner, cid)
     assert _old_edges(owner, cid) == 1
 
     assert rederive_stale(worker, rules_dir=RULES_DIR, today=TODAY) == [cid]
     assert _rulesets(owner, cid) == {rule_set(RULES_DIR)}
     assert _old_edges(owner, cid) == 0  # the day's rule edges are the current rules' only
-    settle(TODAY)  # the new rule set moved the graph's marker
-    assert _paths(owner, cid) == paths  # found again, nothing resolved
     assert rederive_stale(worker, rules_dir=RULES_DIR, today=TODAY) == []
 
 
@@ -156,15 +142,14 @@ def test_a_re_derive_waits_for_the_ingests_running_now(
     assert done == [[cid]]
 
 
-def test_paths_keep_cloudfoxs_newest_evidence(
+def test_a_re_derive_keeps_cloudfoxs_newest_edges(
     owner: Engine,
     worker: Engine,
     store: FilesystemRawStore,
     caplog: pytest.LogCaptureFixture,
-    settle: Settle,
 ) -> None:
     """CloudFox ran a day after Steampipe: the rule edges are re-derived on Steampipe's day, and
-    the graph holds both families' latest loads, so the paths keep CloudFox's newer edges."""
+    both families' latest loads stand, so the Resources panel keeps CloudFox's newer edges."""
     cid = _scanned(owner, worker, store)
     later = date(2026, 10, 21)
     with owner.connect() as conn:
@@ -183,18 +168,6 @@ def test_paths_keep_cloudfoxs_newest_evidence(
     assert rederive_stale(worker, rules_dir=RULES_DIR, today=later) == [cid]
     [record] = [r for r in caplog.records if r.getMessage() == "re-derived after a rule upgrade"]
     assert record.__dict__["day"] == DAY.isoformat()
-    settle(later)
     with owner.connect() as conn:
-        days = conn.execute(
-            text("SELECT rule_day, cloudfox_day FROM graph_projection WHERE connection_id = :c"),
-            {"c": cid},
-        ).one()
-        states = conn.execute(
-            text(
-                "SELECT state, last_seen, count(*) FROM attack_path WHERE connection_id = :c "
-                "GROUP BY 1, 2"
-            ),
-            {"c": cid},
-        ).all()
-    assert (days.rule_day, days.cloudfox_day) == (DAY, later)
-    assert [(r.state, r.last_seen) for r in states] == [("open", later)]
+        days = effective_days(conn, connection_id=cid, day=later)
+    assert (days["rule_day"], days["cloudfox_day"]) == (DAY, later)

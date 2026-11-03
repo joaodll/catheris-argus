@@ -28,7 +28,6 @@ LATEST_SCAN_METRICS = (
     "checks.status",  # Prowler
     "threatscore.score",
     "findings.open_by_severity",
-    "attack_paths.open_by_severity",  # CloudFox
 )
 # Every metric a block reads. The load names them: compliance alone writes six rows per
 # framework a day (about 40 frameworks on AWS), which the Overview never shows.
@@ -38,8 +37,6 @@ OVERVIEW_METRICS = (
     "threatscore.score",
     "checks.status",
     "findings.open_by_severity",
-    "attack_paths.open_by_severity",
-    "attack_paths.open_by_category",
 )
 
 Series = dict[date, dict[str, float]]
@@ -111,16 +108,6 @@ def build(
     def kpi(metric: str, dimension: str = "") -> dict[str, float | None]:
         return {"value": data.at(metric, latest(metric), dimension)}
 
-    paths_day = latest("attack_paths.open_by_severity")
-    exploitable = {
-        "value": None
-        if paths_day is None
-        else sum(
-            data.at("attack_paths.open_by_severity", paths_day, s) or 0
-            for s in ("critical", "high")
-        ),
-    }
-
     strip_days = _month_ends(data, "threatscore.score", as_of)
     strip: list[dict[str, Any]] = []
     scores: list[float | None] = []
@@ -168,7 +155,6 @@ def build(
             "assets": kpi("assets.total"),
             "threatscore": {**kpi("threatscore.score"), "target": THREATSCORE_TARGET},
             "open_critical": kpi("findings.open_by_severity", "critical"),
-            "exploitable_paths": exploitable,
         },
         "threatscore": {
             "strip": strip,
@@ -197,11 +183,6 @@ def build(
             "points": _severity_points(data, as_of, severity_range),
             "month_table": month_table,
         },
-        "attack_paths_by_category": [
-            {"category": c, "count": n}
-            # Same day as the severities: no category row means no open path in it.
-            for c, n in sorted(data.dims("attack_paths.open_by_category", paths_day).items())
-        ],
         "inventory": {
             "by_type": [
                 {"type": t, "count": n}

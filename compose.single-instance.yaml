@@ -9,9 +9,6 @@
 x-db-password: &db-password
   ARGUS_DB_PASSWORD: ${ARGUS_DB_PASSWORD:?set ARGUS_DB_PASSWORD (Postgres owner password)}
 
-x-graph-password: &graph-password
-  ${ARGUS_GRAPH_PASSWORD:?set ARGUS_GRAPH_PASSWORD (the Memgraph login)}
-
 x-keyring: &keyring
   ARGUS_SECRET_KEYS: ${ARGUS_SECRET_KEYS:?set ARGUS_SECRET_KEYS (admin-tools new-secret-key)}
   ARGUS_SECRET_KEY_ID: ${ARGUS_SECRET_KEY_ID:?set ARGUS_SECRET_KEY_ID}
@@ -31,14 +28,8 @@ services:
     environment:
       <<: *keyring
       ARGUS_DB_PASSWORD: ${ARGUS_API_DB_PASSWORD:?set ARGUS_API_DB_PASSWORD}
-      ARGUS_GRAPH_PASSWORD: *graph-password
-
-  memgraph:
-    environment:
-      MEMGRAPH_PASSWORD: *graph-password
 
   worker:
     environment:
       <<: *keyring
       ARGUS_DB_PASSWORD: ${ARGUS_WORKER_DB_PASSWORD:?set ARGUS_WORKER_DB_PASSWORD}
-      ARGUS_GRAPH_PASSWORD: *graph-password

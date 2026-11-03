@@ -4,60 +4,6 @@
  */
 
 export interface paths {
-    "/api/v1/attack-paths": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Paths */
-        get: operations["list_paths_api_v1_attack_paths_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/attack-paths/facets": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Path Facets
-         * @description The Attack paths filters' options that come from the data.
-         */
-        get: operations["path_facets_api_v1_attack_paths_facets_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/attack-paths/{path_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Path */
-        get: operations["path_api_v1_attack_paths__path_id__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/auth/password": {
         parameters: {
             query?: never;
@@ -426,43 +372,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/map/graph": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Map Graph */
-        get: operations["map_graph_api_v1_map_graph_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/map/group": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Group
-         * @description A group's members, by name, each with the edge that links it to the anchor.
-         */
-        get: operations["group_api_v1_map_group_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/overview": {
         parameters: {
             query?: never;
@@ -529,27 +438,6 @@ export interface paths {
          * @description The options of the Resources filters that come from the data.
          */
         get: operations["resource_facets_api_v1_resources_facets_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/resources/types": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Resource Types
-         * @description What is in the inventory, per type and largest first: the Overview's stored numbers, so
-         *     both screens say the same, and parts, settings and links are left out.
-         */
-        get: operations["resource_types_api_v1_resources_types_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1015,13 +903,6 @@ export interface components {
         Bounds: {
             /** Max History Days */
             max_history_days: number;
-        };
-        /** CategoryCount */
-        CategoryCount: {
-            /** Category */
-            category: string;
-            /** Count */
-            count: number;
         };
         /** CheckFacet */
         CheckFacet: {
@@ -1529,20 +1410,6 @@ export interface components {
             /** Version */
             version: string;
         };
-        /** GroupMember */
-        GroupMember: {
-            edge: components["schemas"]["MapEdge"];
-            node: components["schemas"]["MapNode"];
-        };
-        /** GroupPage */
-        GroupPage: {
-            /** Data Through */
-            data_through: string | null;
-            /** Items */
-            items: components["schemas"]["GroupMember"][];
-            /** Total */
-            total: number;
-        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1589,7 +1456,6 @@ export interface components {
         /** Kpis */
         Kpis: {
             assets: components["schemas"]["Kpi"];
-            exploitable_paths: components["schemas"]["Kpi"];
             open_critical: components["schemas"]["Kpi"];
             threatscore: components["schemas"]["ThreatScoreKpi"];
         };
@@ -1610,120 +1476,6 @@ export interface components {
             status: string;
             /** Tool */
             tool: string;
-        };
-        /** MapEdge */
-        MapEdge: {
-            /** Attributes */
-            attributes: {
-                [key: string]: unknown;
-            };
-            /**
-             * First Seen
-             * Format: date
-             */
-            first_seen: string;
-            /** Id */
-            id: number;
-            /**
-             * Last Seen
-             * Format: date
-             */
-            last_seen: string;
-            /** Origin */
-            origin: string;
-            /** Source Uid */
-            source_uid: string;
-            /** Target Uid */
-            target_uid: string;
-            /** Type */
-            type: string;
-        };
-        /** MapGraph */
-        MapGraph: {
-            /** Connection Id */
-            connection_id: number;
-            /** Data Through */
-            data_through: string | null;
-            /** Edges */
-            edges: components["schemas"]["MapEdge"][];
-            /** Focus */
-            focus: string;
-            graph: components["schemas"]["MapGraphState"];
-            /** Groups */
-            groups: components["schemas"]["MapGroup"][];
-            /** Nodes */
-            nodes: components["schemas"]["MapNode"][];
-            /** Truncated */
-            truncated: boolean;
-        };
-        /**
-         * MapGraphState
-         * @description How current the map is for its connection (ADR-0044, M-3).
-         */
-        MapGraphState: {
-            /** Behind */
-            behind: boolean;
-            /** Cloudfox Day */
-            cloudfox_day: string | null;
-            /** Failed */
-            failed: boolean;
-            /** Resource Day */
-            resource_day: string | null;
-            /** Rule Day */
-            rule_day: string | null;
-        };
-        /**
-         * MapGroup
-         * @description More neighbours of one kind than the map draws one by one: one node for all of them.
-         */
-        MapGroup: {
-            /** Anchor Uid */
-            anchor_uid: string;
-            /** Count */
-            count: number;
-            /**
-             * Direction
-             * @enum {string}
-             */
-            direction: "out" | "in";
-            /** Edge Type */
-            edge_type: string;
-            /** Id */
-            id: string;
-            /** Resource Type */
-            resource_type: string | null;
-        };
-        /** MapNode */
-        MapNode: {
-            attack_paths: components["schemas"]["NodeAttackPaths"] | null;
-            /** Boundary */
-            boundary: boolean;
-            /** Connection Id */
-            connection_id: number | null;
-            /** Deleted On */
-            deleted_on: string | null;
-            /** Expanded */
-            expanded: boolean;
-            /** Findings */
-            findings: {
-                [key: string]: components["schemas"]["ToolFindings"];
-            };
-            /**
-             * Kind
-             * @enum {string}
-             */
-            kind: "resource" | "internet" | "admin" | "external" | "any";
-            /** Name */
-            name: string | null;
-            /** Region */
-            region: string | null;
-            /** Resource Id */
-            resource_id: number | null;
-            /** Type */
-            type: string | null;
-            /** Uid */
-            uid: string;
-            vulnerabilities: components["schemas"]["NodeVulnerabilities"] | null;
         };
         /** MonthRow */
         MonthRow: {
@@ -1756,29 +1508,6 @@ export interface components {
             /** Pass Rate */
             pass_rate: number | null;
         };
-        /**
-         * NodeAttackPaths
-         * @description The open paths through it, latent ones aside: what Attack paths lists through it.
-         */
-        NodeAttackPaths: {
-            /** Entry */
-            entry: number;
-            /** On */
-            on: number;
-        };
-        /**
-         * NodeVulnerabilities
-         * @description Its open CVEs (ADR-0042). Absent: none known, which a resource the scanner doesn't cover
-         *     can't tell apart from none.
-         */
-        NodeVulnerabilities: {
-            /** Exploitable */
-            exploitable: number;
-            /** Open */
-            open: number;
-            /** Worst */
-            worst: string | null;
-        };
         /** Overview */
         Overview: {
             /**
@@ -1786,8 +1515,6 @@ export interface components {
              * Format: date
              */
             as_of: string;
-            /** Attack Paths By Category */
-            attack_paths_by_category: components["schemas"]["CategoryCount"][];
             check_results: components["schemas"]["CheckResults"];
             /** Coverage */
             coverage: {
@@ -1813,260 +1540,6 @@ export interface components {
         PasswordIn: {
             /** Password */
             password: string;
-        };
-        /**
-         * PathAccount
-         * @description A connection (account) the path passes through.
-         */
-        PathAccount: {
-            /** Connection Id */
-            connection_id: number;
-            /** Name */
-            name: string | null;
-        };
-        /** PathDetail */
-        PathDetail: {
-            /** Accounts */
-            accounts: components["schemas"]["PathAccount"][];
-            /** Base Severity */
-            base_severity: string | null;
-            /** Category */
-            category: string;
-            /** Confidence */
-            confidence: ("confirmed" | "supported" | "candidate" | "unknown" | "blocked") | null;
-            /** Connection */
-            connection: string;
-            /** Connection Id */
-            connection_id: number;
-            /** Edges */
-            edges: components["schemas"]["PathEdge"][];
-            /** Entry Confirmed */
-            entry_confirmed: boolean | null;
-            /** Entry Name */
-            entry_name: string | null;
-            entry_step: components["schemas"]["PathEntryStep"] | null;
-            /** Entry Uid */
-            entry_uid: string;
-            /** Evidence */
-            evidence: string[];
-            /**
-             * First Seen
-             * Format: date
-             */
-            first_seen: string;
-            /** Has Failing */
-            has_failing: boolean | null;
-            /** Id */
-            id: number;
-            /**
-             * Last Seen
-             * Format: date
-             */
-            last_seen: string;
-            /** Node Uids */
-            node_uids: string[];
-            /** Nodes */
-            nodes: components["schemas"]["MapNode"][];
-            /** Path Id */
-            path_id: string;
-            /** Resolved On */
-            resolved_on: string | null;
-            rule: components["schemas"]["PathRuleOut"] | null;
-            /** Rule Id */
-            rule_id: string;
-            /** Rule Name */
-            rule_name: string | null;
-            /** Rule Version */
-            rule_version: number;
-            /** Severity */
-            severity: string;
-            /** State */
-            state: string;
-            /** Target Name */
-            target_name: string | null;
-            /** Target Uid */
-            target_uid: string;
-        };
-        /**
-         * PathEdge
-         * @description One step with its evidence: how sure Argus is, why, and where it comes from ("rule
-         *     internet-entry@3", "CloudFox role-trusts", "manual").
-         */
-        PathEdge: {
-            /** Attributes */
-            attributes: {
-                [key: string]: unknown;
-            };
-            /**
-             * Confidence
-             * @enum {string}
-             */
-            confidence: "confirmed" | "supported" | "candidate" | "unknown" | "blocked";
-            /** Confidence Why */
-            confidence_why: string;
-            /**
-             * First Seen
-             * Format: date
-             */
-            first_seen: string;
-            /** Id */
-            id: number;
-            /**
-             * Last Seen
-             * Format: date
-             */
-            last_seen: string;
-            /** Origin */
-            origin: string;
-            /** Source */
-            source: string;
-            /** Source Uid */
-            source_uid: string;
-            /** Target Uid */
-            target_uid: string;
-            /** Type */
-            type: string;
-        };
-        /**
-         * PathEntryStep
-         * @description A path's first step, the internet to its entry: what the list says it gets in by (a
-         *     door's ports, a public policy, an outsider, a leaked credential).
-         */
-        PathEntryStep: {
-            /** Attributes */
-            attributes: {
-                [key: string]: unknown;
-            };
-            /** Origin */
-            origin: string;
-            /** Type */
-            type: string;
-        };
-        /** PathFacets */
-        PathFacets: {
-            /** Categories */
-            categories: string[];
-            /** Confidences */
-            confidences: ("confirmed" | "supported" | "candidate" | "unknown" | "blocked")[];
-            /** Kinds */
-            kinds: components["schemas"]["PathKindOut"][];
-        };
-        /** PathKindOut */
-        PathKindOut: {
-            /** Id */
-            id: string;
-            /** Name */
-            name: string | null;
-        };
-        /** PathOut */
-        PathOut: {
-            /** Accounts */
-            accounts: components["schemas"]["PathAccount"][];
-            /** Base Severity */
-            base_severity: string | null;
-            /** Category */
-            category: string;
-            /** Confidence */
-            confidence: ("confirmed" | "supported" | "candidate" | "unknown" | "blocked") | null;
-            /** Connection */
-            connection: string;
-            /** Connection Id */
-            connection_id: number;
-            /** Entry Confirmed */
-            entry_confirmed: boolean | null;
-            /** Entry Name */
-            entry_name: string | null;
-            entry_step: components["schemas"]["PathEntryStep"] | null;
-            /** Entry Uid */
-            entry_uid: string;
-            /** Evidence */
-            evidence: string[];
-            /**
-             * First Seen
-             * Format: date
-             */
-            first_seen: string;
-            /** Has Failing */
-            has_failing: boolean | null;
-            /** Id */
-            id: number;
-            /**
-             * Last Seen
-             * Format: date
-             */
-            last_seen: string;
-            /** Node Uids */
-            node_uids: string[];
-            /** Path Id */
-            path_id: string;
-            /** Resolved On */
-            resolved_on: string | null;
-            /** Rule Id */
-            rule_id: string;
-            /** Rule Name */
-            rule_name: string | null;
-            /** Rule Version */
-            rule_version: number;
-            /** Severity */
-            severity: string;
-            /** State */
-            state: string;
-            /** Target Name */
-            target_name: string | null;
-            /** Target Uid */
-            target_uid: string;
-        };
-        /** PathPage */
-        PathPage: {
-            /** Data Through */
-            data_through: string | null;
-            graph: components["schemas"]["PathsGraphState"];
-            /** Items */
-            items: components["schemas"]["PathOut"][];
-            not_listed: components["schemas"]["PathsNotListed"] | null;
-            /** Total */
-            total: number;
-        };
-        /** PathRuleOut */
-        PathRuleOut: {
-            /** Description */
-            description: string;
-            /** Name */
-            name: string;
-            /** Remediation */
-            remediation: string;
-            /** Severity */
-            severity: string;
-            /** Technique */
-            technique: string;
-        };
-        /**
-         * PathsGraphState
-         * @description Whether the paths are behind the scans (owner's decision, 2026-11-01): paths are
-         *     evaluated by the graph read model after each ingested run; until then, or while its sync
-         *     fails, the list shows the paths of an earlier evaluation.
-         */
-        PathsGraphState: {
-            /** Behind */
-            behind: boolean;
-            /** Evaluated At */
-            evaluated_at: string | null;
-            /** Failed */
-            failed: boolean;
-        };
-        /**
-         * PathsNotListed
-         * @description Paths the latest evaluation found but the per-account cap kept out of the list, entering
-         *     the connection asked for (all connections: every enabled one). Whatever the list's filters:
-         *     the cut has only these dimensions.
-         */
-        PathsNotListed: {
-            /** Latent */
-            latent: number;
-            /** Paths */
-            paths: number;
-            /** Worst */
-            worst: ("critical" | "high" | "medium" | "low" | "informational") | null;
         };
         /** PendingRequest */
         PendingRequest: {
@@ -2291,13 +1764,6 @@ export interface components {
             vulnerabilities: components["schemas"]["VulnerabilitySummary"] | null;
             /** Worst Severity */
             worst_severity: string | null;
-        };
-        /** ResourceTypes */
-        ResourceTypes: {
-            /** Data Through */
-            data_through: string | null;
-            /** Types */
-            types: components["schemas"]["TypeCount"][];
         };
         /** RetentionSettings */
         RetentionSettings: {
@@ -2627,13 +2093,6 @@ export interface components {
             /** Value */
             value: number | null;
         };
-        /** ToolFindings */
-        ToolFindings: {
-            /** Open */
-            open: number;
-            /** Worst */
-            worst: string;
-        };
         /**
          * ToolPrefixes
          * @description Each tool's folder in the bucket. The defaults are the design's layout, raw/<tool>.
@@ -2853,125 +2312,6 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    list_paths_api_v1_attack_paths_get: {
-        parameters: {
-            query?: {
-                limit?: number;
-                offset?: number;
-                order?: "severity" | "first_seen_desc" | "first_seen_asc" | "last_seen_desc" | "last_seen_asc";
-                connection_id?: number | null;
-                passing_through?: boolean;
-                state?: "open" | "resolved";
-                severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
-                category?: string[];
-                kind?: string[];
-                confidence?: ("confirmed" | "supported" | "candidate" | "unknown" | "blocked")[];
-                through?: string | null;
-            };
-            header?: {
-                "X-Argus-CSRF"?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                argus_session?: string | null;
-                argus_csrf?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PathPage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    path_facets_api_v1_attack_paths_facets_get: {
-        parameters: {
-            query?: {
-                connection_id?: number | null;
-                passing_through?: boolean;
-            };
-            header?: {
-                "X-Argus-CSRF"?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                argus_session?: string | null;
-                argus_csrf?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PathFacets"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    path_api_v1_attack_paths__path_id__get: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Argus-CSRF"?: string | null;
-            };
-            path: {
-                path_id: number;
-            };
-            cookie?: {
-                argus_session?: string | null;
-                argus_csrf?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["PathDetail"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     change_password_api_v1_auth_password_put: {
         parameters: {
             query?: never;
@@ -3720,88 +3060,6 @@ export interface operations {
             };
         };
     };
-    map_graph_api_v1_map_graph_get: {
-        parameters: {
-            query: {
-                focus: string;
-                connection_id?: number | null;
-                depth?: number;
-                layer?: ("traffic" | "identity" | "network" | "policy" | "data")[];
-                origin?: ("rule" | "cloudfox" | "manual")[];
-            };
-            header?: {
-                "X-Argus-CSRF"?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                argus_session?: string | null;
-                argus_csrf?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MapGraph"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    group_api_v1_map_group_get: {
-        parameters: {
-            query: {
-                anchor: string;
-                connection_id: number;
-                direction: "out" | "in";
-                edge_type: string;
-                resource_type?: string | null;
-                limit?: number;
-                offset?: number;
-            };
-            header?: {
-                "X-Argus-CSRF"?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                argus_session?: string | null;
-                argus_csrf?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GroupPage"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     overview_api_v1_overview_get: {
         parameters: {
             query?: {
@@ -3927,42 +3185,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResourceFacets"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    resource_types_api_v1_resources_types_get: {
-        parameters: {
-            query?: {
-                connection_id?: number | null;
-            };
-            header?: {
-                "X-Argus-CSRF"?: string | null;
-            };
-            path?: never;
-            cookie?: {
-                argus_session?: string | null;
-                argus_csrf?: string | null;
-            };
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ResourceTypes"];
                 };
             };
             /** @description Validation Error */

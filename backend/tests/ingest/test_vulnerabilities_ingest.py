@@ -1,6 +1,6 @@
 """Vulnerabilities runs through ingest (ADR-0042), on the Demo estate in AWS Inspector's shape:
 CVEs link to the inventory, carry their vulnerability facts, resolve only on a complete run, and
-stay out of the Resources "Open findings" count and attack-path severity."""
+stay out of the Resources "Open findings" count."""
 
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -10,7 +10,7 @@ from sqlalchemy import Engine, text
 from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
 from argus.collection import CollectOptions, FilesystemRawStore
-from argus.findings import FAILING_FINDINGS_SQL, open_finding_counts
+from argus.findings import open_finding_counts
 from argus.ingest import ingest_run, register_failed_run
 
 DAY = date(2026, 10, 2)
@@ -59,7 +59,7 @@ def test_cves_link_to_the_inventory_with_their_facts_and_coverage(
     assert types == {True, False}  # package and code vulnerabilities
 
 
-def test_cves_stay_out_of_open_findings_and_attack_path_severity(
+def test_cves_stay_out_of_open_findings(
     owner: Engine, worker: Engine, store: FilesystemRawStore
 ) -> None:
     target = make_demo(owner)
@@ -71,12 +71,8 @@ def test_cves_stay_out_of_open_findings_and_attack_path_severity(
                 text("SELECT DISTINCT resource_id FROM finding WHERE tool = 'vulnerabilities'")
             ).scalars()
         )
-        failing = conn.execute(
-            text(f"SELECT count(*) FROM ({FAILING_FINDINGS_SQL}) f"),  # noqa: S608 - constant
-            {"connection_id": target.connection_id},
-        ).scalar_one()
         counts = open_finding_counts(conn, ids)
-    assert ids and failing == 0 and counts == {}
+    assert ids and counts == {}
 
 
 def test_a_complete_run_resolves_what_it_no_longer_reports_and_a_partial_one_nothing(

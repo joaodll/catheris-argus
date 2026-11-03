@@ -1,5 +1,5 @@
-"""The front-door chain every synthetic estate carries (ADR-0033), so the Resource map and
-Attack paths have a chain from the internet down to data and identity:
+"""The front-door chain every synthetic estate carries (ADR-0033), so reach verdicts and the
+Resources panel have a chain from the internet down to data and identity:
 
     Route53 app.<zone> -> CloudFront -> { assets bucket, HTTP API -> orders-api function,
                                           edge ALB -> target groups -> function, ECS service }
@@ -16,7 +16,7 @@ The resources are fixed (they never churn) and named after the profile. Their St
 are written here, under attrs["row"], in the column names and shapes of steampipe-plugin-aws
 v1.34.0 (JSON columns as the AWS SDK's PascalCase structs); the tables that already have a
 builder in steampipe.py keep their attrs. In the prod profile the orders-api role can escalate
-to administrator (estate.py), so the chain ends in an attack path.
+to administrator (estate.py).
 """
 
 from __future__ import annotations

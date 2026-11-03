@@ -66,8 +66,7 @@ causes. The same steps, with what to expect after each, are in
 ![The Overview](images/overview.png)
 
 The state of every connection on one page: monitored assets (Steampipe), the ThreatScore and its
-trend (Prowler), open critical findings (Prowler) and exploitable attack paths (CloudFox and
-Argus's own rules). Each number links to the list behind it. The tag on each card names the tool
+trend (Prowler) and open critical findings (Prowler). Each number links to the list behind it. The tag on each card names the tool
 that produced it, and the bar at the top says how old each tool's data is.
 
 ### Posture → Compliance
@@ -87,35 +86,10 @@ explanation and the remediation steps and code. On Prowler's exposure checks it 
 Argus's own verdict on whether the resource is really reachable from the internet, and why.
 **Vulnerabilities** lists the CVEs each provider's own scanner reports (AWS Inspector on AWS), with
 the vulnerable package, its fixed version, whether a public exploit exists and EPSS, as a list or
-by CVE. **Resources** is the inventory, with each resource's configuration as of any past day.
+by CVE. **Resources** is the inventory. A resource opens to what each tool found on it, whether
+it can be reached from the internet, what it connects to, and its configuration.
 
 ![Resources](images/resources.png)
-
-### Investigate → Resource map
-
-![The resource map](images/resource-map.png)
-
-Shows what a resource depends on and connects to. You don't need to know a name to start: "What's
-here" lists the resource types in your accounts with their counts, or in one account if you pick
-it. Choose a type, then a resource from its list. You can also find one by name, id or ARN, or
-reopen one you mapped recently. The map draws its network, the roles it runs as,
-the policies attached and what calls it, hop by hop, with each line saying what it is ("routes to",
-"runs as"). It shows each account's latest scan; for an earlier day, use Resources. A warning icon
-on a card means a public exploit, and a route icon means it is on an attack path. Highlight picks
-out one of these facts, and the panel links each to its own screen. Whether a resource is really reachable from the internet is on Misconfigurations,
-Resources and Attack paths.
-
-### Investigate → Attack paths
-
-![Attack paths](images/attack-paths.png)
-
-Paths from a way in (an exposed port, a resource public by its own policy, an outside principal,
-a leaked access key) to administrator or to data. Each row says how the path gets in, each step
-names its move ("can escalate via iam:CreatePolicyVersion"), and each link carries its evidence
-and the fix. A confidence per step says how sure Argus is. One search covers every account, so a
-path can cross from one account into another; it belongs to the account where it gets in, and
-"Include paths passing through" lists the paths that cross a chosen account. An account lists at
-least its 5,000 worst paths; a note says when more were found, and how severe they are.
 
 ### Operate and Administration
 

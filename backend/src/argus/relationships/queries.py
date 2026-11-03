@@ -6,20 +6,7 @@ from typing import Any, NamedTuple
 
 from sqlalchemy import Connection, text
 
-MAX_EDGES = 500  # the map's neighbourhood cap (design: "Queries")
-
-# Exported SQL: the view attack-path rules read as `e`. One connection's effective edges:
-# each family's snapshot that stands for the day (bind :rule_day and :cloudfox_day to
-# effective_days()), plus every manual edge.
-EFFECTIVE_EDGES_SQL = """
-  SELECT ed.id, ed.source_uid, ed.target_uid, ed.type, ed.origin, ed.attributes
-  FROM edge ed JOIN edge_snapshot es ON es.edge_id = ed.id
-  WHERE ed.connection_id = :connection_id
-    AND ((starts_with(ed.origin, 'rule:') AND es.snapshot_date = :rule_day)
-      OR (ed.origin = 'cloudfox' AND es.snapshot_date = :cloudfox_day))
-  UNION ALL
-  SELECT id, source_uid, target_uid, type, origin, attributes FROM edge WHERE origin = 'manual'
-"""
+MAX_EDGES = 500  # how many of a resource's edges its panel lists
 
 
 def effective_days(conn: Connection, *, connection_id: int, day: date) -> dict[str, date | None]:
@@ -51,15 +38,6 @@ def all_effective_days(
         entry = days.setdefault(r.connection_id, {"rule_day": None, "cloudfox_day": None})
         entry["rule_day" if r.family == "rule" else "cloudfox_day"] = r.day
     return days
-
-
-def latest_load_day(conn: Connection, *, connection_id: int) -> date | None:
-    """The latest day either edge family (rules, CloudFox) has a load for, in one account."""
-    value: date | None = conn.execute(
-        text("SELECT max(snapshot_date) FROM edge_load WHERE connection_id = :c"),
-        {"c": connection_id},
-    ).scalar()
-    return value
 
 
 def latest_rule_loads(conn: Connection, *, day: date) -> dict[int, tuple[date, str | None]]:

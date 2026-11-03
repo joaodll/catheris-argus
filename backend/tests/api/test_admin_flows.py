@@ -10,14 +10,11 @@ import logging
 import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlencode
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from tests.api.conftest import csrf
-from tests.conftest import Settle
 from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
 from argus.collection import TOOL_ORDER
@@ -87,7 +84,7 @@ def test_a_schedule_changed_in_the_ui_runs_at_its_new_time(
 
 # --------------------------------------------------------------- gate check 8
 def test_a_demo_connection_created_in_the_ui_backfills_onto_the_overview(
-    signed_in: TestClient, worker: Engine, store: FilesystemRawStore, settle: Settle
+    signed_in: TestClient, worker: Engine, store: FilesystemRawStore
 ) -> None:
     _put_collection(signed_in, synthetic_throttle_share=0.0)
     created = signed_in.post(
@@ -107,13 +104,11 @@ def test_a_demo_connection_created_in_the_ui_backfills_onto_the_overview(
     ) is not None:
         statuses.append(status)
     assert statuses == ["complete"] * (2 * len(TOOL_ORDER))
-    settle(datetime.now(UTC).date())  # the graph loop's evaluation (ADR-0044, M2)
 
     today = datetime.now(UTC).date().isoformat()
     after = signed_in.get("/api/v1/overview", params={"connection_id": cid}).json()
     assert after["data_through"] == today
     assert after["kpis"]["assets"]["value"] > 0
-    assert after["kpis"]["exploitable_paths"]["value"] is not None
     context = signed_in.get("/api/v1/context").json()
     assert "demo-gate" in {c["name"] for c in context["connections"]}
     assert signed_in.get("/api/v1/run-requests").json()["total"] == 0
@@ -210,48 +205,6 @@ def test_a_temporary_identity_key_needs_its_session_token(
     assert blob is not None and token.encode() not in bytes(blob) and token not in audit
 
 
-def _sweep_map(signed_in: TestClient, bodies: dict[str, str], connection_id: int) -> None:
-    """The map: every resource's neighbourhood with every layer (so every edge and its
-    attributes), every anchor's members, and every attack path."""
-
-    def sweep(path: str) -> Any:
-        response = signed_in.get(path)
-        assert response.status_code == 200, (path, response.text)
-        bodies[path] = response.text
-        return response.json()
-
-    layers = "&".join(f"layer={layer}" for layer in ("traffic", "identity", "network", "policy"))
-    uids = {
-        item["resource_uid"]
-        for path, body in list(bodies.items())
-        if path.startswith("/api/v1/resources?")
-        for item in json.loads(body)["items"]
-    }
-    groups = set()
-    for uid in sorted(uids):
-        graph = sweep(f"/api/v1/map/graph?{urlencode({'focus': uid})}&{layers}")
-        groups |= {
-            (g["anchor_uid"], g["direction"], g["edge_type"], g["resource_type"])
-            for g in graph["groups"]
-        }
-        # The demo has no group over the threshold; a group read lists any anchor's members.
-        groups |= {(e["target_uid"], "in", e["type"], None) for e in graph["edges"]}
-    for anchor, direction, edge_type, resource_type in sorted(groups, key=str):
-        query = {
-            "anchor": anchor,
-            "connection_id": str(connection_id),
-            "direction": direction,
-            "edge_type": edge_type,
-        }
-        if resource_type:
-            query["resource_type"] = resource_type
-        sweep(f"/api/v1/map/group?{urlencode(query)}&limit=100")
-    sweep("/api/v1/attack-paths/facets")
-    for item in json.loads(bodies["/api/v1/attack-paths"])["items"]:
-        sweep(f"/api/v1/attack-paths/{item['id']}")
-    assert any(re.search(r"/attack-paths/\d+$", p) for p in bodies), "no attack path swept"
-
-
 # --------------------------------------------------------------- gate check 11
 def test_no_planted_secret_reaches_any_api_response_or_log(
     signed_in: TestClient,
@@ -259,7 +212,6 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     worker: Engine,
     store: FilesystemRawStore,
     caplog: pytest.LogCaptureFixture,
-    settle: Settle,
 ) -> None:
     caplog.set_level(logging.DEBUG)
     target = make_demo(owner)
@@ -268,13 +220,11 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     for day in (earlier, today):
         for tool in TOOL_ORDER:
             run_tool(worker, store, target, tool, day)
-    settle(today)
     raw = "".join(p.read_text(errors="ignore") for p in store.root.rglob("*") if p.is_file())
     assert MARKERS.search(raw), "the synthetic estate no longer plants secrets: fix this test"
 
     bodies = {}
     for path in (
-        "/api/v1/attack-paths",
         "/api/v1/auth/session",
         "/api/v1/compliance",
         "/api/v1/compliance/cis_6.0_aws",
@@ -290,7 +240,6 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
         "/api/v1/findings/groups?limit=200",
         "/api/v1/findings/groups?limit=200&state=resolved",
         "/api/v1/resources/facets",
-        "/api/v1/resources/types",
         "/api/v1/overview",
         f"/api/v1/overview?as_of={earlier}",
         "/api/v1/run-requests",
@@ -327,8 +276,6 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
                 bodies[path] = signed_in.get(path).text
             offset, total = offset + 200, page["total"]
 
-    _sweep_map(signed_in, bodies, target.connection_id)
-
     tested = signed_in.post("/api/v1/settings/identity/test", headers=csrf(signed_in)).json()
     path = f"/api/v1/connection-tests/{tested['id']}"
     bodies[path] = signed_in.get(path).text
@@ -344,7 +291,6 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     swept = {re.sub(r"/findings/\d+$", "/findings/{finding_id}", p) for p in swept}
     swept = {re.sub(r"/connection-tests/\d+$", "/connection-tests/{test_id}", p) for p in swept}
     swept = {re.sub(r"/compliance/cis_6\.0_aws", "/compliance/{framework}", p) for p in swept}
-    swept = {re.sub(r"/attack-paths/\d+$", "/attack-paths/{path_id}", p) for p in swept}
     assert routes == swept
 
     leaked = {path for path, body in bodies.items() if MARKERS.search(body)}

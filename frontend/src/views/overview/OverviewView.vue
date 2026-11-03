@@ -15,7 +15,6 @@ import { parseRange, type Range } from '@/components/charts/chart'
 import EmptyState from '@/components/EmptyState.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useResource } from '@/composables/useResource'
-import AttackPathsCard from './AttackPathsCard.vue'
 import ContextBar from './ContextBar.vue'
 import InventoryCard from './InventoryCard.vue'
 import KpiCards from './KpiCards.vue'
@@ -93,8 +92,8 @@ const noData = computed(() => overview.data.value !== null && overview.data.valu
 
     <section v-else-if="noData" class="card">
       <EmptyState
-        title="No scan yet for this selection."
-        text="Add a connection in Administration, or run the collectors from Operate → Schedules. History appears here after the first complete scan."
+        title="No Steampipe or Prowler scan yet for this selection."
+        text="The Overview shows what those two tools found. Add a connection in Administration, or run them from Operate → Schedules. History appears here after the first complete scan."
       >
         <RouterLink class="btn btn-primary" :to="{ name: 'connections' }">Open Administration</RouterLink>
       </EmptyState>
@@ -104,10 +103,7 @@ const noData = computed(() => overview.data.value !== null && overview.data.valu
       <KpiCards :data="overview.data.value" :connection-count="connections.length" :connection-id="connectionId" />
       <ThreatScoreStrip :data="overview.data.value" :connection-id="connectionId" :framework="strip" @choose="chooseStrip" />
       <ProwlerCard :data="overview.data.value" :range="range" :connection-id="connectionId" @select-range="(r) => select({ range: r })" />
-      <div class="split">
-        <AttackPathsCard :data="overview.data.value" :connection-id="connectionId" />
-        <InventoryCard :data="overview.data.value" :connection-id="connectionId" />
-      </div>
+      <InventoryCard :data="overview.data.value" :connection-id="connectionId" />
     </div>
   </AppShell>
 </template>
@@ -117,18 +113,5 @@ const noData = computed(() => overview.data.value !== null && overview.data.valu
   display: flex;
   flex-direction: column;
   gap: var(--s-14);
-}
-
-.split {
-  display: grid;
-  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-  gap: var(--s-14);
-  align-items: start;
-}
-
-@media (max-width: 1150px) {
-  .split {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>

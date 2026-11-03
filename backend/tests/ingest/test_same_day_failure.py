@@ -7,12 +7,11 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import Engine, text
-from tests.conftest import Settle
 from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
 from argus import metrics
 from argus.collection import CollectOptions, FilesystemRawStore
-from argus.ingest import ingest_run, register_failed_run
+from argus.ingest import ingest_run, last_runs, register_failed_run
 
 pytestmark = pytest.mark.db
 DAY = date(2026, 10, 2)
@@ -78,44 +77,28 @@ def test_a_partial_prowler_run_on_the_first_day_shows_its_results(
 
 
 def test_each_overview_block_reads_its_own_tool(
-    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
+    owner: Engine, worker: Engine, store: FilesystemRawStore
 ) -> None:
-    """CloudFox alone fills its own blocks: with no inventory its public endpoints are the only
-    paths, each a door at candidate (ADR-0037, second amendment), counted, not "no data"."""
+    """The Overview shows no CloudFox number (ADR-0045), so a CloudFox scan alone leaves its scan
+    date empty and every block says "no data". The context bar still lists that run."""
     target = make_demo(owner)
     assert run_tool(worker, store, target, "cloudfox", DAY).status == "complete"
-    settle(DAY)
     with owner.connect() as conn:
         overview = metrics.build_overview(conn, connection_id=target.connection_id, as_of=DAY)
-        doors = conn.execute(
-            text(
-                "SELECT rule_id, confidence, severity FROM attack_path WHERE connection_id = :c "
-                "AND state = 'open'"
-            ),
-            {"c": target.connection_id},
-        ).all()
-    # Every path starts at a CloudFox door, so every one is Candidate: the doors themselves,
-    # and a workload CloudFox reports with a secret in its environment (wave 3).
-    kinds = {d.rule_id for d in doors}
-    assert doors and {d.confidence for d in doors} == {"candidate"}
-    exposure = {"internet-exposed", "internet-exposed-admin-port"}
-    assert kinds <= exposure | {"internet-to-workload-secret"}
-    # Exploitable: critical and high (an administrative port), a count even when zero.
-    exploitable = sum(d.severity in ("critical", "high") for d in doors)
-    assert overview["data_through"] == DAY
-    assert overview["kpis"]["exploitable_paths"]["value"] == exploitable
+        runs = last_runs(conn, connection_id=target.connection_id)
+    assert overview["data_through"] is None
     assert overview["kpis"]["assets"]["value"] is None  # Steampipe has not run
     assert overview["check_results"]["passed"] is None  # nor has Prowler
+    assert [r["tool"] for r in runs] == ["cloudfox"]
 
-    # Prowler the next day: its blocks show its scan, CloudFox's keep theirs.
+    # Prowler the next day: its blocks show its scan, and Steampipe's stay empty.
     next_day = DAY + timedelta(days=1)
     assert run_tool(worker, store, target, "prowler", next_day).status == "complete"
-    settle(next_day)
     with owner.connect() as conn:
         overview = metrics.build_overview(conn, connection_id=target.connection_id, as_of=next_day)
     assert overview["data_through"] == next_day
     assert overview["check_results"]["passed"] is not None
-    assert overview["kpis"]["exploitable_paths"]["value"] == exploitable
+    assert overview["kpis"]["assets"]["value"] is None
 
 
 def test_a_failed_prowler_run_carries_compliance_forward(

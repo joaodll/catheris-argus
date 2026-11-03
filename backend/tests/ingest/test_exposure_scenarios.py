@@ -19,7 +19,6 @@ from uuid import uuid4
 
 import pytest
 from sqlalchemy import Engine, text
-from tests.conftest import Settle
 from tests.ingest.conftest import RULES_DIR
 
 from argus.core.manifest import Manifest, Tool
@@ -152,11 +151,10 @@ def _connection(owner: Engine) -> int:
 
 
 @pytest.fixture
-def estate(owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle) -> int:
+def estate(owner: Engine, worker: Engine, store: FilesystemRawStore) -> int:
     cid = _connection(owner)
     for tool in ("steampipe", "prowler"):
         _ingest(owner, worker, store, tool, cid)
-    settle(DAY)  # the graph loop's evaluation (ADR-0044, M2)
     return cid
 
 
@@ -274,109 +272,6 @@ def test_prowler_before_steampipe_waits_for_the_inventory(
     assert _reach(owner, cid) == {case: {verdict} for case, verdict in REACH.items()}
 
 
-# Each case's exposure path (ADR-0037, second amendment): every door is one, its kind from the
-# ports it is open on (Prowler 5.44.0's port lists), its confidence from the door's verdict.
-EXPOSED: dict[str, tuple[str, str] | None] = {
-    "exp-open": ("internet-exposed-admin-port", "confirmed"),
-    "exp-s3-reader": ("internet-exposed-admin-port", "confirmed"),
-    "exp-no-public-ip": ("internet-exposed-admin-port", "blocked"),
-    "exp-ipv6-rule": ("internet-exposed-admin-port", "blocked"),
-    "exp-vpc-b": ("internet-exposed-admin-port", "blocked"),
-    "exp-acl-deny": ("internet-exposed-admin-port", "blocked"),
-    "exp-inspected": ("internet-exposed-admin-port", "unknown"),
-    "exp-terminated": None,
-    "exp-rdp-target": None,
-    "exp-ssm-target": None,
-    "exp-stopped": ("internet-exposed-admin-port", "blocked"),
-    "exp-icmp-only": ("internet-exposed", "blocked"),
-    "exp-two-enis": ("internet-exposed-admin-port", "blocked"),
-}
-
-
-def _paths(owner: Engine, cid: int) -> list[Any]:
-    with owner.connect() as conn:
-        return list(
-            conn.execute(
-                text("""
-                    SELECT rule_id, entry_uid, target_uid, confidence, severity, has_failing
-                    FROM attack_path WHERE connection_id = :c AND state = 'open'
-                """),
-                {"c": cid},
-            )
-        )
-
-
-def test_every_door_is_an_attack_path_after_steampipe_alone(owner: Engine, estate: int) -> None:
-    """No CloudFox run: Steampipe's edges give the paths, Prowler's findings their severity."""
-    names = _names()
-    exposed = {
-        names[p.entry_uid]: (p.rule_id, p.confidence)
-        for p in _paths(owner, estate)
-        if p.rule_id.startswith("internet-exposed") and p.entry_uid in names
-    }
-    assert {case: exposed.get(case) for case in EXPOSED} == EXPOSED
-    severity = {
-        names[p.entry_uid]: (p.severity, p.has_failing)
-        for p in _paths(owner, estate)
-        if p.rule_id.startswith("internet-exposed") and p.entry_uid in names
-    }
-    # High, up one for a confirmed entry; Prowler's failing port check is on the way.
-    assert severity["exp-open"] == ("critical", True)
-    # Latent: down one; Prowler flags it, so not down for "no failing finding".
-    assert severity["exp-stopped"] == ("medium", True)
-
-
-def test_a_managed_policy_gives_a_data_path(owner: Engine, estate: int) -> None:
-    """exp-s3-reader's role has AmazonS3ReadOnlyAccess (role-accesses v2): the internet reaches
-    every bucket through it, any:s3."""
-    names = _names()
-    data = [
-        p
-        for p in _paths(owner, estate)
-        if p.rule_id == "internet-to-data" and names.get(p.entry_uid) == "exp-s3-reader"
-    ]
-    assert [(p.target_uid, p.confidence) for p in data] == [("any:s3", "supported")]
-
-
-def test_a_failing_check_on_the_doors_security_group_is_the_doors(
-    owner: Engine, estate: int, settle: Settle
-) -> None:
-    """Prowler's security-group checks sit on the group, not on the path's nodes: a failing one
-    on a group attached to the door keeps the path from going down for "no failing finding"."""
-    names = {v: k for k, v in _names().items()}
-    door = names["exp-icmp-only"]
-
-    def failing() -> bool:
-        settle(DAY)
-        [path] = [
-            p
-            for p in _paths(owner, estate)
-            if p.entry_uid == door and p.rule_id == "internet-exposed"
-        ]
-        return bool(path.has_failing)
-
-    assert failing()  # Prowler's ec2_instance_public_ip on the instance itself
-    with owner.begin() as conn:
-        conn.execute(text("UPDATE finding SET muted = true WHERE resource_uid = :u"), {"u": door})
-    assert not failing()
-    with owner.begin() as conn:
-        conn.execute(
-            text("""
-                INSERT INTO finding (finding_uid, tool, check_id, connection_id, region,
-                                     resource_uid, severity, status, muted, title, service,
-                                     resource_type, categories, state, first_seen, last_seen)
-                SELECT 'sg-check-' || e.target_uid, 'prowler',
-                       'ec2_securitygroup_allow_ingress_from_internet_to_any_port', :c,
-                       'us-east-1', e.target_uid, 'high', 'FAIL', false, 'Open to the internet',
-                       'ec2', 'AwsEc2SecurityGroup', ARRAY['internet-exposed'], 'open', :d, :d
-                FROM edge e JOIN edge_snapshot s ON s.edge_id = e.id AND s.snapshot_date = :d
-                WHERE e.connection_id = :c AND e.type = 'MEMBER_OF' AND e.source_uid = :u
-            """),
-            {"c": estate, "d": DAY, "u": door},
-        )
-    assert failing()
-
-
 def _entries(owner: Engine, cid: int) -> dict[str, tuple[str, dict[str, Any]]]:
     """Every rule edge from the internet, by its target's last ARN part: type, attributes."""
     with owner.connect() as conn:
@@ -416,41 +311,8 @@ def test_more_ways_in_than_the_network(owner: Engine, estate: int) -> None:
     assert "exp-escalator" not in entries  # no key, no password
 
 
-def test_each_new_entry_reaches_what_it_can(owner: Engine, estate: int) -> None:
-    short = _last
-    found = {
-        (p.rule_id, short(p.entry_uid), short(p.target_uid)): p.confidence
-        for p in _paths(owner, estate)
-    }
-    assert found[("internet-public-policy", "exp-public-queue", "exp-public-queue")] == "confirmed"
-    assert found[("internet-public-policy", "exp-public-bucket", "exp-public-bucket")] == "unknown"
-    # The public queue triggers a function whose role reads the secret.
-    secret = [
-        p.confidence
-        for p in _paths(owner, estate)
-        if p.rule_id == "internet-to-data"
-        and short(p.entry_uid) == "exp-public-queue"
-        and ":secret:exp/api-key-" in p.target_uid
-    ]
-    assert secret == ["supported"]
-    # Another account's root may assume exp-outsider, which reads every bucket.
-    assert found[("internet-to-data", "root", "s3")] == "candidate"
-    # A leaked key of a user in an administrators' group; a console password reaching S3.
-    assert found[("internet-to-admin", "exp-old-key", ACCOUNT)] == "candidate"
-    assert found[("internet-to-data", "exp-console", "s3")] == "candidate"
-
-
-def test_moves_beyond_the_role(owner: Engine, estate: int) -> None:
-    """Wave 3 (ADR-0037, second amendment): the RDP neighbour from every door in its VPC,
-    Candidate, Blocked behind a Restricted door; an escalation by permission name."""
-    names = _names()
-    lateral = {
-        names[p.entry_uid]: p.confidence
-        for p in _paths(owner, estate)
-        if p.rule_id == "internet-lateral-ssh" and names.get(p.target_uid) == "exp-rdp-target"
-    }
-    assert lateral["exp-open"] == "candidate"
-    assert lateral["exp-stopped"] == "blocked"
+def test_an_escalation_by_permission_name(owner: Engine, estate: int) -> None:
+    """Wave 3 (ADR-0037, second amendment): a rule edge names how a user can escalate."""
     with owner.connect() as conn:
         escalation = conn.execute(
             text("""
@@ -465,3 +327,41 @@ def test_moves_beyond_the_role(owner: Engine, estate: int) -> None:
         "admin:" + ACCOUNT,
         ["iam:createpolicyversion"],
     )
+
+
+def _edges_of(owner: Engine, cid: int, edge_type: str) -> list[tuple[str, str]]:
+    """The day's rule edges of one type: (source, target), each by its ARN's last part."""
+    with owner.connect() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT e.source_uid, e.target_uid
+                FROM edge e JOIN edge_snapshot s ON s.edge_id = e.id AND s.snapshot_date = :d
+                WHERE e.connection_id = :c AND e.type = :t AND starts_with(e.origin, 'rule:')
+            """),
+            {"d": DAY, "c": cid, "t": edge_type},
+        ).all()
+    return [(r.source_uid, r.target_uid) for r in rows]
+
+
+def test_a_door_connects_to_its_neighbour_on_the_network(owner: Engine, estate: int) -> None:
+    """Wave 3: the RDP neighbour from every door in its VPC, shown under Connections."""
+    names = _names()
+    sources = {
+        names.get(source)
+        for source, target in _edges_of(owner, estate, "CAN_CONNECT_TO")
+        if names.get(target) == "exp-rdp-target"
+    }
+    assert {"exp-open", "exp-stopped"} <= sources
+
+
+def test_a_managed_policy_gives_access_to_data(owner: Engine, estate: int) -> None:
+    """exp-s3-reader's role has AmazonS3ReadOnlyAccess (role-accesses v2): every bucket, any:s3."""
+    targets = {t for s, t in _edges_of(owner, estate, "ACCESSES") if "exp-s3-reader" in _last(s)}
+    assert targets == {"any:s3"}
+
+
+def test_a_public_queue_triggers_its_function(owner: Engine, estate: int) -> None:
+    triggered = [
+        t for s, t in _edges_of(owner, estate, "TRIGGERS") if _last(s) == "exp-public-queue"
+    ]
+    assert len(triggered) == 1 and ":function:" in triggered[0]

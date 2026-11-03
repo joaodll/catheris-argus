@@ -22,7 +22,7 @@ def test_loads_are_backfilled_and_a_downgrade_drops_them(
     target = make_demo(owner)
     run_tool(worker, store, target, "steampipe", DAY)
     try:
-        command.downgrade(alembic_config(), "0035")
+        command.downgrade(alembic_config(), "0033")
         with owner.begin() as conn:
             present = conn.execute(
                 text(
@@ -52,7 +52,7 @@ def test_loads_are_backfilled_and_a_downgrade_drops_them(
             ).all()
         assert [tuple(r) for r in loads] == [(DAY, present), (date(2026, 10, 31), 0)]
         assert present > 0
-        command.downgrade(alembic_config(), "0035")
+        command.downgrade(alembic_config(), "0033")
         with owner.connect() as conn:
             assert conn.execute(text("SELECT to_regclass('resource_load') IS NULL")).scalar_one()
     finally:

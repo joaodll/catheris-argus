@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from argus.attackpaths.cloudfox import (
+from argus.cloudfox.parse import (
     ACTS_ON_TARGET,
     CHECK,
     READS_DATA,

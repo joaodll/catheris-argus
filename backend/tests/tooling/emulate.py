@@ -954,7 +954,7 @@ def write_prowler_fixture(source: Path, dest: Path, keys: scrub_fixtures.Mapping
 
 
 def scenario(args: argparse.Namespace) -> int:
-    """The exposure scenario estate alone: seed, CloudFox (its facts for the attack-path waves),
+    """The exposure scenario estate alone: seed, CloudFox,
     Steampipe on the fixture tables, Prowler when asked, then the fixture."""
     enforce_auth(args.endpoint, on=False)
     ids = exposure_estate.seed(lambda service: client(service, args.endpoint))

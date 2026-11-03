@@ -8,9 +8,6 @@ Owns resource, resource_config, resource_snapshot and resource_load. Public inte
     RESOURCES_ON_DAY_SQL, resource_id_sql(), uid_by_native_id()   for other modules' queries
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
                        (the Resources page, and a resource as of a day)
-    RESOURCE_NODES_SQL, resource_nodes()   resources as Resource map nodes, by uid
-    RESOURCES_PRESENT_SQL   one connection's resources on a day, without configuration (the
-                       graph read model's nodes, ADR-0044)
     is_asset()         whether a resource type counts as an asset (parts, settings and links
                        are stored and searchable, not counted)
 """
@@ -18,9 +15,7 @@ Owns resource, resource_config, resource_snapshot and resource_load. Public inte
 from argus.inventory.load import delete_orphan_configs, load_inventory
 from argus.inventory.metrics import INVENTORY_METRICS, put_inventory_metrics
 from argus.inventory.queries import (
-    RESOURCE_NODES_SQL,
     RESOURCES_ON_DAY_SQL,
-    RESOURCES_PRESENT_SQL,
     ResourceFilters,
     ResourceOrder,
     delete_loads_before,
@@ -30,7 +25,6 @@ from argus.inventory.queries import (
     resource_facets,
     resource_id_sql,
     resource_names,
-    resource_nodes,
     uid_by_native_id,
 )
 from argus.inventory.steampipe import (
@@ -44,8 +38,6 @@ from argus.inventory.steampipe import (
 __all__ = [
     "INVENTORY_METRICS",
     "RESOURCES_ON_DAY_SQL",
-    "RESOURCES_PRESENT_SQL",
-    "RESOURCE_NODES_SQL",
     "SUPPORTED_VERSIONS",
     "InventoryBatch",
     "InventoryResource",
@@ -63,6 +55,5 @@ __all__ = [
     "resource_facets",
     "resource_id_sql",
     "resource_names",
-    "resource_nodes",
     "uid_by_native_id",
 ]

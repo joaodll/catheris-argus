@@ -1,5 +1,5 @@
 /** Why a door from the internet has its reach, in one line (ADR-0035): the Resources sheet's
- * "From the internet" and an attack path's way in. */
+ * "From the internet". */
 import { familyLabel, onlyIcmp, openWithoutAddress, stateWord, type DoorInterface } from './doorEvidence'
 
 /** A door as read from its edge (the internet rules' attributes, ADR-0035). */
@@ -52,7 +52,7 @@ function endName(target: string): string {
   return target.split(/[/:]/).filter(Boolean).pop() ?? target
 }
 
-export function list(values: string[]): string {
+function list(values: string[]): string {
   const shown = values.slice(0, 3).join(', ')
   return `${shown}${values.length > 3 ? ` and ${values.length - 3} more` : ''}`
 }

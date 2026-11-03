@@ -12,7 +12,7 @@ kubeVersion: ">=1.30.0-0"
 home: https://github.com/joaodll/catheris-argus
 sources:
   - https://github.com/joaodll/catheris-argus
-keywords: [security, cloud-security, aws, prowler, cloudfox, steampipe, attack-paths]
+keywords: [security, cloud-security, aws, prowler, cloudfox, steampipe]
 maintainers:
   - name: João Dalla Rosa
     url: https://github.com/joaodll

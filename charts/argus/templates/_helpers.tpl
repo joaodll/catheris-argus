@@ -109,10 +109,10 @@ database.pools in values.yaml.
 {{- $api := mul $apiPods $p.api }}
 {{- $scans := mul $scanPods $p.scanJob }}
 {{- $tasks := add (mul 3 $p.task) 1 }}
-{{- $total := add $api $scans $tasks $p.scheduler $p.graphSync }}
+{{- $total := add $api $scans $tasks $p.scheduler }}
 {{- $room := sub $v.postgres.maxConnections 3 }}
 {{- if gt $total $room }}
-{{- fail (printf "database connections: the pods can open %d at once (api %d = %d pods x %d, scan Jobs %d = %d x %d, migrate/rederive/retention %d, scheduler %d, graph-sync %d), above postgres.maxConnections %d less 3 reserved. Raise postgres.maxConnections, or lower database.pools, the api replicas or scheduler.maxRunJobs." $total $api $apiPods (int $p.api) $scans $scanPods (int $p.scanJob) $tasks (int $p.scheduler) (int $p.graphSync) (int $v.postgres.maxConnections)) }}
+{{- fail (printf "database connections: the pods can open %d at once (api %d = %d pods x %d, scan Jobs %d = %d x %d, migrate/rederive/retention %d, scheduler %d), above postgres.maxConnections %d less 3 reserved. Raise postgres.maxConnections, or lower database.pools, the api replicas or scheduler.maxRunJobs." $total $api $apiPods (int $p.api) $scans $scanPods (int $p.scanJob) $tasks (int $p.scheduler) (int $v.postgres.maxConnections)) }}
 {{- end }}
 {{- end }}
 
@@ -127,21 +127,6 @@ Secret may lack it. */}}
       {{- if .optional }}
       optional: true
       {{- end }}
-{{- end }}
-
-{{/* The Memgraph login (ADR-0044): graph-sync writes with it, the API only reads. */}}
-{{- define "argus.graph.env" -}}
-- name: ARGUS_GRAPH_URI
-  value: {{ printf "bolt://%s-memgraph:7687" (include "argus.fullname" .) | quote }}
-- name: ARGUS_GRAPH_USER
-  value: argus
-- name: ARGUS_GRAPH_PASSWORD
-  valueFrom:
-    secretKeyRef:
-      name: {{ .Values.secrets.existingSecret }}
-      key: ARGUS_GRAPH_PASSWORD
-- name: ARGUS_GRAPH_TIMEOUT_SECONDS
-  value: {{ .Values.memgraph.transactionTimeoutSeconds | int | quote }}
 {{- end }}
 
 {{/*

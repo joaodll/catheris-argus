@@ -950,7 +950,7 @@ def load_rules(rules_dir: Path) -> list[Rule]:
         raise RuleError("duplicate rule ids")
     if not rules:
         # A rule-less engine is a misconfiguration (a wrong ARGUS_RULES_DIR), never a quiet
-        # success: without rules there are no edges, and without edges no attack paths.
+        # success: without rules there are no edges, and without edges no reach verdicts.
         raise RuleError(f"no relationship rules in {rules_dir / 'relationships'}")
     return rules
 
@@ -1110,7 +1110,7 @@ def owners_of_hosts(
 def write_edges(
     engine: Engine, *, rules_dir: Path, connection_id: int, day: date, ruleset: str
 ) -> int:
-    """Derives the day's rule edges and loads them. `ruleset` names the rules and path kinds
+    """Derives the day's rule edges and loads them. `ruleset` names the rules
     they come from (ingest's rule_set()), recorded with the load."""
     rules = load_rules(rules_dir)
     edges = derive_edges(engine, rules=rules, connection_id=connection_id, day=day)

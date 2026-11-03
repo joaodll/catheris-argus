@@ -15,8 +15,6 @@ says what the chart creates and which values matter.
 | `scheduler` | Deployment (1 replica) | Queues the scans schedules call for and starts a **scan Job** for each. It never scans itself |
 | scan Jobs | Jobs the scheduler creates, from one template | Each answers one connection test (the Test connection button) or runs one AWS scan, then exits. Values under `scanJobs` |
 | `postgres` | StatefulSet (optional) | PostgreSQL 17, the same image as Compose; or an external database |
-| `memgraph` | StatefulSet | The graph read model: Memgraph Community, the same image as Compose. Rebuilt from Postgres, so it needs no backup |
-| `graph-sync` | Deployment (1 replica) | Keeps Memgraph equal to Postgres, checks it, and evaluates attack paths. The only writer to Memgraph. It never scans anything. Its init container waits for Memgraph, which can take minutes on a large snapshot |
 | `migrate`, `rederive` | Jobs, one per image | Schema migrations; deriving again after a rule change |
 | `retention` | CronJob | Daily: drops history older than the UI's **History** setting, unused configurations and old rule loads |
 
@@ -55,9 +53,8 @@ smallest valid set; `ci/external-db-values.yaml` turns on every optional piece.
 
 ## Limits you may want to change
 
-`api.session` and `api.signIn` bound every user's session and sign-in attempts,
-`retention.maxHistoryDays` caps the history an administrator can set in the UI, and
-`memgraph.transactionTimeoutSeconds` caps one graph transaction. Lowering `retention.maxHistoryDays`
+`api.session` and `api.signIn` bound every user's session and sign-in attempts, and
+`retention.maxHistoryDays` caps the history an administrator can set in the UI. Lowering `retention.maxHistoryDays`
 below what is set in the UI deletes the history above it at the next retention.
 
 ## Scaling
@@ -70,11 +67,11 @@ below what is set in the UI deletes the history above it at the next retention.
   (off by default). It needs metrics-server, which EKS does not install by default. While it is
   on, the Deployment has no fixed replica count and the ResourceQuota counts `maxReplicas`.
 - **Database connections:** each pod opens at most its pool from `database.pools` (api 10,
-  scheduler 2, graph-sync 2, scan Job 3, migrate, rederive and retention 2). The render fails when all of them
+  scheduler 2, scan Job 3, migrate, rederive and retention 2). The render fails when all of them
   at once exceed `postgres.maxConnections` (200) less 3 reserved, and the error names each part:
   api pods (`maxReplicas` while autoscaling is on, plus a rolling-update surge), scan Jobs
-  (`maxRunJobs` + `maxTestJobs`), the three one-shots, the scheduler and graph-sync. The defaults
-  need 56.
+  (`maxRunJobs` + `maxTestJobs`), the three one-shots and the scheduler. The defaults
+  need 54.
   For an external database, set `postgres.maxConnections` to what it allows Argus.
 
 ## Security controls

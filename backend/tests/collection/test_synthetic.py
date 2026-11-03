@@ -189,7 +189,7 @@ def test_cloudfox_files_follow_2_0_5(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------- scenarios
-def test_the_attack_path_scenario_is_present_in_prod(tmp_path: Path) -> None:
+def test_the_exposed_escalation_scenario_is_present_in_prod(tmp_path: Path) -> None:
     prowler_dir = _run(tmp_path, PROD, "prowler")
     ocsf = json.loads(next(prowler_dir.glob("*.ocsf.json")).read_text())
     instance = Estate(PROD.account_id, 0).at(DAY).by_name("aws_ec2_instance", SCENARIO_INSTANCE)

@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from argus.attackpaths.cloudfox import (
+from argus.cloudfox.parse import (
     ENV_EXPOSURE_CHECK,
     PRIVESC_CHECK,
     PUBLIC_ENDPOINT_CHECK,

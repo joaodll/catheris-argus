@@ -12,7 +12,6 @@ from uuid import UUID
 import pytest
 from sqlalchemy import Engine, create_engine, event, text
 from sqlalchemy.exc import DataError
-from tests.conftest import Settle
 from tests.ingest.conftest import make_aws, make_demo
 
 from argus.collection import source_for, store_for
@@ -387,7 +386,7 @@ def test_a_failed_scheduled_run_is_retried_and_a_backfill_is_not(
 
 
 def test_the_worker_drains_a_backfill_into_history(
-    owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
+    owner: Engine, worker: Engine, store: FilesystemRawStore
 ) -> None:
     target = make_demo(owner)
     with owner.begin() as conn:
@@ -403,7 +402,6 @@ def test_the_worker_drains_a_backfill_into_history(
     ) is not None:
         statuses.append(status)
     assert statuses == ["complete"] * 6
-    settle(date(2026, 10, 1))  # the graph loop's evaluation (ADR-0044, M2)
     with owner.connect() as conn:
         assert (
             conn.execute(
@@ -420,18 +418,6 @@ def test_the_worker_drains_a_backfill_into_history(
             ).scalar_one()
             == 2
         )
-        assert (
-            conn.execute(text("SELECT count(*) FROM attack_path WHERE state = 'open'")).scalar_one()
-            > 0
-        )
-        # Paths show the latest scan state, dated by their evaluation: the backfilled day
-        # gets no path counts (owner's decision, 2026-10-31).
-        assert conn.execute(
-            text(
-                "SELECT array_agg(DISTINCT snapshot_date) FROM metric_daily "
-                "WHERE metric LIKE 'attack_paths.%'"
-            )
-        ).scalar_one() == [date(2026, 10, 1)]
 
 
 def test_a_failing_source_still_finishes_the_request(
