@@ -583,6 +583,19 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         offset=0,
         filters=inventory.ResourceFilters(connection_id=7, resource_type="aws_s3_bucket"),
     ),
+    # The Resource map's start: a type's list, across every account.
+    "resources, one type, all accounts": lambda c: inventory.list_resources(
+        c, limit=20, offset=0, filters=inventory.ResourceFilters(resource_type="aws_s3_bucket")
+    ),
+    "resources, one type, all accounts, a later page": lambda c: inventory.list_resources(
+        c, limit=20, offset=2000, filters=inventory.ResourceFilters(resource_type="aws_s3_bucket")
+    ),
+    "resources, types, all accounts": lambda c: metrics.latest(
+        c, connection_id=0, metric="assets.by_type", as_of=TODAY
+    ),
+    "resources, types, one account": lambda c: metrics.latest(
+        c, connection_id=7, metric="assets.by_type", as_of=TODAY
+    ),
     "resources, search": lambda c: inventory.list_resources(
         c, limit=20, offset=0, filters=inventory.ResourceFilters(q="i-4242")
     ),

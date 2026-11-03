@@ -537,6 +537,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/resources/types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resource Types
+         * @description What is in the inventory, per type and largest first: the Overview's stored numbers, so
+         *     both screens say the same, and parts, settings and links are left out.
+         */
+        get: operations["resource_types_api_v1_resources_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/resources/{resource_id}": {
         parameters: {
             query?: never;
@@ -2271,6 +2292,13 @@ export interface components {
             /** Worst Severity */
             worst_severity: string | null;
         };
+        /** ResourceTypes */
+        ResourceTypes: {
+            /** Data Through */
+            data_through: string | null;
+            /** Types */
+            types: components["schemas"]["TypeCount"][];
+        };
         /** RetentionSettings */
         RetentionSettings: {
             /**
@@ -3899,6 +3927,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResourceFacets"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resource_types_api_v1_resources_types_get: {
+        parameters: {
+            query?: {
+                connection_id?: number | null;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourceTypes"];
                 };
             };
             /** @description Validation Error */

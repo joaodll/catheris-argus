@@ -39,9 +39,14 @@ export interface MapState {
   // walks the focus resource's own connection. With no focus: the start screen's account, which
   // narrows its search.
   connection: number | null
+  // The start screen's chosen type and its page. They stay while a map is open, so Back and the
+  // way back to the start return to the same list.
+  type: string | null
+  page: number
 }
 
 const UID_MAX = 2048 // as the API
+const TYPE_MAX = 128 // as the API
 
 function strings(value: LocationQuery[string] | undefined): string[] {
   const all = Array.isArray(value) ? value : value == null ? [] : [value]
@@ -73,6 +78,8 @@ export function parseMapQuery(query: LocationQuery, defaultView: View = 'map'): 
   const origins = ordered(strings(query.origin) as Origin[], ORIGINS)
   const view = one(query.view)
   const highlight = one(query.highlight)
+  const rawType = one(query.type)
+  const type = rawType && rawType.length <= TYPE_MAX ? rawType : null
   return {
     focus: uid(query.focus),
     depth: (DEPTHS as readonly number[]).includes(depth) ? (depth as Depth) : 1,
@@ -83,6 +90,9 @@ export function parseMapQuery(query: LocationQuery, defaultView: View = 'map'): 
     path: id(query.path),
     open: uid(query.open),
     connection: id(query.connection),
+    type,
+    // A page belongs to a type's list. An older link's ?page= (front doors) means nothing here.
+    page: type ? (id(query.page) ?? 1) : 1,
   }
 }
 
@@ -100,6 +110,8 @@ export function mapQueryToUrl(s: MapState, defaultView: View = 'map'): LocationQ
     path: s.path == null ? undefined : String(s.path),
     open: s.open ?? undefined,
     connection: s.connection == null ? undefined : String(s.connection),
+    type: s.type ?? undefined,
+    page: s.type == null || s.page === 1 ? undefined : String(s.page),
   }
 }
 

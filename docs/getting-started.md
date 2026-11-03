@@ -95,8 +95,10 @@ by CVE. **Resources** is the inventory, with each resource's configuration as of
 
 ![The resource map](images/resource-map.png)
 
-Shows what a resource depends on and connects to. Find one by name, id or ARN, narrow the search
-to an account, or reopen one you mapped recently. The map draws its network, the roles it runs as,
+Shows what a resource depends on and connects to. You don't need to know a name to start: "What's
+here" lists the resource types in your accounts with their counts, or in one account if you pick
+it. Choose a type, then a resource from its list. You can also find one by name, id or ARN, or
+reopen one you mapped recently. The map draws its network, the roles it runs as,
 the policies attached and what calls it, hop by hop, with each line saying what it is ("routes to",
 "runs as"). It shows each account's latest scan; for an earlier day, use Resources. A warning icon
 on a card means a public exploit, and a route icon means it is on an attack path. Highlight picks

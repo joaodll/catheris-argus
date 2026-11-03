@@ -290,6 +290,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
         "/api/v1/findings/groups?limit=200",
         "/api/v1/findings/groups?limit=200&state=resolved",
         "/api/v1/resources/facets",
+        "/api/v1/resources/types",
         "/api/v1/overview",
         f"/api/v1/overview?as_of={earlier}",
         "/api/v1/run-requests",

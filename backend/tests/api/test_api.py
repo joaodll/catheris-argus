@@ -8,6 +8,7 @@ from tests.api.conftest import PASSWORD, csrf
 from tests.conftest import Settle
 from tests.ingest.conftest import make_demo, run_tool
 
+from argus import inventory
 from argus.api import deps
 from argus.auth.sessions import SignInError, TooManyAttemptsError, sign_in
 from argus.collection import TOOL_ORDER
@@ -740,6 +741,44 @@ def test_findings_reach_filter_and_reason(
     assert one["reach_reason"] == judged["items"][0]["reach_reason"]
     for bad in ({"reach": "maybe"}, {"reach": [*reaches, "confirmed"]}):
         assert signed_in.get("/api/v1/findings", params=bad).status_code == 422
+
+
+def test_resource_types_are_the_overview_s_numbers(
+    signed_in: TestClient, owner: Engine, worker: Engine, store: FilesystemRawStore, settle: Settle
+) -> None:
+    target = make_demo(owner)
+    other = make_demo(owner, seed=1)
+    today = datetime.now(UTC).date()
+    run_tool(worker, store, target, "steampipe", today)
+    settle(today)
+
+    every = signed_in.get("/api/v1/resources/types").json()
+    assert every["data_through"] == today.isoformat()
+    assert every["types"]
+    counts = [t["count"] for t in every["types"]]
+    assert counts == sorted(counts, reverse=True)
+    # One number with the Overview, which leaves out parts, settings and links.
+    overview = signed_in.get("/api/v1/overview").json()["inventory"]["by_type"]
+    assert {t["type"]: t["count"] for t in every["types"]} == {
+        t["type"]: t["count"] for t in overview
+    }
+    assert not [t["type"] for t in every["types"] if not inventory.is_asset(t["type"])]
+
+    def of(connection_id: int) -> dict:
+        params = {"connection_id": connection_id}
+        return signed_in.get("/api/v1/resources/types", params=params).json()
+
+    one = of(target.connection_id)
+    assert one["types"] == every["types"]
+    # An account with no scan has no types and no scan time: nothing there is a zero.
+    assert of(other.connection_id) == {"types": [], "data_through": None}
+
+
+def test_resource_types_without_data(signed_in: TestClient) -> None:
+    assert signed_in.get("/api/v1/resources/types").json() == {"types": [], "data_through": None}
+    # 0 is the metric store's "all connections", never a connection a client can name.
+    params = {"connection_id": 0}
+    assert signed_in.get("/api/v1/resources/types", params=params).status_code == 422
 
 
 def test_resources_filter_search_sort_and_count(

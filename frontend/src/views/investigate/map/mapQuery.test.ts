@@ -14,8 +14,23 @@ describe('Resource map state in the URL', () => {
       path: null,
       open: null,
       connection: null,
+      type: null,
+      page: 1,
     })
     expect(Object.values(mapQueryToUrl(state)).filter((v) => v !== undefined)).toEqual([])
+  })
+
+  it('keeps the start screen\'s type and page, and drops a page with no type', () => {
+    const state = parseMapQuery({ type: 'aws_s3_bucket', page: '3' })
+    expect(state).toMatchObject({ type: 'aws_s3_bucket', page: 3 })
+    expect(mapQueryToUrl(state)).toMatchObject({ type: 'aws_s3_bucket', page: '3' })
+    expect(mapQueryToUrl({ ...state, page: 1 }).page).toBeUndefined()
+    expect(mapQueryToUrl({ ...state, type: null }).page).toBeUndefined()
+  })
+
+  it('ignores a type or a page it cannot use', () => {
+    expect(parseMapQuery({ type: 'x'.repeat(129), page: '-2' })).toMatchObject({ type: null, page: 1 })
+    expect(parseMapQuery({ type: 'aws_s3_bucket', page: 'two' }).page).toBe(1)
   })
 
   it('round-trips a full view, in a stable order', () => {
