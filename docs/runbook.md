@@ -238,6 +238,17 @@ docker compose up -d api worker
 New secrets are sealed with `k2`. An existing secret moves to `k2` only when it is entered again
 in the UI; there is no bulk re-seal yet, so keep `k1` until every access key has been re-entered.
 
+**Rotating a database password** on a single instance. Do it while no scan is running.
+
+- For `ARGUS_API_DB_PASSWORD` or `ARGUS_WORKER_DB_PASSWORD`, change it in `.env`, then run
+  `docker compose -f compose.yaml -f compose.single-instance.yaml up -d`. Compose sees the changed
+  values, so `migrate` runs again and sets the new password, then `api` and `worker` are recreated
+  with it.
+- For the owner (`ARGUS_DB_PASSWORD`), the database comes first, because `migrate` signs in with it.
+  Run `\password argus` in
+  `docker compose -f compose.yaml -f compose.single-instance.yaml exec postgres psql -U argus -d argus`,
+  then change it in `.env` and run the same `up -d`.
+
 **Raw output storage for AWS runs.** Demo connections write raw output to the local volume. AWS
 connections write to your own S3 bucket and cannot run until one is set
 ([ADR-0029](adr/0029-raw-output-storage-setting.md)). Before the first AWS run:

@@ -451,6 +451,68 @@ test_upgrade() {
   ok "a new rederive Job completed ($rederive -> $after)"
 }
 
+set_secret() { # <key> <value>
+  k patch secret argus-secrets --type merge -p "{\"stringData\":{\"$1\":\"$2\"}}" > /dev/null
+}
+
+secret_value() { # <key>
+  k get secret argus-secrets -o json | jq -r ".data.$1" | base64 -d
+}
+
+signs_in() { # <role> <password>: over TCP from the pod's own address, where the image asks for one
+  k exec "statefulset/$FULL-postgres" -c postgres -- sh -c \
+    'PGPASSWORD="$2" psql -h "$(hostname -i)" -U "$1" -d argus -tAXqc "SELECT 1"' _ "$1" "$2" \
+    > /dev/null 2>&1
+}
+
+test_password_rotation() {
+  step "rotating every database password, as the runbook says"
+  local role key old new owner_new job
+  declare -A old_passwords new_passwords
+  # The owner first in the database, because migrate signs in with it.
+  owner_new=$(rand 32)
+  psql_q "ALTER ROLE argus PASSWORD '$owner_new'" > /dev/null
+  set_secret ARGUS_DB_PASSWORD "$owner_new"
+
+  for role in api worker scheduler; do
+    key="ARGUS_${role^^}_DB_PASSWORD"
+    old=$(secret_value "$key")
+    new=$(rand 32)
+    old_passwords[$role]=$old
+    new_passwords[$role]=$new
+    signs_in "argus_$role" "$old" || fail "argus_$role does not sign in before the rotation"
+    set_secret "$key" "$new"
+  done
+
+  helm upgrade "$RELEASE" "$CHART" -n "$NAMESPACE" --reuse-values --wait --timeout 15m > /dev/null
+  signs_in argus_api "${old_passwords[api]}" \
+    || fail "an upgrade alone changed a password, so the runbook's step is not needed"
+  ok "the Secret and an upgrade alone leave the database's passwords as they were"
+
+  k delete job -l app.kubernetes.io/component=migrate > /dev/null
+  helm upgrade "$RELEASE" "$CHART" -n "$NAMESPACE" --reuse-values --wait --timeout 15m > /dev/null
+  job=$(k get job -l app.kubernetes.io/component=migrate -o name)
+  [ -n "$job" ] || fail "the upgrade did not create the migrate Job again"
+  k wait --for=condition=complete "$job" --timeout 600s > /dev/null \
+    || fail "migrate did not complete with the new owner password"
+  ok "migrate ran again, signing in with the owner's new password"
+
+  for role in api worker scheduler; do
+    signs_in "argus_$role" "${new_passwords[$role]}" || fail "argus_$role: the new password is refused"
+    if signs_in "argus_$role" "${old_passwords[$role]}"; then
+      fail "argus_$role: the old password still signs in"
+    fi
+  done
+  ok "each role signs in with its new password, not the old one"
+
+  # Each init container signs in as its own role before the pod starts, so a wrong password
+  # fails these.
+  k rollout restart "deploy/$FULL-api" "deploy/$FULL-scheduler" > /dev/null
+  k rollout status "deploy/$FULL-api" --timeout 300s > /dev/null || fail "api did not restart"
+  k rollout status "deploy/$FULL-scheduler" --timeout 300s > /dev/null || fail "the scheduler did not restart"
+  ok "api and the scheduler restarted on their new passwords"
+}
+
 test_helm_test() {
   step "helm test"
   local out
@@ -481,8 +543,10 @@ run_tests() {
   test_network
   test_demo_refused
   test_web
-  test_retention
   test_upgrade
+  test_password_rotation
+  # After the rotation: the worker's new password reaches a Job that starts from then on.
+  test_retention
   test_helm_test
   test_health
   printf '\nkind test passed\n'
