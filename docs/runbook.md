@@ -566,7 +566,7 @@ undo.
 ## Single instance
 
 For a shared host instead of a laptop, start with the override, which refuses the development
-passwords and turns access keys off:
+passwords:
 
 ```bash
 docker compose -f compose.yaml -f compose.single-instance.yaml up -d --build
