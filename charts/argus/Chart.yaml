@@ -1,5 +1,5 @@
 apiVersion: v2
-name: argus
+name: catheris-argus
 description: >-
   CatherIs Argus, a self-hosted cloud security platform: Prowler, CloudFox and Steampipe as
   read-only collectors, the join between them, history and a UI.
