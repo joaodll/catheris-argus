@@ -4188,6 +4188,12 @@
             "title": "Display Name",
             "type": "string"
           },
+          "email": {
+            "default": "",
+            "maxLength": 254,
+            "title": "Email",
+            "type": "string"
+          },
           "password": {
             "maxLength": 256,
             "minLength": 1,
@@ -4228,6 +4234,17 @@
           "display_name": {
             "title": "Display Name",
             "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
           },
           "id": {
             "title": "Id",
@@ -4275,6 +4292,7 @@
           "id",
           "username",
           "display_name",
+          "email",
           "role",
           "is_active",
           "must_change_password",
@@ -4319,6 +4337,18 @@
               }
             ],
             "title": "Display Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "maxLength": 254,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
           },
           "is_active": {
             "anyOf": [

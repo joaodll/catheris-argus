@@ -19,6 +19,7 @@ class UserOut(BaseModel):
     id: int
     username: str
     display_name: str
+    email: str | None
     role: auth.Role
     is_active: bool
     must_change_password: bool
@@ -36,12 +37,15 @@ class UserPage(BaseModel):
 class UserIn(BaseModel):
     username: str = Field(min_length=1, max_length=64)
     display_name: str = Field(default="", max_length=100)
+    email: str = Field(default="", max_length=auth.MAX_EMAIL)
     role: auth.Role
     password: str = Field(min_length=1, max_length=auth.MAX_PASSWORD)
 
 
 class UserPatch(BaseModel):
     display_name: str | None = Field(default=None, max_length=100)
+    # null leaves it as it is; an empty string clears it.
+    email: str | None = Field(default=None, max_length=auth.MAX_EMAIL)
     role: auth.Role | None = None
     is_active: bool | None = None
 
@@ -75,6 +79,7 @@ def create_user(body: UserIn, conn: Db, user: Admin, request: Request) -> UserOu
         conn,
         username=body.username,
         display_name=body.display_name,
+        email=body.email,
         role=body.role,
         password=body.password,
         actor=user,
@@ -93,6 +98,7 @@ def update_user(
         user_id=user_id,
         actor=me,
         display_name=body.display_name,
+        email=body.email,
         role=body.role,
         is_active=body.is_active,
         client_ip=client_ip(request),

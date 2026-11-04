@@ -2162,6 +2162,11 @@ export interface components {
              * @default
              */
             display_name: string;
+            /**
+             * Email
+             * @default
+             */
+            email: string;
             /** Password */
             password: string;
             /**
@@ -2181,6 +2186,8 @@ export interface components {
             created_at: string;
             /** Display Name */
             display_name: string;
+            /** Email */
+            email: string | null;
             /** Id */
             id: number;
             /** Is Active */
@@ -2210,6 +2217,8 @@ export interface components {
         UserPatch: {
             /** Display Name */
             display_name?: string | null;
+            /** Email */
+            email?: string | null;
             /** Is Active */
             is_active?: boolean | null;
             /** Role */

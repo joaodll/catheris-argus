@@ -32,6 +32,10 @@ USERNAME = re.compile(r"^[a-z0-9._-]{3,64}$")
 MIN_PASSWORD = 12
 MAX_PASSWORD = 256
 MAX_DISPLAY_NAME = 100
+MAX_EMAIL = 254
+# Lowercase ASCII, the same shape the column's check holds (migration 0039). Nothing sends mail to
+# it, so a stricter or wider reading of the RFCs would buy nothing.
+EMAIL = re.compile(r"[a-z0-9._%+'-]+@[a-z0-9-]+(\.[a-z0-9-]+)+")
 USERS_LOCK = "argus.users"
 
 
@@ -44,6 +48,7 @@ class UserRow:
     id: int
     username: str
     display_name: str
+    email: str | None
     role: Role
     is_active: bool
     must_change_password: bool
@@ -75,8 +80,29 @@ def _check_display_name(name: str) -> str:
     return name.strip()
 
 
+def check_email(email: str) -> str | None:
+    """The address as stored, lowercase; None for an empty one."""
+    address = email.strip().lower()
+    if not address:
+        return None
+    if len(address) > MAX_EMAIL or not EMAIL.fullmatch(address):
+        raise ValueError("email: enter an address like name@example.com")
+    return address
+
+
 def _lock(conn: Connection) -> None:
     conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": USERS_LOCK})
+
+
+def _refuse_taken_email(conn: Connection, email: str | None, user_id: int | None = None) -> None:
+    """Under the users lock, so the answer holds; the column's unique index is the backstop."""
+    if email is None:
+        return
+    taken = conn.execute(
+        text("SELECT id FROM app_user WHERE email = :e"), {"e": email}
+    ).scalar_one_or_none()
+    if taken is not None and taken != user_id:
+        raise UserRuleError("Another user already has this email address.")
 
 
 # A username is locked while either sign-in limit holds it: too many failures from one address,
@@ -102,8 +128,8 @@ def _lock_params() -> dict[str, Any]:
 def list_users(conn: Connection, *, limit: int, offset: int) -> tuple[list[UserRow], int]:
     rows = conn.execute(
         text(f"""
-        SELECT u.id, u.username, u.display_name, u.role, u.is_active, u.must_change_password,
-               ({_LOCKED}) AS locked, u.created_at, u.last_sign_in_at
+        SELECT u.id, u.username, u.display_name, u.email, u.role, u.is_active,
+               u.must_change_password, ({_LOCKED}) AS locked, u.created_at, u.last_sign_in_at
         FROM app_user u
         ORDER BY u.is_active DESC, u.username
         LIMIT :limit OFFSET :offset
@@ -117,8 +143,8 @@ def list_users(conn: Connection, *, limit: int, offset: int) -> tuple[list[UserR
 def get_user(conn: Connection, user_id: int) -> UserRow:
     row = conn.execute(
         text(f"""
-        SELECT u.id, u.username, u.display_name, u.role, u.is_active, u.must_change_password,
-               ({_LOCKED}) AS locked, u.created_at, u.last_sign_in_at
+        SELECT u.id, u.username, u.display_name, u.email, u.role, u.is_active,
+               u.must_change_password, ({_LOCKED}) AS locked, u.created_at, u.last_sign_in_at
         FROM app_user u WHERE u.id = :i
     """),  # noqa: S608 - a fixed fragment
         {"i": user_id, **_lock_params()},
@@ -136,22 +162,28 @@ def create_user(
     role: Role,
     password: str,
     actor: str,
+    email: str = "",
     client_ip: str | None = None,
 ) -> UserRow:
-    """A new local user, who chooses their own password at the first sign-in. A username that
-    exists already raises IntegrityError (409)."""
+    """A new local user, who chooses their own password at the first sign-in. A username or an
+    email address that another user has is refused (409), each with its own message."""
     name = check_username(username)
     check_password(password, name)
+    address = check_email(email)
     _lock(conn)
+    if conn.execute(text("SELECT 1 FROM app_user WHERE username = :u"), {"u": name}).one_or_none():
+        raise UserRuleError(f"There is a user called {name} already.")
+    _refuse_taken_email(conn, address)
     user_id = conn.execute(
         text("""
-        INSERT INTO app_user (username, display_name, password_hash, role, must_change_password,
-                              created_by, updated_by)
-        VALUES (:u, :d, :h, :r, true, :a, :a) RETURNING id
+        INSERT INTO app_user (username, display_name, email, password_hash, role,
+                              must_change_password, created_by, updated_by)
+        VALUES (:u, :d, :e, :h, :r, true, :a, :a) RETURNING id
     """),
         {
             "u": name,
             "d": _check_display_name(display_name),
+            "e": address,
             "h": hash_password(password),
             "r": role,
             "a": actor,
@@ -185,15 +217,22 @@ def update_user(
     display_name: str | None = None,
     role: Role | None = None,
     is_active: bool | None = None,
+    email: str | None = None,
     client_ip: str | None = None,
 ) -> UserRow:
-    """Changes a user's name, role or active flag. A role change or deactivation ends their
-    sessions."""
+    """Changes a user's name, email address, role or active flag. A role change or deactivation
+    ends their sessions. For the address, None leaves it and an empty one clears it. The audit log
+    says that it changed and never what to: the log outlives a deleted user, and their address
+    should not."""
     _lock(conn)
     before = get_user(conn, user_id)
     changes: dict[str, list[Any]] = {}
     if display_name is not None and _check_display_name(display_name) != before.display_name:
         changes["display_name"] = [before.display_name, _check_display_name(display_name)]
+    address = before.email if email is None else check_email(email)
+    if address != before.email:
+        _refuse_taken_email(conn, address, user_id)
+        changes["email"] = ["changed"]
     if role is not None and role != before.role:
         changes["role"] = [before.role, role]
     if is_active is not None and is_active != before.is_active:
@@ -216,12 +255,14 @@ def update_user(
     conn.execute(
         text("""
         UPDATE app_user SET display_name = COALESCE(:d, display_name), role = COALESCE(:r, role),
-          is_active = COALESCE(:a, is_active), updated_at = now(), updated_by = :by
+          is_active = COALESCE(:a, is_active), email = CAST(:e AS text), updated_at = now(),
+          updated_by = :by
         WHERE id = :i
     """),
         {
             "i": user_id,
             "d": changes["display_name"][1] if "display_name" in changes else None,
+            "e": address,
             "r": role,
             "a": is_active,
             "by": actor.username,

@@ -631,11 +631,13 @@ test('users and roles: a viewer and an operator, each limited to their role', as
     await page.getByRole('button', { name: 'Add user' }).click()
     const add = page.getByRole('dialog', { name: 'Add user' })
     await add.getByLabel('Username').fill(p.username)
+    await add.getByLabel('Email address').fill(`${p.username}@example.com`)
     await add.getByText(p.role, { exact: true }).click()
     await add.getByLabel('Password', { exact: true }).fill(first)
     if (p.role === 'Viewer') await axe(page, 'add user modal')
     await add.getByRole('button', { name: 'Add user' }).click()
     await expect(page.getByRole('status').filter({ hasText: `${p.username} added as ${p.role}` })).toBeVisible()
+    await expect(page.getByRole('cell', { name: `${p.username}@example.com` })).toBeVisible()
   }
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Sign out' }).click()
 

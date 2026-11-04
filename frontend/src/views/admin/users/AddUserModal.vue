@@ -15,12 +15,13 @@ const emit = defineEmits<{ close: []; saved: [message: string] }>()
 
 const username = ref('')
 const displayName = ref('')
+const email = ref('')
 const role = ref<Role>('viewer')
 const password = ref('')
 const saving = ref(false)
 const error = ref<string | null>(null)
 const passwordError = ref<string | null>(null)
-const dirty = computed(() => !!(username.value || displayName.value || password.value))
+const dirty = computed(() => !!(username.value || displayName.value || email.value || password.value))
 
 async function save(): Promise<void> {
   error.value = null
@@ -30,17 +31,12 @@ async function save(): Promise<void> {
   try {
     const created = await unwrap(
       api.POST('/api/v1/users', {
-        body: { username: username.value, display_name: displayName.value, role: role.value, password: password.value },
+        body: { username: username.value, display_name: displayName.value, email: email.value, role: role.value, password: password.value },
       }),
     )
     emit('saved', `${created.username} added as ${ROLE_LABEL[created.role]}. Give them the password over a channel you trust.`)
   } catch (err) {
-    error.value =
-      err instanceof ApiError && err.status === 409
-        ? `There is a user called ${username.value.toLowerCase()} already.`
-        : err instanceof ApiError
-          ? err.message
-          : 'The user was not added.'
+    error.value = err instanceof ApiError ? err.message : 'The user was not added.'
   } finally {
     saving.value = false
   }
@@ -59,6 +55,11 @@ async function save(): Promise<void> {
       <div class="field">
         <label class="lbl" for="u-display">Display name <span class="opt">optional</span></label>
         <input id="u-display" v-model.trim="displayName" class="input" maxlength="100" autocomplete="off">
+      </div>
+      <div class="field">
+        <label class="lbl" for="u-email">Email address <span class="opt">optional</span></label>
+        <input id="u-email" v-model.trim="email" class="input" type="email" maxlength="254" autocomplete="off" spellcheck="false" aria-describedby="u-email-h">
+        <span id="u-email-h" class="cap">Only admins see it. Argus sends no mail, and they still sign in with their username.</span>
       </div>
       <RoleCards v-model="role" name="add-role" />
       <SecretField
