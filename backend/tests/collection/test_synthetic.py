@@ -36,7 +36,7 @@ DAY = date(2026, 10, 2)
 PROD = CollectTarget(1, "demo", "100000000010", demo_seed=0)
 STAGING = CollectTarget(2, "demo", "100000000011", demo_seed=1)
 NO_THROTTLE = CollectOptions(synthetic_throttle_share=0.0)
-COLUMNS = json.loads((Path(__file__).parent / "steampipe_columns_aws_1.34.0.json").read_text())
+COLUMNS = json.loads((Path(__file__).parent / "steampipe_columns_aws_1.34.1.json").read_text())
 
 
 def _uid(*parts: object) -> UUID:

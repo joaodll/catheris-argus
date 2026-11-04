@@ -21,7 +21,7 @@ def _select(columns: str) -> tuple[str, ...]:
 
 
 _REGIONAL = "partition region account_id"
-# Per table: extra arguments for steampipe_export_aws (plugin 1.34.0). Each one keeps a
+# Per table: extra arguments for steampipe_export_aws (plugin 1.34.1). Each one keeps a
 # value Argus must not hold, a call the scanner role denies (ADR-0018), or a call that fails
 # on resources the account does not own (ADR-0012, 2026-10-21) out of the export: one failing
 # column would make the pinned plugin drop the whole table on every run.

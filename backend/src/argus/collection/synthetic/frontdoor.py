@@ -14,7 +14,7 @@ Resources panel have a chain from the internet down to data and identity:
 
 The resources are fixed (they never churn) and named after the profile. Their Steampipe rows
 are written here, under attrs["row"], in the column names and shapes of steampipe-plugin-aws
-v1.34.0 (JSON columns as the AWS SDK's PascalCase structs); the tables that already have a
+v1.34.1 (JSON columns as the AWS SDK's PascalCase structs); the tables that already have a
 builder in steampipe.py keep their attrs. In the prod profile the orders-api role can escalate
 to administrator (estate.py).
 """

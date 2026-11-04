@@ -20,7 +20,7 @@ from typing import Any
 from argus.collection.synthetic.estate import EstateDay, day_number
 from argus.collection.synthetic.model import Resource, h, hexid, u
 
-TOOL_VERSION = "1.34.0"
+TOOL_VERSION = "1.34.1"
 FINDINGS_TABLE = "aws_inspector2_finding"
 COVERAGE_TABLE = "aws_inspector2_coverage"
 # (CVE, severity, package, installed, fixed or None, CVSS, EPSS, exploit available)

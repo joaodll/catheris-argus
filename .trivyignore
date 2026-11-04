@@ -4,7 +4,7 @@
 # Added 2026-10-02, increment 1 review. Fixed only by an upstream release (ADR-0001: tools
 # run unmodified).
 
-# steampipe_export_aws v1.34.0 embeds pgx v5.6.0 (fixed 5.9.0): Postgres *client* memory
+# steampipe_export_aws v1.34.1 embeds pgx v5.6.0 (fixed 5.9.0): Postgres *client* memory
 # safety, triggered by a malicious server. The export CLI connects to no database; Argus
 # rejected the Postgres-backed mode (ADR-0012).
 CVE-2026-33815 exp:2026-12-31
