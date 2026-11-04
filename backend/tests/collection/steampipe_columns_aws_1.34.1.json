@@ -1,5 +1,5 @@
 {
-"source": "turbot/steampipe-plugin-aws v1.34.0 (Apache-2.0), aws/table_<name>.go: column names declared per table, for every table in the plugin. Every table also has partition, region and account_id (aws/common_columns.go).",
+"source": "turbot/steampipe-plugin-aws v1.34.1 (Apache-2.0), aws/table_<name>.go: column names declared per table, for every table in the plugin. Every table also has partition, region and account_id (aws/common_columns.go).",
 "tables": {
 "aws_accessanalyzer_analyzer": [
 "name",

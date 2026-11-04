@@ -30,7 +30,7 @@ pytestmark = pytest.mark.db
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "emulated" / "exposure"
 ACCOUNT = "123456789012"  # moto's
 DAY = date(2026, 10, 21)
-VERSIONS: dict[Tool, str] = {"steampipe": "1.34.0", "prowler": "5.45.0"}
+VERSIONS: dict[Tool, str] = {"steampipe": "1.34.1", "prowler": "5.45.0"}
 
 # Each case's door: (edge from the internet, reason). None: no door.
 DOORS: dict[str, tuple[str, str | None] | None] = {

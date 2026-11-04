@@ -1,6 +1,6 @@
 """Synthetic `steampipe_export_aws` output: one JSONL file per table, one object per row.
 
-Column names and shapes follow steampipe-plugin-aws v1.34.0 (aws/table_<name>.go and
+Column names and shapes follow steampipe-plugin-aws v1.34.1 (aws/table_<name>.go and
 common_columns.go): every row carries partition, region and account_id; JSON columns are
 nested objects; timestamps are RFC 3339 strings. Only a realistic subset of each table's
 columns is emitted. Secret-bearing columns the real plugin returns (Lambda
@@ -19,7 +19,7 @@ from argus.collection.synthetic.estate import EstateDay
 from argus.collection.synthetic.frontdoor import ROW_TABLES
 from argus.collection.synthetic.model import Resource, h, hexid
 
-TOOL_VERSION = "1.34.0"
+TOOL_VERSION = "1.34.1"
 
 
 def _common(r: Resource, account_id: str) -> dict[str, Any]:

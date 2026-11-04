@@ -31,8 +31,8 @@
     "type_id": 1,
     "uid": "ec2_instance_internet_facing_with_instance_profile"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with a public IP address and an attached **instance profile** (IAM role) are identified.\n\nInstances lacking public exposure or without an instance profile are excluded.",
    "title": "EC2 instance is not internet-facing with an instance profile attached",
    "types": [
@@ -40,9 +40,9 @@
     "TTPs/Initial Access",
     "TTPs/Credential Access"
    ],
-   "uid": "prowler-aws-ec2_instance_internet_facing_with_instance_profile-123456789012-us-east-1-i-143aefe649018582a"
+   "uid": "prowler-aws-ec2_instance_internet_facing_with_instance_profile-123456789012-us-east-1-i-073c33fc2ea31a2cb"
   },
-  "message": "EC2 Instance i-143aefe649018582a at IP 54.214.215.5 is internet-facing with Instance Profile arn:aws:iam::123456789012:instance-profile/exp-operator.",
+  "message": "EC2 Instance i-073c33fc2ea31a2cb at IP 54.214.74.62 is internet-facing with Instance Profile arn:aws:iam::123456789012:instance-profile/exp-operator.",
   "metadata": {
    "event_code": "ec2_instance_internet_facing_with_instance_profile",
    "product": {
@@ -70,34 +70,34 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-143aefe649018582a",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-073c33fc2ea31a2cb",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-143aefe649018582a",
+      "id": "i-073c33fc2ea31a2cb",
       "image_id": "ami-12c6146b",
       "instance_profile": {
        "Arn": "arn:aws:iam::123456789012:instance-profile/exp-operator",
-       "Id": "iip-assoc-a6207c28ea5c74ebd"
+       "Id": "iip-assoc-1ab801afc94f3f068"
       },
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-ba665f588ee039f57"
+       "eni-86bb6ff3a4a1d9650"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-4.ec2.internal",
       "private_ip": "10.30.1.4",
-      "public_dns": "ec2-54-214-215-5.compute-1.amazonaws.com",
-      "public_ip": "54.214.215.5",
+      "public_dns": "ec2-54-214-74-62.compute-1.amazonaws.com",
+      "public_ip": "54.214.74.62",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -115,10 +115,10 @@
     "labels": [
      "Name:exp-open"
     ],
-    "name": "i-143aefe649018582a",
+    "name": "i-073c33fc2ea31a2cb",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-143aefe649018582a"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-073c33fc2ea31a2cb"
    }
   ],
   "risk_details": "Publicly reachable instances with **IAM role credentials** expand the blast radius. Remote exploits or misconfigurations can steal credentials via the **instance metadata service**, enabling unauthorized API calls, data exfiltration, and lateral movement, impacting confidentiality, integrity, and availability.",
@@ -126,10 +126,10 @@
   "severity_id": 4,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "EC2 Instance i-143aefe649018582a at IP 54.214.215.5 is internet-facing with Instance Profile arn:aws:iam::123456789012:instance-profile/exp-operator.",
+  "status_detail": "EC2 Instance i-073c33fc2ea31a2cb at IP 54.214.74.62 is internet-facing with Instance Profile arn:aws:iam::123456789012:instance-profile/exp-operator.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -173,7 +173,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -208,8 +208,8 @@
     "type_id": 1,
     "uid": "ec2_instance_internet_facing_with_instance_profile"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with a public IP address and an attached **instance profile** (IAM role) are identified.\n\nInstances lacking public exposure or without an instance profile are excluded.",
    "title": "EC2 instance is not internet-facing with an instance profile attached",
    "types": [
@@ -217,9 +217,9 @@
     "TTPs/Initial Access",
     "TTPs/Credential Access"
    ],
-   "uid": "prowler-aws-ec2_instance_internet_facing_with_instance_profile-123456789012-us-east-1-i-db9567f7b9a5339f0"
+   "uid": "prowler-aws-ec2_instance_internet_facing_with_instance_profile-123456789012-us-east-1-i-c1ef7e9f2e3f93bb7"
   },
-  "message": "EC2 Instance i-db9567f7b9a5339f0 at IP 54.214.60.52 is internet-facing with Instance Profile arn:aws:iam::123456789012:instance-profile/exp-s3-reader.",
+  "message": "EC2 Instance i-c1ef7e9f2e3f93bb7 at IP 54.214.43.5 is internet-facing with Instance Profile arn:aws:iam::123456789012:instance-profile/exp-s3-reader.",
   "metadata": {
    "event_code": "ec2_instance_internet_facing_with_instance_profile",
    "product": {
@@ -247,34 +247,34 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9567f7b9a5339f0",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-c1ef7e9f2e3f93bb7",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-db9567f7b9a5339f0",
+      "id": "i-c1ef7e9f2e3f93bb7",
       "image_id": "ami-12c6146b",
       "instance_profile": {
        "Arn": "arn:aws:iam::123456789012:instance-profile/exp-s3-reader",
-       "Id": "iip-assoc-646fd9813bac42002"
+       "Id": "iip-assoc-ae91bf0be9c1ed2f0"
       },
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-9b923bb26279d63e9"
+       "eni-a076d3a17ab82db4c"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-10.ec2.internal",
       "private_ip": "10.30.1.10",
-      "public_dns": "ec2-54-214-60-52.compute-1.amazonaws.com",
-      "public_ip": "54.214.60.52",
+      "public_dns": "ec2-54-214-43-5.compute-1.amazonaws.com",
+      "public_ip": "54.214.43.5",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -292,10 +292,10 @@
     "labels": [
      "Name:exp-s3-reader"
     ],
-    "name": "i-db9567f7b9a5339f0",
+    "name": "i-c1ef7e9f2e3f93bb7",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9567f7b9a5339f0"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-c1ef7e9f2e3f93bb7"
    }
   ],
   "risk_details": "Publicly reachable instances with **IAM role credentials** expand the blast radius. Remote exploits or misconfigurations can steal credentials via the **instance metadata service**, enabling unauthorized API calls, data exfiltration, and lateral movement, impacting confidentiality, integrity, and availability.",
@@ -303,10 +303,10 @@
   "severity_id": 4,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "EC2 Instance i-db9567f7b9a5339f0 at IP 54.214.60.52 is internet-facing with Instance Profile arn:aws:iam::123456789012:instance-profile/exp-s3-reader.",
+  "status_detail": "EC2 Instance i-c1ef7e9f2e3f93bb7 at IP 54.214.43.5 is internet-facing with Instance Profile arn:aws:iam::123456789012:instance-profile/exp-s3-reader.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -350,7 +350,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -385,8 +385,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -395,9 +395,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-143aefe649018582a"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-073c33fc2ea31a2cb"
   },
-  "message": "Instance i-143aefe649018582a has SSH exposed to 0.0.0.0/0 on public IP address 54.214.215.5 in public subnet subnet-7b2d83801a30393bb.",
+  "message": "Instance i-073c33fc2ea31a2cb has SSH exposed to 0.0.0.0/0 on public IP address 54.214.74.62 in public subnet subnet-19dd86c8d5ca183ed.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -425,34 +425,34 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-143aefe649018582a",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-073c33fc2ea31a2cb",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-143aefe649018582a",
+      "id": "i-073c33fc2ea31a2cb",
       "image_id": "ami-12c6146b",
       "instance_profile": {
        "Arn": "arn:aws:iam::123456789012:instance-profile/exp-operator",
-       "Id": "iip-assoc-a6207c28ea5c74ebd"
+       "Id": "iip-assoc-1ab801afc94f3f068"
       },
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-ba665f588ee039f57"
+       "eni-86bb6ff3a4a1d9650"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-4.ec2.internal",
       "private_ip": "10.30.1.4",
-      "public_dns": "ec2-54-214-215-5.compute-1.amazonaws.com",
-      "public_ip": "54.214.215.5",
+      "public_dns": "ec2-54-214-74-62.compute-1.amazonaws.com",
+      "public_ip": "54.214.74.62",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -470,10 +470,10 @@
     "labels": [
      "Name:exp-open"
     ],
-    "name": "i-143aefe649018582a",
+    "name": "i-073c33fc2ea31a2cb",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-143aefe649018582a"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-073c33fc2ea31a2cb"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -481,10 +481,10 @@
   "severity_id": 5,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-143aefe649018582a has SSH exposed to 0.0.0.0/0 on public IP address 54.214.215.5 in public subnet subnet-7b2d83801a30393bb.",
+  "status_detail": "Instance i-073c33fc2ea31a2cb has SSH exposed to 0.0.0.0/0 on public IP address 54.214.74.62 in public subnet subnet-19dd86c8d5ca183ed.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -538,7 +538,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -573,8 +573,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -583,9 +583,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-132d3a4dd129bf21f"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-574b2857652a4c230"
   },
-  "message": "Instance i-132d3a4dd129bf21f has SSH exposed to 0.0.0.0/0 but with no public IP address.",
+  "message": "Instance i-574b2857652a4c230 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -613,18 +613,18 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-132d3a4dd129bf21f",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-574b2857652a4c230",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-132d3a4dd129bf21f",
+      "id": "i-574b2857652a4c230",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-13b2b7c38352960bb"
+       "eni-9200c6d17cf719898"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-5.ec2.internal",
@@ -633,11 +633,11 @@
       "public_ip": null,
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -655,10 +655,10 @@
     "labels": [
      "Name:exp-no-public-ip"
     ],
-    "name": "i-132d3a4dd129bf21f",
+    "name": "i-574b2857652a4c230",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-132d3a4dd129bf21f"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-574b2857652a4c230"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -666,10 +666,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-132d3a4dd129bf21f has SSH exposed to 0.0.0.0/0 but with no public IP address.",
+  "status_detail": "Instance i-574b2857652a4c230 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -723,7 +723,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -758,8 +758,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -768,9 +768,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-0a782fc87b1276458"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-f4330ee7f8dc2e7a7"
   },
-  "message": "Instance i-0a782fc87b1276458 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
+  "message": "Instance i-f4330ee7f8dc2e7a7 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -798,18 +798,18 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0a782fc87b1276458",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-f4330ee7f8dc2e7a7",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-0a782fc87b1276458",
+      "id": "i-f4330ee7f8dc2e7a7",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-c8fdff96492c3eade"
+       "eni-ae70274d69ab87135"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-6.ec2.internal",
@@ -818,11 +818,11 @@
       "public_ip": null,
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "stopped",
-      "state_transition_reason": "User initiated (2026-10-25 19:13:14 GMT)",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "state_transition_reason": "User initiated (2026-11-04 20:53:55 GMT)",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -840,10 +840,10 @@
     "labels": [
      "Name:exp-stopped"
     ],
-    "name": "i-0a782fc87b1276458",
+    "name": "i-f4330ee7f8dc2e7a7",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-0a782fc87b1276458"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-f4330ee7f8dc2e7a7"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -851,10 +851,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-0a782fc87b1276458 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
+  "status_detail": "Instance i-f4330ee7f8dc2e7a7 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -908,7 +908,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -943,8 +943,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -953,9 +953,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-0a382b130be4ff218"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-e163168eba1ab7a59"
   },
-  "message": "Instance i-0a382b130be4ff218 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
+  "message": "Instance i-e163168eba1ab7a59 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -983,18 +983,18 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-0a382b130be4ff218",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-e163168eba1ab7a59",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-0a382b130be4ff218",
+      "id": "i-e163168eba1ab7a59",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-142d736b2266c0ba0"
+       "eni-833ee5253e2634144"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-7.ec2.internal",
@@ -1003,11 +1003,11 @@
       "public_ip": null,
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "terminated",
-      "state_transition_reason": "User initiated (2026-10-25 19:13:14 GMT)",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "state_transition_reason": "User initiated (2026-11-04 20:53:55 GMT)",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -1025,10 +1025,10 @@
     "labels": [
      "Name:exp-terminated"
     ],
-    "name": "i-0a382b130be4ff218",
+    "name": "i-e163168eba1ab7a59",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-0a382b130be4ff218"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-e163168eba1ab7a59"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -1036,10 +1036,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-0a382b130be4ff218 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
+  "status_detail": "Instance i-e163168eba1ab7a59 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -1093,7 +1093,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -1128,8 +1128,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -1138,9 +1138,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-db9d69dd2b518e717"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-5d676f34f022ede71"
   },
-  "message": "Instance i-db9d69dd2b518e717 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.5.253 in public subnet subnet-7b2d83801a30393bb.",
+  "message": "Instance i-5d676f34f022ede71 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.123.74 in public subnet subnet-19dd86c8d5ca183ed.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -1168,31 +1168,31 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9d69dd2b518e717",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-5d676f34f022ede71",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-db9d69dd2b518e717",
+      "id": "i-5d676f34f022ede71",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-33d639bc045cd912d"
+       "eni-7316576b9df2b9dce"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-8.ec2.internal",
       "private_ip": "10.30.1.8",
-      "public_dns": "ec2-54-214-5-253.compute-1.amazonaws.com",
-      "public_ip": "54.214.5.253",
+      "public_dns": "ec2-54-214-123-74.compute-1.amazonaws.com",
+      "public_ip": "54.214.123.74",
       "region": "us-east-1",
       "security_groups": [
-       "sg-ef2a13aa3f028cf66"
+       "sg-844c5722fa4b22cae"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -1210,10 +1210,10 @@
     "labels": [
      "Name:exp-ipv6-rule"
     ],
-    "name": "i-db9d69dd2b518e717",
+    "name": "i-5d676f34f022ede71",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9d69dd2b518e717"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-5d676f34f022ede71"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -1221,10 +1221,10 @@
   "severity_id": 5,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-db9d69dd2b518e717 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.5.253 in public subnet subnet-7b2d83801a30393bb.",
+  "status_detail": "Instance i-5d676f34f022ede71 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.123.74 in public subnet subnet-19dd86c8d5ca183ed.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -1278,7 +1278,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -1313,8 +1313,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -1323,9 +1323,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-81c3950e7849763d7"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-e8c94c3b1a85a6f98"
   },
-  "message": "Instance i-81c3950e7849763d7 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.60.172 in public subnet subnet-584b070283f80392f.",
+  "message": "Instance i-e8c94c3b1a85a6f98 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.132.218 in public subnet subnet-372e7112677dd223d.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -1353,31 +1353,31 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-81c3950e7849763d7",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-e8c94c3b1a85a6f98",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-81c3950e7849763d7",
+      "id": "i-e8c94c3b1a85a6f98",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-6790f810ca2b4a645"
+       "eni-8fed168a1a6a6d09a"
       ],
       "platform": "windows",
       "private_dns": "ip-10-40-1-4.ec2.internal",
       "private_ip": "10.40.1.4",
-      "public_dns": "ec2-54-214-60-172.compute-1.amazonaws.com",
-      "public_ip": "54.214.60.172",
+      "public_dns": "ec2-54-214-132-218.compute-1.amazonaws.com",
+      "public_ip": "54.214.132.218",
       "region": "us-east-1",
       "security_groups": [
-       "sg-c0eb79849ee8884f9"
+       "sg-0c3a3ce7bf9f5297b"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-584b070283f80392f",
+      "subnet_id": "subnet-372e7112677dd223d",
       "tags": [
        {
         "Key": "Name",
@@ -1395,10 +1395,10 @@
     "labels": [
      "Name:exp-vpc-b"
     ],
-    "name": "i-81c3950e7849763d7",
+    "name": "i-e8c94c3b1a85a6f98",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-81c3950e7849763d7"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-e8c94c3b1a85a6f98"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -1406,10 +1406,10 @@
   "severity_id": 5,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-81c3950e7849763d7 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.60.172 in public subnet subnet-584b070283f80392f.",
+  "status_detail": "Instance i-e8c94c3b1a85a6f98 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.132.218 in public subnet subnet-372e7112677dd223d.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -1463,7 +1463,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -1498,8 +1498,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -1508,9 +1508,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-57eeef9c496a993fe"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-d39a85ce892d10858"
   },
-  "message": "Instance i-57eeef9c496a993fe has SSH exposed to 0.0.0.0/0 on public IP address 54.214.69.168 in public subnet subnet-e92e4c7cb80993e85.",
+  "message": "Instance i-d39a85ce892d10858 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.181.223 in public subnet subnet-1b91a94bc3c1c3413.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -1538,31 +1538,31 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-57eeef9c496a993fe",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-d39a85ce892d10858",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-57eeef9c496a993fe",
+      "id": "i-d39a85ce892d10858",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-e81c6d18d52269059"
+       "eni-54f234506726b90fa"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-2-4.ec2.internal",
       "private_ip": "10.30.2.4",
-      "public_dns": "ec2-54-214-69-168.compute-1.amazonaws.com",
-      "public_ip": "54.214.69.168",
+      "public_dns": "ec2-54-214-181-223.compute-1.amazonaws.com",
+      "public_ip": "54.214.181.223",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-e92e4c7cb80993e85",
+      "subnet_id": "subnet-1b91a94bc3c1c3413",
       "tags": [
        {
         "Key": "Name",
@@ -1580,10 +1580,10 @@
     "labels": [
      "Name:exp-acl-deny"
     ],
-    "name": "i-57eeef9c496a993fe",
+    "name": "i-d39a85ce892d10858",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-57eeef9c496a993fe"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-d39a85ce892d10858"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -1591,10 +1591,10 @@
   "severity_id": 5,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-57eeef9c496a993fe has SSH exposed to 0.0.0.0/0 on public IP address 54.214.69.168 in public subnet subnet-e92e4c7cb80993e85.",
+  "status_detail": "Instance i-d39a85ce892d10858 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.181.223 in public subnet subnet-1b91a94bc3c1c3413.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -1648,7 +1648,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -1683,8 +1683,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -1693,9 +1693,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-8320c866823c6bf5c"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-8a54f39ee572cdad4"
   },
-  "message": "Instance i-8320c866823c6bf5c has SSH exposed to 0.0.0.0/0 but with no public IP address.",
+  "message": "Instance i-8a54f39ee572cdad4 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -1723,19 +1723,19 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-8320c866823c6bf5c",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-8a54f39ee572cdad4",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-8320c866823c6bf5c",
+      "id": "i-8a54f39ee572cdad4",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-fce1862dec1b36874",
-       "eni-d7fb9da3e2dad6e6b"
+       "eni-208c4c2785e9c8bb3",
+       "eni-68720f758229af3ca"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-3-4.ec2.internal",
@@ -1744,12 +1744,12 @@
       "public_ip": null,
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b",
-       "sg-0f73c38a8a5f82386"
+       "sg-e9c6a68d24fc9cf67",
+       "sg-40f42ca2927dc5596"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-8d0608818c7b1a4b2",
+      "subnet_id": "subnet-c616e3671e03c12ec",
       "tags": [
        {
         "Key": "Name",
@@ -1767,10 +1767,10 @@
     "labels": [
      "Name:exp-two-enis"
     ],
-    "name": "i-8320c866823c6bf5c",
+    "name": "i-8a54f39ee572cdad4",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-8320c866823c6bf5c"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-8a54f39ee572cdad4"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -1778,10 +1778,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-8320c866823c6bf5c has SSH exposed to 0.0.0.0/0 but with no public IP address.",
+  "status_detail": "Instance i-8a54f39ee572cdad4 has SSH exposed to 0.0.0.0/0 but with no public IP address.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -1835,7 +1835,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -1870,8 +1870,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -1880,9 +1880,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-9fe57a3e4648c5422"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-b39f0b1b67efa0bf4"
   },
-  "message": "Instance i-9fe57a3e4648c5422 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.183.207 but it is placed in a private subnet subnet-7e69574aa56b32e7a.",
+  "message": "Instance i-b39f0b1b67efa0bf4 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.115.252 but it is placed in a private subnet subnet-0b911b85f97bb41aa.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -1910,31 +1910,31 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-9fe57a3e4648c5422",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-b39f0b1b67efa0bf4",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-9fe57a3e4648c5422",
+      "id": "i-b39f0b1b67efa0bf4",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-af137d8e476805f58"
+       "eni-7da78a6894f1f6b8b"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-4-4.ec2.internal",
       "private_ip": "10.30.4.4",
-      "public_dns": "ec2-54-214-183-207.compute-1.amazonaws.com",
-      "public_ip": "54.214.183.207",
+      "public_dns": "ec2-54-214-115-252.compute-1.amazonaws.com",
+      "public_ip": "54.214.115.252",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7e69574aa56b32e7a",
+      "subnet_id": "subnet-0b911b85f97bb41aa",
       "tags": [
        {
         "Key": "Name",
@@ -1952,10 +1952,10 @@
     "labels": [
      "Name:exp-inspected"
     ],
-    "name": "i-9fe57a3e4648c5422",
+    "name": "i-b39f0b1b67efa0bf4",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-9fe57a3e4648c5422"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-b39f0b1b67efa0bf4"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -1963,10 +1963,10 @@
   "severity_id": 4,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-9fe57a3e4648c5422 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.183.207 but it is placed in a private subnet subnet-7e69574aa56b32e7a.",
+  "status_detail": "Instance i-b39f0b1b67efa0bf4 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.115.252 but it is placed in a private subnet subnet-0b911b85f97bb41aa.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -2020,7 +2020,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -2055,8 +2055,8 @@
     "type_id": 1,
     "uid": "ec2_instance_port_ssh_exposed_to_internet"
    },
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** with **SSH (TCP 22)** exposed to the Internet via security group inbound rules allowing `0.0.0.0/0` or `::/0`.\n\nExposure is qualified using the instance's public IP status and subnet reachability.",
    "title": "EC2 instance does not allow ingress from the Internet to TCP port 22 (SSH)",
    "types": [
@@ -2065,9 +2065,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/CIS AWS Foundations Benchmark",
     "TTPs/Initial Access/External Remote Services"
    ],
-   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-db9567f7b9a5339f0"
+   "uid": "prowler-aws-ec2_instance_port_ssh_exposed_to_internet-123456789012-us-east-1-i-c1ef7e9f2e3f93bb7"
   },
-  "message": "Instance i-db9567f7b9a5339f0 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.60.52 in public subnet subnet-7b2d83801a30393bb.",
+  "message": "Instance i-c1ef7e9f2e3f93bb7 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.43.5 in public subnet subnet-19dd86c8d5ca183ed.",
   "metadata": {
    "event_code": "ec2_instance_port_ssh_exposed_to_internet",
    "product": {
@@ -2095,34 +2095,34 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9567f7b9a5339f0",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-c1ef7e9f2e3f93bb7",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-db9567f7b9a5339f0",
+      "id": "i-c1ef7e9f2e3f93bb7",
       "image_id": "ami-12c6146b",
       "instance_profile": {
        "Arn": "arn:aws:iam::123456789012:instance-profile/exp-s3-reader",
-       "Id": "iip-assoc-646fd9813bac42002"
+       "Id": "iip-assoc-ae91bf0be9c1ed2f0"
       },
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-9b923bb26279d63e9"
+       "eni-a076d3a17ab82db4c"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-10.ec2.internal",
       "private_ip": "10.30.1.10",
-      "public_dns": "ec2-54-214-60-52.compute-1.amazonaws.com",
-      "public_ip": "54.214.60.52",
+      "public_dns": "ec2-54-214-43-5.compute-1.amazonaws.com",
+      "public_ip": "54.214.43.5",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -2140,10 +2140,10 @@
     "labels": [
      "Name:exp-s3-reader"
     ],
-    "name": "i-db9567f7b9a5339f0",
+    "name": "i-c1ef7e9f2e3f93bb7",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9567f7b9a5339f0"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-c1ef7e9f2e3f93bb7"
    }
   ],
   "risk_details": "**Internet-exposed SSH** invites **brute force** and **credential stuffing**. A successful sign-in grants **remote shell**, enabling data exfiltration, tampering of workloads, and **lateral movement** within the VPC, degrading confidentiality, integrity, and availability.",
@@ -2151,10 +2151,10 @@
   "severity_id": 5,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "Instance i-db9567f7b9a5339f0 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.60.52 in public subnet subnet-7b2d83801a30393bb.",
+  "status_detail": "Instance i-c1ef7e9f2e3f93bb7 has SSH exposed to 0.0.0.0/0 on public IP address 54.214.43.5 in public subnet subnet-19dd86c8d5ca183ed.",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -2208,7 +2208,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -2255,8 +2255,8 @@
      }
     }
    ],
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** are assessed for the presence of a **public IPv4 address** and public DNS. A public IP indicates the instance is directly reachable from the Internet; no public IP implies access only through private networking paths such as load balancers, gateways, or proxies.",
    "title": "EC2 instance does not have a public IP address",
    "types": [
@@ -2264,9 +2264,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/AWS Foundational Security Best Practices",
     "TTPs/Initial Access"
    ],
-   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-143aefe649018582a"
+   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-073c33fc2ea31a2cb"
   },
-  "message": "EC2 Instance i-143aefe649018582a has a Public IP: 54.214.215.5 (ec2-54-214-215-5.compute-1.amazonaws.com).",
+  "message": "EC2 Instance i-073c33fc2ea31a2cb has a Public IP: 54.214.74.62 (ec2-54-214-74-62.compute-1.amazonaws.com).",
   "metadata": {
    "event_code": "ec2_instance_public_ip",
    "product": {
@@ -2294,34 +2294,34 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-143aefe649018582a",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-073c33fc2ea31a2cb",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-143aefe649018582a",
+      "id": "i-073c33fc2ea31a2cb",
       "image_id": "ami-12c6146b",
       "instance_profile": {
        "Arn": "arn:aws:iam::123456789012:instance-profile/exp-operator",
-       "Id": "iip-assoc-a6207c28ea5c74ebd"
+       "Id": "iip-assoc-1ab801afc94f3f068"
       },
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-ba665f588ee039f57"
+       "eni-86bb6ff3a4a1d9650"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-4.ec2.internal",
       "private_ip": "10.30.1.4",
-      "public_dns": "ec2-54-214-215-5.compute-1.amazonaws.com",
-      "public_ip": "54.214.215.5",
+      "public_dns": "ec2-54-214-74-62.compute-1.amazonaws.com",
+      "public_ip": "54.214.74.62",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -2339,10 +2339,10 @@
     "labels": [
      "Name:exp-open"
     ],
-    "name": "i-143aefe649018582a",
+    "name": "i-073c33fc2ea31a2cb",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-143aefe649018582a"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-073c33fc2ea31a2cb"
    }
   ],
   "risk_details": "Publicly addressed instances are Internet-scannable, enabling direct probing and brute-force of exposed services and management ports. This increases risks of unauthorized access, remote code execution, and data exfiltration (**confidentiality, integrity**), and allows direct DDoS targeting, degrading **availability**.",
@@ -2350,10 +2350,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "EC2 Instance i-143aefe649018582a has a Public IP: 54.214.215.5 (ec2-54-214-215-5.compute-1.amazonaws.com).",
+  "status_detail": "EC2 Instance i-073c33fc2ea31a2cb has a Public IP: 54.214.74.62 (ec2-54-214-74-62.compute-1.amazonaws.com).",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -2503,7 +2503,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -2550,8 +2550,8 @@
      }
     }
    ],
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** are assessed for the presence of a **public IPv4 address** and public DNS. A public IP indicates the instance is directly reachable from the Internet; no public IP implies access only through private networking paths such as load balancers, gateways, or proxies.",
    "title": "EC2 instance does not have a public IP address",
    "types": [
@@ -2559,9 +2559,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/AWS Foundational Security Best Practices",
     "TTPs/Initial Access"
    ],
-   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-db9d69dd2b518e717"
+   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-5d676f34f022ede71"
   },
-  "message": "EC2 Instance i-db9d69dd2b518e717 has a Public IP: 54.214.5.253 (ec2-54-214-5-253.compute-1.amazonaws.com).",
+  "message": "EC2 Instance i-5d676f34f022ede71 has a Public IP: 54.214.123.74 (ec2-54-214-123-74.compute-1.amazonaws.com).",
   "metadata": {
    "event_code": "ec2_instance_public_ip",
    "product": {
@@ -2589,31 +2589,31 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9d69dd2b518e717",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-5d676f34f022ede71",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-db9d69dd2b518e717",
+      "id": "i-5d676f34f022ede71",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-33d639bc045cd912d"
+       "eni-7316576b9df2b9dce"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-8.ec2.internal",
       "private_ip": "10.30.1.8",
-      "public_dns": "ec2-54-214-5-253.compute-1.amazonaws.com",
-      "public_ip": "54.214.5.253",
+      "public_dns": "ec2-54-214-123-74.compute-1.amazonaws.com",
+      "public_ip": "54.214.123.74",
       "region": "us-east-1",
       "security_groups": [
-       "sg-ef2a13aa3f028cf66"
+       "sg-844c5722fa4b22cae"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -2631,10 +2631,10 @@
     "labels": [
      "Name:exp-ipv6-rule"
     ],
-    "name": "i-db9d69dd2b518e717",
+    "name": "i-5d676f34f022ede71",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9d69dd2b518e717"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-5d676f34f022ede71"
    }
   ],
   "risk_details": "Publicly addressed instances are Internet-scannable, enabling direct probing and brute-force of exposed services and management ports. This increases risks of unauthorized access, remote code execution, and data exfiltration (**confidentiality, integrity**), and allows direct DDoS targeting, degrading **availability**.",
@@ -2642,10 +2642,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "EC2 Instance i-db9d69dd2b518e717 has a Public IP: 54.214.5.253 (ec2-54-214-5-253.compute-1.amazonaws.com).",
+  "status_detail": "EC2 Instance i-5d676f34f022ede71 has a Public IP: 54.214.123.74 (ec2-54-214-123-74.compute-1.amazonaws.com).",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -2795,7 +2795,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -2842,8 +2842,8 @@
      }
     }
    ],
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** are assessed for the presence of a **public IPv4 address** and public DNS. A public IP indicates the instance is directly reachable from the Internet; no public IP implies access only through private networking paths such as load balancers, gateways, or proxies.",
    "title": "EC2 instance does not have a public IP address",
    "types": [
@@ -2851,9 +2851,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/AWS Foundational Security Best Practices",
     "TTPs/Initial Access"
    ],
-   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-81c3950e7849763d7"
+   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-e8c94c3b1a85a6f98"
   },
-  "message": "EC2 Instance i-81c3950e7849763d7 has a Public IP: 54.214.60.172 (ec2-54-214-60-172.compute-1.amazonaws.com).",
+  "message": "EC2 Instance i-e8c94c3b1a85a6f98 has a Public IP: 54.214.132.218 (ec2-54-214-132-218.compute-1.amazonaws.com).",
   "metadata": {
    "event_code": "ec2_instance_public_ip",
    "product": {
@@ -2881,31 +2881,31 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-81c3950e7849763d7",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-e8c94c3b1a85a6f98",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-81c3950e7849763d7",
+      "id": "i-e8c94c3b1a85a6f98",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-6790f810ca2b4a645"
+       "eni-8fed168a1a6a6d09a"
       ],
       "platform": "windows",
       "private_dns": "ip-10-40-1-4.ec2.internal",
       "private_ip": "10.40.1.4",
-      "public_dns": "ec2-54-214-60-172.compute-1.amazonaws.com",
-      "public_ip": "54.214.60.172",
+      "public_dns": "ec2-54-214-132-218.compute-1.amazonaws.com",
+      "public_ip": "54.214.132.218",
       "region": "us-east-1",
       "security_groups": [
-       "sg-c0eb79849ee8884f9"
+       "sg-0c3a3ce7bf9f5297b"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-584b070283f80392f",
+      "subnet_id": "subnet-372e7112677dd223d",
       "tags": [
        {
         "Key": "Name",
@@ -2923,10 +2923,10 @@
     "labels": [
      "Name:exp-vpc-b"
     ],
-    "name": "i-81c3950e7849763d7",
+    "name": "i-e8c94c3b1a85a6f98",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-81c3950e7849763d7"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-e8c94c3b1a85a6f98"
    }
   ],
   "risk_details": "Publicly addressed instances are Internet-scannable, enabling direct probing and brute-force of exposed services and management ports. This increases risks of unauthorized access, remote code execution, and data exfiltration (**confidentiality, integrity**), and allows direct DDoS targeting, degrading **availability**.",
@@ -2934,10 +2934,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "EC2 Instance i-81c3950e7849763d7 has a Public IP: 54.214.60.172 (ec2-54-214-60-172.compute-1.amazonaws.com).",
+  "status_detail": "EC2 Instance i-e8c94c3b1a85a6f98 has a Public IP: 54.214.132.218 (ec2-54-214-132-218.compute-1.amazonaws.com).",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -3087,7 +3087,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -3134,8 +3134,8 @@
      }
     }
    ],
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** are assessed for the presence of a **public IPv4 address** and public DNS. A public IP indicates the instance is directly reachable from the Internet; no public IP implies access only through private networking paths such as load balancers, gateways, or proxies.",
    "title": "EC2 instance does not have a public IP address",
    "types": [
@@ -3143,9 +3143,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/AWS Foundational Security Best Practices",
     "TTPs/Initial Access"
    ],
-   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-57eeef9c496a993fe"
+   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-d39a85ce892d10858"
   },
-  "message": "EC2 Instance i-57eeef9c496a993fe has a Public IP: 54.214.69.168 (ec2-54-214-69-168.compute-1.amazonaws.com).",
+  "message": "EC2 Instance i-d39a85ce892d10858 has a Public IP: 54.214.181.223 (ec2-54-214-181-223.compute-1.amazonaws.com).",
   "metadata": {
    "event_code": "ec2_instance_public_ip",
    "product": {
@@ -3173,31 +3173,31 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-57eeef9c496a993fe",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-d39a85ce892d10858",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-57eeef9c496a993fe",
+      "id": "i-d39a85ce892d10858",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-e81c6d18d52269059"
+       "eni-54f234506726b90fa"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-2-4.ec2.internal",
       "private_ip": "10.30.2.4",
-      "public_dns": "ec2-54-214-69-168.compute-1.amazonaws.com",
-      "public_ip": "54.214.69.168",
+      "public_dns": "ec2-54-214-181-223.compute-1.amazonaws.com",
+      "public_ip": "54.214.181.223",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-e92e4c7cb80993e85",
+      "subnet_id": "subnet-1b91a94bc3c1c3413",
       "tags": [
        {
         "Key": "Name",
@@ -3215,10 +3215,10 @@
     "labels": [
      "Name:exp-acl-deny"
     ],
-    "name": "i-57eeef9c496a993fe",
+    "name": "i-d39a85ce892d10858",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-57eeef9c496a993fe"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-d39a85ce892d10858"
    }
   ],
   "risk_details": "Publicly addressed instances are Internet-scannable, enabling direct probing and brute-force of exposed services and management ports. This increases risks of unauthorized access, remote code execution, and data exfiltration (**confidentiality, integrity**), and allows direct DDoS targeting, degrading **availability**.",
@@ -3226,10 +3226,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "EC2 Instance i-57eeef9c496a993fe has a Public IP: 54.214.69.168 (ec2-54-214-69-168.compute-1.amazonaws.com).",
+  "status_detail": "EC2 Instance i-d39a85ce892d10858 has a Public IP: 54.214.181.223 (ec2-54-214-181-223.compute-1.amazonaws.com).",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -3379,7 +3379,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -3426,8 +3426,8 @@
      }
     }
    ],
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** are assessed for the presence of a **public IPv4 address** and public DNS. A public IP indicates the instance is directly reachable from the Internet; no public IP implies access only through private networking paths such as load balancers, gateways, or proxies.",
    "title": "EC2 instance does not have a public IP address",
    "types": [
@@ -3435,9 +3435,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/AWS Foundational Security Best Practices",
     "TTPs/Initial Access"
    ],
-   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-6b7ce6bd8b50a1e34"
+   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-752d4e167751b42f5"
   },
-  "message": "EC2 Instance i-6b7ce6bd8b50a1e34 has a Public IP: 54.214.21.233 (ec2-54-214-21-233.compute-1.amazonaws.com).",
+  "message": "EC2 Instance i-752d4e167751b42f5 has a Public IP: 54.214.224.17 (ec2-54-214-224-17.compute-1.amazonaws.com).",
   "metadata": {
    "event_code": "ec2_instance_public_ip",
    "product": {
@@ -3465,31 +3465,31 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-6b7ce6bd8b50a1e34",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-752d4e167751b42f5",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-6b7ce6bd8b50a1e34",
+      "id": "i-752d4e167751b42f5",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-916e465cb90f3ecd1"
+       "eni-973fb494d3c306828"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-9.ec2.internal",
       "private_ip": "10.30.1.9",
-      "public_dns": "ec2-54-214-21-233.compute-1.amazonaws.com",
-      "public_ip": "54.214.21.233",
+      "public_dns": "ec2-54-214-224-17.compute-1.amazonaws.com",
+      "public_ip": "54.214.224.17",
       "region": "us-east-1",
       "security_groups": [
-       "sg-72e0f99ad3715c2a5"
+       "sg-04f38fb99be6303bb"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -3507,10 +3507,10 @@
     "labels": [
      "Name:exp-icmp-only"
     ],
-    "name": "i-6b7ce6bd8b50a1e34",
+    "name": "i-752d4e167751b42f5",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-6b7ce6bd8b50a1e34"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-752d4e167751b42f5"
    }
   ],
   "risk_details": "Publicly addressed instances are Internet-scannable, enabling direct probing and brute-force of exposed services and management ports. This increases risks of unauthorized access, remote code execution, and data exfiltration (**confidentiality, integrity**), and allows direct DDoS targeting, degrading **availability**.",
@@ -3518,10 +3518,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "EC2 Instance i-6b7ce6bd8b50a1e34 has a Public IP: 54.214.21.233 (ec2-54-214-21-233.compute-1.amazonaws.com).",
+  "status_detail": "EC2 Instance i-752d4e167751b42f5 has a Public IP: 54.214.224.17 (ec2-54-214-224-17.compute-1.amazonaws.com).",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -3671,7 +3671,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -3718,8 +3718,8 @@
      }
     }
    ],
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** are assessed for the presence of a **public IPv4 address** and public DNS. A public IP indicates the instance is directly reachable from the Internet; no public IP implies access only through private networking paths such as load balancers, gateways, or proxies.",
    "title": "EC2 instance does not have a public IP address",
    "types": [
@@ -3727,9 +3727,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/AWS Foundational Security Best Practices",
     "TTPs/Initial Access"
    ],
-   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-9fe57a3e4648c5422"
+   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-b39f0b1b67efa0bf4"
   },
-  "message": "EC2 Instance i-9fe57a3e4648c5422 has a Public IP: 54.214.183.207 (ec2-54-214-183-207.compute-1.amazonaws.com).",
+  "message": "EC2 Instance i-b39f0b1b67efa0bf4 has a Public IP: 54.214.115.252 (ec2-54-214-115-252.compute-1.amazonaws.com).",
   "metadata": {
    "event_code": "ec2_instance_public_ip",
    "product": {
@@ -3757,31 +3757,31 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-9fe57a3e4648c5422",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-b39f0b1b67efa0bf4",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-9fe57a3e4648c5422",
+      "id": "i-b39f0b1b67efa0bf4",
       "image_id": "ami-12c6146b",
       "instance_profile": null,
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-af137d8e476805f58"
+       "eni-7da78a6894f1f6b8b"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-4-4.ec2.internal",
       "private_ip": "10.30.4.4",
-      "public_dns": "ec2-54-214-183-207.compute-1.amazonaws.com",
-      "public_ip": "54.214.183.207",
+      "public_dns": "ec2-54-214-115-252.compute-1.amazonaws.com",
+      "public_ip": "54.214.115.252",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7e69574aa56b32e7a",
+      "subnet_id": "subnet-0b911b85f97bb41aa",
       "tags": [
        {
         "Key": "Name",
@@ -3799,10 +3799,10 @@
     "labels": [
      "Name:exp-inspected"
     ],
-    "name": "i-9fe57a3e4648c5422",
+    "name": "i-b39f0b1b67efa0bf4",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-9fe57a3e4648c5422"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-b39f0b1b67efa0bf4"
    }
   ],
   "risk_details": "Publicly addressed instances are Internet-scannable, enabling direct probing and brute-force of exposed services and management ports. This increases risks of unauthorized access, remote code execution, and data exfiltration (**confidentiality, integrity**), and allows direct DDoS targeting, degrading **availability**.",
@@ -3810,10 +3810,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "EC2 Instance i-9fe57a3e4648c5422 has a Public IP: 54.214.183.207 (ec2-54-214-183-207.compute-1.amazonaws.com).",
+  "status_detail": "EC2 Instance i-b39f0b1b67efa0bf4 has a Public IP: 54.214.115.252 (ec2-54-214-115-252.compute-1.amazonaws.com).",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -3963,7 +3963,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  },
  {
@@ -4010,8 +4010,8 @@
      }
     }
    ],
-   "created_time": 1792955812,
-   "created_time_dt": "2026-10-25T19:16:52.561778",
+   "created_time": 1793825637,
+   "created_time_dt": "2026-11-04T20:53:57.743181",
    "desc": "**EC2 instances** are assessed for the presence of a **public IPv4 address** and public DNS. A public IP indicates the instance is directly reachable from the Internet; no public IP implies access only through private networking paths such as load balancers, gateways, or proxies.",
    "title": "EC2 instance does not have a public IP address",
    "types": [
@@ -4019,9 +4019,9 @@
     "Software and Configuration Checks/Industry and Regulatory Standards/AWS Foundational Security Best Practices",
     "TTPs/Initial Access"
    ],
-   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-db9567f7b9a5339f0"
+   "uid": "prowler-aws-ec2_instance_public_ip-123456789012-us-east-1-i-c1ef7e9f2e3f93bb7"
   },
-  "message": "EC2 Instance i-db9567f7b9a5339f0 has a Public IP: 54.214.60.52 (ec2-54-214-60-52.compute-1.amazonaws.com).",
+  "message": "EC2 Instance i-c1ef7e9f2e3f93bb7 has a Public IP: 54.214.43.5 (ec2-54-214-43-5.compute-1.amazonaws.com).",
   "metadata": {
    "event_code": "ec2_instance_public_ip",
    "product": {
@@ -4049,34 +4049,34 @@
     "data": {
      "details": "",
      "metadata": {
-      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9567f7b9a5339f0",
+      "arn": "arn:aws:ec2:us-east-1:123456789012:instance/i-c1ef7e9f2e3f93bb7",
       "enclaves_enabled": false,
       "hibernation_enabled": false,
       "http_endpoint": null,
       "http_tokens": null,
-      "id": "i-db9567f7b9a5339f0",
+      "id": "i-c1ef7e9f2e3f93bb7",
       "image_id": "ami-12c6146b",
       "instance_profile": {
        "Arn": "arn:aws:iam::123456789012:instance-profile/exp-s3-reader",
-       "Id": "iip-assoc-646fd9813bac42002"
+       "Id": "iip-assoc-ae91bf0be9c1ed2f0"
       },
-      "launch_time": "2026-10-25 19:13:14+00:00",
+      "launch_time": "2026-11-04 20:53:55+00:00",
       "monitoring_state": "disabled",
       "network_interfaces": [
-       "eni-9b923bb26279d63e9"
+       "eni-a076d3a17ab82db4c"
       ],
       "platform": "windows",
       "private_dns": "ip-10-30-1-10.ec2.internal",
       "private_ip": "10.30.1.10",
-      "public_dns": "ec2-54-214-60-52.compute-1.amazonaws.com",
-      "public_ip": "54.214.60.52",
+      "public_dns": "ec2-54-214-43-5.compute-1.amazonaws.com",
+      "public_ip": "54.214.43.5",
       "region": "us-east-1",
       "security_groups": [
-       "sg-fd9bfc741d8c8684b"
+       "sg-e9c6a68d24fc9cf67"
       ],
       "state": "running",
       "state_transition_reason": "",
-      "subnet_id": "subnet-7b2d83801a30393bb",
+      "subnet_id": "subnet-19dd86c8d5ca183ed",
       "tags": [
        {
         "Key": "Name",
@@ -4094,10 +4094,10 @@
     "labels": [
      "Name:exp-s3-reader"
     ],
-    "name": "i-db9567f7b9a5339f0",
+    "name": "i-c1ef7e9f2e3f93bb7",
     "region": "us-east-1",
     "type": "AwsEc2Instance",
-    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-db9567f7b9a5339f0"
+    "uid": "arn:aws:ec2:us-east-1:123456789012:instance/i-c1ef7e9f2e3f93bb7"
    }
   ],
   "risk_details": "Publicly addressed instances are Internet-scannable, enabling direct probing and brute-force of exposed services and management ports. This increases risks of unauthorized access, remote code execution, and data exfiltration (**confidentiality, integrity**), and allows direct DDoS targeting, degrading **availability**.",
@@ -4105,10 +4105,10 @@
   "severity_id": 3,
   "status": "New",
   "status_code": "FAIL",
-  "status_detail": "EC2 Instance i-db9567f7b9a5339f0 has a Public IP: 54.214.60.52 (ec2-54-214-60-52.compute-1.amazonaws.com).",
+  "status_detail": "EC2 Instance i-c1ef7e9f2e3f93bb7 has a Public IP: 54.214.43.5 (ec2-54-214-43-5.compute-1.amazonaws.com).",
   "status_id": 1,
-  "time": 1792955812,
-  "time_dt": "2026-10-25T19:16:52.561778",
+  "time": 1793825637,
+  "time_dt": "2026-11-04T20:53:57.743181",
   "type_name": "Detection Finding: Create",
   "type_uid": 200401,
   "unmapped": {
@@ -4258,7 +4258,7 @@
    "provider_uid": "123456789012",
    "related_to": [],
    "related_url": "",
-   "scan_id": "01a1747e-8ad1-7627-8725-56ed8a2c7736"
+   "scan_id": "01a1a857-056f-7039-9c9a-7c4fc66ee00b"
   }
  }
 ]
