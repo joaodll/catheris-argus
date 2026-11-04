@@ -1,5 +1,5 @@
 id = "lateral-network"
-version = 1
+version = 2
 edge_type = "CAN_CONNECT_TO"
 description = """From an instance the internet reaches, an attacker can
 connect to another running instance or a database in the same VPC whose security groups admit,
@@ -10,7 +10,9 @@ exploit from the first opens the second. A door counts when it is open or unknow
 something its groups open to the internet (one change away); a public instance whose groups open
 nothing is no foothold, and leaving it out keeps a flat VPC from linking every public instance
 to every other. `ports` and `services` name what is admitted. Replaces ssh-lateral (port 22 from
-open doors only)."""
+open doors only).
+Version 2 (ADR-0035, seventh amendment): the doors it starts from follow `g`, which also
+counts blocks that together cover every address of a family."""
 sql = """
 SELECT a.uid, t.uid,
        jsonb_build_object('ports', jsonb_agg(DISTINCT t.port ORDER BY t.port),

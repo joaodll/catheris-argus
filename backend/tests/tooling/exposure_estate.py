@@ -21,6 +21,7 @@ Cases (instances unless named otherwise):
                         which AWS keeps: the verdict is not_running either way)
     exp-terminated      tcp/22 open, terminated: no door
     exp-ipv6-rule       tcp/22 open to ::/0 only, IPv4-only instance
+    exp-split-cidr      tcp/22 open to 0.0.0.0/1 and 128.0.0.0/1: the whole internet, split
     exp-vpc-b           tcp/22 open, public IP, subnet with no route table of its own
     exp-acl-deny        tcp/22 open, the subnet's ACL denies it
     exp-icmp-only       only ICMP open to the internet
@@ -209,11 +210,11 @@ class _Network:
 
     @staticmethod
     def rule(
-        protocol: str, port: int, *, v4: str | None = "0.0.0.0/0", v6: str | None = None
+        protocol: str, port: int, *, v4: str | list[str] | None = "0.0.0.0/0", v6: str | None = None
     ) -> dict[str, Any]:
         rule: dict[str, Any] = {"IpProtocol": protocol, "FromPort": port, "ToPort": port}
         if v4:
-            rule["IpRanges"] = [{"CidrIp": v4}]
+            rule["IpRanges"] = [{"CidrIp": c} for c in ([v4] if isinstance(v4, str) else v4)]
         if v6:
             rule["Ipv6Ranges"] = [{"CidrIpv6": v6}]
         return rule
@@ -291,6 +292,11 @@ def _seed_instances(ec2: Any, iam: Any) -> dict[str, str]:
             "exp-ipv6-rule",
             net.public,
             [net.group("exp-ssh-v6", [net.rule("tcp", 22, v4=None, v6="::/0")])],
+        ),
+        "exp-split-cidr": net.instance(
+            "exp-split-cidr",
+            net.public,
+            [net.group("exp-ssh-split", [net.rule("tcp", 22, v4=["0.0.0.0/1", "128.0.0.0/1"])])],
         ),
         "exp-vpc-b": net.instance(
             "exp-vpc-b",
