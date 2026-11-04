@@ -10,6 +10,7 @@ Start with the page for what you want to do.
 | Run it on one host with Docker Compose | [Runbook: Docker Compose](runbook.md) |
 | Run it on Kubernetes with the Helm chart | [Runbook: Kubernetes](runbook-kubernetes.md) |
 | Scan your AWS accounts | [Connecting AWS accounts](connect-aws.md) |
+| Create the IAM role, KMS key and S3 bucket Argus uses | [Suggested AWS policies](aws-policies.md) |
 | Look up an environment variable, a setting or a chart value | [Configuration](configuration.md) |
 | Judge whether Argus is safe to run, and how it protects what it holds | [Security model](security-model.md) |
 | Understand how it is built and why | [Design](design.md) and the [architecture decision records](adr/README.md) |

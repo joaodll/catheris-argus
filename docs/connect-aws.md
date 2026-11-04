@@ -36,31 +36,14 @@ Every AWS run writes its raw output, which can hold secret values found in the a
 bucket you own, and cannot start until one is set. Create it as
 [runbook.md, Operating](runbook.md#operating) describes under **Raw output storage for AWS runs**:
 a bucket for Argus alone, SSE-KMS, a one-year lifecycle rule, and the policy that lets the
-platform identity put objects there and nothing more. Then enter the bucket and its region in
+platform identity put objects there and nothing more. Every policy is in
+[Suggested AWS policies](aws-policies.md). Then enter the bucket and its region in
 **Administration → Settings → Raw output storage**.
 
 ## 2. Let the platform identity assume the scanner role
 
-Besides the bucket policy, the platform identity needs `sts:AssumeRole` on the scanner roles. With
-the template's default role name:
-
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Sid": "ArgusAssumeScannerRoles",
-      "Effect": "Allow",
-      "Action": "sts:AssumeRole",
-      "Resource": "arn:aws:iam::*:role/ArgusScanner"
-    }
-  ]
-}
-```
-
-Narrow `*` to a list of account ids if you prefer. A role in another account is only assumed if
-that role's own trust policy names the platform identity, so this statement alone grants nothing
-in an account you have not prepared.
+The platform identity also needs `sts:AssumeRole` on the scanner roles: the last statement of the
+[suggested permissions](aws-policies.md#permissions), which uses the template's default role name.
 
 ## 3. Choose an ExternalId
 
