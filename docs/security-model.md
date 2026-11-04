@@ -126,8 +126,9 @@ when their checks need it. Argus never stores such a value:
 
 Argus is pre-1.0. These are known and accepted for now:
 
-- **One shared administrator** and no single sign-on or roles. Keep the UI on loopback or inside
-  the cluster network until SSO exists.
+- **No single sign-on.** Users have their own passwords and a role (viewer, operator or admin),
+  stored in Postgres ([ADR-0041](adr/0041-users-and-roles.md)). Keep the UI on loopback or inside the
+  cluster network until SSO exists.
 - **Access keys:** an administrator may store a long-lived key, for a connection or the platform
   identity. It is sealed, write-only and audited, but it is still a long-lived credential in a
   tier-0 database; prefer roles.
