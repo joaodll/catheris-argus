@@ -35,7 +35,7 @@ OPENAPI = Path(__file__).resolve().parents[2] / "openapi.json"
 
 
 def _put_collection(client: TestClient, **values: object) -> None:
-    current = client.get("/api/v1/settings").json()["collection"]
+    current = client.get("/api/v1/settings/collection").json()
     response = client.put(
         "/api/v1/settings/collection", headers=csrf(client), json={**current, **values}
     )
@@ -246,6 +246,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
         "/api/v1/runs?limit=200",
         "/api/v1/schedules",
         "/api/v1/settings",
+        "/api/v1/settings/collection",
         "/api/v1/users",
         "/api/v1/vulnerabilities?limit=200&state=resolved",
         "/api/v1/vulnerabilities/facets",

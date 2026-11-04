@@ -398,13 +398,13 @@ def test_run_now_and_its_cooldown(signed_in: TestClient, owner: Engine) -> None:
 
 
 def test_settings_and_their_environment_bound(signed_in: TestClient) -> None:
-    settings = signed_in.get("/api/v1/settings").json()
-    assert settings["collection"]["max_parallel_runs"] == 2
-    collection = {**settings["collection"], "max_parallel_runs": 4}
+    current = signed_in.get("/api/v1/settings/collection").json()
+    assert current["max_parallel_runs"] == 2
+    collection = {**current, "max_parallel_runs": 4}
     assert (
         signed_in.put(
             "/api/v1/settings/collection", headers=csrf(signed_in), json=collection
-        ).json()["collection"]["max_parallel_runs"]
+        ).json()["max_parallel_runs"]
         == 4
     )
     over = signed_in.put(

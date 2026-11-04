@@ -3660,12 +3660,10 @@
         "type": "object"
       },
       "SettingsOut": {
+        "description": "An admin's settings. Collection is apart (GET /settings/collection): Schedules reads it at\nevery role, and this holds the raw output bucket and the platform's access key id.",
         "properties": {
           "bounds": {
             "$ref": "#/components/schemas/Bounds"
-          },
-          "collection": {
-            "$ref": "#/components/schemas/CollectionSettings"
           },
           "identity": {
             "$ref": "#/components/schemas/IdentityOut"
@@ -3678,7 +3676,6 @@
           }
         },
         "required": [
-          "collection",
           "retention",
           "raw_storage",
           "identity",
@@ -8709,6 +8706,85 @@
       }
     },
     "/api/v1/settings/collection": {
+      "get": {
+        "operationId": "read_collection_api_v1_settings_collection_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Collection",
+        "tags": [
+          "settings"
+        ]
+      },
       "put": {
         "operationId": "write_collection_api_v1_settings_collection_put",
         "parameters": [
@@ -8776,7 +8852,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SettingsOut"
+                  "$ref": "#/components/schemas/CollectionSettings"
                 }
               }
             },

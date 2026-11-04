@@ -26,7 +26,9 @@ class Bounds(BaseModel):
 
 
 class SettingsOut(BaseModel):
-    collection: CollectionSettings
+    """An admin's settings. Collection is apart (GET /settings/collection): Schedules reads it at
+    every role, and this holds the raw output bucket and the platform's access key id."""
+
     retention: RetentionSettings
     raw_storage: RawStorageSettings
     identity: IdentityOut
@@ -45,7 +47,6 @@ def _out(conn: Db) -> SettingsOut:
     identity, secret_set = platform_settings.read_identity(conn)
     env = get_settings()
     return SettingsOut(
-        collection=platform_settings.read_collection(conn),
         retention=platform_settings.read_retention(conn),
         raw_storage=platform_settings.read_raw_storage(conn),
         identity=IdentityOut(
@@ -56,14 +57,19 @@ def _out(conn: Db) -> SettingsOut:
 
 
 @router.get("")
-def read(conn: Db, _user: Viewer) -> SettingsOut:
+def read(conn: Db, _user: Admin) -> SettingsOut:
     return _out(conn)
+
+
+@router.get("/collection")
+def read_collection(conn: Db, _user: Viewer) -> CollectionSettings:
+    return platform_settings.read_collection(conn)
 
 
 @router.put("/collection")
 def write_collection(
     body: CollectionSettings, conn: Db, user: Admin, request: Request
-) -> SettingsOut:
+) -> CollectionSettings:
     platform_settings.write_topic(conn, topic="collection", values=body.model_dump(), actor=user)
     audit.record(
         conn,
@@ -73,7 +79,7 @@ def write_collection(
         detail=body.model_dump(mode="json"),
     )
     conn.commit()
-    return _out(conn)
+    return platform_settings.read_collection(conn)
 
 
 @router.put("/retention")

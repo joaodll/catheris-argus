@@ -36,6 +36,7 @@ OPERATOR = {
     ("POST", "/api/v1/run-requests/{request_id}/cancel"),
 }
 ADMIN = {
+    ("GET", "/api/v1/settings"),
     ("POST", "/api/v1/settings/identity/test"),
     ("PUT", "/api/v1/settings/collection"),
     ("PUT", "/api/v1/settings/retention"),
@@ -139,6 +140,31 @@ def test_a_role_below_the_route_is_refused_and_audited(
             text("SELECT count(*) FROM audit_log WHERE action = 'access_denied'")
         ).scalar_one()
     assert denied > 0
+
+
+@pytest.mark.parametrize("role", ["viewer", "operator"])
+def test_below_admin_no_settings_read_shows_the_bucket_or_the_identity(
+    as_role: Callable[[str], TestClient], role: str
+) -> None:
+    http = as_role(role)
+    assert http.get("/api/v1/settings").status_code == 403
+    collection = http.get("/api/v1/settings/collection")
+    assert collection.status_code == 200 and "max_parallel_runs" in collection.json()
+    assert not {"raw_storage", "identity", "retention", "bounds"} & collection.json().keys()
+
+
+def test_saving_collection_answers_with_collection_alone(
+    as_role: Callable[[str], TestClient],
+) -> None:
+    http = as_role("admin")
+    current = http.get("/api/v1/settings/collection").json()
+    saved = http.put(
+        "/api/v1/settings/collection",
+        json={**current, "max_parallel_runs": 3},
+        headers=csrf(http),
+    )
+    assert saved.status_code == 200 and saved.json()["max_parallel_runs"] == 3
+    assert not {"raw_storage", "identity", "retention", "bounds"} & saved.json().keys()
 
 
 def test_a_password_change_comes_before_everything_else(client: TestClient, owner: Engine) -> None:

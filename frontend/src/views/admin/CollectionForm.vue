@@ -6,8 +6,8 @@ import { toast } from '@/composables/useToasts'
 import NumberField from './NumberField.vue'
 import SettingsCard from './SettingsCard.vue'
 
-const props = defineProps<{ settings: Schemas['SettingsOut'] }>()
-const emit = defineEmits<{ saved: [settings: Schemas['SettingsOut']] }>()
+const props = defineProps<{ collection: Schemas['CollectionSettings'] }>()
+const emit = defineEmits<{ saved: [collection: Schemas['CollectionSettings']] }>()
 
 interface Form {
   parallel: number
@@ -42,12 +42,11 @@ function fromSettings(s: Schemas['CollectionSettings']): Form {
   }
 }
 
-const saved = ref<Form>(fromSettings(props.settings.collection))
+const saved = ref<Form>(fromSettings(props.collection))
 const form = ref<Form>({ ...saved.value })
-// Only when this topic's values change (its own save, or a reload): saving another card
-// replaces the settings object but must not discard edits here.
-watch(() => JSON.stringify(props.settings.collection), () => {
-  saved.value = fromSettings(props.settings.collection)
+// Only when this topic's values change (its own save, or a reload).
+watch(() => JSON.stringify(props.collection), () => {
+  saved.value = fromSettings(props.collection)
   form.value = { ...saved.value }
 })
 const dirty = computed(() => JSON.stringify(form.value) !== JSON.stringify(saved.value))
