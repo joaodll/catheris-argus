@@ -7,7 +7,7 @@
 #   docker compose run --rm e2e          browser walk of every screen against the running stack
 #   docker compose --profile dev up frontend-dev   Vite with hot reload on http://localhost:5173
 #   docker compose run --rm lint         gitleaks, read-only policy check, ruff, mypy, import-linter
-#   docker compose run --rm scan         Trivy: repo files, then the backend, worker and web images (CRITICAL gate)
+#   docker compose run --rm scan         Trivy: repo files, then the backend, web and worker images
 #   docker compose run --rm scrub-fixtures --run-id ID   spike run -> backend/tests/fixtures
 #   docker compose run --rm lock         re-resolve backend/uv.lock after editing pyproject.toml
 #     ... lock uv lock --directory tools/prowler   re-resolve Prowler's lock after changing its pin
@@ -497,18 +497,23 @@ services:
     profiles: [tools]
     # emulated/ is skipped: the emulator's git-ignored output, whose keys are moto's placeholders
     # and never a real account's (.gitleaks.toml allowlists it for the same reason).
+    # The runtime and web images fail on a HIGH or CRITICAL that has a fix. The worker fails on a
+    # CRITICAL only, since most of its findings are inside upstream tools that wait on a new
+    # release. Every step runs, so one failure doesn't hide the next one's findings.
     entrypoint: ["sh", "-c"]
     command:
       - >-
+        rc=0;
         trivy fs --scanners vuln,misconfig,secret --exit-code 1 --severity CRITICAL,HIGH
         --ignorefile /repo/.trivyignore --skip-dirs /repo/.git --skip-dirs /repo/emulated
-        --helm-values /repo/charts/argus/ci/minimal-values.yaml /repo &&
-        trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL --ignore-unfixed
-        --ignorefile /repo/.trivyignore argus-backend:runtime &&
-        trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL --ignore-unfixed
-        --ignorefile /repo/.trivyignore argus-web:runtime &&
+        --helm-values /repo/charts/argus/ci/minimal-values.yaml /repo || rc=1;
+        trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed
+        --ignorefile /repo/.trivyignore argus-backend:runtime || rc=1;
+        trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed
+        --ignorefile /repo/.trivyignore argus-web:runtime || rc=1;
         trivy image --scanners vuln --exit-code 1 --severity CRITICAL --ignore-unfixed
-        --ignorefile /repo/.trivyignore argus-backend:worker
+        --ignorefile /repo/.trivyignore argus-backend:worker || rc=1;
+        exit $$rc
 
   # The chart's static checks, offline (deploy/kind/check.sh): lint, render, kubeconform,
   # digests, the values that must be refused, the Postgres image the same as above.

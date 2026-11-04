@@ -9,7 +9,7 @@
 #   worker       runtime + the three collectors, unmodified and pinned (ADR-0001, ADR-0030).
 #                Only the worker runs tools, so only its image carries them.
 
-ARG PYTHON_IMAGE=python:3.13-slim-trixie@sha256:bb2988715db2cf7ace7b53f38f3cffbef7c7046a656bee66245eb0ed386e2e81
+ARG PYTHON_IMAGE=python:3.13-slim-trixie@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.22@sha256:f513a91fc62fe7c17567eee97230dd198e43edb8a9fbecca843714a4358fe1bc
 
 FROM ${UV_IMAGE} AS uv
@@ -19,6 +19,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH
+# The published base lags Debian's security repository, so take what it has already fixed.
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/*
 # No pip: dependencies install with uv from the lock, and the venvs have none. The base image's
 # pip carries its own vendored packages (certifi), one more thing to patch for nothing.
 RUN groupadd --gid 10001 argus \
