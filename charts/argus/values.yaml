@@ -5,7 +5,9 @@
 # The namespace is Argus's alone: the NetworkPolicies deny everything to every pod in it, and
 # it should carry the Pod Security label `pod-security.kubernetes.io/enforce: restricted`.
 
-nameOverride: ""
+# The chart is published as catheris-argus, but what it creates is called argus: a release named
+# argus gives argus-api, argus-run and so on, and the IAM role's trust policy names argus-run.
+nameOverride: "argus"
 fullnameOverride: ""
 
 # Images, by digest only (`repository@sha256:...`). The chart never builds code and never pulls

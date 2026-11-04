@@ -1,4 +1,4 @@
-# argus Helm chart
+# catheris-argus Helm chart
 
 **Owner:** `cloud-native-platform-engineer`
 
