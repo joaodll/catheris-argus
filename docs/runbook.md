@@ -56,7 +56,8 @@ How they fit together, and why: [design.md, How the MVP runs](design.md#how-the-
    published on the loopback interface only. Then delete the bootstrap password (or hash) line
    from `.env`: the admin now lives in the database. Add everyone else in **Administration →
    Users**, each with their own role: Viewer reads, Operator also runs connections and
-   schedules, Admin also changes Settings and Users.
+   schedules and changes the Collection and throttling settings, Admin also changes every other
+   setting and Users.
 
 6. Add history. Either create a Demo connection under **Administration → Connections** (choose
    how many days to backfill), or create three at once:
@@ -174,7 +175,8 @@ until its next Steampipe run. A disabled connection waits for its next run.
 ## Operating
 
 **Settings.** Every administration setting is changed in **Administration → Settings** and is
-audited; a change applies on the next claim, without a restart. The environment holds only
+audited; a change applies on the next claim, without a restart. An Operator sees and changes the
+Collection and throttling card only; the other cards are an Admin's. The environment holds only
 deployment facts and bounds ([ADR-0023](adr/0023-configuration-split.md)). To raise a bound (for
 example `ARGUS_MAX_HISTORY_DAYS`), edit `.env` and run `docker compose up -d`.
 

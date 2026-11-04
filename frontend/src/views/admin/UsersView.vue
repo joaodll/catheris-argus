@@ -100,7 +100,7 @@ async function onSaved(message: string): Promise<void> {
     <div v-if="list.data.value" class="panel-foot">
       <AppPagination :total="list.data.value.total" :page="page" :limit="PAGE" noun="user" @change="goTo" />
     </div>
-    <p class="panel-foot cap foot">Viewer reads. Operator also runs connections and schedules. Admin also changes Settings and Users.</p>
+    <p class="panel-foot cap foot">Viewer reads. Operator also runs connections and schedules, and changes collection settings. Admin also changes every other setting and Users.</p>
   </section>
 
   <AddUserModal v-if="adding" @close="adding = false" @saved="onSaved" />

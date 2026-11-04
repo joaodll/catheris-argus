@@ -4,14 +4,17 @@ import { api, unwrap } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useResource } from '@/composables/useResource'
+import { can } from '@/composables/useSession'
 import CollectionForm from './CollectionForm.vue'
 import IdentityForm from './IdentityForm.vue'
 import RawStorageForm from './RawStorageForm.vue'
 import RetentionForm from './RetentionForm.vue'
 import { SETTINGS_SECTIONS, settingsSections } from './settingsSections'
 
+// An Operator gets the Collection card only; the rest is an Admin's (ADR-0041, amended 2026-11-03).
+const isAdmin = can('admin')
 const collection = useResource(() => unwrap(api.GET('/api/v1/settings/collection')))
-const settings = useResource(() => unwrap(api.GET('/api/v1/settings')))
+const settings = useResource(async () => (isAdmin ? unwrap(api.GET('/api/v1/settings')) : null))
 const loadError = computed(() => collection.error.value ?? settings.error.value)
 
 function reload(): void {
@@ -47,14 +50,16 @@ function goTo(id: string): void {
         Settings didn't load: {{ loadError }}
         <template #action><button type="button" class="btn btn-secondary btn-sm" @click="reload">Retry</button></template>
       </AlertBanner>
-      <template v-else-if="collection.data.value && settings.data.value">
+      <template v-else-if="collection.data.value && (!isAdmin || settings.data.value)">
         <CollectionForm :collection="collection.data.value" @saved="(s) => (collection.data.value = s)" />
-        <RetentionForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
-        <RawStorageForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
-        <IdentityForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
+        <template v-if="settings.data.value">
+          <RetentionForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
+          <RawStorageForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
+          <IdentityForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
+        </template>
       </template>
       <div v-else aria-busy="true" class="cards">
-        <div v-for="n in 4" :key="n" class="card skeleton sk-220"></div>
+        <div v-for="n in isAdmin ? 4 : 1" :key="n" class="card skeleton sk-220"></div>
       </div>
     </div>
   </div>

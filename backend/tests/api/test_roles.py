@@ -34,11 +34,11 @@ OPERATOR = {
     ("DELETE", "/api/v1/schedules/{schedule_id}"),
     ("POST", "/api/v1/run-requests"),
     ("POST", "/api/v1/run-requests/{request_id}/cancel"),
+    ("PUT", "/api/v1/settings/collection"),
 }
 ADMIN = {
     ("GET", "/api/v1/settings"),
     ("POST", "/api/v1/settings/identity/test"),
-    ("PUT", "/api/v1/settings/collection"),
     ("PUT", "/api/v1/settings/retention"),
     ("PUT", "/api/v1/settings/raw-storage"),
     ("PUT", "/api/v1/settings/identity"),
@@ -153,18 +153,39 @@ def test_below_admin_no_settings_read_shows_the_bucket_or_the_identity(
     assert not {"raw_storage", "identity", "retention", "bounds"} & collection.json().keys()
 
 
-def test_saving_collection_answers_with_collection_alone(
-    as_role: Callable[[str], TestClient],
+def test_an_operator_saves_collection_and_nothing_else(
+    as_role: Callable[[str], TestClient], owner: Engine
 ) -> None:
-    http = as_role("admin")
+    http = as_role("operator")
     current = http.get("/api/v1/settings/collection").json()
     saved = http.put(
         "/api/v1/settings/collection",
-        json={**current, "max_parallel_runs": 3},
+        json={**current, "max_parallel_runs": 3, "run_now_cooldown_minutes": 0},
         headers=csrf(http),
     )
     assert saved.status_code == 200 and saved.json()["max_parallel_runs"] == 3
+    assert saved.json()["run_now_cooldown_minutes"] == 0
     assert not {"raw_storage", "identity", "retention", "bounds"} & saved.json().keys()
+    with owner.connect() as conn:
+        actor = conn.execute(
+            text("SELECT actor FROM audit_log WHERE action = 'settings.collection'")
+        ).scalar_one()
+    assert actor == "a-operator"
+    for topic, body in (
+        ("retention", {"history_days": 30, "demo_raw_days": 7}),
+        ("raw-storage", {}),
+        ("identity", {"mode": "ambient"}),
+    ):
+        refused = http.put(f"/api/v1/settings/{topic}", json=body, headers=csrf(http))
+        assert refused.status_code == 403, topic
+    assert http.post("/api/v1/settings/identity/test", headers=csrf(http)).status_code == 403
+
+
+def test_a_viewer_cannot_save_collection(as_role: Callable[[str], TestClient]) -> None:
+    http = as_role("viewer")
+    current = http.get("/api/v1/settings/collection").json()
+    refused = http.put("/api/v1/settings/collection", json=current, headers=csrf(http))
+    assert refused.status_code == 403
 
 
 def test_a_password_change_comes_before_everything_else(client: TestClient, owner: Engine) -> None:

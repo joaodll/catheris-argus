@@ -350,7 +350,7 @@ API rules:
 - Versioned under `/api/v1`, described by an OpenAPI document committed with the code; the frontend's client is generated from it, and the running API never serves it (ADR-0025).
 - Reads go through named server-side queries with parameters only; clients never send SQL.
 - Every list is paginated; every response carries the scan time it reflects (data lists carry `data_through`, null when nothing has been ingested).
-- Roles ([ADR-0041](adr/0041-users-and-roles.md), 2026-10-28; replaces viewer, analyst, admin): **Viewer** reads every screen except Users and Settings; **Operator** also manages connections, schedules and the queue; **Admin** also manages Settings and Users. Finding states and manual edges get their role when they are built. Every write is recorded in the audit log.
+- Roles ([ADR-0041](adr/0041-users-and-roles.md), 2026-10-28; replaces viewer, analyst, admin): **Viewer** reads every screen except Users and Settings; **Operator** also manages connections, schedules and the queue, and since 2026-11-03 the Collection and throttling settings; **Admin** also manages every other setting and Users. Only an Admin reads the raw output bucket and the platform identity (`GET /settings`); Collection has its own read at every role, which Schedules needs. Finding states and manual edges get their role when they are built. Every write is recorded in the audit log.
 
 ## Overview screen (MVP)
 
@@ -381,7 +381,7 @@ The second MVP screen is where the platform is operated, so nothing needs a depl
 | Connections | Accounts registered by hand (ADR-0021): Demo, AWS assume role, or AWS access key; enable or disable; secrets are write-only |
 | Schedules | One or more tools each (queued in tool order), searchable by name: a cron expression with a plain-language preview and the next runs, the connections in scope, enabled or not; a minimum interval is enforced. Run now for chosen connections and tools, and the queue. Run now and a new schedule tick Steampipe, Prowler and CloudFox, and Vulnerabilities only when its latest run on every chosen connection finished, so an account without a scanner enabled gets no failed run; the ticks follow the connections until one is changed by hand (owner's decision, 2026-10-31) |
 | Runs | Status, duration, exit code, throttle events and log tail per run, newest or oldest first, 20 per page; the actions a run was denied and raw output stored without KMS; runs in progress on top; a failed run also shows on the Overview context bar |
-| Settings | Collection and throttling, retention, and the platform identity (ADR-0023) |
+| Settings | Collection and throttling, retention, and the platform identity (ADR-0023). An Operator sees Collection and throttling only |
 
 How a schedule becomes a run in Compose: the worker reads due schedules every minute and runs them through fixed code paths (ADR-0019). On Kubernetes (ADR-0039):
 

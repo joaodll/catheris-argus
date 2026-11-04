@@ -97,8 +97,8 @@ it can be reached from the internet, what it connects to, and its configuration.
 
 **Schedules** runs the tools when you choose; **Runs** shows each run's status, duration, log and
 the exact command. Under **Administration**, **Connections** adds accounts (a Demo connection
-here, an AWS account later) and **Settings** holds every administration setting. Every change is
-written to the audit log.
+here, an AWS account later) and **Settings** holds every administration setting (an Operator sees
+only Collection and throttling). Every change is written to the audit log.
 
 ## Next
 
