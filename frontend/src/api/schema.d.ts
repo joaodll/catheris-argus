@@ -603,7 +603,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** Read Collection */
+        get: operations["read_collection_api_v1_settings_collection_get"];
         /** Write Collection */
         put: operations["write_collection_api_v1_settings_collection_put"];
         post?: never;
@@ -1984,10 +1985,13 @@ export interface components {
             /** Username */
             username: string;
         };
-        /** SettingsOut */
+        /**
+         * SettingsOut
+         * @description An admin's settings. Collection is apart (GET /settings/collection): Schedules reads it at
+         *     every role, and this holds the raw output bucket and the platform's access key id.
+         */
         SettingsOut: {
             bounds: components["schemas"]["Bounds"];
-            collection: components["schemas"]["CollectionSettings"];
             identity: components["schemas"]["IdentityOut"];
             raw_storage: components["schemas"]["RawStorageSettings"];
             retention: components["schemas"]["RetentionSettings"];
@@ -3606,6 +3610,40 @@ export interface operations {
             };
         };
     };
+    read_collection_api_v1_settings_collection_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     write_collection_api_v1_settings_collection_put: {
         parameters: {
             query?: never;
@@ -3630,7 +3668,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["SettingsOut"];
+                    "application/json": components["schemas"]["CollectionSettings"];
                 };
             };
             /** @description Validation Error */

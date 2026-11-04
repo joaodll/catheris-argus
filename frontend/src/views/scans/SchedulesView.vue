@@ -58,7 +58,7 @@ function clearSearch(): void {
   page.value = 1
 }
 const connections = useResource(() => unwrap(api.GET('/api/v1/connections')))
-const settings = useResource(() => unwrap(api.GET('/api/v1/settings')))
+const collection = useResource(() => unwrap(api.GET('/api/v1/settings/collection')))
 // Each tool's last run per connection: Run now and a new schedule tick Vulnerabilities only where it ran.
 const context = useResource(() => unwrap(api.GET('/api/v1/context', { params: { query: { connection_id: 0 } } })))
 const lastRuns = computed(() => context.data.value?.last_runs ?? null)
@@ -209,10 +209,10 @@ async function onSaved(message: string): Promise<void> {
     <div v-if="items.length" class="panel-foot">
       <AppPagination :total="total" :page="page" :limit="PAGE" @change="(p) => (page = p)" />
     </div>
-    <div v-if="settings.data.value" class="panel-body settings-note">
+    <div v-if="collection.data.value" class="panel-body settings-note">
       <AlertBanner>
-        Each account starts at its own offset within {{ settings.data.value.collection.stagger_window_minutes }} minutes, one run per account at a time,
-        at most {{ settings.data.value.collection.max_parallel_runs }} runs in parallel.
+        Each account starts at its own offset within {{ collection.data.value.stagger_window_minutes }} minutes, one run per account at a time,
+        at most {{ collection.data.value.max_parallel_runs }} runs in parallel.
         <template v-if="admin"><RouterLink :to="{ name: 'settings' }">Change these in Settings</RouterLink>.</template>
       </AlertBanner>
     </div>
@@ -223,7 +223,7 @@ async function onSaved(message: string): Promise<void> {
       v-if="operator"
       :connections="connections.data.value"
       :last-runs="lastRuns"
-      :cooldown="settings.data.value?.collection.run_now_cooldown_minutes ?? null"
+      :cooldown="collection.data.value?.run_now_cooldown_minutes ?? null"
       @queued="queue?.reload()"
     />
     <QueueCard ref="queue" :can-cancel="operator" @running="runningCount = $event" />
@@ -234,7 +234,7 @@ async function onSaved(message: string): Promise<void> {
     :schedule="editing === 'new' ? null : editing"
     :connections="connections.data.value ?? []"
     :last-runs="lastRuns"
-    :min-interval="settings.data.value?.collection.schedule_min_interval_minutes ?? null"
+    :min-interval="collection.data.value?.schedule_min_interval_minutes ?? null"
     @close="editing = null"
     @saved="onSaved"
   />

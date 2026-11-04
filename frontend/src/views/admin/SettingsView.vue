@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { provide } from 'vue'
+import { computed, provide } from 'vue'
 import { api, unwrap } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -10,7 +10,14 @@ import RawStorageForm from './RawStorageForm.vue'
 import RetentionForm from './RetentionForm.vue'
 import { SETTINGS_SECTIONS, settingsSections } from './settingsSections'
 
+const collection = useResource(() => unwrap(api.GET('/api/v1/settings/collection')))
 const settings = useResource(() => unwrap(api.GET('/api/v1/settings')))
+const loadError = computed(() => collection.error.value ?? settings.error.value)
+
+function reload(): void {
+  void collection.reload()
+  void settings.reload()
+}
 
 // The "On this page" list: every card registers itself (SettingsCard).
 const sections = settingsSections()
@@ -36,12 +43,12 @@ function goTo(id: string): void {
       </ul>
     </nav>
     <div class="cards">
-      <AlertBanner v-if="settings.error.value" kind="fail">
-        Settings didn't load: {{ settings.error.value }}
-        <template #action><button type="button" class="btn btn-secondary btn-sm" @click="settings.reload">Retry</button></template>
+      <AlertBanner v-if="loadError" kind="fail">
+        Settings didn't load: {{ loadError }}
+        <template #action><button type="button" class="btn btn-secondary btn-sm" @click="reload">Retry</button></template>
       </AlertBanner>
-      <template v-else-if="settings.data.value">
-        <CollectionForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
+      <template v-else-if="collection.data.value && settings.data.value">
+        <CollectionForm :collection="collection.data.value" @saved="(s) => (collection.data.value = s)" />
         <RetentionForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
         <RawStorageForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
         <IdentityForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
