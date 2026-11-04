@@ -325,6 +325,40 @@ so the cluster autoscaler and Karpenter leave them alone.
 Keyring rotation keeps the old key, as in
 [runbook.md, Rotating the credential key](runbook.md#operating).
 
+**Rotating a database password.** Do it while no scan is running: a scan that opens a new connection
+with its old password fails, and is retried. The database only keeps a hash, so keep each password
+in your vault or Secrets Manager.
+
+For `argus_api`, `argus_worker` or `argus_scheduler`, the Secret comes first, because migrate reads
+the new value from it:
+
+1. Change the key in the Secret. With External Secrets, change it in Secrets Manager, then check that
+   the Secret has the new value. It refreshes every `externalSecret.refreshInterval`, or at once with
+   `kubectl -n argus annotate externalsecret argus-secrets force-sync=$(date +%s) --overwrite`.
+2. Run migrate again. It is kept after it finishes, and its name depends on its pod, not on the
+   Secret's values, so an upgrade alone does not run it:
+
+   ```bash
+   kubectl -n argus delete job -l app.kubernetes.io/component=migrate
+   helm upgrade argus ./charts/argus -n argus -f values-argus.yaml --wait --timeout 15m
+   kubectl -n argus wait --for=condition=complete job -l app.kubernetes.io/component=migrate --timeout 10m
+   ```
+
+3. Restart what holds the old value. Until then, new connections from those pods are refused, so the
+   API can answer errors for that moment. Scan Jobs and retention read the Secret when they start.
+
+   ```bash
+   kubectl -n argus rollout restart deploy/argus-api deploy/argus-scheduler
+   ```
+
+For the owner (`ARGUS_DB_PASSWORD`), the database comes first, because migrate signs in with it. Only
+migrate uses this password, so nothing needs a restart:
+
+1. Change it in the database with `\password argus_owner`: on RDS as the master user, and on the
+   in-chart Postgres with
+   `kubectl -n argus exec -it statefulset/argus-postgres -c postgres -- psql -U argus_owner -d argus`.
+2. Change `ARGUS_DB_PASSWORD` in the Secret.
+
 **A forgotten password.** Another admin sets a new one in **Administration → Users**. With no
 other admin, from the api pod (it asks twice; the user must change it at the next sign-in, and
 their sessions end):
