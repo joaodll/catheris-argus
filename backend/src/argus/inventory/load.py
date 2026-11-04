@@ -6,6 +6,10 @@ complete, however old that load is, so throttling does not look like resources d
 Every load is recorded in resource_load with its resource count. Only a table that was
 complete marks resources of its type deleted (per-table completeness, argus_v8).
 
+A run says nothing about a region it did not scan: the resources of a region narrowed out of "AWS
+regions to scan" carry forward and are not deleted, until a run scans that region again (owner,
+2026-11-03). A global resource is reported from any region, so it is always in scope.
+
 A resource uid has one owning connection, the first to load it (ADR-0034). Another connection
 that reports the same uid never updates its row or writes its snapshot rows; the uid is kept as
 an unresolved reference instead, so it is never dropped silently.
@@ -106,10 +110,12 @@ def load_inventory(
         },
     ).rowcount
 
+    regions = sorted(batch.regions) or None
     carried = 0
-    if batch.carry_types is None or batch.carry_types:
+    if batch.carry_types is None or batch.carry_types or regions:
         # Throttled, denied or cut short: keep the previous view of what this run did not see,
-        # for every type, or only for the incomplete tables' types.
+        # for every type, or only for the incomplete tables' types. And every type, outside the
+        # regions it scanned.
         carried = conn.execute(
             text("""
                 INSERT INTO resource_snapshot (snapshot_date, resource_id, config_id)
@@ -120,13 +126,17 @@ def load_inventory(
                         SELECT max(snapshot_date) FROM resource_load
                         WHERE connection_id = :c AND snapshot_date < :d)
                   AND r.connection_id = :c AND r.deleted_on IS NULL
-                  AND (CAST(:types AS text[]) IS NULL OR r.type = ANY(CAST(:types AS text[])))
+                  AND (CAST(:all_types AS boolean) OR r.type = ANY(CAST(:types AS text[]))
+                       OR (CAST(:regions AS text[]) IS NOT NULL AND r.region <> 'global'
+                           AND r.region <> ALL(CAST(:regions AS text[]))))
                 ON CONFLICT DO NOTHING
             """),
             {
                 "d": day,
                 "c": connection_id,
-                "types": None if batch.carry_types is None else sorted(batch.carry_types),
+                "all_types": batch.carry_types is None,
+                "types": sorted(batch.carry_types or ()),
+                "regions": regions,
             },
         ).rowcount
 
@@ -157,8 +167,15 @@ def load_inventory(
                 UPDATE resource SET deleted_on = :d
                 WHERE connection_id = :c AND deleted_on IS NULL AND last_seen < :d
                   AND type = ANY(CAST(:types AS text[]))
+                  AND (CAST(:regions AS text[]) IS NULL OR region = 'global'
+                       OR region = ANY(CAST(:regions AS text[])))
             """),
-            {"d": day, "c": connection_id, "types": sorted(batch.complete_types)},
+            {
+                "d": day,
+                "c": connection_id,
+                "types": sorted(batch.complete_types),
+                "regions": regions,
+            },
         ).rowcount
     return {
         "resources": len(batch.resources),

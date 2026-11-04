@@ -24,6 +24,14 @@ RESOURCES_ON_DAY_SQL = """
 """
 
 
+# The ids of one connection's resources in the regions a run scanned: :c and :regions. A global
+# resource is reported from any region, so it is always among them.
+RESOURCES_IN_REGIONS_SQL = """
+  SELECT id FROM resource
+  WHERE connection_id = :c AND (region = 'global' OR region = ANY(CAST(:regions AS text[])))
+"""
+
+
 def resource_id_sql(param: str) -> str:
     """A scalar subquery: the id of the resource whose uid is bound to :param, or NULL."""
     # The parameter name is code, never input.

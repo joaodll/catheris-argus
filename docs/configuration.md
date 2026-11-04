@@ -29,11 +29,18 @@ written to the audit log.
 | Start window: scheduled runs start spread over this many minutes | 180 | 0–720 |
 | Run now cooldown: a tool is not run again on an account within this many minutes | 60 | 0–1440 |
 | Retry delays: first retry and second retry of a failed run (minutes) | 30, 120 | 1–1440 each |
-| AWS regions to scan (Prowler and Steampipe; CloudFox scans every region) | every enabled region | up to 40 |
+| AWS regions to scan (Prowler, Steampipe and the vulnerability scanner; CloudFox scans every region) | every enabled region | up to 40 |
 | Steampipe tables at once | 4 | 1–8 |
 | CloudFox concurrency | 5 | 1–30 |
 | Minimum schedule interval (minutes) | 60 | 15–1440 |
 | Synthetic throttling share: Demo runs that report throttling (%) | 5 | 0–100 |
+
+Removing a region from **AWS regions to scan** does not mean its resources are gone or its findings
+fixed. A run says nothing about a region it did not scan, so its resources and findings stay as
+last scanned, with their last-seen dates, until a run scans that region again. **Compliance scores
+are different:** they come from the latest Prowler run, so they cover only the regions it scanned,
+and removing a region can change a score. Read a score change next to a change of this setting,
+which the audit log records.
 
 **Retention**
 

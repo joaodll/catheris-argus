@@ -206,6 +206,9 @@ class InventoryBatch:
     # the synthetic source's throttling).
     complete_types: frozenset[str] = frozenset()
     carry_types: frozenset[str] | None = None
+    # The regions the run scanned; empty means every region. Outside them the run says nothing:
+    # nothing there is deleted, and its previous rows carry forward.
+    regions: frozenset[str] = frozenset()
 
 
 def _decode(value: Any) -> Any:
@@ -338,6 +341,7 @@ def parse_steampipe(run: RawRun) -> InventoryBatch:
         skipped=skipped,
         complete_types=complete_types,
         carry_types=carry_types,
+        regions=frozenset(manifest.region_scope),
     )
 
 

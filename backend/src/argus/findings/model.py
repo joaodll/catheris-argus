@@ -103,3 +103,6 @@ class VulnerabilityBatch:
     coverage_complete: bool
     tool_version: str
     skipped: dict[str, int] = field(default_factory=dict)
+    # The regions the run scanned; empty means every region. Outside them it resolves nothing and
+    # replaces no coverage.
+    regions: frozenset[str] = frozenset()
