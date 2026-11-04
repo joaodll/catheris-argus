@@ -1,7 +1,7 @@
 # Security model
 
 **Owner:** `security-architecture-reviewer` (attests) · `documentation-writer` (document)
-**Applies to:** Argus 0.1.2 (2026-11-04)
+**Applies to:** Argus 0.1.4 (2026-11-04)
 
 This page is for anyone deciding whether to run Argus, and for the people operating it. It
 summarizes how Argus protects what it holds; each section links to the decision record that
