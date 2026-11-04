@@ -2,7 +2,7 @@
 
 **Owner:** `backend-engineer` (settings and variables) · `cloud-native-platform-engineer` (chart)
 · `documentation-writer` (document)
-**Applies to:** Argus 0.1.0 (2026-11-03)
+**Applies to:** Argus 0.1.2 (2026-11-04)
 
 Argus has three places for configuration, and each kind of value has exactly one home
 ([ADR-0023](adr/0023-configuration-split.md)):
