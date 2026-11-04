@@ -361,6 +361,7 @@
             "sslmode": {
               "type": "string",
               "enum": [
+                "",
                 "disable",
                 "prefer",
                 "require",
@@ -968,45 +969,5 @@
       },
       "additionalProperties": false
     }
-  },
-  "allOf": [
-    {
-      "if": {
-        "properties": {
-          "postgres": {
-            "properties": {
-              "enabled": {
-                "const": false
-              }
-            }
-          },
-          "networkPolicy": {
-            "properties": {
-              "enabled": {
-                "const": true
-              }
-            }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "postgres": {
-            "properties": {
-              "external": {
-                "required": [
-                  "cidrs"
-                ],
-                "properties": {
-                  "cidrs": {
-                    "minItems": 1
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-  ]
+  }
 }

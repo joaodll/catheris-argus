@@ -28,9 +28,13 @@ metadata:
   ports:
     - {protocol: TCP, port: 5432}
 {{- else }}
+{{- /* Never an empty `to`, which would allow every destination. Without the database's own ranges:
+private addresses only, so this is not a route out of the network. */}}
+{{- $private := list "10.0.0.0/8" "172.16.0.0/12" "192.168.0.0/16" }}
+{{- if .Values.networkPolicy.ipv6 }}{{- $private = append $private "fc00::/7" }}{{- end }}
 - to:
-    {{- range .Values.postgres.external.cidrs }}
-    - ipBlock: {cidr: {{ . }}}
+    {{- range (.Values.postgres.external.cidrs | default $private) }}
+    - ipBlock: {cidr: {{ . | quote }}}
     {{- end }}
   ports:
     - {protocol: TCP, port: {{ .Values.postgres.external.port }}}

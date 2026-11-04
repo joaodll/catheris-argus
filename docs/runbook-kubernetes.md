@@ -211,11 +211,24 @@ postgres:
   enabled: false
   external:
     host: argus.cluster-xxxx.eu-west-1.rds.amazonaws.com
-    sslmode: verify-full          # the default
+```
+
+Only `host` is required. Two more values are optional and recommended, and the install notes warn
+while either is missing:
+
+```yaml
     caConfigMap: rds-ca           # a ConfigMap holding the CA bundle
     caKey: global-bundle.pem
     cidrs: [10.0.32.0/20]         # where the database is, for the NetworkPolicies
 ```
+
+| Value | With it | Without it |
+| --- | --- | --- |
+| `caConfigMap`, `caKey` | `sslmode: verify-full`: the connection is encrypted and the server's name is verified | `sslmode: require`: encrypted, but Argus cannot tell the real database from one impersonating it |
+| `cidrs` | The database's clients reach only these ranges, on the database's port | They reach any private address on that port (RFC 1918, and `fc00::/7` with `networkPolicy.ipv6`). A database outside those ranges cannot be reached until you set this |
+
+`verify-full` and `verify-ca` are refused without `caConfigMap`, because every connection would
+fail.
 
 ## Upgrade
 

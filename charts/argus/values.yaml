@@ -119,11 +119,15 @@ postgres:
   external:
     host: ""  # required when postgres.enabled is false
     port: 5432
-    sslmode: verify-full
-    # A ConfigMap holding the CA bundle that signs the database's certificate.
+    # Empty: verify-full with caConfigMap, otherwise require, which encrypts but does not verify
+    # the server. verify-full and verify-ca are refused without caConfigMap.
+    sslmode: ""
+    # Optional: a ConfigMap holding the CA bundle that signs the database's certificate.
     caConfigMap: ""
     caKey: ca.crt
-    # Where the database is, for the NetworkPolicies: its address ranges, on `port`.
+    # Optional: the database's address ranges, for the NetworkPolicies, on `port`. Empty: any
+    # private address (RFC 1918, and fc00::/7 with networkPolicy.ipv6). A database outside those
+    # ranges needs this set.
     cidrs: []
 
 api:
