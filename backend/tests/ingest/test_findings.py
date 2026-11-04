@@ -242,7 +242,7 @@ def test_each_finding_says_what_is_wrong_and_each_check_how_to_fix_it(
             )
         ).scalar_one()
     assert missing == 0 and unexplained == 0
-    assert all(c.tool_version == "5.45.0" and c.description and c.risk for c in checks)
+    assert all(c.tool_version == "5.47.0" and c.description and c.risk for c in checks)
     assert all(link.startswith(("https://", "http://")) for c in checks for link in c.links)
     # The code comes from the findings CSV (the OCSF file has none).
     assert any(c.code_cli for c in checks) and any(c.code_terraform for c in checks)

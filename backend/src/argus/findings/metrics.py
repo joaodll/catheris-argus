@@ -1,6 +1,6 @@
 """Findings and compliance rollups for the Overview.
 
-ThreatScore follows Prowler 5.44.0 and 5.45.0 (api/src/backend/tasks/jobs/threatscore.py): for each
+ThreatScore follows Prowler 5.44.0 to 5.47.0 (api/src/backend/tasks/jobs/threatscore.py): for each
 requirement with results, rate = passed / total and rfac = 1 + 0.25 * level of risk;
 score = sum(rate * total * weight * rfac) / sum(total * weight * rfac) * 100, overall and per
 section (the pillars). Numerator and denominator are stored, not just the score, so "all

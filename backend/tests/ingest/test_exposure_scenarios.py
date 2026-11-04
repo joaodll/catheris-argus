@@ -1,7 +1,7 @@
 """The exposure scenario estate through the real ingest (plan 2026-10-21, round 0).
 
 tests/tooling/exposure_estate.py seeds one instance per case into moto; `emulate.py --scenario
-exposure --prowler` exported it with the pinned Steampipe and ran Prowler 5.44.0's own exposure
+exposure --prowler` exported it with the pinned Steampipe and ran Prowler 5.47.0's own exposure
 checks on it, both written with every secret value redacted to tests/fixtures/emulated/exposure.
 Each case's door (the internet rules' edge and its reason) is asserted, with the evidence the
 front doors list explains it from, and Prowler's verdict beside it: where they disagree, the
@@ -30,7 +30,7 @@ pytestmark = pytest.mark.db
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "emulated" / "exposure"
 ACCOUNT = "123456789012"  # moto's
 DAY = date(2026, 10, 21)
-VERSIONS: dict[Tool, str] = {"steampipe": "1.34.1", "prowler": "5.45.0"}
+VERSIONS: dict[Tool, str] = {"steampipe": "1.34.1", "prowler": "5.47.0"}
 
 # Each case's door: (edge from the internet, reason). None: no door.
 DOORS: dict[str, tuple[str, str | None] | None] = {
@@ -50,7 +50,7 @@ DOORS: dict[str, tuple[str, str | None] | None] = {
     "exp-two-enis": ("PUBLIC_RESTRICTED", "no_public_address"),
 }
 
-# Prowler 5.44.0 on the same estate: its failing exposure checks and their severity. Where it
+# Prowler 5.47.0 on the same estate: its failing exposure checks and their severity. Where it
 # disagrees with DOORS, the review's finding A says why: it never reads network ACLs
 # (exp-acl-deny), counts ::/0 on an IPv4-only instance (exp-ipv6-rule), judges a subnet without
 # its own route table by any VPC's main table (exp-vpc-b), ignores the instance's state

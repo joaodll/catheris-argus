@@ -1,5 +1,5 @@
-"""Requirement titles and sections across Prowler's compliance CSV layouts (5.44.0, 5.45.0), and
-5.45.0's quoting of cells a spreadsheet would read as a formula."""
+"""Requirement titles and sections across Prowler's compliance CSV layouts (5.44.0 to 5.47.0), and
+the quoting, from 5.45.0, of cells a spreadsheet would read as a formula."""
 
 import csv
 import io

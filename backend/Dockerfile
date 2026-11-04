@@ -110,7 +110,7 @@ COPY tools/prowler/pyproject.toml tools/prowler/uv.lock /opt/prowler-project/
 RUN cd /opt/prowler-project \
  && UV_PROJECT_ENVIRONMENT=/opt/prowler uv sync --frozen --no-dev --no-install-project \
  && rm -rf /tmp/uv-cache \
- && /opt/prowler/bin/prowler --version | grep -q "5.45.0"
+ && /opt/prowler/bin/prowler --version | grep -q "5.47.0"
 
 FROM runtime AS worker
 # CloudFox and Steampipe look up the user's home in the passwd entry, not $HOME, and write
