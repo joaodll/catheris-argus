@@ -54,55 +54,14 @@ Only AWS scans and connection tests have a cloud identity, through the service a
 `<release>-run` (`argus-run` for a release named `argus`). The chart creates one other account,
 `<release>-scheduler`, which may create Jobs and holds nothing else; every other pod runs as the
 namespace's `default` account with no token ([chart README](../charts/argus/README.md#service-accounts)).
-Create an IAM role for `-run`:
+Create an IAM role for `-run`, with the policies in
+[Suggested AWS policies](aws-policies.md#the-iam-role-for-the-service-account):
 
-1. Trust: the cluster's OIDC provider, for exactly that service account. Replace the account,
-   region, provider id and namespace:
-
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Principal": {"Federated": "arn:aws:iam::ACCOUNT:oidc-provider/oidc.eks.REGION.amazonaws.com/id/PROVIDER_ID"},
-         "Action": "sts:AssumeRoleWithWebIdentity",
-         "Condition": {
-           "StringEquals": {
-             "oidc.eks.REGION.amazonaws.com/id/PROVIDER_ID:sub": "system:serviceaccount:argus:argus-run",
-             "oidc.eks.REGION.amazonaws.com/id/PROVIDER_ID:aud": "sts.amazonaws.com"
-           }
-         }
-       }
-     ]
-   }
-   ```
-
-2. Permissions: `s3:PutObject` on the raw output bucket and `kms:GenerateDataKey` on its key,
-   exactly as in [runbook.md, Raw output storage](runbook.md#operating), plus `sts:AssumeRole` on
-   each connection's scanner role. Nothing else.
+1. **Trust:** the IRSA policy, for exactly that service account. With EKS Pod Identity instead, use
+   its policy, set `identity.mode: podIdentity`, and make the association outside the chart.
+2. **Permissions:** the suggested policy, and nothing else.
 3. Put the role's ARN in `identity.roleArn`. With no identity at all (`identity.mode: none`), enter
    an access key in **Settings → Platform identity**.
-
-   With EKS Pod Identity instead, set `identity.mode: podIdentity`, make the association for the
-   `-run` service account outside the chart, and give the role this trust:
-
-   ```json
-   {
-     "Version": "2012-10-17",
-     "Statement": [
-       {
-         "Effect": "Allow",
-         "Principal": {"Service": "pods.eks.amazonaws.com"},
-         "Action": ["sts:AssumeRole", "sts:TagSession"],
-         "Condition": {
-           "StringEquals": {"aws:SourceAccount": "ACCOUNT"},
-           "ArnEquals": {"aws:SourceArn": "arn:aws:eks:REGION:ACCOUNT:cluster/CLUSTER"}
-         }
-       }
-     ]
-   }
-   ```
 
 The tools in an `aws` pod can read its IRSA token, as they can read the instance role on a
 Compose host. That is why the role may only assume scanner roles and put objects.
