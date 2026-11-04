@@ -1,12 +1,12 @@
-"""Synthetic Prowler 5.45.0 output: the OCSF findings file, the findings CSV and the compliance
+"""Synthetic Prowler 5.47.0 output: the OCSF findings file, the findings CSV and the compliance
 CSVs.
 
-Formats follow Prowler's own writers at 5.45.0:
+Formats follow Prowler's own writers at 5.47.0:
 - prowler/lib/outputs/ocsf/ocsf.py: a JSON array of DetectionFinding objects, dumped with
   exclude_none and indent=4.
 - prowler/lib/outputs/finding.py: finding uid = prowler-{provider}-{check}-{account}-{region}-
   {resource_name}.
-- prowler/lib/outputs/utils.py sanitize_csv_value (5.45.0): every CSV cell a spreadsheet would
+- prowler/lib/outputs/utils.py sanitize_csv_value (5.47.0): every CSV cell a spreadsheet would
   read as a formula is prefixed with "'" (_QuotingWriter below).
 - prowler/lib/outputs/csv/csv.py: csv.DictWriter, delimiter ";", one row per result, the
   columns below in Prowler's order. The remediation code (CLI, CloudFormation, Terraform,
@@ -44,7 +44,7 @@ from argus.collection.synthetic.estate import (
 )
 from argus.collection.synthetic.model import Resource, u
 
-TOOL_VERSION = "5.45.0"
+TOOL_VERSION = "5.47.0"
 FRAMEWORKS = ("cis_6.0_aws", "prowler_threatscore_aws")
 SEVERITY_ID = {"critical": 5, "high": 4, "medium": 3, "low": 2, "informational": 1}
 BASE_FAIL_RATE = {
@@ -81,7 +81,7 @@ EXPOSED_PORTS = {
 
 @cache
 def catalog() -> dict[str, Any]:
-    text = resources.files("argus.collection.synthetic") / "catalog/prowler_aws_5.45.0.json"
+    text = resources.files("argus.collection.synthetic") / "catalog/prowler_aws_5.47.0.json"
     data: dict[str, Any] = json.loads(text.read_text())
     return data
 
@@ -348,7 +348,7 @@ def _ocsf(result: Result, estate: EstateDay, scan_time: datetime, scan_id: str) 
     return finding
 
 
-# prowler/lib/outputs/csv/csv.py at 5.45.0 (unchanged since 5.44.0), in order.
+# prowler/lib/outputs/csv/csv.py at 5.47.0 (unchanged since 5.44.0), in order.
 FINDINGS_CSV_COLUMNS = (
     "AUTH_METHOD",
     "TIMESTAMP",
@@ -398,7 +398,7 @@ FINDINGS_CSV_COLUMNS = (
 
 
 def _sanitize_csv_value(value: Any) -> Any:
-    """Prowler 5.45.0's sanitize_csv_value (prowler/lib/outputs/utils.py), as it writes it."""
+    """Prowler 5.47.0's sanitize_csv_value (prowler/lib/outputs/utils.py), as it writes it."""
     if not isinstance(value, str) or not (
         value.startswith(("\t", "\r")) or value.lstrip().startswith(("=", "+", "-", "@"))
     ):
@@ -413,7 +413,7 @@ def _sanitize_csv_value(value: Any) -> Any:
 
 
 class _QuotingWriter(csv.DictWriter):  # type: ignore[type-arg]
-    """csv.DictWriter as Prowler 5.45.0's CSV writers use it: every cell sanitized."""
+    """csv.DictWriter as Prowler 5.47.0's CSV writers use it: every cell sanitized."""
 
     def writerow(self, rowdict: Any) -> Any:
         return super().writerow({k: _sanitize_csv_value(v) for k, v in rowdict.items()})

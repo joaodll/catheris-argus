@@ -7,7 +7,7 @@ tagged Name=exp-<case>, so the fixture reads by case and the test asserts by nam
 
 Network (us-east-1a unless noted):
     exp-vpc 10.30.0.0/16, internet gateway; its main route table routes to it too, as a
-        default VPC's does (Prowler 5.44.0 reads any VPC's main table: the exp-vpc-b case)
+        default VPC's does (Prowler 5.47.0 reads any VPC's main table: the exp-vpc-b case)
       exp-public    10.30.1.0/24  default route -> internet gateway
       exp-acl       10.30.2.0/24  same route; a network ACL denying tcp/22 first
       exp-private   10.30.3.0/24  no default route

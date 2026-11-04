@@ -7652,6 +7652,6 @@
    "version": "1.0"
   }
  },
- "prowler_version": "5.45.0",
- "source": "prowler-cloud/prowler 5.45.0 (Apache-2.0). Check metadata from prowler/providers/aws/services/<service>/<check>/<check>.metadata.json; frameworks from prowler/compliance/aws/cis_6.0_aws.json and prowler_threatscore_aws.json. Fields trimmed to what the Prowler OCSF, CSV and compliance CSV writers emit."
+ "prowler_version": "5.47.0",
+ "source": "prowler-cloud/prowler 5.47.0 (Apache-2.0). Check metadata from prowler/providers/aws/services/<service>/<check>/<check>.metadata.json; frameworks from prowler/compliance/aws/cis_6.0_aws.json and prowler_threatscore_aws.json. Fields trimmed to what the Prowler OCSF, CSV and compliance CSV writers emit."
 }

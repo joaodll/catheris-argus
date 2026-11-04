@@ -59,7 +59,7 @@ def fakes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             'exit "$(cat "$HOME/../prowler.rc" 2>/dev/null || echo 0)"\n',
         ),
     )
-    monkeypatch.setattr(aws_tools, "PROWLER_PYTHON", _script(bin_dir / "python", "echo 5.45.0\n"))
+    monkeypatch.setattr(aws_tools, "PROWLER_PYTHON", _script(bin_dir / "python", "echo 5.47.0\n"))
     monkeypatch.setattr(
         aws_tools,
         "CLOUDFOX",
@@ -164,7 +164,7 @@ def test_prowler_runs_read_only_in_the_regions_set(fakes: Path) -> None:
     for flag in ("--fixer", "--security-hub", "--scan-secrets-validate", "--shodan", "--slack"):
         assert flag not in argv
     assert manifest.status == "complete"
-    assert manifest.tool_version == "5.45.0"
+    assert manifest.tool_version == "5.47.0"
     assert manifest.region_scope == ["eu-west-1", "us-east-1"]
     # The Runs page shows what ran: the same argv, the run's temporary folder shortened.
     assert manifest.command.startswith("prowler aws --profile argus --output-formats json-ocsf")
