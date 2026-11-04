@@ -34,11 +34,12 @@ COPY . .
 RUN pnpm build
 
 FROM ${NGINX_IMAGE} AS runtime
-# CVE-2026-111497: no published image carries the fix yet (checked 2026-11-03). nginx doesn't use
-# brotli. Not pinned to a version, because Alpine removes old ones and the build would break. Drop
-# this once the base image ships brotli-libs 1.2.1 or newer.
+# The published base lags Alpine's repository, so its packages carry CVEs already fixed there.
+# Upgrade all of them: not to exact versions, because Alpine removes old ones and the build would
+# break. curl and libcurl (most of the base's findings) go: nothing here uses them, and the
+# healthcheck uses BusyBox wget.
 USER root
-RUN apk upgrade --no-cache brotli-libs
+RUN apk upgrade --no-cache && apk del --no-cache curl
 # A template the entrypoint fills in at start (ARGUS_API_UPSTREAM), into /etc/nginx/conf.d,
 # which must be writable: a tmpfs in Compose, an emptyDir on Kubernetes. Only ARGUS_ variables
 # are substituted, never nginx's own ($remote_addr, $host).

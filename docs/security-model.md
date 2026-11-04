@@ -127,6 +127,11 @@ when their checks need it. Argus never stores such a value:
 - Trivy scans the repository and the images, gitleaks scans the working tree and the whole
   history, and both fail the checks every change must pass. Accepted findings are listed with their reason and an expiry
   in `.trivyignore`.
+- The runtime and web images fail on a HIGH or CRITICAL finding that has a fix. The worker image fails on a CRITICAL
+  that has a fix, because most of its findings are inside the upstream tools and wait on their next release.
+- Findings with no fix are accepted and don't fail the scan. The backend images are built on Debian, which lists many
+  vulnerabilities in base packages that it hasn't patched, so a registry scanner such as Amazon ECR or Inspector reports
+  them until Debian fixes them. Judge them again whenever the base image digest changes.
 
 ## Known limits
 
