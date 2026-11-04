@@ -27,6 +27,7 @@ from argus.auth.sessions import (
     sign_out,
 )
 from argus.auth.users import (
+    MAX_EMAIL,
     MAX_PASSWORD,
     MIN_PASSWORD,
     UserRow,
@@ -45,6 +46,7 @@ from argus.auth.users import (
 )
 
 __all__ = [
+    "MAX_EMAIL",
     "MAX_PASSWORD",
     "MIN_PASSWORD",
     "ROLES",

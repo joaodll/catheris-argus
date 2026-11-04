@@ -1,9 +1,13 @@
 """Administration -> Users (ADR-0041): an admin manages users, the safety rules hold, every change
 ends the sessions it should and is audited, and no hash ever leaves the API."""
 
+import json
+
 import pytest
 from fastapi.testclient import TestClient
+from httpx import Response
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import IntegrityError
 from tests.api.conftest import PASSWORD, add_user, csrf
 
 from argus.auth import SessionUser, UserRuleError, update_user
@@ -222,3 +226,109 @@ def test_sign_in_is_case_insensitive_on_the_username(client: TestClient) -> None
     response = client.post("/api/v1/auth/sign-in", json={"username": "Admin", "password": PASSWORD})
     assert response.status_code == 204
     assert client.get("/api/v1/auth/session").json()["username"] == "admin"
+
+
+def _new_user(http: TestClient, username: str, **fields: str) -> Response:
+    return http.post(
+        "/api/v1/users",
+        json={"username": username, "role": "viewer", "password": NEW, **fields},
+        headers=csrf(http),
+    )
+
+
+def test_an_email_address_is_optional_lowercase_and_can_be_cleared(signed_in: TestClient) -> None:
+    assert _new_user(signed_in, "no.address").json()["email"] is None
+    created = _new_user(signed_in, "maria", email="  Maria.S@Example.COM ")
+    assert created.status_code == 201 and created.json()["email"] == "maria.s@example.com"
+    user = created.json()["id"]
+
+    def patch(body: dict[str, str | None]) -> dict[str, object]:
+        response = signed_in.patch(f"/api/v1/users/{user}", json=body, headers=csrf(signed_in))
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    assert patch({"display_name": "Maria"})["email"] == "maria.s@example.com"  # left as it is
+    assert patch({"email": None})["email"] == "maria.s@example.com"
+    assert patch({"email": "m@example.com"})["email"] == "m@example.com"
+    assert patch({"email": ""})["email"] is None
+    assert patch({"email": ""})["email"] is None  # and clearing twice changes nothing
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["no-at-sign", "two@@example.com", "a@nodot", "a b@example.com", "a@exa mple.com", "ação@x.io"],
+    ids=["no-at", "two-ats", "no-dot", "space-local", "space-domain", "not-ascii"],
+)
+def test_a_badly_shaped_email_address_is_refused(signed_in: TestClient, address: str) -> None:
+    refused = _new_user(signed_in, "maria", email=address)
+    assert refused.status_code == 422 and refused.json()["detail"].startswith("email:")
+
+
+def test_two_users_cannot_share_an_email_address(signed_in: TestClient) -> None:
+    assert _new_user(signed_in, "first", email="same@example.com").status_code == 201
+    second = _new_user(signed_in, "second", email="SAME@example.com")
+    assert second.status_code == 409
+    assert second.json()["detail"] == "Another user already has this email address."
+    other = _new_user(signed_in, "third")
+    moved = signed_in.patch(
+        f"/api/v1/users/{other.json()['id']}",
+        json={"email": "Same@Example.com"},
+        headers=csrf(signed_in),
+    )
+    assert moved.status_code == 409 and "email address" in moved.json()["detail"]
+
+
+def test_a_taken_username_says_so(signed_in: TestClient) -> None:
+    assert _new_user(signed_in, "maria").status_code == 201
+    again = _new_user(signed_in, "Maria")
+    assert again.status_code == 409
+    assert again.json()["detail"] == "There is a user called maria already."
+
+
+def test_a_user_keeps_their_own_address_when_saved_again(signed_in: TestClient) -> None:
+    user = _new_user(signed_in, "maria", email="maria@example.com").json()["id"]
+    saved = signed_in.patch(
+        f"/api/v1/users/{user}", json={"email": "MARIA@example.com"}, headers=csrf(signed_in)
+    )
+    assert saved.status_code == 200 and saved.json()["email"] == "maria@example.com"
+
+
+def test_the_audit_log_never_holds_an_email_address(signed_in: TestClient, owner: Engine) -> None:
+    user = _new_user(signed_in, "maria", email="first@example.com").json()["id"]
+    changed = signed_in.patch(
+        f"/api/v1/users/{user}", json={"email": "second@example.com"}, headers=csrf(signed_in)
+    )
+    assert changed.status_code == 200
+    with owner.connect() as conn:
+        rows = conn.execute(
+            text("SELECT detail FROM audit_log WHERE target_id = 'maria' ORDER BY id")
+        ).scalars()
+        details = [json.dumps(detail) for detail in rows]
+    assert details and not any("example.com" in detail for detail in details)
+    assert any('"email": ["changed"]' in detail for detail in details)
+
+
+def test_only_the_users_screen_returns_an_email_address(
+    client: TestClient, signed_in: TestClient, owner: Engine
+) -> None:
+    signed_in.patch(
+        f"/api/v1/users/{_user_id(owner, 'admin')}",
+        json={"email": "admin@example.com"},
+        headers=csrf(signed_in),
+    )
+    assert "example.com" not in client.get("/api/v1/auth/session").text
+
+
+def test_the_column_itself_holds_the_rules(owner: Engine) -> None:
+    add_user(owner, "maria")
+    add_user(owner, "other")
+    with owner.begin() as conn:
+        conn.execute(text("UPDATE app_user SET email = 'm@example.com' WHERE username = 'maria'"))
+    for bad, error in (
+        ("M@EXAMPLE.COM", "app_user_email_check"),
+        ("m@example.com", "app_user_email"),
+    ):
+        with pytest.raises(IntegrityError, match=error), owner.begin() as conn:
+            conn.execute(
+                text("UPDATE app_user SET email = :e WHERE username = 'other'"), {"e": bad}
+            )

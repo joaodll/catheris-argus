@@ -104,6 +104,9 @@ when their checks need it. Argus never stores such a value:
   in Postgres, never returned; the API's role can read them to check a sign-in. The first admin
   comes from the environment once, at the first start, and the operator then removes it. No
   second factor until single sign-on.
+- **Email addresses:** optional, and the one personal field besides a display name. Only an Admin
+  sets or reads one. Argus sends no mail, and the API has no route out to send any. The audit log
+  says that an address changed and never holds its value, so deleting a user removes it.
 - **Sessions:** HttpOnly, Secure, SameSite=Strict cookies, double-submit CSRF protection on every
   write, and limits of 30 minutes idle and 12 hours in total.
 - **What stays in the browser:** no scan data is stored in the browser.

@@ -83,6 +83,7 @@ async function onSaved(message: string): Promise<void> {
                 <span v-if="u.username === session?.username" class="cap">(you)</span>
               </span>
               <span class="mono sub">{{ u.username }}</span>
+              <span v-if="u.email" class="sub email">{{ u.email }}</span>
             </td>
             <td data-label="Role"><span class="role" :class="{ 'is-admin': u.role === 'admin' }">{{ ROLE_LABEL[u.role] }}</span></td>
             <td data-label="Status" class="status">
@@ -142,6 +143,11 @@ async function onSaved(message: string): Promise<void> {
   margin-top: 3px;
   font-size: 11px;
   color: var(--text-3);
+}
+
+/* A long address wraps: list tables never scroll sideways. */
+.email {
+  overflow-wrap: anywhere;
 }
 
 .soft {

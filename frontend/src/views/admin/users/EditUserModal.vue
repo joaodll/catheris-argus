@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Edit user (docs/ui/screens.md, E13): display name, role and active flag (PATCH /users/{id}),
+ * Edit user (docs/ui/screens.md, E13): display name, email, role and active flag (PATCH /users/{id}),
  * and three actions with their own result: set a new password, unlock, delete (inactive only).
  * Your own role and active flag, and the last active admin's, are locked here; the API refuses
  * them anyway (409).
@@ -20,6 +20,7 @@ const props = defineProps<{ user: Schemas['UserOut']; activeAdmins: number }>()
 const emit = defineEmits<{ close: []; saved: [message: string] }>()
 
 const displayName = ref(props.user.display_name)
+const email = ref(props.user.email ?? '')
 const role = ref(props.user.role)
 const active = ref(props.user.is_active)
 const saving = ref(false)
@@ -37,7 +38,11 @@ const lockReason = computed(() =>
   isMe.value ? "You can't change your own role or deactivate yourself." : 'Argus needs at least one active admin.',
 )
 const dirty = computed(
-  () => displayName.value !== props.user.display_name || role.value !== props.user.role || active.value !== props.user.is_active,
+  () =>
+    displayName.value !== props.user.display_name ||
+    email.value !== (props.user.email ?? '') ||
+    role.value !== props.user.role ||
+    active.value !== props.user.is_active,
 )
 const who = computed(() => props.user.display_name || props.user.username)
 
@@ -50,6 +55,7 @@ async function save(): Promise<void> {
   error.value = null
   const body: Schemas['UserPatch'] = {}
   if (displayName.value !== props.user.display_name) body.display_name = displayName.value
+  if (email.value !== (props.user.email ?? '')) body.email = email.value
   if (role.value !== props.user.role) body.role = role.value
   if (active.value !== props.user.is_active) body.is_active = active.value
   try {
@@ -120,6 +126,11 @@ async function remove(): Promise<void> {
         <label class="lbl" for="eu-display">Display name</label>
         <input id="eu-display" v-model.trim="displayName" class="input" maxlength="100" autocomplete="off">
       </div>
+      <div class="field">
+        <label class="lbl" for="eu-email">Email address <span class="opt">optional</span></label>
+        <input id="eu-email" v-model.trim="email" class="input" type="email" maxlength="254" autocomplete="off" spellcheck="false" aria-describedby="eu-email-h">
+        <span id="eu-email-h" class="cap">Only admins see it. Argus sends no mail, and they still sign in with their username.</span>
+      </div>
       <RoleCards v-model="role" name="edit-role" :disabled="locked" />
       <div class="field">
         <span class="lbl">Sign-in</span>
@@ -168,6 +179,11 @@ async function remove(): Promise<void> {
 </template>
 
 <style scoped>
+.opt {
+  font-weight: 400;
+  color: var(--text-3);
+}
+
 .form {
   display: flex;
   flex-direction: column;
