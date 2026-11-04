@@ -66,7 +66,7 @@ export const router = createRouter({
       redirect: { name: 'connections' },
       children: [
         { path: 'connections', name: 'connections', component: () => import('@/views/admin/ConnectionsView.vue'), meta: { title: 'Connections · Administration' } },
-        { path: 'settings', name: 'settings', component: () => import('@/views/admin/SettingsView.vue'), meta: { title: 'Settings · Administration', role: 'admin' } },
+        { path: 'settings', name: 'settings', component: () => import('@/views/admin/SettingsView.vue'), meta: { title: 'Settings · Administration', role: 'operator' } },
         { path: 'users', name: 'users', component: () => import('@/views/admin/UsersView.vue'), meta: { title: 'Users · Administration', role: 'admin' } },
         // Where Schedules and Runs were before 2026-10-06.
         { path: 'schedules', redirect: { name: 'schedules' } },

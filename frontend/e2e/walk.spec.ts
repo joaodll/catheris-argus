@@ -656,11 +656,12 @@ test('users and roles: a viewer and an operator, each limited to their role', as
     const nav = page.getByRole('navigation', { name: 'Primary' })
     await expect(nav.getByText(p.role, { exact: true })).toBeVisible()
 
-    // Settings and Users are an admin's: not in the menu, and the address leads to the Overview.
+    // Users is an admin's, and Settings is not a viewer's: not in the menu, and the address leads
+    // to the Overview. An operator's Settings holds the Collection card alone.
     await navTo(page, 'Administration', 'Connections')
-    await expect(nav.getByRole('link', { name: 'Settings', exact: true })).toHaveCount(0)
-    await expect(nav.getByRole('link', { name: 'Users', exact: true })).toHaveCount(0)
     const canOperate = p.role === 'Operator'
+    await expect(nav.getByRole('link', { name: 'Settings', exact: true })).toHaveCount(canOperate ? 1 : 0)
+    await expect(nav.getByRole('link', { name: 'Users', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Add connection' })).toHaveCount(canOperate ? 1 : 0)
     if (canOperate) await expect(page.getByRole('switch').first()).toBeVisible()
     else await expect(page.getByRole('switch')).toHaveCount(0)
@@ -671,7 +672,17 @@ test('users and roles: a viewer and an operator, each limited to their role', as
     await navLink(page, 'Schedules')
     await expect(page.getByRole('heading', { level: 2, name: 'Run now' })).toHaveCount(canOperate ? 1 : 0)
     await page.goto('/admin/settings')
-    await expect(page.getByRole('heading', { level: 1, name: 'Overview', exact: true })).toBeVisible()
+    if (canOperate) {
+      await expect(page.getByRole('heading', { level: 1, name: 'Settings', exact: true })).toBeVisible()
+      await expect(page.getByRole('region', { name: 'Collection and throttling' })).toBeVisible()
+      for (const other of ['Retention', 'Raw output storage', 'Platform identity']) {
+        await expect(page.getByRole('region', { name: other })).toHaveCount(0)
+      }
+      await axe(page, 'settings as an operator')
+      await shot(page, '73-settings-operator')
+    } else {
+      await expect(page.getByRole('heading', { level: 1, name: 'Overview', exact: true })).toBeVisible()
+    }
     await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Sign out' }).click()
   }
 

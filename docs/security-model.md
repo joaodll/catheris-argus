@@ -95,8 +95,11 @@ when their checks need it. Argus never stores such a value:
 ## Sign-in, sessions and the audit trail
 
 - **Users and roles** ([ADR-0041](adr/0041-users-and-roles.md)): each person signs in as
-  themselves, with Viewer (reads), Operator (also connections, schedules and scans) or Admin
-  (also Settings and Users). Every route checks the role on the server, a refusal is audited, and
+  themselves, with Viewer (reads), Operator (also connections, schedules, scans and the Collection
+  and throttling settings) or Admin (also every other setting and Users). Only an Admin can read
+  the raw output bucket or the platform identity. An Operator can make scans push harder on an
+  account's API limits, within each setting's range; that can cause throttling, never a write to a
+  cloud. Every route checks the role on the server, a refusal is audited, and
   a role change or deactivation ends that user's sessions at once. Passwords are argon2id hashes
   in Postgres, never returned; the API's role can read them to check a sign-in. The first admin
   comes from the environment once, at the first start, and the operator then removes it. No

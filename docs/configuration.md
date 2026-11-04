@@ -9,7 +9,7 @@ Argus has three places for configuration, and each kind of value has exactly one
 
 | Where | What goes there | Changed by |
 | --- | --- | --- |
-| **Administration → Settings** | Every setting an administrator should change: collection and throttling, retention, raw output storage, the platform identity | The administrator, in the UI; stored in the database, audited, applied without a restart |
+| **Administration → Settings** | Every setting an administrator should change: collection and throttling, retention, raw output storage, the platform identity | In the UI, by an Admin, or by an Operator for collection and throttling; stored in the database, audited, applied without a restart |
 | **Environment variables** | Only what is needed before the database is reachable, secrets, and **bounds** on what an administrator may set | The operator: `.env` on Compose, the chart's values and Secret on Kubernetes |
 | **Helm values** | How the chart deploys Argus on Kubernetes | The operator, at install and upgrade |
 

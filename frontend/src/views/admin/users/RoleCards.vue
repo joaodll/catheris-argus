@@ -7,8 +7,8 @@ const emit = defineEmits<{ 'update:modelValue': [role: Role] }>()
 
 const ROLES: { value: Role; title: string; text: string }[] = [
   { value: 'viewer', title: 'Viewer', text: 'Reads every screen except Users and Settings.' },
-  { value: 'operator', title: 'Operator', text: 'Also adds and edits connections, runs and schedules scans.' },
-  { value: 'admin', title: 'Admin', text: 'Also changes Settings and manages users.' },
+  { value: 'operator', title: 'Operator', text: 'Also adds and edits connections, runs and schedules scans, and changes collection settings.' },
+  { value: 'admin', title: 'Admin', text: 'Also changes every other setting and manages users.' },
 ]
 </script>
 

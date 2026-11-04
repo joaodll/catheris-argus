@@ -43,7 +43,7 @@ const NAV: Entry[] = [
     icon: 'admin',
     children: [
       { name: 'connections', label: 'Connections', icon: 'plug' },
-      { name: 'settings', label: 'Settings', icon: 'admin', role: 'admin' },
+      { name: 'settings', label: 'Settings', icon: 'admin', role: 'operator' },
       { name: 'users', label: 'Users', icon: 'users', role: 'admin' },
     ],
   },

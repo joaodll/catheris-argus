@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request
 from pydantic import BaseModel, ConfigDict, SecretStr
 
 from argus import settings as platform_settings
-from argus.api.deps import Admin, Db, Viewer, client_ip
+from argus.api.deps import Admin, Db, Operator, Viewer, client_ip
 from argus.core import audit
 from argus.core.config import get_settings
 from argus.settings import CollectionSettings, RawStorageSettings, RetentionSettings
@@ -68,7 +68,7 @@ def read_collection(conn: Db, _user: Viewer) -> CollectionSettings:
 
 @router.put("/collection")
 def write_collection(
-    body: CollectionSettings, conn: Db, user: Admin, request: Request
+    body: CollectionSettings, conn: Db, user: Operator, request: Request
 ) -> CollectionSettings:
     platform_settings.write_topic(conn, topic="collection", values=body.model_dump(), actor=user)
     audit.record(

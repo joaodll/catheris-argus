@@ -69,7 +69,6 @@ const toggling = ref<Set<number>>(new Set())
 const queue = ref<InstanceType<typeof QueueCard> | null>(null)
 // A Viewer reads schedules and the queue; an Operator or Admin changes them (ADR-0041).
 const operator = computed(() => can('operator'))
-const admin = computed(() => can('admin'))
 const runningCount = ref(0)
 
 function scopeOf(s: Schemas['ScheduleOut']): { text: string; title: string } {
@@ -213,7 +212,7 @@ async function onSaved(message: string): Promise<void> {
       <AlertBanner>
         Each account starts at its own offset within {{ collection.data.value.stagger_window_minutes }} minutes, one run per account at a time,
         at most {{ collection.data.value.max_parallel_runs }} runs in parallel.
-        <template v-if="admin"><RouterLink :to="{ name: 'settings' }">Change these in Settings</RouterLink>.</template>
+        <template v-if="operator"><RouterLink :to="{ name: 'settings' }">Change these in Settings</RouterLink>.</template>
       </AlertBanner>
     </div>
   </section>
