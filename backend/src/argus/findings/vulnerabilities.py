@@ -21,7 +21,7 @@ from argus.core.resolver import record_unresolved, resolve
 from argus.findings.inspector import parse_inspector
 from argus.findings.lifecycle import ANY_CHECK, ANY_REGION, load_checks, load_tool_findings
 from argus.findings.model import VULNERABILITY_TOOL, VulnerabilityBatch
-from argus.inventory import resource_id_sql
+from argus.inventory import RESOURCES_IN_REGIONS_SQL, resource_id_sql
 
 
 @dataclass(frozen=True)
@@ -89,13 +89,19 @@ def load_vulnerabilities(
 ) -> dict[str, int]:
     """Lifecycle and day snapshot for one vulnerabilities run, then each finding's vulnerability
     facts and, when the coverage table is complete, the connection's coverage. A complete run
-    resolves every open CVE it no longer reports, in every region: the scanner reports the whole
-    account."""
+    resolves every open CVE it no longer reports, in the regions it scanned: the scanner reports
+    the whole account, but only the regions it is asked for, so a region narrowed out of "AWS
+    regions to scan" is not a region where everything was fixed (owner, 2026-11-03)."""
+    executed = (
+        frozenset({(ANY_CHECK, region) for region in batch.regions | {"global"}})
+        if batch.regions
+        else frozenset({(ANY_CHECK, ANY_REGION)})
+    )
     loaded = load_tool_findings(
         conn,
         tool=VULNERABILITY_TOOL,
         findings=batch.findings,
-        executed=frozenset({(ANY_CHECK, ANY_REGION)}),
+        executed=executed,
         complete=batch.complete,
         connection_id=connection_id,
         day=day,
@@ -181,10 +187,15 @@ def _coverage(
     account_id: str,
     scan_run_id: int,
 ) -> int:
-    """Current state: replaces the connection's coverage. A resource not in the inventory is
-    recorded as unresolved, never dropped silently."""
+    """Current state: replaces the connection's coverage in the regions the run scanned. A
+    resource not in the inventory is recorded as unresolved, never dropped silently."""
+    regions = sorted(batch.regions) or None
     conn.execute(
-        text("DELETE FROM vulnerability_coverage WHERE connection_id = :c"), {"c": connection_id}
+        text(f"""
+        DELETE FROM vulnerability_coverage WHERE connection_id = :c
+          AND (CAST(:regions AS text[]) IS NULL OR resource_id IN ({RESOURCES_IN_REGIONS_SQL}))
+    """),  # noqa: S608 - exported SQL constants only
+        {"c": connection_id, "regions": regions},
     )
     rows = []
     for item in sorted(batch.coverage, key=lambda c: (c.resource_uid, c.scan_type)):

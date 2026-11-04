@@ -116,7 +116,7 @@ async function save(): Promise<void> {
       <div class="field">
         <label class="lbl" for="aws-regions">AWS regions to scan</label>
         <input id="aws-regions" v-model="form.regions" class="input mono" autocomplete="off" spellcheck="false" placeholder="All enabled regions" aria-describedby="aws-regions-help">
-        <span id="aws-regions-help" class="cap">Prowler and Steampipe scan only these, comma-separated. Empty scans every enabled region. CloudFox always scans every region.</span>
+        <span id="aws-regions-help" class="cap">Prowler, Steampipe and the vulnerability scanner read only these, comma-separated. Empty scans every enabled region. CloudFox always scans every region. What a removed region held stays as last scanned, with its last-seen date, until it is scanned again.</span>
       </div>
     </div>
   </SettingsCard>

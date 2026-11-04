@@ -366,4 +366,5 @@ def parse_inspector(run: RawRun) -> VulnerabilityBatch:
         and "aws_inspector2_coverage" not in incomplete,
         tool_version=manifest.tool_version,
         skipped=skipped,
+        regions=frozenset(manifest.region_scope),
     )
