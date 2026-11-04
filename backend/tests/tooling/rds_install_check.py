@@ -196,6 +196,7 @@ def check_passwords_never_reach_the_server_log() -> None:
 def check_the_worker_makes_partitions_the_owner_owns() -> None:
     with role("argus_worker") as conn:
         one(conn, "SELECT argus_ensure_partitions('2035-01-01', '2035-01-31')")
+        assert one(conn, "SELECT argus_analyze_partitions('2035-01-15')") == 7
     with superuser() as conn:
         rows = conn.execute(
             statement("""
@@ -243,7 +244,9 @@ CHECKS: dict[str, Check] = {
     "each role has its limits": check_role_limits,
     "passwords are stored as SCRAM": check_passwords_are_scram,
     "no plain password reaches the server's log": check_passwords_never_reach_the_server_log,
-    "the worker makes partitions the owner owns": check_the_worker_makes_partitions_the_owner_owns,
+    "the worker makes and analyzes partitions the owner owns": (
+        check_the_worker_makes_partitions_the_owner_owns
+    ),
     "the api cannot read stored secrets": check_the_api_cannot_read_secrets,
     "the audit log is append-only": check_the_audit_log_is_append_only,
     "each role stays in its lane": check_each_role_stays_in_its_lane,

@@ -237,6 +237,27 @@ def test_worker_creates_and_drops_partitions_api_cannot(conn: Connection) -> Non
     )
 
 
+def test_worker_analyzes_a_day_it_does_not_own_api_cannot(conn: Connection) -> None:
+    conn.execute(text("SELECT argus_ensure_partitions('2001-01-01', '2001-01-31')"))
+    conn.execute(
+        text(
+            "INSERT INTO metric_daily (snapshot_date, connection_id, metric, value) "
+            "VALUES ('2001-01-01', 0, 'assets', 1)"
+        )
+    )
+    conn.execute(text("SET LOCAL ROLE argus_worker"))
+    analyzed = conn.execute(text("SELECT argus_analyze_partitions('2001-01-15')")).scalar_one()
+    assert analyzed == 7  # one per partitioned table
+    conn.execute(text("RESET ROLE"))
+    tuples = conn.execute(
+        text("SELECT reltuples FROM pg_class WHERE relname = 'metric_daily_200101'")
+    ).scalar_one()
+    assert tuples == 1  # -1 until a table is first analyzed
+
+    conn.execute(text("SET LOCAL ROLE argus_api"))
+    assert "permission denied" in _fails(conn, "SELECT argus_analyze_partitions('2001-01-15')")
+
+
 def test_api_role_has_a_statement_timeout(conn: Connection) -> None:
     config = conn.execute(
         text("SELECT rolconfig FROM pg_roles WHERE rolname = 'argus_api'")

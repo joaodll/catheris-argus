@@ -25,6 +25,7 @@ from pathlib import Path
 from uuid import UUID
 
 from sqlalchemy import Connection, Engine, text
+from sqlalchemy.exc import DBAPIError
 
 from argus import connections, metrics
 from argus.cloudfox import PUBLIC_ENDPOINT_CHECK, load_cloudfox, parse_cloudfox
@@ -372,4 +373,16 @@ def _ingest(engine: Engine, *, store: RawStore, scan_run_id: int, rules_dir: Pat
         "run ingested",
         extra={"scan_run_id": scan_run_id, "tool": run.tool, "day": run.day.isoformat(), **loaded},
     )
+    _analyze(engine, run)
     return IngestOutcome(scan_run_id, run.status, loaded)
+
+
+def _analyze(engine: Engine, run: _Run) -> None:
+    """Fresh statistics for the day's partitions. In a transaction of its own, after the load has
+    committed, because ANALYZE holds its lock until commit and parallel runs share the partitions.
+    A failure does not undo the load: it is logged, and autovacuum still gets there later."""
+    try:
+        with engine.begin() as conn:
+            conn.execute(text("SELECT argus_analyze_partitions(:d)"), {"d": run.day})
+    except DBAPIError:
+        log.exception("analyze failed", extra={"scan_run_id": run.scan_run_id})
