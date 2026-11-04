@@ -5,8 +5,8 @@ description: >-
   read-only collectors, the join between them, history and a UI.
 type: application
 # The chart and the images are released together: appVersion is the images' version.
-version: 0.1.2
-appVersion: "0.1.2"
+version: 0.1.4
+appVersion: "0.1.4"
 # ValidatingAdmissionPolicy (ADR-0040) is GA from 1.30.
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/joaodll/catheris-argus

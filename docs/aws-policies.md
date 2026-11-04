@@ -1,7 +1,7 @@
 # Suggested AWS policies
 
 **Owner:** `cloud-native-platform-engineer` (policies) · `documentation-writer` (document)
-**Applies to:** Argus 0.1.2 (2026-11-04)
+**Applies to:** Argus 0.1.4 (2026-11-04)
 
 These are the permissions for the three resources Argus needs in your platform account: the IAM role
 for its service account, the KMS key and the S3 bucket. Copy them and adapt them to your own rules.
