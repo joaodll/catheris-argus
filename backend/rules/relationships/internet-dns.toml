@@ -1,5 +1,5 @@
 id = "internet-dns"
-version = 1
+version = 2
 edge_type = "PUBLIC_UNVERIFIED"
 description = """A public DNS record whose chain ends at something Argus does not judge (argus_v12,
 ADR-0035 third amendment): a host outside the inventory, a bucket website, an API custom domain,
@@ -8,7 +8,9 @@ names each end ("dns_target:external:status.vendor.example.net"). Not a door: a 
 private zone; one another record names (the outermost record is the door); a chain that reaches
 a resource the exposure view judges (`p`: then the record is drawn in front of that door), or
 only resources it judges not public (an internal load balancer, an instance without a public
-address)."""
+address).
+Version 2 (ADR-0035, seventh amendment): the doors it names follow `g`, which also counts
+blocks that together cover every address of a family."""
 sql = """
 SELECT 'internet', q.root,
        jsonb_build_object('via', 'dns', 'missing', q.missing, 'checked', '["dns_chain"]'::jsonb)

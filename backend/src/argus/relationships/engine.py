@@ -132,36 +132,74 @@ HOSTS_SQL = f"""
 """  # noqa: S608 - fixed fragments, no input
 
 
-# `g`: every security group ingress rule (ADR-0035). `anywhere` is a source of 0.0.0.0/0 or
-# ::/0, the only source Argus counts as the internet: an address list, another security group
-# or a prefix list restricts who can connect. `family` is the source's address family (ipv4,
-# ipv6; null for a group or prefix list), so an IPv6 rule never opens an IPv4 address (ADR-0035,
-# second amendment). `ports` is a label ("tcp/443", "tcp/8000-8100", "all"; ICMP "icmp",
-# "icmpv6" or "icmp/<type>", fifth amendment); `source` names what a restricted rule lets in.
+# `g`: every security group ingress rule (ADR-0035). `anywhere` is a source that lets the whole
+# internet in: 0.0.0.0/0 or ::/0, or blocks that together cover every address of one family on
+# the same group, protocol and ports, as 0.0.0.0/1 plus 128.0.0.0/1 do (seventh amendment, the
+# reading Prowler 5.47.0 also takes). Those are the only sources Argus counts as the internet: an
+# address list, another security group or a prefix list restricts who can connect, and a block
+# inside a wider one adds nothing. `family` is the source's address family (ipv4, ipv6; null for
+# a group or prefix list), so an IPv6 rule never opens an IPv4 address (ADR-0035, second
+# amendment). `ports` is a label ("tcp/443", "tcp/8000-8100", "all"; ICMP "icmp", "icmpv6" or
+# "icmp/<type>", fifth amendment); `source` names what a restricted rule lets in.
+#
+# CIDR blocks only ever nest or are disjoint, so once those inside another are gone, their sizes
+# sum to the whole address space exactly when together they cover it. A value Postgres can't read
+# as an address has no block: it stays a source and can't fail the derivation.
 INGRESS_SQL = """
-  SELECT sg.native_id AS group_id, lower(rule.config ->> 'ip_protocol') AS protocol,
-         (rule.config ->> 'from_port')::int AS from_port,
-         (rule.config ->> 'to_port')::int AS to_port,
-         CASE WHEN rule.config ->> 'ip_protocol' = '-1' THEN 'all'
-              WHEN lower(rule.config ->> 'ip_protocol') IN ('icmp', '1', 'icmpv6', '58') THEN
-                CASE WHEN lower(rule.config ->> 'ip_protocol') IN ('icmp', '1') THEN 'icmp'
-                     ELSE 'icmpv6' END
-                || CASE WHEN COALESCE((rule.config ->> 'from_port')::int, -1) = -1 THEN ''
-                        ELSE '/' || (rule.config ->> 'from_port') END
-              ELSE lower(rule.config ->> 'ip_protocol') || '/' || (rule.config ->> 'from_port')
-                   || CASE WHEN rule.config ->> 'to_port' <> rule.config ->> 'from_port'
-                           THEN '-' || (rule.config ->> 'to_port') ELSE '' END
-         END AS ports,
-         COALESCE(rule.config ->> 'cidr_ipv4', rule.config ->> 'cidr_ipv6',
-                  rule.config ->> 'prefix_list_id', rule.config ->> 'referenced_group_id')
-           AS source,
-         COALESCE(rule.config ->> 'cidr_ipv4' = '0.0.0.0/0'
-                  OR rule.config ->> 'cidr_ipv6' = '::/0', false) AS anywhere,
-         CASE WHEN rule.config ->> 'cidr_ipv4' IS NOT NULL THEN 'ipv4'
-              WHEN rule.config ->> 'cidr_ipv6' IS NOT NULL THEN 'ipv6' END AS family
-  FROM r rule
-  JOIN r sg ON sg.type = 'aws_vpc_security_group' AND sg.native_id = rule.config ->> 'group_id'
-  WHERE rule.type = 'aws_vpc_security_group_rule' AND rule.config ->> 'type' = 'ingress'
+  WITH ingress AS (
+    SELECT sg.native_id AS group_id, lower(rule.config ->> 'ip_protocol') AS protocol,
+           (rule.config ->> 'from_port')::int AS from_port,
+           (rule.config ->> 'to_port')::int AS to_port,
+           CASE WHEN rule.config ->> 'ip_protocol' = '-1' THEN 'all'
+                WHEN lower(rule.config ->> 'ip_protocol') IN ('icmp', '1', 'icmpv6', '58') THEN
+                  CASE WHEN lower(rule.config ->> 'ip_protocol') IN ('icmp', '1') THEN 'icmp'
+                       ELSE 'icmpv6' END
+                  || CASE WHEN COALESCE((rule.config ->> 'from_port')::int, -1) = -1 THEN ''
+                          ELSE '/' || (rule.config ->> 'from_port') END
+                ELSE lower(rule.config ->> 'ip_protocol') || '/' || (rule.config ->> 'from_port')
+                     || CASE WHEN rule.config ->> 'to_port' <> rule.config ->> 'from_port'
+                             THEN '-' || (rule.config ->> 'to_port') ELSE '' END
+           END AS ports,
+           COALESCE(rule.config ->> 'cidr_ipv4', rule.config ->> 'cidr_ipv6',
+                    rule.config ->> 'prefix_list_id', rule.config ->> 'referenced_group_id')
+             AS source,
+           CASE WHEN rule.config ->> 'cidr_ipv4' IS NOT NULL THEN 'ipv4'
+                WHEN rule.config ->> 'cidr_ipv6' IS NOT NULL THEN 'ipv6' END AS family,
+           concat_ws('|', sg.native_id, lower(rule.config ->> 'ip_protocol'),
+                     rule.config ->> 'from_port', rule.config ->> 'to_port',
+                     CASE WHEN rule.config ->> 'cidr_ipv4' IS NOT NULL THEN 'ipv4'
+                          ELSE 'ipv6' END) AS rule_key,
+           CASE WHEN pg_input_is_valid(
+                       COALESCE(rule.config ->> 'cidr_ipv4', rule.config ->> 'cidr_ipv6'), 'inet')
+                THEN network(COALESCE(rule.config ->> 'cidr_ipv4',
+                                      rule.config ->> 'cidr_ipv6')::inet) END AS block
+    FROM r rule
+    JOIN r sg ON sg.type = 'aws_vpc_security_group' AND sg.native_id = rule.config ->> 'group_id'
+    WHERE rule.type = 'aws_vpc_security_group_rule' AND rule.config ->> 'type' = 'ingress'
+  ),
+  outermost AS (
+    SELECT DISTINCT i.rule_key, i.block, i.family
+    FROM ingress i
+    WHERE i.block IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM ingress o
+                      WHERE o.rule_key = i.rule_key AND o.block >> i.block)
+  ),
+  covering AS (
+    SELECT s.rule_key, s.block
+    FROM (
+      SELECT m.rule_key, m.block,
+             CASE m.family WHEN 'ipv6' THEN 128 ELSE 32 END AS bits,
+             sum(2::numeric ^ (CASE m.family WHEN 'ipv6' THEN 128 ELSE 32 END - masklen(m.block)))
+               OVER (PARTITION BY m.rule_key) AS size
+      FROM outermost m
+    ) s
+    WHERE s.size = 2::numeric ^ s.bits
+  )
+  SELECT i.group_id, i.protocol, i.from_port, i.to_port, i.ports, i.source,
+         EXISTS (SELECT 1 FROM covering c
+                 WHERE c.rule_key = i.rule_key AND c.block = i.block) AS anywhere,
+         i.family
+  FROM ingress i
 """
 
 # `dt`: what each DNS record names (route53-target, internet-dns): an alias target, or a CNAME,

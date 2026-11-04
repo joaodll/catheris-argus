@@ -252,7 +252,7 @@ Steampipe only collects; our relationship rules turn its configuration into edge
 | Example rule | Reads | Edge |
 | --- | --- | --- |
 | Instance in security group | aws\_ec2\_instance.security\_groups | instance → security group, MEMBER\_OF |
-| Security group open to the internet | aws\_vpc\_security\_group\_rule with 0.0.0.0/0 or ::/0 | internet → security group, ALLOWS\_INGRESS, with ports |
+| Security group open to the internet (version 2, 2026-11-04, ADR-0035 seventh amendment) | aws\_vpc\_security\_group\_rule with 0.0.0.0/0 or ::/0, or blocks on one protocol and port range that together cover every address of a family, such as 0.0.0.0/1 plus 128.0.0.0/1 | internet → security group, ALLOWS\_INGRESS, with ports, one edge per block |
 | Instance role | aws\_ec2\_instance.iam\_instance\_profile\_arn and aws\_iam\_instance\_profile | instance → IAM role, RUNS\_AS |
 | Function role | aws\_lambda\_function.role | function → IAM role, RUNS\_AS |
 | User in group (`user-group`, 2026-10-08) | aws\_iam\_user.groups | user → IAM group, MEMBER\_OF |

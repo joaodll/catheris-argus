@@ -1,18 +1,19 @@
 id = "security-group-internet-ingress"
-version = 1
+version = 2
 edge_type = "ALLOWS_INGRESS"
 description = """The internet can reach a security group when one of its ingress rules allows
-0.0.0.0/0 or ::/0. The source is the pseudo-node `internet`; ports and protocol are attributes."""
+0.0.0.0/0 or ::/0. The source is the pseudo-node `internet`; ports and protocol are attributes.
+Version 2 (ADR-0035, seventh amendment): or when rules on the same protocol and ports together
+cover every address of one family, as 0.0.0.0/1 plus 128.0.0.0/1 do. One edge per block. The
+judgement is `g`'s, the one the internet rules read."""
 sql = """
 SELECT 'internet', sg.uid,
        jsonb_build_object(
-         'protocol', rule.config ->> 'ip_protocol',
-         'from_port', (rule.config ->> 'from_port')::int,
-         'to_port', (rule.config ->> 'to_port')::int,
-         'cidr', COALESCE(rule.config ->> 'cidr_ipv4', rule.config ->> 'cidr_ipv6'))
-FROM r rule
-JOIN r sg ON sg.type = 'aws_vpc_security_group' AND sg.native_id = rule.config ->> 'group_id'
-WHERE rule.type = 'aws_vpc_security_group_rule'
-  AND rule.config ->> 'type' = 'ingress'
-  AND (rule.config ->> 'cidr_ipv4' = '0.0.0.0/0' OR rule.config ->> 'cidr_ipv6' = '::/0')
+         'protocol', g.protocol,
+         'from_port', g.from_port,
+         'to_port', g.to_port,
+         'cidr', g.source)
+FROM g
+JOIN r sg ON sg.type = 'aws_vpc_security_group' AND sg.native_id = g.group_id
+WHERE g.anywhere
 """
