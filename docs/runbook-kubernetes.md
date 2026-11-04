@@ -200,7 +200,7 @@ there is no public entry. If you turn it on, add its controller to
 
 ### An external Postgres
 
-Postgres 17 (Amazon RDS, for example), with the database created, owned by the owner role, and
+Postgres 18 (Amazon RDS, for example), with the database created, owned by the owner role, and
 that role has `CREATEROLE`: the migrate Job creates `argus_api`, `argus_worker` and `argus_scheduler` and sets
 their passwords. Then:
 

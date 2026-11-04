@@ -28,7 +28,7 @@ images:
   # The same image and digest as compose.yaml (checked by `chart-check`).
   postgres:
     repository: docker.io/library/postgres
-    digest: "sha256:d74eeac9a635390a49bc21bd49fccd973de707e2a53a76ac49b552b8712ec46f"
+    digest: "sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81"
 imagePullSecrets: []
 
 # One existing Secret holds every secret value; the chart never generates one (ADR-0040).
@@ -101,7 +101,7 @@ database:
     scanJob: 3
     task: 2
 
-# Postgres 17 in the chart (a StatefulSet), or an external one with `enabled: false`.
+# Postgres 18 in the chart (a StatefulSet), or an external one with `enabled: false`.
 postgres:
   enabled: true
   storage:
