@@ -91,8 +91,13 @@ def set_role_passwords() -> list[str]:
                 password = os.environ.get(env)
                 if not password:
                     continue
+                # Hashed here, so the plain password never reaches the server: a managed database
+                # can send statements to its logs (log_statement, pgaudit).
+                verifier = driver.pgconn.encrypt_password(
+                    password.encode(), role.encode(), b"scram-sha-256"
+                )
                 statement = sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(
-                    sql.Identifier(role), sql.Literal(password)
+                    sql.Identifier(role), sql.Literal(verifier.decode())
                 )
                 cur.execute(statement)
                 updated.append(role)

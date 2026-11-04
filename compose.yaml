@@ -396,6 +396,8 @@ services:
       POSTGRES_PASSWORD: rds-check-local-only
     volumes: !reset []
     tmpfs: [/var/lib/postgresql]
+    # Every statement in a log the check can read: a role's password must never appear in it.
+    command: ["postgres", "-c", "log_statement=all", "-c", "logging_collector=on"]
     networks: !override [rds-check]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]

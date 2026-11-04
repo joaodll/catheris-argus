@@ -45,6 +45,8 @@ ROLE_PASSWORD_ENV = {
     "argus_worker": "ARGUS_WORKER_DB_PASSWORD",
     "argus_scheduler": "ARGUS_SCHEDULER_DB_PASSWORD",
 }
+# A password replaced during the run: it must not be in the server's log either.
+ROTATED_PASSWORDS: dict[str, str] = {}
 
 Check = Callable[[], None]
 Conn = psycopg.Connection[tuple[object, ...]]
@@ -123,6 +125,12 @@ def one(conn: Conn, text: str) -> object:
     return row[0]
 
 
+def one_with(conn: Conn, text: str, value: str) -> object:
+    row = conn.execute(statement(text), (value,)).fetchone()
+    assert row is not None, text
+    return row[0]
+
+
 def check_owner_is_not_a_superuser() -> None:
     with superuser() as conn:
         assert one(conn, "SELECT rolsuper FROM pg_roles WHERE rolname = 'argus_owner'") is False
@@ -170,6 +178,19 @@ def check_passwords_are_scram() -> None:
     assert len(rows) == 4, rows
     for name, stored in rows:
         assert str(stored).startswith("SCRAM-SHA-256$"), f"{name} has no SCRAM password"
+
+
+def check_passwords_never_reach_the_server_log() -> None:
+    """RDS can send statements to CloudWatch (log_statement, pgaudit), and migrate runs on every
+    upgrade. Migrate hashes the three role passwords first, so none of them is ever in a log."""
+    with superuser() as conn:
+        files = conn.execute(statement("SELECT name FROM pg_ls_logdir()")).fetchall()
+        logged = "".join(
+            str(one_with(conn, "SELECT pg_read_file(%s)", f"log/{row[0]}")) for row in files
+        )
+    assert "ALTER ROLE argus_api" in logged, "the server did not log migrate's statements"
+    for name, secret in [*ROLE_PASSWORDS.items(), *ROTATED_PASSWORDS.items()]:
+        assert secret not in logged, f"the plain password of {name} is in the server log"
 
 
 def check_the_worker_makes_partitions_the_owner_owns() -> None:
@@ -221,6 +242,7 @@ CHECKS: dict[str, Check] = {
     "pg_trgm and the collation exist": check_extension_and_collation,
     "each role has its limits": check_role_limits,
     "passwords are stored as SCRAM": check_passwords_are_scram,
+    "no plain password reaches the server's log": check_passwords_never_reach_the_server_log,
     "the worker makes partitions the owner owns": check_the_worker_makes_partitions_the_owner_owns,
     "the api cannot read stored secrets": check_the_api_cannot_read_secrets,
     "the audit log is append-only": check_the_audit_log_is_append_only,
@@ -231,6 +253,7 @@ CHECKS: dict[str, Check] = {
 def check_rotating_a_password() -> None:
     """A second run changes roles that already exist, as every upgrade does."""
     old = ROLE_PASSWORDS["argus_api"]
+    ROTATED_PASSWORDS["argus_api"] = old
     ROLE_PASSWORDS["argus_api"] = password()
     migrate_or_die(DATABASE)
     role("argus_api").close()
