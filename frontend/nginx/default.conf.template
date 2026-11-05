@@ -9,6 +9,10 @@ server {
     root /usr/share/nginx/html;
     server_tokens off;
     client_max_body_size 64k;
+    # Empty unless an ingress is in front (the chart's web.ingress): then who connects here is the
+    # ingress, and this takes the client from the last X-Forwarded-For entry, the one it adds, so
+    # $remote_addr below is that client.
+    ${ARGUS_NGINX_REAL_IP}
 
     location /api/ {
         include /etc/nginx/snippets/security-headers.conf;
@@ -16,7 +20,7 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         # Overwrite, never append: the API trusts this header from nginx only, so it must hold
-        # the real peer address and nothing the client sent.
+        # the client's address as nginx established it, and nothing the client sent.
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 30s;

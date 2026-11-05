@@ -392,6 +392,62 @@ test_web() {
   ok "a scan Job answered it"
 }
 
+# The address the API records for a failed sign-in sent with this X-Forwarded-For. A port-forward
+# reaches web from 127.0.0.1, standing in for the peer: the ingress, or any other client.
+recorded_address() { # <X-Forwarded-For> <username>
+  local base=http://127.0.0.1:18081 pf code reached=no
+  # Right after a rollout it can attach to a pod that is shutting down, and then exits: start again.
+  for _ in $(seq 6); do
+    k port-forward "svc/$FULL-web" 18081:8080 > /dev/null 2>&1 &
+    pf=$!
+    for _ in $(seq 10); do
+      curl -fs -o /dev/null "$base/" && { reached=yes; break; }
+      sleep 1
+    done
+    [ "$reached" = yes ] && break
+    kill "$pf" 2>/dev/null || true
+    wait "$pf" 2>/dev/null || true
+  done
+  [ "$reached" = yes ] || fail "web did not answer through a port-forward"
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -H "X-Forwarded-For: $1" \
+    --data "{\"username\": \"$2\", \"password\": \"wrong\"}" "$base/api/v1/auth/sign-in")
+  kill "$pf" 2>/dev/null || true
+  wait "$pf" 2>/dev/null || true
+  [ "$code" = 401 ] || fail "a wrong password through web answered $code"
+  psql_q "SELECT host(client_ip) FROM audit_log WHERE actor = '$2' AND action = 'auth.sign_in.failed'"
+}
+
+# No ingress controller on kind: web's handling of the header is what's tested, not a controller's.
+set_ingress() { # <helm flags>
+  helm upgrade "$RELEASE" "$CHART" -n "$NAMESPACE" --reuse-values "$@" --wait --timeout 15m > /dev/null
+  k rollout status "deploy/$FULL-web" --timeout 300s > /dev/null
+}
+
+test_client_address() {
+  step "the address behind X-Forwarded-For (F5)"
+  # Usernames new to this run, so its audit rows are the only ones read.
+  local got run
+  run=$(rand 8 | tr '[:upper:]' '[:lower:]')
+  got=$(recorded_address "203.0.113.9" "xff-no-ingress-$run")
+  [ "$got" = 127.0.0.1 ] || fail "no ingress: recorded '$got', expected the peer, never the header"
+  ok "no ingress: a client's X-Forwarded-For is ignored"
+
+  set_ingress --set web.ingress.enabled=true --set web.ingress.host=argus.kind.example \
+    --set-json 'networkPolicy.webIngressFrom=[{"ipBlock":{"cidr":"10.244.0.0/16"}}]'
+  got=$(recorded_address "198.51.100.7" "xff-ingress-$run")
+  [ "$got" = 198.51.100.7 ] || fail "behind an ingress: recorded '$got', expected the address it reported"
+  ok "behind an ingress: the address it reports is recorded"
+  got=$(recorded_address "203.0.113.9, 198.51.100.7" "xff-forged-$run")
+  [ "$got" = 198.51.100.7 ] || fail "a forged left entry: recorded '$got', expected 198.51.100.7"
+  ok "behind an ingress: what a client wrote before the ingress's entry is not believed"
+
+  set_ingress --set web.ingress.enabled=false \
+    --set-json 'networkPolicy.webIngressFrom=[]'
+  got=$(recorded_address "203.0.113.9" "xff-ingress-off-$run")
+  [ "$got" = 127.0.0.1 ] || fail "ingress off again: recorded '$got'"
+  ok "ingress off again: the header is ignored"
+}
+
 test_network() {
   step "NetworkPolicies, enforced"
   local api_ip api_port db="$FULL-postgres:5432" api="$FULL-api:8000" web="$FULL-web:8080" out internet=no
@@ -561,6 +617,7 @@ run_tests() {
   test_network
   test_demo_refused
   test_web
+  test_client_address
   test_upgrade
   test_password_rotation
   # After the rotation: the worker's new password reaches a Job that starts from then on.

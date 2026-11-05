@@ -1,10 +1,17 @@
 {{- /* The UI: the built app on unprivileged nginx (uid 101), which proxies /api to the API's
-Service. ClusterIP only: no public entry until SSO (ADR-0040). Its Service, disruption budget
+Service. ClusterIP: an entry from outside only through web.ingress, which is off by default. Its Service, disruption budget
 and autoscaler are in services.yaml, pdb.yaml and hpa.yaml. */ -}}
 {{- define "argus.web.env" -}}
 # nginx fills its config template with this at start (frontend/nginx).
 - name: ARGUS_API_UPSTREAM
   value: {{ printf "%s-api:8000" (include "argus.fullname" .) | quote }}
+{{- if .Values.web.ingress.enabled }}
+# Who connects to web is the ingress: the client is the last X-Forwarded-For entry, the one the
+# ingress adds, so what a client wrote before it is never believed. Whoever can reach web can set
+# this, which is why the NetworkPolicy lets only networkPolicy.webIngressFrom in.
+- name: ARGUS_NGINX_REAL_IP
+  value: "set_real_ip_from 0.0.0.0/0; set_real_ip_from ::/0; real_ip_header X-Forwarded-For; real_ip_recursive off;"
+{{- end }}
 {{- end }}
 {{- define "argus.web.ports" -}}
 ports:
@@ -31,9 +38,11 @@ livenessProbe:
     "mounts" "# The filled-in config is written here at start.\n- {name: conf, mountPath: /etc/nginx/conf.d}")))) }}
 {{- with .Values.web.ingress }}
 {{- if .enabled }}
+{{- if and $.Values.networkPolicy.enabled (not $.Values.networkPolicy.webIngressFrom) }}
+{{- fail "web.ingress is on and networkPolicy.webIngressFrom is empty: the NetworkPolicy would block the ingress from reaching web" }}
+{{- end }}
 ---
-# Off by default. Turn on only for an internal ingress, and allow its controller in
-# networkPolicy.webIngressFrom.
+# Off by default. When on, allow the ingress in networkPolicy.webIngressFrom.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:

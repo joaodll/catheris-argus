@@ -176,9 +176,69 @@ kubectl -n argus port-forward svc/argus-web 8080:8080
 Then <http://localhost:8080>, as `admin` (`admin.username`) with the bootstrap password. Then
 remove the bootstrap key from the Secret (with External Secrets: empty
 `externalSecret.bootstrapKeys`, `helm upgrade`, then delete the property in Secrets Manager); the
-admin now lives in the database. Add everyone else in **Administration → Users**. `web.ingress` exists for an internal ingress; until SSO
-there is no public entry. If you turn it on, add its controller to
-`networkPolicy.webIngressFrom`, or it cannot reach web.
+admin now lives in the database. Add everyone else in **Administration → Users**.
+
+### An ingress
+
+Off by default, with `kubectl port-forward` as the way in. Argus has no single sign-on or second
+factor yet, so keep an ingress internal, or restrict it to source addresses you know. The chart
+warns about an internet-facing ALB but doesn't check for a restriction. With the AWS Load Balancer
+Controller:
+
+```yaml
+web:
+  ingress:
+    enabled: true
+    className: alb
+    host: argus.example.com
+    annotations:
+      alb.ingress.kubernetes.io/scheme: internet-facing   # or internal
+      alb.ingress.kubernetes.io/target-type: ip
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS": 443}]'
+      alb.ingress.kubernetes.io/certificate-arn: <your ACM certificate>
+      # Who may reach the ALB. Needed on an internet-facing one: the default is everyone.
+      alb.ingress.kubernetes.io/inbound-cidrs: 203.0.113.0/24,198.51.100.10/32
+      # Pin the ALB's subnets, so the list below can't go stale.
+      alb.ingress.kubernetes.io/subnets: subnet-0aaa,subnet-0bbb
+networkPolicy:
+  # What may connect to web: the ALB's subnets, as their address ranges. An ALB connects to its
+  # targets from its private addresses in those subnets, also when it is internet-facing, so
+  # these are never your users' addresses. `inbound-cidrs` above is what limits those.
+  webIngressFrom:
+    - ipBlock: {cidr: 10.0.0.0/24}   # subnet-0aaa
+    - ipBlock: {cidr: 10.0.1.0/24}   # subnet-0bbb
+```
+
+To read the ranges of those subnets:
+
+```bash
+aws ec2 describe-subnets --subnet-ids subnet-0aaa subnet-0bbb --query 'Subnets[].CidrBlock'
+```
+
+With an in-cluster controller, name its pods instead:
+
+```yaml
+networkPolicy:
+  webIngressFrom:
+    - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: ingress-nginx}}
+      podSelector: {matchLabels: {app.kubernetes.io/name: ingress-nginx}}
+```
+
+- **HTTPS is required.** The session cookie is `Secure`, so over plain HTTP nobody can sign in.
+- **`webIngressFrom` is required while the NetworkPolicies are on,** and the chart refuses an empty
+  one. It is also what keeps the client address honest: web believes the last `X-Forwarded-For`
+  entry from whoever connects, so whoever is allowed in can set it.
+- **One proxy in front of web.** The last entry is the client only when the ingress is the one
+  proxy. DNS and a certificate add no hop. A CDN or a second proxy in front of the ingress would be
+  recorded as the client, and every user would then share its address for the sign-in limits.
+- **`target-type: ip`:** web sees the ALB's own address. In `instance` mode it can see a node's
+  address, so `webIngressFrom` would have to cover the nodes.
+- **Leave the ALB's `routing.http.xff_header_processing.mode` at `append`, its default.** The ALB
+  then adds the client's address as the last entry. `preserve` would let a client choose its address.
+
+**Check it:** sign in with a wrong password, then read `kubectl -n argus logs deploy/argus-web`.
+The line for that request must start with your address, and sending a made-up `X-Forwarded-For`
+must not change it.
 
 ### An external Postgres
 
@@ -364,6 +424,7 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 | `helm install` refused with a schema error | A required value is missing, an image has a tag, or a key is misspelled | The message names the path; set it |
 | `api` and the scheduler stay in `Init` | The migrate Job has not finished, or the role cannot log in yet | `kubectl -n argus logs job/argus-migrate-<hash>`; check the Secret's keys |
 | A pod logs `exec /opt/venv/bin/python: exec format error` | The pod is on a node with another CPU type than its image | Set `nodeSelector` and `tolerations` on every block, including `tasks`, so it lands on nodes matching the image: `kubectl get nodes -L kubernetes.io/arch` |
+| One person's bad sign-ins lock out everyone, or web's log shows one address for all users | Something adds a second proxy in front of the ingress, or the ingress doesn't set `X-Forwarded-For` | Read the last field of web's log lines: the chain it received. The ingress must add the client last |
 | `helm test` fails: "accepted a connection" | NetworkPolicy is not enforced | Turn on the VPC CNI's network policy, then test again |
 | Runs stay queued; the scheduler logs `kubernetes refused` | A denial by the policy or the quota | The `detail` names the rule; reinstall with Helm rather than editing templates by hand |
 | Runs stay queued; the scheduler logs a reconcile error with a connection timeout | `networkPolicy.kubeApi.cidrs` no longer holds the API's addresses | Read them again (Values) and upgrade |

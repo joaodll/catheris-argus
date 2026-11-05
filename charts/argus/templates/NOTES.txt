@@ -39,8 +39,22 @@ NOTE: autoscaling is on. It needs metrics-server, which EKS does not install by 
 {{- end }}
 {{- if .Values.web.ingress.enabled }}
 
-NOTE: the Ingress is on ({{ .Values.web.ingress.host }}). Keep it internal until SSO exists, and
-make sure its controller is listed in networkPolicy.webIngressFrom, or it cannot reach web.
+NOTE: the Ingress is on ({{ .Values.web.ingress.host }}). It must serve HTTPS: the session cookie is
+Secure, so over plain HTTP nobody can sign in. It must also be the only proxy in front of web, or
+Argus records the proxy's address as the client's. To check that web
+sees real addresses, sign in with a wrong password and read `kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "argus.fullname" . }}-web`:
+the line must start with your address, not the ingress's.
+{{- if eq (get .Values.web.ingress.annotations "alb.ingress.kubernetes.io/scheme") "internet-facing" }}
+
+WARNING: this ALB is internet-facing, and Argus has no single sign-on or second factor yet. Restrict
+who can reach it (alb.ingress.kubernetes.io/inbound-cidrs, or your own security groups): the chart
+does not check that you did.
+{{- end }}
+{{- if not .Values.networkPolicy.enabled }}
+
+WARNING: the NetworkPolicies are off, so any pod that reaches web can choose the client address
+Argus records, and with it dodge the per-address sign-in limits.
+{{- end }}
 {{- end }}
 {{- if and (eq .Values.identity.mode "irsa") .Values.identity.roleArn }}
 
