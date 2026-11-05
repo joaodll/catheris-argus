@@ -7,8 +7,10 @@ module that acts on a target: they write to the account, push findings out, or u
 secrets against live services (CLAUDE.md, read-only rule).
 
 Each tool sees one private AWS profile, written for the run into a temporary home and deleted
-after it, and an environment built from nothing: Argus's own variables (database password,
-credential keyring) never reach a tool process.
+after it, and an environment built from nothing, so Argus's own variables (database password,
+credential keyring) are not passed to it. A tool runs as the worker's user, so the worker also
+hides its own environment at start (core.process). What that user can read stays readable: the
+worker's disk and, on Compose, another run's profile (docs/security-model.md, Known limits).
 """
 
 import logging
