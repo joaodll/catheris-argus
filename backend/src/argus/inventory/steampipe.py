@@ -17,7 +17,7 @@ from typing import Any
 
 from argus.core.manifest import Manifest
 from argus.core.rawstore import RawRun
-from argus.core.redaction import NOT_SECRET_COLUMNS, redact
+from argus.core.redaction import NOT_SECRET_COLUMNS, redact, redact_tags
 
 
 class UnsupportedVersionError(ValueError):
@@ -312,7 +312,8 @@ def parse_steampipe(run: RawRun) -> InventoryBatch:
                 skipped.append(f"{table}:{native}")
                 continue
             config = _normalise(table, row)
-            tags = row.get("tags") if isinstance(row.get("tags"), dict) else {}
+            # Read from the row, so redacted here as the configuration is.
+            tags = redact_tags(row["tags"]) if isinstance(row.get("tags"), dict) else {}
             native_id, name, vpc = _identity(table, row, uid)
             resource = InventoryResource(
                 uid=uid,

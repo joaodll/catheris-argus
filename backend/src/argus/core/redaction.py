@@ -8,7 +8,9 @@ URL (https://user:token@host, ?sig=...) is masked wherever the URL appears, what
 applies it before anything reaches git.
 """
 
+import json
 import re
+from functools import lru_cache
 from itertools import pairwise
 from typing import Any
 
@@ -17,36 +19,85 @@ from typing import Any
 # REDACTED; migration 0028 rewrote what was stored.
 REDACTED = "********"
 _WORD_RE = re.compile(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|[0-9]+")
-# Single words that mark a secret-bearing key. "token" is singular on purpose: HttpTokens
-# (IMDSv2 required/optional) is configuration, SessionToken is a credential.
-_SECRET_WORDS = frozenset(
-    {
-        "password",
-        "passwd",
-        "secret",
-        "token",
-        "credential",
-        "credentials",
-        "environment",
-        "variables",
-        "userdata",
-        "passphrase",
-    }
+# Single words that mark a secret-bearing key.
+_SECRET_WORDS = frozenset({"environment", "variables"})
+# Marks a key wherever a word holds it, so a name written without separators counts too:
+# adminpassword, DBPASSWORD, secretkey, apikey.
+_SECRET_PARTS = (
+    "password",
+    "passwd",
+    "passphrase",
+    "pwd",
+    "secret",
+    "credential",
+    "userdata",
+    "apikey",
+    "accesskey",
+    "privatekey",
+    "connectionstring",
+    "sessionid",
 )
 # ("external", "id"): an ExternalId is not a secret to AWS, but Argus hides its own from the
 # API (ADR-0024), and a scanned role's trust policy (sts:ExternalId) holds that same value.
 _SECRET_PAIRS = frozenset(
-    {("user", "data"), ("private", "key"), ("api", "key"), ("access", "key"), ("external", "id")}
+    {
+        ("user", "data"),
+        ("private", "key"),
+        ("api", "key"),
+        ("access", "key"),
+        ("external", "id"),
+        ("connection", "string"),
+        ("conn", "str"),
+        ("session", "id"),
+    }
 )
+# Secret only as the name's end: Authorization holds a credential, authorization_type says NONE or
+# IAM, which the rules read. encryption_key holds a key, encryption_key_arn names one.
+_SECRET_LAST_WORDS = frozenset(
+    {"authorization", "bearer", "cookie", "dsn", "pass", "sas", "signature", "webhook"}
+)
+_SECRET_LAST_PAIRS = frozenset(
+    {
+        ("client", "key"),
+        ("encryption", "key"),
+        ("license", "key"),
+        ("master", "key"),
+        ("session", "key"),
+        ("shared", "key"),
+        ("signing", "key"),
+        ("ssh", "key"),
+        ("webhook", "url"),
+    }
+)
+# Ordinary words that end like a password does (dbpass, adminpass).
+_NOT_PASS = frozenset({"bypass", "compass", "encompass", "overpass", "underpass"})
 
 
+def _secret_word(word: str) -> bool:
+    if word == "secretsmanager":  # AWS's service prefix: secretsmanager:GetSecretValue in a policy
+        return False
+    if word in _SECRET_WORDS or any(part in word for part in _SECRET_PARTS):
+        return True
+    # "token" in any form but the plural: HttpTokens (IMDSv2 required/optional) is configuration,
+    # SessionToken and authtoken are credentials.
+    return "token" in word and not word.endswith("tokens")
+
+
+@lru_cache(maxsize=4096)  # Scans repeat the same few names; a configuration holds many.
 def is_secret_key(key: str) -> bool:
     """True for keys whose values can hold secrets: snake_case and camelCase are split into
     words, so SessionToken and user_data match while HttpTokens does not."""
     words = [w.lower() for w in _WORD_RE.findall(key)]
-    if any(w in _SECRET_WORDS for w in words):
+    if not words:
+        return False
+    if any(_secret_word(w) for w in words) or any(p in _SECRET_PAIRS for p in pairwise(words)):
         return True
-    return any(pair in _SECRET_PAIRS for pair in pairwise(words))
+    last = words[-1]
+    return (
+        last in _SECRET_LAST_WORDS
+        or (last.endswith("pass") and last not in _NOT_PASS)
+        or tuple(words[-2:]) in _SECRET_LAST_PAIRS
+    )
 
 
 # ---------------------------------------------------------------- credentials inside URLs
@@ -99,10 +150,10 @@ def redact_value(value: Any) -> Any:
 
 
 # Top-level Steampipe columns named like a secret that hold none: identifiers and dates an
-# operator needs to judge a key or a user (decided 2026-10-07, argus_v7). Exact names, for one
-# table each, at the top level of its rows only. Every nested key, every other table, and every
-# other tool still goes through is_secret_key: a Lambda variable named access_key_id stays
-# secret. The secret half of a key pair is not in these tables.
+# operator needs to judge a key or a user (decided 2026-10-07, argus_v7), and which KMS key
+# encrypts a resource. Exact names, for one table each, at the top level of its rows only. Every
+# nested key, every other table, and every other tool still goes through is_secret_key: a Lambda
+# variable named access_key_id stays secret. The secret half of a key pair is not in these tables.
 NOT_SECRET_COLUMNS: dict[str, frozenset[str]] = {
     "aws_iam_access_key": frozenset(
         {
@@ -113,6 +164,11 @@ NOT_SECRET_COLUMNS: dict[str, frozenset[str]] = {
         }
     ),
     "aws_iam_user": frozenset({"password_last_used"}),
+    "aws_codeartifact_domain": frozenset({"encryption_key"}),
+    "aws_codebuild_project": frozenset({"encryption_key"}),
+    "aws_codepipeline_pipeline": frozenset({"encryption_key"}),
+    "aws_ec2_regional_settings": frozenset({"default_ebs_encryption_key"}),
+    "aws_workspaces_workspace": frozenset({"volume_encryption_key"}),
 }
 
 
@@ -145,21 +201,47 @@ def redact(document: Any, *, keep: frozenset[str] = frozenset()) -> Any:
     """Redact every value under a secret-bearing key, at any depth, and the value of every
     name/value pair whose name is secret-bearing. Text values are configuration written by
     people (an inline buildspec, a state machine definition, an event's input): a secret
-    assignment inside one (DB_PASSWORD: ..., "token": "...") is masked too. `keep`: top-level
-    keys of this document that look secret-bearing but are not (NOT_SECRET_COLUMNS)."""
+    written inside one is masked too. `keep`: top-level keys of this document that look
+    secret-bearing but are not (NOT_SECRET_COLUMNS), left as they are."""
     if isinstance(document, dict):
         pair_value = _secret_pair_value(document)
-        return {
-            k: redact_value(v)
-            if k == pair_value or (is_secret_key(k) and k not in keep)
-            else redact(v)
-            for k, v in document.items()
-        }
+        redacted: dict[str, Any] = {}
+        for k, v in document.items():
+            if k in keep:
+                redacted[k] = v
+            elif k == pair_value or is_secret_key(k):
+                redacted[k] = redact_value(v)
+            else:
+                redacted[k] = redact(v)
+        return redacted
     if isinstance(document, list):
         return [redact(v) for v in document]
     if isinstance(document, str):
-        return _mask_text(document)
+        return _redact_string(document)
     return document
+
+
+def redact_tags(tags: dict[str, Any]) -> Any:
+    """A resource's tags. "Environment" marks a map of variables in a configuration; as a tag's name
+    it says prod or staging, and it is one of the commonest there are."""
+    return redact(tags, keep=frozenset(k for k in tags if k.lower() == "environment"))
+
+
+def _redact_string(text: str) -> str:
+    """A configuration's text value. JSON inside a string is read as JSON, so a name/value pair or
+    a string inside a string is seen too; unchanged, it keeps its exact text."""
+    if text[:1] in ("{", "["):
+        try:
+            parsed = json.loads(text)
+            masked = redact(parsed)
+        except (ValueError, RecursionError):
+            pass
+        else:
+            return text if masked == parsed else json.dumps(masked)
+    masked_text = _mask_text(_mask_blocks(text))
+    for pattern in _CONFIG_CREDENTIAL_RES:
+        masked_text = pattern.sub(REDACTED, masked_text)
+    return _MIXED_40_RE.sub(_mask_mixed_40, masked_text)
 
 
 # ---------------------------------------------------------------- free text (run logs)
@@ -171,12 +253,50 @@ TABLE_ROW_OMITTED = "[table row omitted]"
 _TABLE_ROW_RE = re.compile(r"(?:[│┃|].*){3,}|(?:\t.*){2,}")
 # Credential shapes, wherever they appear: AWS key ids, 40-character AWS secret keys, JWTs,
 # PEM blocks.
-_CREDENTIAL_RES = (
-    re.compile(r"\b(?:AKIA|ASIA|ABIA|ACCA|A3T[A-Z0-9])[A-Z0-9]{16}\b"),
-    re.compile(r"(?<![A-Za-z0-9/+=])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=])"),
-    re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*"),
-    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"),
+_KEY_ID_RE = re.compile(r"\b(?:AKIA|ASIA|ABIA|ACCA|A3T[A-Z0-9])[A-Z0-9]{16}\b")
+_JWT_RE = re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*")
+_PEM_LINE_RE = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)"
 )
+_FORTY_RE = r"(?<![A-Za-z0-9/+=])[A-Za-z0-9/+]{40}(?![A-Za-z0-9/+=])"
+_CREDENTIAL_RES = (_KEY_ID_RE, re.compile(_FORTY_RE), _JWT_RE, _PEM_LINE_RE)
+# A configuration holds other text of that length: a commit is 40 hex digits, an IAM action 40
+# letters. There only a mix of both cases with a digit, "/" or "+" counts as a secret key.
+_CONFIG_CREDENTIAL_RES = (_KEY_ID_RE, _JWT_RE)
+_MIXED_40_RE = re.compile(_FORTY_RE)
+
+
+def _mask_mixed_40(match: re.Match[str]) -> str:
+    value = match.group(0)
+    mixed = value not in (value.lower(), value.upper()) and not value.isalpha()
+    return REDACTED if mixed else value
+
+
+# Values that span lines, seen only in the whole text: a PEM block, and a YAML block scalar under a
+# secret key (password: |), whose value starts on the line after the key.
+_PEM_BLOCK_RE = re.compile(
+    r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)", re.DOTALL
+)
+_YAML_BLOCK_RE = re.compile(
+    r"""^(?P<head>(?P<indent>[ \t]*)(?:-[ \t]+)?["']?(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)["']?"""
+    r"""[ \t]*:[ \t]*[|>][-+0-9]*[ \t]*\n)(?P<body>(?:(?P=indent)[ \t]+.*(?:\n|\Z)|[ \t]*\n)+)""",
+    re.MULTILINE,
+)
+
+
+def _mask_yaml_block(match: re.Match[str]) -> str:
+    if not is_secret_key(match["key"]):
+        return match.group(0)
+    end = "\n" if match["body"].endswith("\n") else ""
+    return f"{match['head']}{match['indent']}  {REDACTED}{end}"
+
+
+def _mask_blocks(text: str) -> str:
+    if "-----BEGIN" in text:
+        text = _PEM_BLOCK_RE.sub(REDACTED, text)
+    return _YAML_BLOCK_RE.sub(_mask_yaml_block, text) if "\n" in text else text
+
+
 # key=value, key: value, "key": "value". The value is masked when the key is secret-bearing
 # (is_secret_key) or looks like an environment variable (UPPER_SNAKE), since any variable can
 # hold a secret. A quoted key may hold a colon, so a namespaced JSON key is read whole
@@ -218,8 +338,61 @@ def _mask_flag(match: re.Match[str]) -> str:
     return match.group(0)
 
 
+# A header's value is the rest of it: "Authorization: Bearer x", "Cookie: a=1; b=2". Not
+# authorization_type, whose name goes on, or prose, where no separator follows the word.
+_HEADER_RE = re.compile(
+    r"""\b(?P<name>(?:proxy-)?authorization|(?:set-)?cookie)(?P<sep>["']?\s*[:=]\s*)"""
+    r"""(?P<value>"[^"\n]*"|'[^'\n]*'|[^"'\n]*)""",
+    re.IGNORECASE,
+)
+_BEARER_RE = re.compile(r"\b(bearer\s+)[A-Za-z0-9._~+/=-]{8,}", re.IGNORECASE)
+# A JSON key and value inside a string inside text: \"password\":\"x\".
+_ESCAPED_PAIR_RE = re.compile(
+    r"""(?P<open>\\+")(?P<key>[A-Za-z_][A-Za-z0-9_.:-]*)(?P<mid>\\+"\s*:\s*\\+")"""
+    r"""(?P<value>(?:[^"\\]|\\[^"])*)(?P<close>\\+")"""
+)
+# Command lines that take a password in their own way.
+_CLI_SECRET_RES = (
+    re.compile(r"(\b(?:mysql|mysqldump|mysqladmin|mariadb)\b[^\n|;&]*?\s-p)[^\s\"']\S*"),
+    re.compile(r"(\bsshpass\s+-p\s*)\S+"),
+    re.compile(r"(\bcurl\b[^\n|;&]*?\s(?:-u|--user)[ =]?)\S+"),
+)
+_AWS_CONFIGURE_RE = re.compile(r"(\baws\s+configure\s+set\s+(\S+)\s+)\S+")
+
+
+def _mask_header(match: re.Match[str]) -> str:
+    value = match["value"]
+    if not value.strip():
+        return match.group(0)
+    quote = value[0] if value[0] in "\"'" else ""
+    return f"{match['name']}{match['sep']}{quote}{REDACTED}{quote}"
+
+
+def _mask_escaped_pair(match: re.Match[str]) -> str:
+    if not is_secret_key(match["key"]):
+        return match.group(0)
+    return f"{match['open']}{match['key']}{match['mid']}{REDACTED}{match['close']}"
+
+
+def _mask_aws_configure(match: re.Match[str]) -> str:
+    return f"{match[1]}{REDACTED}" if is_secret_key(match[2]) else match.group(0)
+
+
 def _mask_text(text: str) -> str:
-    """A text value's secret assignments, secret flags and URL credentials, masked."""
+    """A text value's secret assignments, secret flags, headers and URL credentials, masked."""
+    # Each rule only where its word is: a configuration holds thousands of short strings.
+    if '\\"' in text:
+        text = _ESCAPED_PAIR_RE.sub(_mask_escaped_pair, text)
+    lowered = text.lower()
+    if "authorization" in lowered or "cookie" in lowered:
+        text = _HEADER_RE.sub(_mask_header, text)
+    if "bearer" in lowered:
+        text = _BEARER_RE.sub(rf"\1{REDACTED}", text)
+    if "configure" in lowered:
+        text = _AWS_CONFIGURE_RE.sub(_mask_aws_configure, text)
+    if " -" in text or "\t-" in text:
+        for pattern in _CLI_SECRET_RES:
+            text = pattern.sub(rf"\1{REDACTED}", text)
     return _FLAG_RE.sub(
         _mask_flag, _ASSIGNMENT_RE.sub(_mask_assignment, mask_url_credentials(text))
     )
@@ -259,4 +432,4 @@ def redact_text(text: str) -> str:
     """Redact free text line by line: table rows dropped, credential shapes and the values of
     secret-bearing or environment-style assignments masked. Terminal escapes and control
     characters are removed first."""
-    return "\n".join(redact_line(line) for line in _clean(text).split("\n"))
+    return "\n".join(redact_line(line) for line in _mask_blocks(_clean(text)).split("\n"))

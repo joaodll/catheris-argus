@@ -1,3 +1,7 @@
+import json
+import re
+from pathlib import Path
+
 import pytest
 
 from argus.core.redaction import (
@@ -31,6 +35,38 @@ from argus.core.redaction import (
         "sts:ExternalId",
         "ExternalID",
         "external_id",
+        # Written without separators, or a short form.
+        "pwd",
+        "DB_PWD",
+        "db_pass",
+        "dbpass",
+        "dbpassword",
+        "DBPASSWORD",
+        "adminpassword",
+        "passwords",
+        "secrets",
+        "secretkey",
+        "apikey",
+        "APIKEY",
+        "accesskey",
+        "privatekey",
+        "authtoken",
+        "connection_string",
+        "ConnectionString",
+        "sessionid",
+        "session_id",
+        # Only as the end of a name.
+        "Authorization",
+        "proxy-authorization",
+        "bearer",
+        "cookie",
+        "Set-Cookie",
+        "dsn",
+        "signature",
+        "encryption_key",
+        "signing_key",
+        "ssh_key",
+        "webhook_url",
     ],
 )
 def test_secret_keys(key: str) -> None:
@@ -49,6 +85,21 @@ def test_secret_keys(key: str) -> None:
         "public_ip_address",
         "tags",
         "ExternalIdentityProvider",
+        # A secret word that is not the end of the name: these say what kind, or which.
+        "authorization_type",
+        "AuthorizationType",
+        "cookie_name",
+        "signature_version",
+        "encryption_key_arn",
+        "ssh_key_name",
+        "max_session_duration",
+        "session",
+        # Ordinary words that hold or end like one.
+        "bypass",
+        "compass",
+        "passthrough_behavior",
+        "AuthType",
+        "secretsmanager",
     ],
 )
 def test_ordinary_keys(key: str) -> None:
@@ -344,3 +395,139 @@ def test_an_empty_secret_stays_empty() -> None:
         "ExternalID": "",
         "token": None,
     }
+
+
+# ---------------------------------------------------------------- secrets in more shapes
+# Fake values only, built at runtime so no scanner mistakes them for real credentials.
+LEAK = "not-real-" + "value-7"
+FORTY = "aB3/" * 10
+PRIVATE_KEY = "RSA " + "PRIVATE" + " KEY"
+PEM = f"-----BEGIN {PRIVATE_KEY}-----\nMIIE{LEAK}\nmore\n-----END {PRIVATE_KEY}-----"
+CURL = "cu" + "rl"
+SHAPES = [
+    f"Server=db;Uid=sa;Pwd={LEAK};",
+    f"{CURL} -H 'Authorization: Bearer {LEAK}' https://x.invalid",
+    f"Authorization: Basic {LEAK}",
+    f"Cookie: a=1; sid={LEAK}",
+    f"got bearer {LEAK} back",
+    f"aws configure set aws_secret_access_key {LEAK}",
+    f"mysql -uroot -p{LEAK} -h db",
+    f"sshpass -p {LEAK} ssh host",
+    f"{CURL} -u admin:{LEAK} https://x.invalid",
+    f"psql --pass {LEAK}",
+    f"export dbpass={LEAK}",
+    f'{{\\"password\\":\\"{LEAK}\\"}} and more',
+    f"password: |\n  {LEAK}\n  second line\nstage: prod",
+    f"run:\n  - password: >-\n      {LEAK}\n  - stage: prod",
+    f"{PEM}\nafter",
+]
+SHAPE_IDS = [
+    "connection-string",
+    "bearer-header",
+    "basic-header",
+    "cookie-header",
+    "bearer-prose",
+    "aws-configure",
+    "mysql",
+    "sshpass",
+    "curl-user",
+    "pass-flag",
+    "export-lowercase",
+    "escaped-json",
+    "yaml-block",
+    "yaml-block-in-a-list",
+    "pem",
+]
+
+
+@pytest.mark.parametrize("line", SHAPES, ids=SHAPE_IDS)
+def test_a_secret_in_text_is_masked_in_configuration_and_logs(line: str) -> None:
+    for masked in (redact({"definition": line})["definition"], redact_text(line)):
+        assert LEAK not in masked
+        assert REDACTED in masked
+
+
+def test_masking_a_block_keeps_what_follows() -> None:
+    masked = redact_text(f"password: |\n  {LEAK}\nstage: prod")
+    assert masked.endswith("stage: prod")
+    assert redact_text(f"{PEM}\nregion=us-east-1").endswith("region=us-east-1")
+
+
+def test_a_block_under_an_ordinary_key_is_unchanged() -> None:
+    text = "description: |\n  two lines\n  of prose\nstage: prod"
+    assert redact({"definition": text}) == {"definition": text}
+
+
+def test_configuration_text_loses_credential_shapes() -> None:
+    masked = redact({"Buildspec": f"run {FAKE_KEY_ID} then {FORTY} done"})["Buildspec"]
+    assert FAKE_KEY_ID not in masked and FORTY not in masked
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "a" * 20 + "0" * 20,
+        "cleanrooms:ListCollaborationIdNamespaceAssociations",
+        "secretsmanager:GetSecretValue",
+        "iam:CreateAccessKey",
+        "arn:aws:secretsmanager:us-east-1:111122223333:secret:prod/db-AbCdEf",
+        "-----BEGIN CERTIFICATE-----\nMIIC\n-----END CERTIFICATE-----",
+        "authorization_type=NONE",
+    ],
+    ids=[
+        "commit",
+        "forty-letter-action",
+        "policy-action",
+        "key-action",
+        "arn",
+        "cert",
+        "auth-type",
+    ],
+)
+def test_configuration_text_that_holds_no_secret_is_unchanged(text: str) -> None:
+    assert redact({"definition": text}) == {"definition": text}
+
+
+def test_json_inside_a_string_is_read_as_json() -> None:
+    pairs = json.dumps([{"Name": "pwd", "Value": LEAK}, {"Name": "stage", "Value": "prod"}])
+    twice = json.dumps({"input": json.dumps({"password": LEAK, "stage": "prod"})})
+    for value in (pairs, twice):
+        masked = redact({"definition": value})["definition"]
+        assert LEAK not in masked and "prod" in masked
+    assert "pwd" in redact({"definition": pairs})["definition"]  # the shape stays
+
+
+def test_json_with_nothing_to_mask_keeps_its_exact_text() -> None:
+    text = '{"b":1,   "a":   [2]}'
+    assert redact({"definition": text}) == {"definition": text}
+    assert redact({"definition": "[not json"}) == {"definition": "[not json"}
+
+
+def test_a_kept_column_is_left_as_it_is() -> None:
+    """Text rules would otherwise take the key id's shape out of the one column that shows it."""
+    keep = NOT_SECRET_COLUMNS["aws_iam_access_key"]
+    row = {"access_key_id": FAKE_KEY_ID, "description": f"copy of {FAKE_KEY_ID}"}
+    assert redact(row, keep=keep) == {
+        "access_key_id": FAKE_KEY_ID,
+        "description": f"copy of {REDACTED}",
+    }
+
+
+def test_a_kms_key_reference_stays_in_its_own_table_only() -> None:
+    arn = "arn:aws:kms:us-east-1:111122223333:key/abc"
+    keep = NOT_SECRET_COLUMNS["aws_codebuild_project"]
+    assert redact({"encryption_key": arn}, keep=keep) == {"encryption_key": arn}
+    assert redact({"encryption_key": arn}) == {"encryption_key": REDACTED}
+
+
+def test_no_key_a_rule_reads_is_masked() -> None:
+    """A rule reads configuration after redaction: a key masked here would silently lose edges."""
+    backend = Path(__file__).resolve().parents[1]
+    sources = [*(backend / "rules").rglob("*.*"), backend / "src/argus/relationships/engine.py"]
+    read = {
+        key
+        for source in sources
+        for key in re.findall(r"(?:->>?|#>>?)\s*'([A-Za-z0-9_:.-]+)'", source.read_text())
+    }
+    assert len(read) > 50
+    assert not {key for key in read if is_secret_key(key)}

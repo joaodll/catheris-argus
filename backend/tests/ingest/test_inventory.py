@@ -1,4 +1,6 @@
-from datetime import date, timedelta
+import json
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
@@ -8,6 +10,9 @@ from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 from argus import inventory, relationships
 from argus.collection import CollectOptions, FilesystemRawStore, collect, source_for
 from argus.collection.synthetic.estate import SCENARIO_INSTANCE, SCENARIO_ROLE, SCENARIO_SG
+from argus.core.manifest import Manifest, ManifestFile
+from argus.core.rawstore import RawRun
+from argus.core.redaction import REDACTED
 from argus.ingest import ingest_run, register_run
 from argus.relationships import load_rules
 
@@ -80,6 +85,37 @@ def test_secrets_never_reach_postgres(
     assert "pw-" not in blob  # Lambda DB_PASSWORD values
     assert "IyEvYmluL2Jhc2g" not in blob  # EC2 user data
     assert '"HttpTokens": "required"' in blob or '"HttpTokens": "optional"' in blob
+
+
+def test_a_secret_named_tag_is_redacted_like_the_configuration(tmp_path: Path) -> None:
+    """Tags were stored from the row, apart from its redacted configuration."""
+    leak = "not-real-" + "tag-value"
+    row = {
+        "arn": "arn:aws:s3:::tagged",
+        "name": "tagged",
+        "tags": json.dumps({"db_password": leak, "Environment": "prod", "owner": "team-a"}),
+    }
+    (tmp_path / "aws_s3_bucket.jsonl").write_text(json.dumps(row) + "\n")
+    files = [ManifestFile(path="aws_s3_bucket.jsonl", bytes=1, sha256="0" * 64)]
+    now = datetime.now(UTC)
+    manifest = Manifest(
+        run_uid=uuid4(),
+        tool="steampipe",
+        tool_version="1.34.1",
+        account_id="210987654321",
+        source="aws",
+        snapshot_date=DAY,
+        region_scope=[],
+        started_at=now,
+        finished_at=now,
+        status="complete",
+        exit_code=0,
+        throttle_events=0,
+        files=files,
+    )
+    [resource] = inventory.parse_steampipe(RawRun(manifest=manifest, root=tmp_path)).resources
+    assert resource.tags == {"db_password": REDACTED, "Environment": "prod", "owner": "team-a"}
+    assert leak not in json.dumps(resource.config)
 
 
 def test_iam_users_and_their_access_keys_are_inventoried(
