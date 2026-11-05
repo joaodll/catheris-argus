@@ -3180,6 +3180,14 @@
             ],
             "title": "Api Regions"
           },
+          "blocked_actions": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Blocked Actions",
+            "type": "array"
+          },
           "command": {
             "title": "Command",
             "type": "string"
@@ -3329,6 +3337,14 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "table_errors": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TableError"
+            },
+            "title": "Table Errors",
+            "type": "array"
           },
           "throttle_events": {
             "title": "Throttle Events",
@@ -3869,6 +3885,24 @@
           "change"
         ],
         "title": "StripPoint",
+        "type": "object"
+      },
+      "TableError": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "table": {
+            "title": "Table",
+            "type": "string"
+          }
+        },
+        "required": [
+          "table",
+          "reason"
+        ],
+        "title": "TableError",
         "type": "object"
       },
       "TestOut": {

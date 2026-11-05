@@ -77,4 +77,6 @@ class AwsSource:
             refused_actions=result.refused_actions,
             not_applicable_tables=result.not_applicable_tables,
             refused_tables=result.refused_tables,
+            blocked_actions=result.blocked_actions,
+            table_errors=result.table_errors,
         )

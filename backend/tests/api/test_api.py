@@ -990,6 +990,35 @@ def test_runs_report_denied_actions_and_raw_encryption(
     ]
 
 
+def test_runs_report_what_blocked_them_and_why_each_table_was_left_out(
+    signed_in: TestClient, owner: Engine
+) -> None:
+    target = make_demo(owner)
+    with owner.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO scan_run (run_uid, connection_id, tool, tool_version, source, "
+                "snapshot_date, status, started_at, raw_path, incomplete_tables, "
+                "blocked_actions, table_errors) VALUES (gen_random_uuid(), :c, 'steampipe', "
+                "'1.34.1', 'aws', '2026-11-05', 'partial', now(), 'x', :inc, :bl, :te)"
+            ),
+            {
+                "c": target.connection_id,
+                "inc": ["aws_s3_bucket"],
+                "bl": ["s3:ListAllMyBuckets (VPC endpoint policy)"],
+                "te": ["aws_s3_bucket: S3: ListBuckets (HTTP 403): AccessDenied: a: b"],
+            },
+        )
+    # A blocked action is missing data the operator can get back, like a denied one.
+    (run,) = signed_in.get("/api/v1/runs", params={"missing_permissions": True}).json()["items"]
+    assert run["denied_actions"] == []
+    assert run["blocked_actions"] == ["s3:ListAllMyBuckets (VPC endpoint policy)"]
+    # Split at the first ": " only: the reason keeps its own colons.
+    assert run["table_errors"] == [
+        {"table": "aws_s3_bucket", "reason": "S3: ListBuckets (HTTP 403): AccessDenied: a: b"}
+    ]
+
+
 def test_schedules_are_searched_by_name_and_paginated(signed_in: TestClient) -> None:
     for name in ("nightly-prod", "Nightly staging", "weekly", "100%_literal"):
         created = signed_in.post(

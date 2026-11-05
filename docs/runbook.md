@@ -358,18 +358,27 @@ result (a Prowler run is Partial only when it was throttled, and the run says so
 actions listed under **Missing from the role** to the scanning role or permission set (read
 actions only) and run again.
 
+**Blocked outside the role** (owner, 2026-11-05): a policy outside the scanner role refused the
+call. IAM names it: a service or resource control policy, a permissions boundary, a session
+policy or a VPC endpoint policy ("because no VPC endpoint policy allows", "with an explicit deny
+in a service control policy"), and the run shows it after each action. The data is missing, so
+the run is **Partial** and the Runs filter finds it, but adding the action to the role does not
+help: change that policy, or accept the gap. The most common cause is a VPC endpoint for S3,
+DynamoDB or ECR on the network Argus runs from ([connect-aws.md](connect-aws.md#vpc-endpoints-on-the-network-argus-runs-from)).
+
 Two other lists are not the role's to fix, and neither makes a run Partial
 ([ADR-0012](adr/0012-steampipe-export-clis.md), second amendment). **Refused by a policy**:
 the resource's own policy refused the scanner (IAM says "because no resource-based policy
 allows"), for example a KMS key whose key policy does not hand access to IAM, or a VPC endpoint
-service the account does not own; or an explicit Deny did ("with an explicit deny in an
-identity-based policy"), which is the scanner role's own Deny of secret values, code, log
+service the account does not own; or an explicit Deny in the scanner role did ("with an
+explicit deny in an identity-based policy"), which is its own Deny of secret values, code, log
 content and API keys doing its job. Never add those to the role. Fix a key policy if you want
 that key read; otherwise leave it. **Not used in this account**: the service is not set up here (Timestream for LiveAnalytics
 answers 403 to anyone who is not already a customer, Organizations is not in use). Their tables
 carry their resources forward. A table that stays in the Partial list on every run although its
 service is not used means its error wording is not in the reviewed list yet
-(`NOT_APPLICABLE` in `collection/aws/tools.py`): send the table's lines from the run's log tail.
+(`NOT_APPLICABLE` in `collection/aws/tools.py`). Each table in the run's lists shows the line AWS
+answered with, redacted, under its name: send that line.
 
 One denied column can stop a whole Steampipe table. The pinned plugin logs `[ERROR]` and the
 table is dropped from that run (the log says `table failed: <table>`). The fix is a narrower

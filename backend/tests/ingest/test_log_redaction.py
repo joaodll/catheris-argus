@@ -93,3 +93,38 @@ def test_an_error_message_is_redacted_before_it_is_stored(owner: Engine) -> None
             text("SELECT error FROM run_request WHERE id = :i"), {"i": request_id}
         ).scalar_one()
     assert not any(secret in error for secret in SECRETS)
+
+
+def test_a_table_reason_is_redacted_again_when_stored(
+    worker: Engine, owner: Engine, store: FilesystemRawStore
+) -> None:
+    """The manifest is input: a reason that reached it unredacted is redacted before Postgres,
+    and what blocked the run is stored with it."""
+    target = make_demo(owner)
+    path, manifest = collect(
+        source_for("demo"),
+        store,
+        target=target,
+        tool="steampipe",
+        day=DAY,
+        run_uid=uuid4(),
+        options=QUIET,
+    )
+    manifest = manifest.model_copy(
+        update={
+            "table_errors": [f"aws_lambda_function: {PRINTED[1]}"],
+            "blocked_actions": ["s3:ListAllMyBuckets (VPC endpoint policy)"],
+        }
+    )
+    with worker.begin() as conn:
+        scan_run_id = register_run(
+            conn, connection_id=target.connection_id, raw_path=path, manifest=manifest
+        )
+    with owner.connect() as conn:
+        stored = conn.execute(
+            text("SELECT table_errors, blocked_actions FROM scan_run WHERE id = :i"),
+            {"i": scan_run_id},
+        ).one()
+    assert stored.blocked_actions == ["s3:ListAllMyBuckets (VPC endpoint policy)"]
+    assert [e.split(": ", 1)[0] for e in stored.table_errors] == ["aws_lambda_function"]
+    assert not any(secret in e for e in stored.table_errors for secret in SECRETS)

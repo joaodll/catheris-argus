@@ -36,7 +36,8 @@ from argus.collection.tables import (
     table_options,
 )
 from argus.core.aws import SessionCredentials, is_one_word
-from argus.core.manifest import MAX_DENIED_ACTIONS
+from argus.core.manifest import BLOCKING_POLICIES, MAX_DENIED_ACTIONS, MAX_TABLE_ERROR_CHARS
+from argus.core.redaction import redact_text
 
 logger = logging.getLogger("argus.collection")
 PROFILE = "argus"
@@ -121,11 +122,22 @@ _GO_IAM_PREFIX = {
     "Timestream Query": "timestream",
     "Timestream Write": "timestream",
 }
-# IAM's reason when a policy refused the call on purpose: the resource's own policy, or an
-# explicit Deny (the scanner role's own denies of secrets, code, logs and API keys, ADR-0018; a
-# service control policy). Nothing to add to the role, and nothing that should be.
-_RESOURCE_REFUSED = re.compile(
-    r"no resource-based policy allows|with an explicit deny in an? [a-z -]{1,40} policy"
+# IAM's reason for a denial: "because no <policy type> allows the <action> action" when nothing
+# allowed it, "with an explicit deny in a(n) <policy type>" when a Deny refused it. The types are
+# IAM's own words, matched exactly (case included: "VPC endpoint policy"). Each type goes to one
+# answer (owner, 2026-11-05):
+#   - identity-based, nothing allowed it: the role is missing it ("denied"; also a line that
+#     gives no reason);
+#   - identity-based Deny (the scanner role's own denies of secrets, code, logs and API keys,
+#     ADR-0018), or the resource's own policy: refused on purpose, nothing to add ("refused");
+#   - a policy outside the role (BLOCKING_POLICIES): the data is missing and the fix is in that
+#     policy, not the role ("blocked"). Like "denied", it makes the run partial.
+_POLICY_TYPES = "|".join(
+    re.escape(t) for t in ("identity-based policy", "resource-based policy", *BLOCKING_POLICIES)
+)
+_IAM_REASON = re.compile(
+    rf"because no (?P<allowed>{_POLICY_TYPES}) allows"
+    rf"|with an explicit deny in an? (?P<denied>{_POLICY_TYPES})"
 )
 # Errors that say the service or the call does not apply to this account (ADR-0012, second
 # amendment). Only wordings seen on a real account: a wider pattern would hide a real gap.
@@ -157,6 +169,8 @@ class ToolResult:
     refused_actions: list[str] = field(default_factory=list)  # by the resource's own policy
     not_applicable_tables: list[str] = field(default_factory=list)  # Steampipe only
     refused_tables: list[str] = field(default_factory=list)  # Steampipe only
+    blocked_actions: list[str] = field(default_factory=list)  # "<action> (<policy type>)"
+    table_errors: list[str] = field(default_factory=list)  # "<table>: <first error line>"
 
 
 def _denied_action(line: str) -> str | None:
@@ -179,17 +193,40 @@ def _denied_action(line: str) -> str | None:
 @dataclass
 class Denials:
     denied: set[str] = field(default_factory=set)  # the role is missing them
-    refused: set[str] = field(default_factory=set)  # the resource's own policy refused them
+    refused: set[str] = field(default_factory=set)  # refused on purpose: nothing to add
+    blocked: set[str] = field(default_factory=set)  # "<action> (<policy type>)", outside the role
+
+
+def _blocking_policy(line: str) -> str | None:
+    """The policy outside the role that refused the call, when IAM's reason names one."""
+    reason = _IAM_REASON.search(line)
+    policy = reason and (reason.group("allowed") or reason.group("denied"))
+    return policy if policy in BLOCKING_POLICIES else None
+
+
+def _refused_on_purpose(line: str) -> bool:
+    """The resource's own policy, or an explicit Deny in the role's own policies."""
+    reason = _IAM_REASON.search(line)
+    if not reason:
+        return False
+    return "resource-based policy" in (reason.group("allowed"), reason.group("denied")) or (
+        reason.group("denied") == "identity-based policy"
+    )
 
 
 def read_denials(text: str) -> Denials:
     """What a tool's output says the scanning identity could not do, one entry per action.
-    A line that says the service does not apply here is neither (NOT_APPLICABLE)."""
+    A line that says the service does not apply here is none of them (NOT_APPLICABLE)."""
     found = Denials()
     for line in text.splitlines():
         if NOT_APPLICABLE.search(line) or not (action := _denied_action(line)):
             continue
-        (found.refused if _RESOURCE_REFUSED.search(line) else found.denied).add(action)
+        if policy := _blocking_policy(line):
+            found.blocked.add(f"{action} ({policy})")
+        elif _refused_on_purpose(line):
+            found.refused.add(action)
+        else:
+            found.denied.add(action)
     return found
 
 
@@ -209,11 +246,16 @@ def command_line(cmd: list[str], out_dir: Path) -> str:
     return " ".join(w.replace(str(out_dir), "<run>") for w in words)
 
 
-def _with_denied(lines: list[str], denied: list[str]) -> list[str]:
-    """The log tail, ending with what was denied so the operator can fix the permissions."""
-    if not denied:
-        return lines
-    return [*lines, f"argus: {len(denied)} action(s) denied: {', '.join(denied)}"]
+def _with_denied(lines: list[str], denied: list[str], blocked: Sequence[str] = ()) -> list[str]:
+    """The log tail, ending with what was denied or blocked so the operator can fix it."""
+    if denied:
+        lines = [*lines, f"argus: {len(denied)} action(s) denied: {', '.join(denied)}"]
+    if blocked:
+        lines = [
+            *lines,
+            f"argus: {len(blocked)} action(s) blocked outside the role: {', '.join(blocked)}",
+        ]
+    return lines
 
 
 @contextmanager
@@ -326,19 +368,62 @@ def table_failed(rc: int, errors: str, rows: Path) -> bool:
 
 def table_outcome(errors: str) -> str | None:
     """For a table whose export failed: "not_applicable" when every error line says the
-    service or call does not apply here, "refused" when every one is a resource's own policy
-    (or not applicable), None otherwise (ADR-0012, second amendment)."""
+    service or call does not apply here, "refused" when every one was refused on purpose (or
+    not applicable), None otherwise (ADR-0012, second amendment). A call blocked outside the
+    role is never "refused": its data is missing and can be fixed (owner, 2026-11-05)."""
     lines = [line for line in errors.splitlines() if "[ERROR]" in line]
     if not lines:
         return None
     if all(NOT_APPLICABLE.search(line) for line in lines):
         return "not_applicable"
     if all(
-        NOT_APPLICABLE.search(line) or (_denied_action(line) and _RESOURCE_REFUSED.search(line))
+        NOT_APPLICABLE.search(line) or (_denied_action(line) and _refused_on_purpose(line))
         for line in lines
     ):
         return "refused"
     return None
+
+
+# What a table's reason keeps of an error line: the SDK's operation, status and AWS's own
+# error code and message, which is what tells "not used here" from a real gap (ADR-0012). The
+# log prefix, request ids, the principal's and the resource's ARNs and IAM's encoded message
+# are dropped: they are long, and the reason fits MAX_TABLE_ERROR_CHARS.
+_LOG_PREFIX = re.compile(r"^\[(?:ERROR|WARN|INFO)\]\s+\d+:\s*")
+_SDK_ANSWER = re.compile(
+    r"operation error (?P<op>[A-Za-z0-9 ]{1,40}: [A-Za-z0-9]{1,80}), .*?"
+    r"StatusCode: (?P<status>\d{3}), .*?api error (?P<answer>.+)$"
+)
+_DROPPED = (
+    (re.compile(r"(?:RequestID|HostID): [^,]{0,200}, "), ""),
+    (re.compile(r"User: arn:\S+ is not authorized"), "User is not authorized"),
+    (re.compile(r" on resource: arn:\S+"), ""),
+    (re.compile(r"\.?\s*Encoded authorization failure message:.*$"), ""),
+)
+
+
+def _error_rank(line: str) -> int:
+    """Which line of a table's errors says most: AWS's answer on the line that stopped the
+    table, then AWS's answer anywhere, then the line that stopped it, then anything."""
+    answer = "api error" in line or _denied_action(line) is not None
+    return 0 if answer and "[ERROR]" in line else 1 if answer else 2 if "[ERROR]" in line else 3
+
+
+def table_error(table: str, rc: int, errors: str) -> str:
+    """Why a table was left out, for the Runs page: "<table>: <its most telling error line>",
+    redacted, on one line and at most MAX_TABLE_ERROR_CHARS (manifest.TABLE_ERROR_PATTERN)."""
+    lines = [line.strip() for line in errors.splitlines() if line.strip()]
+    line = min(lines, key=_error_rank) if lines else ""
+    line = _LOG_PREFIX.sub("", line)
+    if sdk := _SDK_ANSWER.search(line):
+        line = f"{sdk['op']} (HTTP {sdk['status']}): {sdk['answer']}"
+    for pattern, replacement in _DROPPED:
+        line = pattern.sub(replacement, line)
+    line = " ".join(redact_text(line).split()).rstrip('"')
+    if not line:
+        line = f"exit code {rc}, nothing on standard error"
+    if len(line) > MAX_TABLE_ERROR_CHARS:
+        line = line[: MAX_TABLE_ERROR_CHARS - 1] + "\u2026"
+    return f"{table}: {line}"
 
 
 @dataclass(frozen=True)
@@ -356,6 +441,7 @@ class _Tables:
     incomplete: list[str] = field(default_factory=list)  # carried forward, whatever the reason
     not_applicable: list[str] = field(default_factory=list)
     refused_tables: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)  # table_error() of each incomplete table
     denials: Denials = field(default_factory=Denials)
     throttled: int = 0
 
@@ -370,11 +456,13 @@ def _judge_tables(runs: list[_TableRun], out_dir: Path, log: Path) -> _Tables:
         throttling = sum(1 for line in run.errors.splitlines() if THROTTLING.search(line))
         t.denials.denied |= found.denied
         t.denials.refused |= found.refused
+        t.denials.blocked |= found.blocked
         t.throttled += throttling
+        missing = found.denied or found.blocked  # data the operator can get back
         if table_failed(run.rc, run.errors, out):
             # A table only not applicable or refused here carries its rows forward without
             # making the run partial; any other failure does both.
-            outcome = None if throttling or found.denied else table_outcome(run.errors)
+            outcome = None if throttling or missing else table_outcome(run.errors)
             t.incomplete.append(run.table)
             if outcome == "not_applicable":
                 t.not_applicable.append(run.table)
@@ -388,17 +476,24 @@ def _judge_tables(runs: list[_TableRun], out_dir: Path, log: Path) -> _Tables:
                     f"(exit {run.rc})\n{run.errors[-2000:]}\n"
                 )
             out.unlink()
-        elif found.denied or throttling:
-            # A denied or throttled call leaves a column or a region empty: the rows are kept,
-            # and the table resolves nothing.
+        elif missing or throttling:
+            # A denied, blocked or throttled call leaves a column or a region empty: the rows
+            # are kept, and the table resolves nothing.
             t.incomplete.append(run.table)
-            why = f"{len(found.denied)} denied action(s)" if found.denied else "throttled"
+            if found.denied:
+                why = f"{len(found.denied)} denied action(s)"
+            elif found.blocked:
+                why = f"{len(found.blocked)} action(s) blocked outside the role"
+            else:
+                why = "throttled"
             with log.open("a") as text:
                 text.write(f"table partial: {run.table} ({why})\n")
         elif found.refused:
             # A resource refused a column's call: the rows are kept and carried, not partial.
             t.incomplete.append(run.table)
             t.refused_tables.append(run.table)
+        if t.incomplete and t.incomplete[-1] == run.table:
+            t.errors.append(table_error(run.table, run.rc, run.errors))
     return t
 
 
@@ -471,7 +566,7 @@ def _export_tables(
     else:
         status = "complete"
     version = _version([STEAMPIPE, "--version"], env)
-    denied_list = _denied_list(denials.denied)
+    denied_list, blocked_list = _denied_list(denials.denied), _denied_list(denials.blocked)
     if options is table_options:  # the inventory: hundreds of tables, one line for all
         ran = command_line(_table_command("<table>", Path("<config>"), ()), out_dir)
         described = (
@@ -487,7 +582,7 @@ def _export_tables(
         status,
         1 if failed else 0,
         version,
-        _with_denied(lines, denied_list),
+        _with_denied(lines, denied_list, blocked_list),
         throttled,
         denied_list,
         described,
@@ -495,6 +590,8 @@ def _export_tables(
         refused_actions=_denied_list(denials.refused),
         not_applicable_tables=sorted(not_applicable),
         refused_tables=sorted(refused_tables),
+        blocked_actions=blocked_list,
+        table_errors=sorted(judged.errors),
     )
 
 
@@ -559,7 +656,7 @@ def run_prowler(out_dir: Path, env: dict[str, str], regions: list[str]) -> ToolR
     # A check whose calls were denied has no result, so it resolves nothing: the run stays
     # complete, and the denied actions are reported.
     denials = read_denials(log.read_text(errors="replace")) if log.exists() else Denials()
-    refused = _denied_list(denials.denied)
+    refused, blocked = _denied_list(denials.denied), _denied_list(denials.blocked)
     # Read from the installed package: `prowler --version` checks GitHub for a newer release.
     version = _version(
         [PROWLER_PYTHON, "-c", "import importlib.metadata as m; print(m.version('prowler'))"], env
@@ -568,11 +665,12 @@ def run_prowler(out_dir: Path, env: dict[str, str], regions: list[str]) -> ToolR
         _status(rc == 0, throttled),
         rc,
         version,
-        _with_denied(lines, refused),
+        _with_denied(lines, refused, blocked),
         throttled,
         refused,
         command_line(cmd, out_dir),
         refused_actions=_denied_list(denials.refused),
+        blocked_actions=blocked,
     )
 
 
@@ -618,22 +716,23 @@ def run_cloudfox(
     # Module errors go to CloudFox's own error log, not the console ("0 errors" there). A
     # denied module leaves its findings unseen, so the run is partial and resolves nothing.
     denials = read_denials(_cloudfox_errors(errors_from, account_id))
-    refused = _denied_list(denials.denied)
+    refused, blocked = _denied_list(denials.denied), _denied_list(denials.blocked)
     status = _status(ok, throttled)
     # CloudFox has no per-table scope: any refused call, the role's or a policy's, leaves
     # findings unseen that a complete run would resolve.
-    if status == "complete" and (refused or denials.refused):
+    if status == "complete" and (refused or blocked or denials.refused):
         status = "partial"
     version = _version([CLOUDFOX, "--version"], env)
     return ToolResult(
         status,
         rc,
         version,
-        _with_denied(lines, refused),
+        _with_denied(lines, refused, blocked),
         throttled,
         refused,
         command_line(cmd, out_dir),
         refused_actions=_denied_list(denials.refused),
+        blocked_actions=blocked,
     )
 
 

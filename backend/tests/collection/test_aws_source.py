@@ -4,6 +4,7 @@ without AWS: read-only command lines, the failures the tools report as success, 
 and that a tool never sees Argus's own secrets."""
 
 import os
+import re
 import stat
 from collections.abc import Iterator
 from datetime import date
@@ -18,7 +19,12 @@ from argus.collection.aws import tools as aws_tools
 from argus.connections import AwsAuth
 from argus.core.aws import SessionCredentials
 from argus.core.config import get_settings
-from argus.core.manifest import Manifest
+from argus.core.manifest import (
+    BLOCKED_ACTION_PATTERN,
+    MAX_TABLE_ERROR_CHARS,
+    TABLE_ERROR_PATTERN,
+    Manifest,
+)
 
 DAY = date(2026, 10, 2)
 TARGET = CollectTarget(7, "aws", "210987654321")
@@ -559,6 +565,208 @@ def test_not_applicable_wordings_match_only_as_the_error_code(line: str) -> None
     # A resource named after the wording is not the error.
     named = "[ERROR] table x: api error AccessDenied: on resource AWSOrganizationsNotInUseException"
     assert not aws_tools.NOT_APPLICABLE.search(named)
+
+
+# What IAM says when a policy outside the role refused the call (owner, 2026-11-05). The S3 line
+# has the shape of the first real scan's VPC endpoint denials, ids made up.
+S3_BLOCKED_CALL = (
+    "operation error S3: ListBuckets, https response error StatusCode: 403, RequestID: r-5, "
+    "HostID: h-5, api error AccessDenied: User: "
+    "arn:aws:sts::210987654321:assumed-role/Scanner/argus is not authorized to perform: "
+    "s3:ListAllMyBuckets because no VPC endpoint policy allows the s3:ListAllMyBuckets action"
+)
+STEAMPIPE_BLOCKED = (
+    f"[WARN]  1793909735122: error channel received aws: {S3_BLOCKED_CALL}\n"
+    f'[ERROR] 1793909735123: aws_s3_bucket.listS3Buckets: api_error="{S3_BLOCKED_CALL}"\n'
+)
+_IAM_DENIAL = (
+    "User: arn:aws:sts::210987654321:assumed-role/Scanner/argus is not authorized to perform: "
+    "dynamodb:ListTables on resource: arn:aws:dynamodb:us-east-1:210987654321:table/* "
+)
+_BLOCKING = (
+    "service control policy",
+    "resource control policy",
+    "permissions boundary",
+    "session policy",
+    "VPC endpoint policy",
+)
+
+
+def _reason_cases() -> list[tuple[str, str, str]]:
+    """(IAM's reason, the class it goes to, the entry), every policy type both ways."""
+    cases = [
+        ("because no identity-based policy allows the dynamodb:ListTables action", "denied", ""),
+        ("with an explicit deny in an identity-based policy", "refused", ""),
+        ("because no resource-based policy allows the dynamodb:ListTables action", "refused", ""),
+        ("with an explicit deny in a resource-based policy", "refused", ""),
+        ("", "denied", ""),  # no reason given: the role is missing it, as before
+    ]
+    for policy in _BLOCKING:
+        entry = f"dynamodb:ListTables ({policy})"
+        implicit = f"because no {policy} allows the dynamodb:ListTables action"
+        cases.append((implicit, "blocked", entry))
+        cases.append((f"with an explicit deny in a {policy}", "blocked", entry))
+    return cases
+
+
+@pytest.mark.parametrize(
+    ("reason", "kind", "entry"),
+    _reason_cases(),
+    ids=[
+        "identity-implicit",
+        "identity-explicit",
+        "resource-implicit",
+        "resource-explicit",
+        "no-reason",
+        *(f"{p.replace(' ', '-')}-{how}" for p in _BLOCKING for how in ("implicit", "explicit")),
+    ],
+)
+def test_each_iam_reason_goes_to_one_class(reason: str, kind: str, entry: str) -> None:
+    found = aws_tools.read_denials(_IAM_DENIAL + reason)
+    classes = {"denied": found.denied, "refused": found.refused, "blocked": found.blocked}
+    assert classes.pop(kind) == {entry or "dynamodb:ListTables"}
+    assert not any(classes.values())
+    if entry:  # what the manifest will accept
+        assert re.fullmatch(BLOCKED_ACTION_PATTERN, entry)
+
+
+def test_a_table_blocked_outside_the_role_makes_the_run_partial_and_says_where(
+    fakes: Path,
+) -> None:
+    _control(fakes / "homes", "denied.txt", "aws_s3_bucket\n")
+    _control(fakes / "homes", "denied.err", STEAMPIPE_BLOCKED)
+    _, manifest = _run(fakes, "steampipe", ("us-east-1",))
+    assert "aws_s3_bucket.jsonl" not in [f.path for f in manifest.files]
+    assert manifest.status == "partial"
+    assert manifest.denied_actions == [] and manifest.refused_actions == []
+    assert manifest.blocked_actions == ["s3:ListAllMyBuckets (VPC endpoint policy)"]
+    assert manifest.incomplete_tables == ["aws_s3_bucket"] and manifest.refused_tables == []
+    assert manifest.table_errors == [
+        "aws_s3_bucket: S3: ListBuckets (HTTP 403): AccessDenied: User is not authorized to "
+        "perform: s3:ListAllMyBuckets because no VPC endpoint policy allows the "
+        "s3:ListAllMyBuckets action"
+    ]
+    assert "blocked outside the role: s3:ListAllMyBuckets (VPC endpoint policy)" in (
+        manifest.log_tail
+    )
+
+
+def test_an_explicit_scp_deny_is_blocked_not_refused(fakes: Path) -> None:
+    """Before 2026-11-05 an explicit Deny in a service control policy counted as refused on
+    purpose, and the run stayed complete. Its data is missing, so now it is partial."""
+    _control(fakes / "homes", "denied.txt", "aws_vpc_endpoint_service\n")
+    _control(
+        fakes / "homes",
+        "denied.err",
+        STEAMPIPE_REFUSED.replace(
+            "because no resource-based policy allows the ec2:DescribeVpcEndpointServicePermissions "
+            "action",
+            "with an explicit deny in a service control policy",
+        ),
+    )
+    _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
+    assert manifest.status == "partial"
+    assert manifest.refused_actions == [] and manifest.refused_tables == []
+    assert manifest.blocked_actions == [
+        "ec2:DescribeVpcEndpointServicePermissions (service control policy)"
+    ]
+
+
+def test_every_table_left_out_keeps_the_reason_aws_gave(fakes: Path) -> None:
+    """The first real scan lost why 29 tables failed: only the log's last 4,000 characters were
+    kept. Each table left out now carries its own line, whatever its outcome."""
+    _control(fakes / "homes", "failing.txt", "aws_sns_topic\n")
+    _control(fakes / "homes", "denied.txt", "aws_ec2_instance\naws_timestreamwrite_table\n")
+    _control(fakes / "homes", "denied.err", STEAMPIPE_403 + "[ERROR] error channel received\n")
+    _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
+    reasons = dict(e.split(": ", 1) for e in manifest.table_errors)
+    assert (
+        sorted(reasons)
+        == manifest.incomplete_tables
+        == [
+            "aws_ec2_instance",
+            "aws_sns_topic",
+            "aws_timestreamwrite_table",
+        ]
+    )
+    # AWS's answer, not the generic line that stopped the table; no ARN, no encoded message.
+    assert reasons["aws_ec2_instance"] == (
+        "EC2: GetLaunchTemplateData (HTTP 403): UnauthorizedOperation: You are not authorized "
+        "to perform this operation. User is not authorized to perform: "
+        "ec2:GetLaunchTemplateData because no identity-based policy allows the "
+        "ec2:GetLaunchTemplateData action"
+    )
+    assert reasons["aws_sns_topic"] == "[ERROR] AccessDenied"
+    assert "210987654321" not in " ".join(manifest.table_errors)
+
+
+def test_a_not_applicable_table_keeps_its_reason_too(fakes: Path) -> None:
+    _control(fakes / "homes", "denied.txt", "aws_timestreamwrite_table\n")
+    _control(fakes / "homes", "denied.err", STEAMPIPE_NOT_USED)
+    _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
+    assert manifest.status == "complete"
+    assert manifest.table_errors == [
+        "aws_timestreamwrite_table: Timestream Write: DescribeEndpoints (HTTP 403): "
+        "AccessDeniedException: Only existing Timestream for LiveAnalytics customers can access "
+        "the service. Reach out to AWS support, for more information."
+    ]
+
+
+@pytest.mark.parametrize(
+    ("errors", "expected"),
+    [
+        ("", "aws_x: exit code 1, nothing on standard error"),
+        ("Plugin.getSchema failed\n", "aws_x: Plugin.getSchema failed"),
+        (
+            '[ERROR] 1: aws_x.list: api_error="operation error FMS: ListPolicies, https '
+            "response error StatusCode: 400, RequestID: r-6, api error "
+            'AccessDeniedException: The operation is not allowed for this account"\n',
+            "aws_x: FMS: ListPolicies (HTTP 400): AccessDeniedException: The operation is not "
+            "allowed for this account",
+        ),
+        ("[ERROR] 1: " + "word " * 100, None),  # cut to the limit
+        (f"[ERROR] 1: DB_PASSWORD={SECRET}\n", None),  # redacted
+    ],
+    ids=["nothing-printed", "stdout-only", "sdk-answer", "too-long", "secret"],
+)
+def test_a_table_reason_fits_the_manifest(errors: str, expected: str | None) -> None:
+    reason = aws_tools.table_error("aws_x", 1, errors)
+    assert re.fullmatch(TABLE_ERROR_PATTERN, reason)
+    assert SECRET not in reason
+    if expected is not None:
+        assert reason == expected
+    elif "word" in errors:
+        assert len(reason) == len("aws_x: ") + MAX_TABLE_ERROR_CHARS
+        assert reason.endswith("…")
+
+
+def test_prowler_lists_blocked_actions_and_stays_complete(fakes: Path) -> None:
+    """Prowler's rule is unchanged: a check whose calls were refused has no result, so it
+    resolves nothing, and the run stays complete. What blocked it is listed apart."""
+    line = (
+        "2026-11-05 20:30:01,000 [File: s3_service.py:40] \t[Module: s3_service]\t ERROR: "
+        "ClientError: An error occurred (AccessDenied) when calling the ListBuckets operation: "
+        + S3_BLOCKED_CALL.split("api error AccessDenied: ", 1)[1]
+        + "\n"
+    )
+    _control(fakes / "homes", "prowler.out", line)
+    _, manifest = _run(fakes, "prowler")
+    assert manifest.status == "complete"
+    assert manifest.denied_actions == []
+    assert manifest.blocked_actions == ["s3:ListAllMyBuckets (VPC endpoint policy)"]
+
+
+def test_a_blocked_cloudfox_module_makes_the_run_partial(fakes: Path) -> None:
+    blocked = CLOUDFOX_403.replace(
+        "lambda:ListFunctions\n",
+        "lambda:ListFunctions because no permissions boundary allows the lambda:ListFunctions "
+        "action\n",
+    )
+    _control(fakes / "homes", "cloudfox.errors", blocked)
+    _, manifest = _run(fakes, "cloudfox")
+    assert manifest.status == "partial"
+    assert manifest.denied_actions == []
+    assert manifest.blocked_actions == ["lambda:ListFunctions (permissions boundary)"]
 
 
 def test_inspector_exports_this_accounts_open_findings_and_its_coverage(fakes: Path) -> None:

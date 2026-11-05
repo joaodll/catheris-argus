@@ -163,6 +163,71 @@ S3 applied.
 What to expect from a first real run, and what to do when a permission is missing, is in
 [runbook.md, Operating](runbook.md#operating).
 
+## VPC endpoints on the network Argus runs from
+
+If the network Argus runs in has VPC endpoints for S3, DynamoDB or ECR (common for EKS), every
+call the scanner role makes to those services goes through the endpoint, including calls into
+other accounts. An endpoint policy written for the cluster's own needs (image pulls, its own
+buckets and tables) refuses the scanner's reads. The run then lists them under **Blocked outside
+the role**, with `(VPC endpoint policy)` after each action: adding them to the role does not
+help, because the role already allows them.
+
+An endpoint policy can only narrow access, never grant it. Add two statements to each endpoint
+and keep your existing ones: one that lets the scanner role through for configuration reads, and
+one that refuses it content, as the role's own Deny does. Replace `ArgusScanner` if you changed
+the role name, and `o-exampleorgid` with your organization id.
+
+**S3 gateway endpoint:**
+
+```json
+[
+  {
+    "Sid": "ArgusScannerReadConfiguration",
+    "Effect": "Allow",
+    "Principal": "*",
+    "Action": ["s3:List*", "s3:Get*"],
+    "Resource": "*",
+    "Condition": {
+      "ArnLike": { "aws:PrincipalArn": "arn:aws:iam::*:role/ArgusScanner" },
+      "StringEquals": { "aws:PrincipalOrgID": "o-exampleorgid" }
+    }
+  },
+  {
+    "Sid": "ArgusScannerNoContent",
+    "Effect": "Deny",
+    "Principal": "*",
+    "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+    "Resource": "*",
+    "Condition": { "ArnLike": { "aws:PrincipalArn": "arn:aws:iam::*:role/ArgusScanner" } }
+  }
+]
+```
+
+**DynamoDB gateway endpoint:** the same two statements, with
+`"Action": ["dynamodb:List*", "dynamodb:Describe*", "dynamodb:GetResourcePolicy"]` in the Allow
+and `"Action": ["dynamodb:GetItem", "dynamodb:BatchGetItem", "dynamodb:Query", "dynamodb:Scan"]`
+in the Deny.
+
+**ECR API interface endpoint (`ecr.api`):** the same two statements, with
+`"Action": ["ecr:Describe*", "ecr:List*", "ecr:GetRepositoryPolicy", "ecr:GetLifecyclePolicy",
+"ecr:GetRegistryPolicy", "ecr:GetRegistryScanningConfiguration"]` in the Allow and
+`"Action": ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]` in the Deny. Leave the
+`ecr.dkr` endpoint as it is: image pulls use it, the scanner does not.
+
+Things to know:
+
+- If an existing statement is a **Deny** (for example, "deny unless the resource is in our
+  account"), an Allow does not override it. Add the scanner role to that Deny's exceptions
+  instead: `"ArnNotLike": { "aws:PrincipalArn": "arn:aws:iam::*:role/ArgusScanner" }`.
+- The Allow uses wildcards on purpose. The role decides what the scanner may read; the endpoint
+  only lets that traffic through, and its Deny keeps content out at the network too. A list of
+  exact actions would break on each Prowler or Steampipe upgrade.
+- Gateway endpoints serve only their own region. Calls to other regions leave through the NAT
+  and are not affected.
+
+After the change, run Steampipe again. The actions blocked by the endpoint policy, and the
+tables they stopped, should be gone from the run.
+
 ## Without a role: access-key connections
 
 A connection can also use an access key directly: an IAM user's key, or temporary SSO credentials,

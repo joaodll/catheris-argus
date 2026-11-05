@@ -14,7 +14,7 @@ _RUN_FILTERS = """
         WHERE (CAST(:c AS bigint) IS NULL OR s.connection_id = :c)
           AND (CAST(:t AS text) IS NULL OR s.tool = :t)
           AND (CAST(:s AS text) IS NULL OR s.status = :s)
-          AND (NOT :mp OR cardinality(s.denied_actions) > 0)
+          AND (NOT :mp OR cardinality(s.denied_actions) + cardinality(s.blocked_actions) > 0)
 """
 # Sort orders the API accepts, mapped to fixed SQL: the request never reaches the query text.
 RUN_ORDERS = {
@@ -45,6 +45,7 @@ def list_runs(
                s.exit_code, s.throttle_events, s.api_regions, s.region_scope, s.ingested_at,
                s.denied_actions, s.raw_encryption, s.command, s.incomplete_tables,
                s.refused_actions, s.not_applicable_tables, s.refused_tables,
+               s.blocked_actions, s.table_errors,
                right(coalesce(s.log_tail, ''), 2000) AS log_tail
         FROM scan_run s JOIN ({DIRECTORY_SQL}) c ON c.id = s.connection_id
         {_RUN_FILTERS}

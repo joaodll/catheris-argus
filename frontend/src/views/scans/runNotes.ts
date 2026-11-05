@@ -58,12 +58,19 @@ export function commandLabel(run: { source: string; command: string }): string {
 
 /** Why a run without incomplete tables is Partial. Throttling is said first: a denied action
  *  alone leaves a Prowler run complete, so its list below is not the cause there. */
-export function partialReason(run: { throttle_events: number; denied_actions: string[] }): string {
+export function partialReason(run: { throttle_events: number; denied_actions: string[]; blocked_actions?: string[] }): string {
   const n = run.throttle_events
   const throttled = n > 0 ? `the tool was throttled ${n} time${n === 1 ? '' : 's'}, so some results may be missing` : ''
-  if (throttled && run.denied_actions.length) return `${throttled}, and some data was not readable (below)`
+  const unreadable = run.denied_actions.length > 0 || (run.blocked_actions ?? []).length > 0
+  if (throttled && unreadable) return `${throttled}, and some data was not readable (below)`
   if (throttled) return throttled
-  return run.denied_actions.length ? 'some data was not readable (below)' : 'the tool stopped early'
+  return unreadable ? 'some data was not readable (below)' : 'the tool stopped early'
+}
+
+/** Why each table was left out, by table: AWS's own answer, redacted (owner, 2026-11-05). Runs
+ *  from before reasons were kept have none. */
+export function tableReasons(run: { table_errors?: { table: string; reason: string }[] }): Map<string, string> {
+  return new Map((run.table_errors ?? []).map((e) => [e.table, e.reason]))
 }
 
 /** The tables that made a run partial: those carried forward, less the ones not used in the

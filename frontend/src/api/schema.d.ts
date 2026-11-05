@@ -1806,6 +1806,11 @@ export interface components {
         RunOut: {
             /** Api Regions */
             api_regions: number | null;
+            /**
+             * Blocked Actions
+             * @default []
+             */
+            blocked_actions: string[];
             /** Command */
             command: string;
             /** Connection */
@@ -1871,6 +1876,11 @@ export interface components {
             started_at: string;
             /** Status */
             status: string;
+            /**
+             * Table Errors
+             * @default []
+             */
+            table_errors: components["schemas"]["TableError"][];
             /** Throttle Events */
             throttle_events: number;
             /** Tool */
@@ -2045,6 +2055,13 @@ export interface components {
             month: string;
             /** Score */
             score: number | null;
+        };
+        /** TableError */
+        TableError: {
+            /** Reason */
+            reason: string;
+            /** Table */
+            table: string;
         };
         /** TestOut */
         TestOut: {
