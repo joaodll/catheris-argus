@@ -279,6 +279,48 @@ def test_a_temporary_key_reaches_the_tools_with_its_session_token() -> None:
     assert token not in repr(access) and token not in repr(credentials)
 
 
+EXTRA_LINE = "\nregion = elsewhere"
+
+
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        SessionCredentials(KEY_ID, SECRET + EXTRA_LINE),
+        SessionCredentials(KEY_ID, SECRET + "\r"),
+        SessionCredentials(KEY_ID, SECRET + " x"),
+        SessionCredentials(KEY_ID + EXTRA_LINE, SECRET),
+        SessionCredentials("ASIA" + "F" * 16, SECRET, "token" + EXTRA_LINE),
+    ],
+    ids=["secret-newline", "secret-return", "secret-space", "key-id-newline", "token-newline"],
+)
+def test_a_profile_holds_one_word_per_value(credentials: SessionCredentials) -> None:
+    with (
+        pytest.raises(ValueError, match="holds a space or a control character") as refused,
+        aws_tools.tool_profile(credentials, "eu-west-1"),
+    ):
+        pytest.fail("the profile was written")
+    assert SECRET not in str(refused.value) and EXTRA_LINE not in str(refused.value)
+
+
+def test_a_stored_value_that_is_not_one_word_fails_the_run_before_any_tool(fakes: Path) -> None:
+    """A row stored before the API refused such a value, or written around it."""
+    access = AwsAccess(
+        AwsAuth("access_key", access_key_id=KEY_ID, secret_access_key=SECRET + EXTRA_LINE)
+    )
+    _, manifest = collect(
+        AwsSource(),
+        FilesystemRawStore(fakes / "raw"),
+        target=TARGET,
+        tool="prowler",
+        day=DAY,
+        run_uid=uuid4(),
+        options=CollectOptions(aws_access=access),
+    )
+    assert manifest.status == "failed"
+    assert "secret access key" in manifest.log_tail and SECRET not in manifest.log_tail
+    assert not (fakes / "homes" / "argv.txt").exists()
+
+
 def test_credentials_never_print() -> None:
     assert SECRET not in repr(ACCESS) and SECRET not in repr(SessionCredentials(KEY_ID, SECRET))
     assert KEY_ID not in repr(SessionCredentials(KEY_ID, SECRET))
