@@ -2,7 +2,7 @@
 
 **Owner:** `cloud-native-platform-engineer` (procedures) · `documentation-writer` (document)
 **Applies to:** the chart in `charts/argus/` as of 2026-10-26, on EKS with Kubernetes 1.30 or
-newer. Verified end to end on kind (Kubernetes 1.34) with Helm 4.3.1, not yet on EKS
+newer. Verified end to end on kind (Kubernetes 1.34 and 1.36) with Helm 4.3.1, not yet on EKS
 ([gates/kubernetes-exit.md](gates/kubernetes-exit.md)). Compose is in the [runbook](runbook.md).
 
 On Kubernetes, Argus runs as an `api` Deployment, a `web` Deployment, one `scheduler` replica that

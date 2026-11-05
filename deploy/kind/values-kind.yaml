@@ -27,6 +27,12 @@ scanJobs:
     limits: {memory: 2Gi}
   tmpSize: 512Mi
   scratch: {size: 2Gi}
+  # No node has these taints, so they change nothing here. They make the admission policy compile
+  # and judge a real list; left empty, kind never saw a policy that won't compile. The 0 is a real
+  # value, not "unset".
+  tolerations:
+    - {key: argus.catheris.io/scanners, operator: Exists, effect: NoSchedule}
+    - {key: argus.catheris.io/draining, operator: Equal, value: "true", effect: NoExecute, tolerationSeconds: 0}
 networkPolicy:
   # Link-local, the pod and Service networks, and the kind nodes' Docker network.
   scanEgressExcept: [169.254.0.0/16, 10.244.0.0/16, 10.96.0.0/12, 172.16.0.0/12]

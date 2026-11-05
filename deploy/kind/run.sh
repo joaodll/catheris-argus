@@ -166,7 +166,10 @@ BAD_JOBS=(
   'privileged|.spec.template.spec.containers[0].securityContext += {"privileged": true, "allowPrivilegeEscalation": true}'
   'root|.spec.template.spec.securityContext.runAsUser = 0'
   'a named node|.spec.template.spec.nodeName = "'"$CLUSTER"'-control-plane"'
-  'a toleration|.spec.template.spec.tolerations = [{"operator": "Exists"}]'
+  'one more toleration|.spec.template.spec.tolerations += [{"operator": "Exists"}]'
+  'a toleration of every taint in place of one|.spec.template.spec.tolerations[0] = {"operator": "Exists"}'
+  'a toleration kept for longer|(.spec.template.spec.tolerations[] | select(has("tolerationSeconds")) | .tolerationSeconds) = 3600'
+  'a toleration kept for good|.spec.template.spec.tolerations |= map(del(.tolerationSeconds))'
   'the API component label|.spec.template.metadata.labels["app.kubernetes.io/component"] = "api"'
   'another label|.spec.template.metadata.labels["example.com/extra"] = "x"'
   'more pods|.spec.parallelism = 10'
@@ -309,6 +312,20 @@ test_admission() {
     ok "denied: $name ($(sed -n 's/.*denied request: //p' <<< "$out"))"
   done
   rm -rf "$tmp"
+}
+
+# helm install compiles only the kind values' policy, and chart-check compiles none (kubeconform
+# doesn't read CEL). Another release's name, so each is created, not an update of the installed one.
+test_policy_compiles() {
+  step "the admission policy compiles from every ci/ values file"
+  local values out
+  for values in "$CHART"/ci/*.yaml; do
+    out=$(helm template argus "$CHART" -n argus-ci-check -f "$values" \
+            --show-only templates/collectors/admission-policy.yaml \
+          | kubectl create --dry-run=server -o name -f - 2>&1) \
+      || fail "$(basename "$values"): $out"
+    ok "$(basename "$values")"
+  done
 }
 
 test_demo_refused() {
@@ -540,6 +557,7 @@ run_tests() {
   test_limits
   test_rights
   test_admission
+  test_policy_compiles
   test_network
   test_demo_refused
   test_web
