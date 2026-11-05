@@ -52,8 +52,10 @@ policy change. It observes and recommends; a human applies every fix.
 The tools can read secret-bearing configuration (a Lambda function's environment, EC2 user data)
 when their checks need it. Argus never stores such a value:
 
-- every value under a secret-bearing key is replaced with `********` before it reaches the
-  database, keeping only the shape; credentials embedded in URLs are masked the same way
+- every value under a secret-bearing key, in a configuration or a tag, is replaced with `********`
+  before it reaches the database, keeping only the shape; credentials embedded in URLs are masked
+  the same way, and so are secrets written inside text, such as request headers, command lines,
+  connection strings, AWS keys and private keys
 - CloudFox results keep only the fact that a secret is present, and where
 - run logs and error messages are redacted before they are stored or printed
 - the only place a secret value can exist is the raw tool output, which goes to the operator's
@@ -147,6 +149,10 @@ Argus is pre-1.0. These are known and accepted for now:
   out; on Kubernetes, scan Jobs reach port 443 anywhere outside the cluster, because AWS service
   endpoints cannot be listed by name in a network policy. A compromised tool could send data out
   that way.
+- **Redaction goes by names and shapes.** It can't recognize a secret stored under a harmless name
+  with no recognizable form, such as a stage variable called `config` holding a password. Such a
+  value reaches the database, and every Viewer can read a resource's configuration. Keep secrets
+  in a secrets manager, which Argus's scanner role can't read.
 - **The tools can read their own credentials** while they run: the role session or the IRSA
   token. That identity can only assume scanner roles and write to the bucket.
 - **A new pod's egress rules don't hold for its first moments on some network plugins.** The plugin
