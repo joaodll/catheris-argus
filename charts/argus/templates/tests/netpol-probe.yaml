@@ -63,6 +63,7 @@ metadata:
     helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
 spec:
   {{- include "argus.podSpec" (dict "root" . "component" "netpol-probe" "restartPolicy" "Never" "tmp" false
+    "placement" .Values.tasks
     "containers" (include "argus.container" (dict "root" . "name" "probe" "tmp" false
       "resources" (dict "requests" (dict "cpu" "10m" "memory" "32Mi") "limits" (dict "memory" "64Mi"))
       "extra" (include "argus.netpolProbe.command" .)))) | nindent 2 }}

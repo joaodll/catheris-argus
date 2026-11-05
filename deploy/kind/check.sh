@@ -107,6 +107,33 @@ for seconds in '"key":"a","operator":"Exists","seconds":"0"' \
   echo "holds $seconds"
 done
 
+step "every pod takes the node placement it's given"
+# Any new component without placement fails here: on a cluster with taints or two CPU types it
+# lands on the wrong nodes (`exec format error` on the first EKS install).
+placed() { printf '{"nodeSelector":{"check/placed":"yes"},"tolerations":[{"key":"check/placed","operator":"Exists"}]}'; }
+placement=(--set-json "tasks=$(placed)" --set-json "api.nodeSelector=$(placed | jq -c .nodeSelector)"
+  --set-json "api.tolerations=$(placed | jq -c .tolerations)")
+for block in web scheduler postgres scanJobs; do
+  placement+=(--set-json "$block.nodeSelector=$(placed | jq -c .nodeSelector)"
+    --set-json "$block.tolerations=$(placed | jq -c .tolerations)")
+done
+helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" "${placement[@]}" \
+  | yq -o=json -I=0 'select(.kind)' > "$OUT/placement.json"
+# jq: name, then whether the pod carries both; the scan template is checked from inside its ConfigMap.
+jq -r 'def pod: if .kind == "CronJob" then .spec.jobTemplate.spec.template.spec
+         elif .kind == "Pod" then .spec else .spec.template.spec? // empty end;
+       def report: "\(.metadata.name // .metadata.generateName) " +
+         (if (pod.nodeSelector["check/placed"] == "yes") and (pod.tolerations[0].key? == "check/placed")
+          then "placed" else "MISSING" end);
+       (select(pod) | report),
+       (select(.kind == "ConfigMap" and .metadata.name == "argus-job-templates")
+          | .data["scan.json"] | fromjson | report)' "$OUT/placement.json" | sort > "$OUT/placement.txt"
+cat "$OUT/placement.txt"
+if grep -q MISSING "$OUT/placement.txt"; then fail "a pod ignores its placement values"; fi
+for needed in argus-api argus-web argus-scheduler argus-postgres argus-retention argus-netpol-probe argus-scan- argus-migrate- argus-rederive-; do
+  grep -q "^$needed" "$OUT/placement.txt" || fail "$needed is not in the render, so its placement wasn't checked"
+done
+
 step "the limits reach the pods that read them"
 limits=$(helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
   --set retention.maxHistoryDays=500 --set api.session.idleMinutes=45 \

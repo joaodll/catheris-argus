@@ -231,6 +231,14 @@ scanJobs:
   nodeSelector: {}
   tolerations: []
 
+# Where the pods that run once and exit go: migrate, rederive, retention and helm test's probe.
+# With a taint or a CPU type that only some nodes have, set this like the other components, or
+# these pods land on nodes the rest of Argus avoids.
+tasks:
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
 # Retention, a daily CronJob (UTC): drops the history older than the administration setting
 # "History" (whole monthly partitions), the configurations no snapshot uses any more, and old
 # rule loads. Without it the database grows for ever.

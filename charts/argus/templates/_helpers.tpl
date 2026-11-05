@@ -370,6 +370,7 @@ metadata:
     {{- include "argus.labels" . | nindent 4 }}
 spec:
   {{- include "argus.podSpec" (dict "root" .root "component" .component "restartPolicy" "Never" "db" true
+    "placement" .root.Values.tasks
     "initContainers" (ternary (include "argus.waitForSchema" .db) "" (default false .wait))
     "containers" (include "argus.container" (dict "root" .root "name" .component "command" .command
       "db" .db "env" .env "resources" .resources))) | nindent 2 }}

@@ -36,6 +36,12 @@ scanJobs:
 networkPolicy:
   # Link-local, the pod and Service networks, and the kind nodes' Docker network.
   scanEgressExcept: [169.254.0.0/16, 10.244.0.0/16, 10.96.0.0/12, 172.16.0.0/12]
+# Every node matches, so migrate, rederive, retention and helm test's probe prove they still run
+# with placement set; the toleration changes nothing, as above.
+tasks:
+  nodeSelector: {kubernetes.io/os: linux}
+  tolerations:
+    - {key: argus.catheris.io/tasks, operator: Exists, effect: NoSchedule}
 # As above: run.sh reads it back from the API and from the retention Job.
 retention:
   maxHistoryDays: 500

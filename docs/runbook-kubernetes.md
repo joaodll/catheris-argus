@@ -46,6 +46,8 @@ Each of these is a control the chart relies on but cannot set itself.
 - **The three images in a registry the nodes can pull from**, each known by its digest:
   `argus-backend:runtime`, `argus-backend:worker` and `argus-web:runtime`
   (`docker compose build migrate worker web`). The chart refuses tags.
+- **amd64 nodes.** The images are built for amd64 only. On a cluster that also has arm64 nodes,
+  add `kubernetes.io/arch: amd64` to `nodeSelector` in every block under Values, including `tasks`.
 - **`kubectl` and `helm`** (3.18 or newer, or 4) on the machine you install from.
 
 ## The platform identity (IRSA)
@@ -142,7 +144,9 @@ Also review:
   pools, the api replicas or `scheduler.maxRunJobs`. For an external database, set
   `maxConnections` to what it allows Argus. An api pod whose pool stays full answers 503.
 - `nodeSelector`, `tolerations`, `affinity` under `api`, `web`, `scheduler`, `postgres` and
-  `scanJobs`, to place them on your node groups.
+  `tasks`, to place them on your node groups (`tasks` is the pods that run once and exit:
+  migrate, rederive, retention and `helm test`'s probe). `scanJobs` takes `nodeSelector` and
+  `tolerations`. Set every block: a component left out can land on any node.
 
 Start from `charts/argus/ci/minimal-values.yaml`; `ci/external-db-values.yaml` sets every
 optional piece.
@@ -359,6 +363,7 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 | --- | --- | --- |
 | `helm install` refused with a schema error | A required value is missing, an image has a tag, or a key is misspelled | The message names the path; set it |
 | `api` and the scheduler stay in `Init` | The migrate Job has not finished, or the role cannot log in yet | `kubectl -n argus logs job/argus-migrate-<hash>`; check the Secret's keys |
+| A pod logs `exec /opt/venv/bin/python: exec format error` | The pod is on a node with another CPU type than its image | Set `nodeSelector` and `tolerations` on every block, including `tasks`, so it lands on nodes matching the image: `kubectl get nodes -L kubernetes.io/arch` |
 | `helm test` fails: "accepted a connection" | NetworkPolicy is not enforced | Turn on the VPC CNI's network policy, then test again |
 | Runs stay queued; the scheduler logs `kubernetes refused` | A denial by the policy or the quota | The `detail` names the rule; reinstall with Helm rather than editing templates by hand |
 | Runs stay queued; the scheduler logs a reconcile error with a connection timeout | `networkPolicy.kubeApi.cidrs` no longer holds the API's addresses | Read them again (Values) and upgrade |
