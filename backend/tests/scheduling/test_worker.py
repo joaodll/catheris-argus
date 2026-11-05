@@ -16,6 +16,7 @@ from tests.ingest.conftest import make_aws, make_demo
 
 from argus.collection import source_for, store_for
 from argus.collection.collect import Outcome
+from argus.core.aws import SessionCredentials
 from argus.core.config import get_settings
 from argus.core.db import CONNECT_ARGS
 from argus.core.rawstore import FilesystemRawStore, S3RawStore
@@ -564,6 +565,37 @@ def test_a_refused_role_shows_as_a_failed_run_with_the_reason(
     assert run.status == "failed" and run.source == "aws"
     assert "not authorized to perform sts:AssumeRole" in run.log_tail
     assert retried == 1  # like any failed run that is not a backfill
+
+
+def test_a_run_signed_in_to_another_account_changes_no_history(
+    owner: Engine, worker: Engine, store: FilesystemRawStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "argus.collection.aws.access.aws.assume_role",
+        lambda **_: SessionCredentials("AKIA" + "T" * 16, "test-only-" + "s" * 30),
+    )
+    monkeypatch.setattr(
+        "argus.collection.aws.source.aws.caller_identity",
+        lambda _credentials: ("123456789012", "arn:aws:iam::123456789012:user/other"),
+    )
+    monkeypatch.setattr(runner, "store_for", lambda conn, kind, local: local)
+    connection_id = make_aws(owner)
+    _request(owner, connection_id, "steampipe", reason="manual", day=date(2026, 10, 2))
+    with owner.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO resource (resource_uid, connection_id, region, type, native_id, "
+                "first_seen, last_seen) VALUES ('arn:aws:s3:::kept', :c, 'global', 's3_bucket', "
+                "'kept', '2026-10-01', '2026-10-01')"
+            ),
+            {"c": connection_id},
+        )
+    assert runner.run_once(worker, store=store, rules_dir=RULES_DIR, worker_id="t") == "failed"
+    with owner.connect() as conn:
+        run = conn.execute(text("SELECT status, log_tail FROM scan_run")).one()
+        resource = conn.execute(text("SELECT deleted_on, last_seen FROM resource")).one()
+    assert run.status == "failed" and "account 123456789012" in run.log_tail
+    assert resource.deleted_on is None and resource.last_seen == date(2026, 10, 1)
 
 
 @pytest.mark.parametrize(

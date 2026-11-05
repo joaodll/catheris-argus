@@ -90,7 +90,8 @@ def assume_role(
 
 def caller_identity(credentials: SessionCredentials | None) -> tuple[str, str]:
     """sts:GetCallerIdentity: the account and ARN AWS says these credentials sign in as. Needs
-    no permission; it proves the credentials work (Test connection, ADR-0024)."""
+    no permission; it proves the credentials work (Test connection, ADR-0024) and whose they are
+    (before every AWS run)."""
     sts = _session(credentials, None).client("sts", region_name="us-east-1", config=CLIENT_CONFIG)
     answer = sts.get_caller_identity()
     return str(answer["Account"]), str(answer["Arn"])

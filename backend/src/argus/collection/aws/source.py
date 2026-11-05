@@ -13,7 +13,20 @@ from argus.collection.aws.tools import (
     tool_profile,
 )
 from argus.collection.collect import CollectOptions, CollectTarget, Outcome
+from argus.core import aws
+from argus.core.aws import SessionCredentials
 from argus.core.manifest import Tool
+
+
+def _refuse_another_account(credentials: SessionCredentials, account_id: str) -> None:
+    """A complete run deletes what it doesn't see and resolves what no longer fails, so a run under
+    another account's key would empty this account's history. Raising makes it a failed run, which
+    changes nothing, and no tool starts."""
+    account, _arn = aws.caller_identity(credentials)
+    if account != account_id:
+        raise ValueError(
+            f"these credentials sign in to account {account}, not the connection's {account_id}"
+        )
 
 
 class AwsSource:
@@ -34,6 +47,7 @@ class AwsSource:
         started = datetime.now(UTC)
         regions = list(options.aws_regions)
         credentials = options.aws_access.credentials(session_name=f"argus-{run_uid.hex[:24]}")
+        _refuse_another_account(credentials, target.account_id)
         with tool_profile(credentials, regions[0] if regions else "us-east-1") as env:
             if tool == "steampipe":
                 result = run_steampipe(out_dir, env, regions, options.steampipe_parallel_tables)

@@ -42,6 +42,14 @@ def database_password(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     get_settings.cache_clear()
 
 
+@pytest.fixture(autouse=True)
+def signed_in_to_the_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "argus.collection.aws.source.aws.caller_identity",
+        lambda _credentials: (TARGET.account_id, "arn:aws:iam::210987654321:user/scanner"),
+    )
+
+
 @pytest.fixture
 def fakes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Each fake records its argv and environment, then behaves as the test sets it up."""
@@ -277,6 +285,33 @@ def test_a_temporary_key_reaches_the_tools_with_its_session_token() -> None:
         written = Path(env["AWS_SHARED_CREDENTIALS_FILE"]).read_text()
     assert f"aws_session_token = {token}" in written
     assert token not in repr(access) and token not in repr(credentials)
+
+
+@pytest.mark.parametrize("tool", ["steampipe", "prowler", "cloudfox", "vulnerabilities"])
+def test_a_key_of_another_account_fails_the_run_before_any_tool(
+    fakes: Path, monkeypatch: pytest.MonkeyPatch, tool: str
+) -> None:
+    monkeypatch.setattr(
+        "argus.collection.aws.source.aws.caller_identity",
+        lambda _credentials: ("123456789012", "arn:aws:iam::123456789012:user/other"),
+    )
+    _, manifest = _run(fakes, tool)
+    assert manifest.status == "failed"
+    assert "account 123456789012" in manifest.log_tail and TARGET.account_id in manifest.log_tail
+    assert manifest.files == []
+    assert not (fakes / "homes" / "argv.txt").exists()
+
+
+def test_a_failed_identity_check_fails_the_run_before_any_tool(
+    fakes: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(_credentials: object) -> tuple[str, str]:
+        raise RuntimeError("InvalidClientTokenId: the security token is not valid")
+
+    monkeypatch.setattr("argus.collection.aws.source.aws.caller_identity", refuse)
+    _, manifest = _run(fakes, "prowler")
+    assert manifest.status == "failed" and "InvalidClientTokenId" in manifest.log_tail
+    assert not (fakes / "homes" / "argv.txt").exists()
 
 
 def test_credentials_never_print() -> None:
