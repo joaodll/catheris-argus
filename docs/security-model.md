@@ -57,7 +57,9 @@ when their checks need it. Argus never stores such a value:
 - every value under a secret-bearing key, in a configuration or a tag, is replaced with `********`
   before it reaches the database, keeping only the shape; credentials embedded in URLs are masked
   the same way, and so are secrets written inside text, such as request headers, command lines,
-  connection strings, AWS keys and private keys
+  connection strings, AWS keys and private keys. A CloudFront origin's custom header value is
+  always masked, whatever the header is called: it is the usual shared secret between CloudFront
+  and its origin (`X-Origin-Verify`), and only the header's name is kept
 - CloudFox results keep only the fact that a secret is present, and where
 - run logs and error messages are redacted before they are stored or printed
 - the only place a secret value can exist is the raw tool output, which goes to the operator's
