@@ -149,6 +149,11 @@ Argus is pre-1.0. These are known and accepted for now:
   that way.
 - **The tools can read their own credentials** while they run: the role session or the IRSA
   token. That identity can only assume scanner roles and write to the bucket.
+- **The tools run as the same user as the scanning process.** That process hides its environment,
+  which holds the database password and the keyring, so a tool can't read it. A compromised tool can
+  still read anything else that user can, such as the run's staged raw output. On Kubernetes each
+  scan has its own pod. On Compose, runs at the same time share a container, so one tool could read
+  another run's AWS profile and staged output; set **Max parallel runs** to 1 if that matters to you.
 - **A new pod's egress rules don't hold for its first moments on some network plugins.** The plugin
   lets its outgoing traffic through until it has applied the pod's policies. Measured on kind on
   2026-11-03: a pod connecting at its start reached the internet 30 times out of 30, and a pod
