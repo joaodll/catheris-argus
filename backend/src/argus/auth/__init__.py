@@ -6,6 +6,7 @@ Owns app_user, user_session and login_failure. Public interface:
     session_user()        the user behind a session token, or None (sliding idle expiry)
     sign_out()            revoke a session
     role_allows()         whether a role may do what another role may
+    purge_old_sign_in_rows() old failures and ended sessions, for retention
     list_users() ...      user management for admins, with the safety rules (users.py)
     bootstrap_admin()     the first admin, from the environment, once (the migrate step)
     reset_password()      admin-tools' recovery for a forgotten password
@@ -21,6 +22,7 @@ from argus.auth.sessions import (
     SignInError,
     TooManyAttemptsError,
     hash_password,
+    purge_old_sign_in_rows,
     role_allows,
     session_user,
     sign_in,
@@ -65,6 +67,7 @@ __all__ = [
     "get_user",
     "hash_password",
     "list_users",
+    "purge_old_sign_in_rows",
     "reset_password",
     "role_allows",
     "session_user",

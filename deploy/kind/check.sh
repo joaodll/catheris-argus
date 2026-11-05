@@ -89,7 +89,22 @@ refused "more database connections than Postgres allows" --set api.autoscaling.e
 refused "a scan Job pool below a run's peak" --set database.pools.scanJob=2
 refused "a session of no minutes" --set api.session.idleMinutes=0
 refused "no sign-in failures allowed" --set api.signIn.maxFailures=0
+refused "a lockout longer than retention keeps failures" --set api.signIn.lockoutMinutes=43201
 refused "a history bound below the UI's minimum" --set retention.maxHistoryDays=10
+# With the rest of a valid ingress, so it's refused for this reason and no other.
+INGRESS=(--set web.ingress.enabled=true --set web.ingress.host=argus.example)
+PEERS=(--set-json 'networkPolicy.webIngressFrom=[{"ipBlock":{"cidr":"10.0.64.0/24"}}]')
+refused "an ingress the NetworkPolicy would block" "${INGRESS[@]}"
+refused "an ingress with no host" --set web.ingress.enabled=true "${PEERS[@]}"
+internet_facing=(--set-json 'web.ingress.annotations={"alb.ingress.kubernetes.io/scheme":"internet-facing"}')
+notes=$(helm install argus "$CHART" -n argus --dry-run=client -f "$CHART/ci/minimal-values.yaml" \
+  "${INGRESS[@]}" "${PEERS[@]}" "${internet_facing[@]}") || fail "an internet-facing ALB must render"
+printf '%s\n' "$notes" | grep -q 'WARNING: this ALB is internet-facing' || fail "no warning for an internet-facing ALB"
+echo "rendered with a warning: an internet-facing ALB"
+notes=$(helm install argus "$CHART" -n argus --dry-run=client -f "$CHART/ci/minimal-values.yaml" \
+  --set networkPolicy.enabled=false "${INGRESS[@]}") || fail "an ingress with the policies off must render"
+printf '%s\n' "$notes" | grep -q 'any pod that reaches web can choose' || fail "no warning with the policies off"
+echo "rendered with a warning: an ingress with the policies off"
 helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
   --set admissionPolicy.enabled=false --set admissionPolicy.acknowledgeUnenforced=true > /dev/null \
   || fail "the policy off, acknowledged, must render"
@@ -133,6 +148,17 @@ if grep -q MISSING "$OUT/placement.txt"; then fail "a pod ignores its placement 
 for needed in argus-api argus-web argus-scheduler argus-postgres argus-retention argus-netpol-probe argus-scan- argus-migrate- argus-rederive-; do
   grep -q "^$needed" "$OUT/placement.txt" || fail "$needed is not in the render, so its placement wasn't checked"
 done
+
+step "only an ingress changes how web reads the client's address"
+real_ip() { # <rendered file>
+  yq -N 'select(.kind == "Deployment" and .metadata.name == "argus-web")
+    | .. | select(has("env")) | .env[] | select(.name == "ARGUS_NGINX_REAL_IP") | .value' "$1"
+}
+expected='set_real_ip_from 0.0.0.0/0; set_real_ip_from ::/0; real_ip_header X-Forwarded-For; real_ip_recursive off;'
+[ "$(real_ip "$OUT/external-db.yaml")" = "$expected" ] || fail "ingress on: web has '$(real_ip "$OUT/external-db.yaml")'"
+[ -z "$(real_ip "$OUT/minimal.yaml")" ] || fail "ingress off: web still reads the client from a header"
+echo "ingress on: $expected"
+echo "ingress off: nothing set"
 
 step "the limits reach the pods that read them"
 limits=$(helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \

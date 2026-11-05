@@ -21,6 +21,7 @@ from argus.api.routes import (
 )
 from argus.auth import UserRuleError
 from argus.connections import ConnectionError as ConnectionValueError
+from argus.core.db import ServiceBusyError
 from argus.scheduling import InvalidScheduleError
 from argus.settings import SettingsBoundError
 
@@ -57,8 +58,8 @@ def _conflict(_: Request, __: Exception) -> JSONResponse:
 
 
 def _busy(_: Request, __: Exception) -> JSONResponse:
-    # Every pooled connection stayed in use for POOL_TIMEOUT_SECONDS: a load problem, not the
-    # request's fault. The client may try again; the pool's cap protects Postgres meanwhile.
+    # Every pooled connection, or every password check, stayed in use: a load problem, not the
+    # request's fault. The client may try again; the caps protect Postgres and the API's memory.
     return JSONResponse(
         status_code=503,
         content={"detail": "the service is busy; try again shortly"},
@@ -82,6 +83,7 @@ def create_app() -> FastAPI:
     app.add_exception_handler(LookupError, _not_found)
     app.add_exception_handler(IntegrityError, _conflict)
     app.add_exception_handler(PoolTimeoutError, _busy)
+    app.add_exception_handler(ServiceBusyError, _busy)
     app.add_exception_handler(UserRuleError, users.refused)
     for router in (
         health.router,

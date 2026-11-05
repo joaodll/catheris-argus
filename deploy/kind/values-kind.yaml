@@ -10,7 +10,7 @@ api:
   session: {idleMinutes: 45}
   resources:
     requests: {cpu: 50m, memory: 128Mi}
-    limits: {memory: 256Mi}
+    limits: {memory: 384Mi}
 # No cloud identity on kind: scan Jobs answer the identity test there and run no scans.
 identity:
   mode: none

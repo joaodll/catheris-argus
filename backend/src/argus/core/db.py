@@ -20,6 +20,11 @@ CONNECT_ARGS: dict[str, object] = {"connect_timeout": 5, "prepare_threshold": No
 POOL_TIMEOUT_SECONDS = 10
 
 
+class ServiceBusyError(Exception):
+    """A limited resource stayed in use: a load problem, not the request's fault. The API answers
+    503, as it does when the pool is full."""
+
+
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
     # A hard cap, no overflow: the pool never opens more than db_pool_max connections, so the

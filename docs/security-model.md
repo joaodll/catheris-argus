@@ -93,8 +93,9 @@ when their checks need it. Argus never stores such a value:
 - **Who holds the cloud identity:** only the scan Jobs. Every pod the chart creates meets Pod
   Security `restricted` (non-root, read-only root filesystem, no capabilities), and labelling the
   namespace `restricted`, an install prerequisite, enforces it.
-- **No public entry until single sign-on exists:** access is `kubectl port-forward` or an internal
-  ingress.
+- **No public entry by default:** access is `kubectl port-forward`. An ingress is off until the
+  operator turns it on, and should stay internal or restricted to known addresses until single
+  sign-on exists (Known limits).
 
 ## Sign-in, sessions and the audit trail
 
@@ -117,7 +118,12 @@ when their checks need it. Argus never stores such a value:
 - **Sign-in limits** per 15 minutes: 5 failures for a username from one address, 20 from one
   address, 100 for a username from anywhere. One attacker cannot lock an administrator out, and
   guessing the current password in a password change counts against the same limits.
-- **The audit log** records every sign-in and every change.
+- **Limits on unauthenticated load:** web allows one sign-in request a second per address, with a
+  burst of 5, and each web pod counts on its own. The API runs at most 2 password checks at once,
+  each using 64 MiB, and answers 503 when one can't start within a second. Retention deletes
+  failures and ended sessions after 30 days.
+- **The audit log** records every sign-in and every change. Refused sign-ins, which never reach a
+  password check, write one row per address per lockout window. It is never purged.
 - **The API's role in the database** reads scan data read-only, with a 5-second statement timeout.
   It writes only administration rows, and the API never serves its own API description
   ([ADR-0025](adr/0025-openapi-build-time-contract.md)).
@@ -162,6 +168,15 @@ Argus is pre-1.0. These are known and accepted for now:
   still read anything else that user can, such as the run's staged raw output. On Kubernetes each
   scan has its own pod. On Compose, runs at the same time share a container, so one tool could read
   another run's AWS profile and staged output; set **Max parallel runs** to 1 if that matters to you.
+- **Behind an ingress, the address Argus records comes from `X-Forwarded-For`.** Sign-in limits and
+  the audit log use its last entry, the one the ingress adds, from whoever connects to web. The
+  NetworkPolicy lets only `networkPolicy.webIngressFrom` connect. With the policies off, any pod
+  that reaches web can choose the address, dodge the per-address limit and plant an address in the
+  audit log. A second proxy in front of the ingress would be recorded as every user's address.
+- **An ingress can be internet-facing.** The chart warns about an internet-facing ALB and doesn't
+  check that its source addresses are restricted, because that is the operator's to choose. Until
+  single sign-on exists there is no second factor behind that sign-in, so an unrestricted ingress
+  exposes a system that holds the attack map to password guessing, slowed only by the sign-in limits.
 - **A new pod's egress rules don't hold for its first moments on some network plugins.** The plugin
   lets its outgoing traffic through until it has applied the pod's policies. Measured on kind on
   2026-11-03: a pod connecting at its start reached the internet 30 times out of 30, and a pod
@@ -174,7 +189,7 @@ Argus is pre-1.0. These are known and accepted for now:
 - **Scan data is not encrypted by Argus at rest.** Only stored credentials are. The database holds
   the attack map: put it on an encrypted volume, or use a managed database with encryption on.
 - **No TLS of its own.** The UI is plain HTTP on loopback (Compose) or reached through
-  `kubectl port-forward`. Anything wider needs TLS in front: an internal ingress or a proxy.
+  `kubectl port-forward`. Anything wider needs TLS in front: an ingress or a proxy.
 - **The in-chart Postgres is reached without TLS** inside the cluster (password authentication
   uses SCRAM, so the password does not cross the wire). An external database is reached with
   `verify-full` when you give the chart its CA bundle. Without one it uses `require`: encrypted,

@@ -138,7 +138,7 @@ services:
     <<: *hardened
     read_only: true
     tmpfs: [/tmp]
-    mem_limit: 256m
+    mem_limit: 384m
     pids_limit: 128
     depends_on:
       migrate:

@@ -457,7 +457,7 @@ One set of container images ships two ways: a Helm chart for Kubernetes (primary
 | Component | Kubernetes | Docker Compose |
 | --- | --- | --- |
 | API (FastAPI) | Deployment, 2 replicas, disruption budget | One service |
-| UI (Vue, served by nginx) | Deployment, 2 replicas; ClusterIP, no Ingress by default (`kubectl port-forward` until SSO) | One service, on the loopback interface |
+| UI (Vue, served by nginx) | Deployment, 2 replicas; ClusterIP, no Ingress by default (`kubectl port-forward`; an ingress is the operator's choice) | One service, on the loopback interface |
 | Scheduler | Deployment, 1 replica, `Recreate`, no Service; RBAC: create, get and list Jobs in the namespace | The worker service; no Docker socket |
 | Collection and ingest | Scan Jobs from one fixed template (worker image): one Test connection or one AWS run per pod; AWS connections only (ADR-0039, amended 2026-10-26) | The worker service (ADR-0019), Demo connections included |
 | Migrations, rederive, retention | A Job per image for migrate and rederive; a daily CronJob for retention | The `migrate` one-shot; the worker |

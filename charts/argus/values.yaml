@@ -152,7 +152,8 @@ api:
     maxFailuresPerUsername: 100
   resources:
     requests: {cpu: 100m, memory: 128Mi}
-    limits: {memory: 256Mi}
+    # 95 MiB idle, and each of 2 password checks at once holds 64 MiB: 231 MiB at peak (2026-11-05).
+    limits: {memory: 384Mi}
   # A HorizontalPodAutoscaler on CPU (and memory, if set). Needs metrics-server, which EKS does
   # not install by default. maxReplicas counts in the connection budget (database.pools).
   autoscaling:
@@ -180,9 +181,9 @@ web:
   nodeSelector: {}
   tolerations: []
   affinity: {}
-  # Off until SSO exists: reach the UI with `kubectl port-forward` (CLAUDE.md, tier-0). An
-  # internal ingress may be turned on; its controller must then be allowed in
-  # networkPolicy.webIngressFrom.
+  # Off by default: reach the UI with `kubectl port-forward`. There is no single sign-on or second
+  # factor yet, so keep any ingress internal or restricted to known source addresses. It must be
+  # the one proxy in front of web, serve HTTPS, and be allowed in networkPolicy.webIngressFrom.
   ingress:
     enabled: false
     className: ""

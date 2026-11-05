@@ -1,5 +1,8 @@
 import hashlib
 import secrets
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import cache
@@ -11,9 +14,16 @@ from sqlalchemy import Connection, text
 
 from argus.core import audit
 from argus.core.config import get_settings
+from argus.core.db import ServiceBusyError
 
 SESSION_TOKEN_BYTES = 32
 TOUCH_EVERY = timedelta(seconds=60)
+# Each argon2 operation holds 64 MiB, and anyone who can reach the sign-in page can ask for one, so
+# at most this many run at a time. A waiting request holds a database connection, so it doesn't
+# wait long.
+ARGON2_AT_ONCE = 2
+ARGON2_WAIT_SECONDS = 1.0
+_argon2_slots = threading.BoundedSemaphore(ARGON2_AT_ONCE)
 
 Role = Literal["viewer", "operator", "admin"]
 # Each role can do everything the roles before it can (ADR-0041).
@@ -59,17 +69,29 @@ def _token_hash(token: str) -> bytes:
     return hashlib.sha256(token.encode()).digest()
 
 
+@contextmanager
+def _argon2_slot() -> Iterator[None]:
+    if not _argon2_slots.acquire(timeout=ARGON2_WAIT_SECONDS):
+        raise ServiceBusyError
+    try:
+        yield
+    finally:
+        _argon2_slots.release()
+
+
 def hash_password(password: str) -> str:
-    return _hasher().hash(password)
+    with _argon2_slot():
+        return _hasher().hash(password)
 
 
 def password_matches(stored: str | None, password: str) -> bool:
     """argon2id verification; with no stored hash (no such user, or not a local one) a dummy
     one is verified anyway, so the time taken does not say whether the user exists."""
-    try:
-        return _hasher().verify(stored or _dummy_hash(), password) and stored is not None
-    except (VerificationError, InvalidHashError):
-        return False
+    with _argon2_slot():
+        try:
+            return _hasher().verify(stored or _dummy_hash(), password) and stored is not None
+        except (VerificationError, InvalidHashError):
+            return False
 
 
 def _verify(conn: Connection, username: str, password: str) -> int | None:
@@ -128,7 +150,12 @@ def sign_in(
     username = username.strip().lower()
     serialize_attempts(conn, username)
     if limited(conn, username, client_ip):
-        audit.record(conn, actor=username, action="auth.sign_in.limited", client_ip=client_ip)
+        audit.record_sign_in_limited(
+            conn,
+            actor=username,
+            client_ip=client_ip,
+            window_minutes=get_settings().login_lockout_minutes,
+        )
         raise TooManyAttemptsError
     user_id = _verify(conn, username, password)
     if user_id is None:
@@ -167,6 +194,12 @@ def sign_in(
     conn.execute(text("UPDATE app_user SET last_sign_in_at = now() WHERE id = :i"), {"i": user_id})
     audit.record(conn, actor=username, action="auth.sign_in", client_ip=client_ip)
     return token
+
+
+def purge_old_sign_in_rows(conn: Connection) -> int:
+    """Failures and ended sessions past any use, by the one function the worker may call (0041).
+    The audit log keeps every sign-in. Returns how many rows went."""
+    return int(conn.execute(text("SELECT argus_purge_sign_in_rows()")).scalar_one())
 
 
 def session_user(conn: Connection, token: str) -> SessionUser | None:
