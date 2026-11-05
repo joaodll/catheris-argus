@@ -23,6 +23,13 @@ CLIENT_CONFIG = Config(
 # together with its session token.
 ACCESS_KEY_ID_PATTERN = r"^(AKIA|ASIA)[A-Z0-9]{16}$"
 MAX_SESSION_TOKEN_CHARS = 8192
+# What a stored credential may hold: printable ASCII with no space. Every part of a real key fits,
+# and each one ends up on a line of its own in a file the tools parse.
+_ONE_WORD = re.compile(r"[!-~]+")
+
+
+def is_one_word(value: str) -> bool:
+    return _ONE_WORD.fullmatch(value) is not None
 
 
 @dataclass(frozen=True)
@@ -38,15 +45,19 @@ def check_access_key(
     access_key_id: str | None, secret_access_key: str | None, session_token: str | None
 ) -> None:
     """Refuse a key set AWS would reject: raises ValueError naming the field, never its value."""
-    if not access_key_id or not re.match(ACCESS_KEY_ID_PATTERN, access_key_id):
+    if not access_key_id or not re.fullmatch(ACCESS_KEY_ID_PATTERN, access_key_id):
         raise ValueError("access_key_id is not an AWS access key id")
     if not secret_access_key or len(secret_access_key) < 30:
         raise ValueError("secret_access_key is required")
+    if not is_one_word(secret_access_key):
+        raise ValueError("secret_access_key holds a space or a character AWS keys never have")
     if access_key_id.startswith("ASIA"):
         if not session_token:
             raise ValueError("a temporary key (ASIA...) needs its session_token")
         if len(session_token) > MAX_SESSION_TOKEN_CHARS:
             raise ValueError("session_token is too long")
+        if not is_one_word(session_token):
+            raise ValueError("session_token holds a space or a character AWS tokens never have")
     elif session_token:
         raise ValueError("a long-lived key (AKIA...) takes no session_token")
 
