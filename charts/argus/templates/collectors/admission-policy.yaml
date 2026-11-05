@@ -33,8 +33,12 @@ chart's kubeVersion floor moves, check the PodSpec and Container fields added si
 {{- $annotations := $job.spec.template.metadata.annotations }}
 {{- $nodeSelector := $pod.nodeSelector | default dict }}
 {{- $tolerations := list }}
+{{- /* Every field a string: CEL refuses a map literal with mixed value types, so a number here
+stops the policy compiling. A toleration with 0 seconds differs from one with no limit. */ -}}
 {{- range ($pod.tolerations | default list) }}
-{{- $tolerations = append $tolerations (dict "key" (.key | default "") "operator" (.operator | default "") "value" (.value | default "") "effect" (.effect | default "") "seconds" (.tolerationSeconds | default -1 | int)) }}
+{{- $seconds := "" }}
+{{- if hasKey . "tolerationSeconds" }}{{- $seconds = .tolerationSeconds | int64 | toString }}{{- end }}
+{{- $tolerations = append $tolerations (dict "key" (.key | default "") "operator" (.operator | default "") "value" (.value | default "") "effect" (.effect | default "") "seconds" $seconds) }}
 {{- end }}
 {{- $ca := .Values.postgres.external.caConfigMap | default "" }}
 apiVersion: admissionregistration.k8s.io/v1
@@ -129,7 +133,7 @@ spec:
         && (!has(variables.pod.tolerations) || variables.pod.tolerations.all(t, {{ toJson $tolerations }}.exists(a,
              (has(t.key) ? t.key : '') == a.key && (has(t.operator) ? t.operator : '') == a.operator
              && (has(t.value) ? t.value : '') == a.value && (has(t.effect) ? t.effect : '') == a.effect
-             && (has(t.tolerationSeconds) ? t.tolerationSeconds : -1) == a.seconds)))
+             && (has(t.tolerationSeconds) ? string(t.tolerationSeconds) : '') == a.seconds)))
       message: the pod's node placement is not its template's
     - expression: >-
         variables.pod.securityContext.runAsNonRoot == true

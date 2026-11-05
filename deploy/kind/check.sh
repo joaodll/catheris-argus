@@ -95,6 +95,18 @@ helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
   || fail "the policy off, acknowledged, must render"
 echo "rendered: the admission policy off, acknowledged"
 
+step "the admission policy holds each toleration's seconds as written"
+policy=$(helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
+  --show-only templates/collectors/admission-policy.yaml \
+  --set-json 'scanJobs.tolerations=[{"key":"a","operator":"Exists","effect":"NoExecute","tolerationSeconds":0},{"key":"b","operator":"Exists","effect":"NoExecute","tolerationSeconds":3600000},{"key":"c","operator":"Exists","effect":"NoSchedule"}]')
+# Values pass through YAML as floats on the way here, and a float prints 3600000 as 3.6e+06.
+for seconds in '"key":"a","operator":"Exists","seconds":"0"' \
+               '"key":"b","operator":"Exists","seconds":"3600000"' \
+               '"key":"c","operator":"Exists","seconds":""'; do
+  printf '%s\n' "$policy" | grep -qF "$seconds" || fail "the policy does not hold $seconds"
+  echo "holds $seconds"
+done
+
 step "the limits reach the pods that read them"
 limits=$(helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
   --set retention.maxHistoryDays=500 --set api.session.idleMinutes=45 \
