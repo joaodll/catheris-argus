@@ -319,6 +319,33 @@ def test_a_temporary_key_is_sealed_with_its_token_and_replaced_whole(
         json={"access_key": {"access_key_id": "ASIA" + "Q" * 16, "secret_access_key": SECRET}},
     )
     assert half.status_code == 422
+    for bad in (
+        {"access_key_id": "AKIA" + "Q" * 16, "secret_access_key": SECRET + "\nregion = x"},
+        {"access_key_id": "AKIA" + "Q" * 16 + "\n", "secret_access_key": SECRET},
+        {
+            "access_key_id": "ASIA" + "Q" * 16,
+            "secret_access_key": SECRET,
+            "session_token": TOKEN + "\nregion = x",
+        },
+    ):
+        refused = signed_in.patch(
+            f"/api/v1/connections/{connection_id}",
+            headers=csrf(signed_in),
+            json={"access_key": bad},
+        )
+        assert refused.status_code == 422 and SECRET not in refused.text
+        new = signed_in.post(
+            "/api/v1/connections",
+            headers=csrf(signed_in),
+            json={
+                "kind": "aws",
+                "name": "refused",
+                "account_id": "210987654322",
+                "auth_method": "access_key",
+                **bad,
+            },
+        )
+        assert new.status_code == 422 and SECRET not in new.text
     texts = created.text + replaced.text + half.text + signed_in.get("/api/v1/connections").text
     assert TOKEN not in texts and SECRET not in texts
     with owner.connect() as conn:

@@ -33,7 +33,7 @@ from argus.collection.tables import (
     steampipe_tables,
     table_options,
 )
-from argus.core.aws import SessionCredentials
+from argus.core.aws import SessionCredentials, is_one_word
 from argus.core.manifest import MAX_DENIED_ACTIONS
 
 logger = logging.getLogger("argus.collection")
@@ -213,7 +213,17 @@ def _with_denied(lines: list[str], denied: list[str]) -> list[str]:
 @contextmanager
 def tool_profile(credentials: SessionCredentials, region: str) -> Iterator[dict[str, str]]:
     """A temporary home holding one AWS profile, and the minimal environment that points at it.
-    Deleted with everything a tool wrote there when the run ends."""
+    Deleted with everything a tool wrote there when the run ends. A value that isn't one word is
+    refused, whatever validated it when it was stored: the run fails and no tool starts."""
+    values = {
+        "access key id": credentials.access_key_id,
+        "secret access key": credentials.secret_access_key,
+        "session token": credentials.session_token or "-",
+        "region": region,
+    }
+    for name, value in values.items():
+        if not is_one_word(value):
+            raise ValueError(f"the connection's {name} holds a space or a control character")
     home = Path(tempfile.mkdtemp(prefix="argus-aws-"))  # mode 0700
     try:
         token = (

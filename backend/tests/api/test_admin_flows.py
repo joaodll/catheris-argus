@@ -188,6 +188,12 @@ def test_a_temporary_identity_key_needs_its_session_token(
     body = {"mode": "access_key", "access_key_id": "ASIA" + "Y" * 16, "secret_access_key": SECRET}
     refused = signed_in.put("/api/v1/settings/identity", headers=csrf(signed_in), json=body)
     assert refused.status_code == 422 and "session_token" in refused.json()["detail"]
+    two_lines = signed_in.put(
+        "/api/v1/settings/identity",
+        headers=csrf(signed_in),
+        json={**body, "session_token": token + "\nregion = x"},
+    )
+    assert two_lines.status_code == 422 and token not in two_lines.text
     saved = signed_in.put(
         "/api/v1/settings/identity",
         headers=csrf(signed_in),
