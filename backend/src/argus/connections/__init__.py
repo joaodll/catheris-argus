@@ -3,7 +3,8 @@
 Owns the `connection` table. Other modules read connections through this interface only.
 
 AWS connections authenticate one of two ways:
-- assume_role: the platform identity assumes the role (role ARN + ExternalId).
+- assume_role: the platform identity assumes the role (role ARN, and the ExternalId its trust
+  asks for, if any: optional since 2026-11-05, ADR-0024 amended).
 - access_key: an access key, either long-lived (AKIA...) or temporary (ASIA..., SSO) with its
   session token. The administrator's choice, like assume_role (ADR-0024, amended 2026-10-24).
 Secret access keys and session tokens are sealed (core.secrets) with the row's binding; they
@@ -150,8 +151,9 @@ def _check_aws(account_id: str, auth: AwsAuth) -> None:
             raise ConnectionError("role_arn must be an IAM role ARN")
         if f":{account_id}:" not in auth.role_arn:
             raise ConnectionError("role_arn must belong to the connection's account")
-        if not auth.external_id or not _EXTERNAL_ID_RE.match(auth.external_id):
-            raise ConnectionError("external_id must be 16 or more characters")
+        # Optional (owner, 2026-11-05). One that is set must still be hard to guess.
+        if auth.external_id and not _EXTERNAL_ID_RE.match(auth.external_id):
+            raise ConnectionError("external_id must be 16 or more characters, or left empty")
     else:
         _check_access_key(auth)
 
@@ -188,7 +190,7 @@ def create_aws(
             "a": account_id,
             "m": auth.method,
             "role": auth.role_arn if assume else None,
-            "ext": auth.external_id if assume else None,
+            "ext": (auth.external_id or None) if assume else None,  # blank is none
             **key,
             "actor": actor,
         },
@@ -201,7 +203,12 @@ def create_aws(
         target_type="connection",
         target_id=str(created.id),
         client_ip=client_ip,
-        detail={"kind": "aws", "auth_method": auth.method, "account_id": account_id},
+        detail={
+            "kind": "aws",
+            "auth_method": auth.method,
+            "account_id": account_id,
+            "external_id": bool(assume and auth.external_id),  # whether one is set, never it
+        },
     )
     return created
 

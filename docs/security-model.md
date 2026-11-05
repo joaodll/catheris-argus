@@ -38,8 +38,10 @@ policy change. It observes and recommends; a human applies every fix.
 ## Credentials Argus holds
 
 - **How Argus reaches an account** is the administrator's choice per connection: assuming the
-  scanner role with an ExternalId (recommended), or an access key
-  ([ADR-0024](adr/0024-connection-auth-methods.md)). See [Connecting AWS accounts](connect-aws.md).
+  scanner role (recommended), with an ExternalId or, since 2026-11-05, without one, or an access
+  key ([ADR-0024](adr/0024-connection-auth-methods.md)). Without an ExternalId, anyone who can add
+  connections can add any account whose role trusts the platform identity (the confused deputy):
+  keep that identity for Argus alone. See [Connecting AWS accounts](connect-aws.md).
 - **Stored credentials are sealed** with AES-256-GCM under a keyring that lives in the environment,
   not in the database, and each sealed value is bound to its row.
 - **They are write-only.** The API never returns, logs or echoes a stored secret or ExternalId,

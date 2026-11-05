@@ -283,6 +283,34 @@ def test_a_role_connection_assumes_it_with_the_external_id(
     assert calls[0]["credentials"] is None  # ambient platform identity
 
 
+def test_a_role_connection_without_an_external_id_assumes_it_without_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A role whose trust asks for no ExternalId (owner, 2026-11-05): STS gets none, not an
+    empty one, which AWS would refuse."""
+    sent: list[dict[str, object]] = []
+
+    class FakeSts:
+        def assume_role(self, **kwargs: object) -> dict[str, object]:
+            sent.append(kwargs)
+            creds = {"AccessKeyId": "ASIA" + "T" * 16, "SecretAccessKey": "temp"}
+            return {"Credentials": {**creds, "SessionToken": "token"}}
+
+    class FakeSession:
+        def client(self, *_args: object, **_kwargs: object) -> FakeSts:
+            return FakeSts()
+
+    monkeypatch.setattr("argus.core.aws._session", lambda *_args: FakeSession())
+    role = "arn:aws:iam::210987654321:role/ArgusScanner"
+    for external_id in (None, ""):
+        access = AwsAccess(AwsAuth("assume_role", role_arn=role, external_id=external_id))
+        assert access.credentials(session_name="argus-test").session_token == "token"
+    with_one = AwsAccess(AwsAuth("assume_role", role_arn=role, external_id="x" * 20))
+    with_one.credentials(session_name="argus-test")
+    assert ["ExternalId" in call for call in sent] == [False, False, True]
+    assert sent[2]["ExternalId"] == "x" * 20 and sent[0]["RoleArn"] == role
+
+
 def test_a_temporary_key_reaches_the_tools_with_its_session_token() -> None:
     temporary_id = "ASIA" + "F" * 16
     token = "fake-session-" + "t" * 40

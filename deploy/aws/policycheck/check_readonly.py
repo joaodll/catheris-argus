@@ -10,7 +10,7 @@ makes that rule a build failure instead of a review comment. For every template 
 3. Every role attaches a policy whose Deny covers the secret and data-plane reads, and the
    API Gateway paths that return API key values.
 4. Every role's trust policy allows only sts:AssumeRole, from one named AWS principal (never a
-   wildcard), and requires an ExternalId.
+   wildcard), and requires an ExternalId, always or whenever the stack is given one.
 """
 
 from __future__ import annotations
@@ -91,6 +91,23 @@ def _statements(document: dict[str, Any]) -> Iterator[dict[str, Any]]:
     yield from _as_list(document.get("Statement", []))
 
 
+def _requires_external_id(condition: Any) -> bool:
+    return isinstance(condition, dict) and "sts:ExternalId" in condition.get("StringEquals", {})
+
+
+def _offers_external_id(condition: Any) -> bool:
+    """The trust requires an ExternalId, or (owner, 2026-11-05) requires it whenever the stack is
+    given one: Fn::If [condition, the requirement, AWS::NoValue]. The other branch can add no
+    condition of its own, so leaving the ExternalId empty never swaps in a different trust."""
+    if isinstance(condition, dict) and set(condition) == {"Fn::If"}:
+        branches = condition["Fn::If"]
+        if not isinstance(branches, list) or len(branches) != 3:
+            return False
+        _, when_set, otherwise = branches
+        return otherwise == {"Ref": "AWS::NoValue"} and _requires_external_id(when_set)
+    return _requires_external_id(condition)
+
+
 def check_template(template: dict[str, Any]) -> list[str]:
     errors: list[str] = []
     resources: dict[str, Any] = template.get("Resources", {})
@@ -162,9 +179,11 @@ def check_template(template: dict[str, Any]) -> list[str]:
             aws = principal.get("AWS") if isinstance(principal, dict) else None
             if aws is None or isinstance(aws, list) or "*" in str(aws) or set(principal) != {"AWS"}:
                 errors.append(f"{name}/{sid}: trust must name exactly one AWS principal, no wildcard")
-            condition = stmt.get("Condition", {}).get("StringEquals", {})
-            if "sts:ExternalId" not in condition:
-                errors.append(f"{name}/{sid}: trust must require sts:ExternalId")
+            if not _offers_external_id(stmt.get("Condition")):
+                errors.append(
+                    f"{name}/{sid}: trust must require sts:ExternalId, or require it when the stack "
+                    "is given one (Fn::If with AWS::NoValue)"
+                )
     return errors
 
 

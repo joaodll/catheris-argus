@@ -15,7 +15,7 @@ Two identities are involved, and they are kept apart:
 - **The platform identity** is Argus itself. It does two things only: it assumes the scanner role
   in each account, and it writes raw output to your bucket.
 - **The scanner role** lives in each scanned account. It can read configuration and nothing
-  else, and it trusts only the platform identity, with an **ExternalId** you choose.
+  else, and it trusts only the platform identity, optionally with an **ExternalId** you choose.
 
 What the platform identity can be depends on where Argus runs:
 
@@ -45,10 +45,14 @@ platform identity put objects there and nothing more. Every policy is in
 The platform identity also needs `sts:AssumeRole` on the scanner roles: the last statement of the
 [suggested permissions](aws-policies.md#permissions), which uses the template's default role name.
 
-## 3. Choose an ExternalId
+## 3. Choose an ExternalId (optional)
 
-The ExternalId is a value the platform identity must present to assume the role. Use a random
-string of at least 16 characters, for example:
+An ExternalId is a value the platform identity must present to assume the role. It guards against
+the "confused deputy": with one, adding an account to Argus takes knowing that value as well as the
+role's ARN. Without one, anyone who can add connections in Argus (an Operator) can add any account
+whose role trusts the platform identity. Inside one organization, with a platform identity only
+Argus uses, that costs little, so the ExternalId is optional (2026-11-05). Leave it empty if the
+role's trust asks for none; otherwise use a random string of at least 16 characters, for example:
 
 ```bash
 docker compose run --rm --entrypoint python admin-tools -c "import secrets; print(secrets.token_urlsafe(24))"
@@ -65,7 +69,7 @@ CloudFormation template.
 | Parameter | Value |
 | --- | --- |
 | `HubRoleArn` | The platform identity's role ARN: the IRSA role on Kubernetes, or the role behind your temporary credentials on Compose. For an SSO session that is the `AWSReservedSSO_…` role, with its full path (`role/aws-reserved/sso.amazonaws.com/…`). It must be a role |
-| `ExternalId` | The value from step 3 (at least 16 characters; not echoed by CloudFormation) |
+| `ExternalId` | Optional: the value from step 3 (at least 16 characters; not echoed by CloudFormation). Empty, the default: the role's trust asks for no ExternalId |
 | `RoleName` | `ArgusScanner` by default |
 
 **What the role grants:** the AWS managed policies `SecurityAudit` and `ViewOnlyAccess`, plus the
@@ -101,7 +105,7 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides \
     HubRoleArn=arn:aws:iam::111122223333:role/argus-platform \
-    ExternalId='<your ExternalId>'
+    ExternalId='<your ExternalId>'   # optional: leave this line out for none
 ```
 
 **Many accounts**, with a StackSet from your AWS Organizations management account or a delegated
@@ -137,12 +141,13 @@ In **Administration → Connections → Add connection**, choose **Assume role**
 - **Name**: how the account appears in Argus
 - **Account ID**: the 12-digit account id
 - **Role ARN**: `arn:aws:iam::<account id>:role/ArgusScanner`
-- **External ID**: the value from step 3
+- **External ID** (optional): the value from step 3, or empty if the role's trust asks for none
 
 Save, then open the connection and choose **Test connection**. Argus assumes the role the way a
 scan does and must land in the connection's own account; the result appears within seconds. If it
 says "Could not assume the role: AccessDenied", the role's trust policy does not name the platform
-identity, or the ExternalId differs ([runbook.md, Troubleshooting](runbook.md#troubleshooting)).
+identity, or the ExternalId differs: an empty External ID with a role that asks for one, or the
+other way round ([runbook.md, Troubleshooting](runbook.md#troubleshooting)).
 
 **Test connection** under **Settings → Platform identity** checks the identity on its own: it signs
 in and writes a small marker object to each tool's folder of the bucket, and reports the encryption

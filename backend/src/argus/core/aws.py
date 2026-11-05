@@ -81,18 +81,21 @@ def s3_client(*, region: str, credentials: SessionCredentials | None) -> S3Clien
 def assume_role(
     *,
     role_arn: str,
-    external_id: str,
+    external_id: str | None,
     session_name: str,
     credentials: SessionCredentials | None,
     duration_seconds: int = 3600,
 ) -> SessionCredentials:
-    """sts:AssumeRole as the platform identity: its stored key, or the ambient chain (None)."""
+    """sts:AssumeRole as the platform identity: its stored key, or the ambient chain (None).
+    The ExternalId is sent only when the connection has one: a role whose trust asks for none
+    is assumed without it (owner, 2026-11-05)."""
     sts = _session(credentials, None).client("sts", region_name="us-east-1", config=CLIENT_CONFIG)
+    external = {"ExternalId": external_id} if external_id else {}
     answer = sts.assume_role(
         RoleArn=role_arn,
-        ExternalId=external_id,
         RoleSessionName=session_name,
         DurationSeconds=duration_seconds,
+        **external,
     )["Credentials"]
     return SessionCredentials(
         answer["AccessKeyId"], answer["SecretAccessKey"], answer["SessionToken"]
