@@ -49,6 +49,10 @@ TOOL_TIMEOUT = timedelta(hours=4)
 TABLE_TIMEOUT = timedelta(minutes=30)
 VERSION_TIMEOUT = 60
 LOG_TAIL_LINES = 200
+# Attempts per AWS call, retries included, for every tool. The SDKs read it from the profile's
+# environment; Prowler builds its own botocore Config (standard mode, 3 attempts in 5.47.0),
+# which wins over the environment, so it gets the same number as a flag.
+AWS_MAX_ATTEMPTS = 10
 THROTTLING = re.compile(
     r"Throttl|Rate exceeded|TooManyRequests|RequestLimitExceeded|SlowDown", re.IGNORECASE
 )
@@ -250,7 +254,7 @@ def tool_profile(credentials: SessionCredentials, region: str) -> Iterator[dict[
             "AWS_CONFIG_FILE": str(home / "config"),
             "AWS_EC2_METADATA_DISABLED": "true",
             "AWS_RETRY_MODE": "adaptive",
-            "AWS_MAX_ATTEMPTS": "10",
+            "AWS_MAX_ATTEMPTS": str(AWS_MAX_ATTEMPTS),
             "STEAMPIPE_INSTALL_DIR": str(home / "steampipe"),
         }
     finally:
@@ -542,6 +546,9 @@ def run_prowler(out_dir: Path, env: dict[str, str], regions: list[str]) -> ToolR
         "--no-banner",
         "--log-level",
         "ERROR",
+        # At ERROR, a throttled call is logged only once its retries ran out (AWS_MAX_ATTEMPTS).
+        "--aws-retries-max-attempts",
+        str(AWS_MAX_ATTEMPTS),
         # Exit code 3 means "some checks failed", the expected result of a scan.
         "--ignore-exit-code-3",
     ]
