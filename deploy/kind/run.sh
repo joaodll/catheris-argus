@@ -448,6 +448,29 @@ test_client_address() {
   ok "ingress off again: the header is ignored"
 }
 
+test_sign_in_rate() {
+  step "web limits sign-in requests per address (F6)"
+  local base=http://127.0.0.1:18082 pf tmp codes
+  k port-forward "svc/$FULL-web" 18082:8080 > /dev/null 2>&1 &
+  pf=$!
+  tmp=$(mktemp -d)
+  trap 'kill $pf 2>/dev/null || true; rm -rf "$tmp"; trap - RETURN' RETURN
+  for _ in $(seq 30); do curl -fs -o /dev/null "$base/" && break; sleep 1; done
+  # Past the burst, all at once. The limit is on web, so most never reach the API.
+  codes=$(seq 20 | xargs -P 20 -I{} curl -sS -o /dev/null -w '%{http_code}\n' -H 'Content-Type: application/json' \
+    --data '{"username": "rate-check", "password": "wrong"}' "$base/api/v1/auth/sign-in" | sort | uniq -c | tr -s ' ' | paste -sd,)
+  grep -q ' 429' <<< "$codes" || fail "20 at once were never limited: $codes"
+  ok "20 sign-ins at once: $codes"
+  curl -sS -o "$tmp/body" -D "$tmp/head" -H 'Content-Type: application/json' \
+    --data '{"username": "rate-check", "password": "wrong"}' "$base/api/v1/auth/sign-in" > /dev/null
+  grep -q '^HTTP/.* 429' "$tmp/head" || fail "the next one was not limited: $(head -1 "$tmp/head")"
+  grep -qi '^retry-after: 5' "$tmp/head" || fail "a limited sign-in has no Retry-After"
+  [ "$(jq -r .detail "$tmp/body")" = "too many attempts" ] || fail "a limited sign-in's body: $(cat "$tmp/body")"
+  ok "a limited sign-in answers 429 with Retry-After"
+  # So this run's failures don't count against the next run's admin sign-in.
+  psql_q "DELETE FROM login_failure WHERE username LIKE 'xff-%' OR username = 'rate-check'" > /dev/null
+}
+
 test_network() {
   step "NetworkPolicies, enforced"
   local api_ip api_port db="$FULL-postgres:5432" api="$FULL-api:8000" web="$FULL-web:8080" out internet=no
@@ -618,6 +641,7 @@ run_tests() {
   test_demo_refused
   test_web
   test_client_address
+  test_sign_in_rate
   test_upgrade
   test_password_rotation
   # After the rotation: the worker's new password reaches a Job that starts from then on.

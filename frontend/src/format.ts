@@ -18,6 +18,12 @@ export function percent(value: number | null | undefined): string {
 }
 
 /** +12, −3, ±0 (a true minus sign). */
+/** A wait from a Retry-After header: "5 seconds", "15 minutes". */
+export function waitTime(seconds: number): string {
+  const [amount, unit] = seconds < 60 ? [seconds, 'second'] : [Math.round(seconds / 60), 'minute']
+  return `${amount} ${unit}${amount === 1 ? '' : 's'}`
+}
+
 export function signed(value: number, digits = 0): string {
   const text = new Intl.NumberFormat('en-US', { maximumFractionDigits: digits }).format(Math.abs(value))
   if (value > 0) return `+${text}`

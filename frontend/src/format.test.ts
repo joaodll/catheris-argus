@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { deltaColor, duration, elapsed, int, relative, scoreColor, signed } from './format'
+import { deltaColor, duration, elapsed, int, relative, scoreColor, signed, waitTime } from './format'
 
 describe('format', () => {
+  it('says how long to wait in the unit that reads naturally', () => {
+    expect(waitTime(5)).toBe('5 seconds')
+    expect(waitTime(1)).toBe('1 second')
+    expect(waitTime(60)).toBe('1 minute')
+    expect(waitTime(900)).toBe('15 minutes')
+  })
+
   it('never turns a missing value into zero', () => {
     expect(int(null)).toBe('No data')
     expect(int(0)).toBe('0')

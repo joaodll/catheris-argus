@@ -48,6 +48,7 @@ ENV NGINX_ENVSUBST_FILTER=^ARGUS_
 # The template leaves an unset variable as it is, which nginx refuses: empty means no ingress.
 ENV ARGUS_NGINX_REAL_IP=""
 COPY nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
+COPY nginx/api-proxy.conf /etc/nginx/snippets/api-proxy.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 # The image's own unprivileged user, stated so the runtime user is explicit in this file.
 USER 101

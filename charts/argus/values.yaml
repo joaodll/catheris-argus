@@ -152,7 +152,8 @@ api:
     maxFailuresPerUsername: 100
   resources:
     requests: {cpu: 100m, memory: 128Mi}
-    limits: {memory: 256Mi}
+    # 95 MiB idle, and each of 2 password checks at once holds 64 MiB: 231 MiB at peak (2026-11-05).
+    limits: {memory: 384Mi}
   # A HorizontalPodAutoscaler on CPU (and memory, if set). Needs metrics-server, which EKS does
   # not install by default. maxReplicas counts in the connection budget (database.pools).
   autoscaling:

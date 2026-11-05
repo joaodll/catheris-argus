@@ -1,4 +1,7 @@
 import json
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -8,6 +11,7 @@ from tests.api.conftest import PASSWORD, csrf
 from tests.ingest.conftest import make_demo, run_tool
 
 from argus.api import deps
+from argus.auth import sessions
 from argus.auth.sessions import SignInError, TooManyAttemptsError, sign_in
 from argus.collection import TOOL_ORDER
 from argus.core.config import get_settings
@@ -114,6 +118,97 @@ def test_a_username_alone_locks_only_at_the_higher_limit(client: TestClient, own
     _failures(owner, "admin", spread[-1:])
     locked = client.post("/api/v1/auth/sign-in", json={"username": "admin", "password": PASSWORD})
     assert locked.status_code == 429
+
+
+def test_repeated_refusals_write_one_audit_row_per_address(
+    api_engine: Engine, owner: Engine
+) -> None:
+    def refuse(username: str, address: str) -> None:
+        with api_engine.connect() as conn:
+            with pytest.raises(TooManyAttemptsError):
+                sign_in(conn, username=username, password="x", client_ip=address, user_agent=None)
+            conn.commit()
+
+    def rows(address: str) -> int:
+        with owner.connect() as conn:
+            return int(
+                conn.execute(
+                    text(
+                        "SELECT count(*) FROM audit_log WHERE action = 'auth.sign_in.limited' "
+                        "AND client_ip = CAST(:ip AS inet)"
+                    ),
+                    {"ip": address},
+                ).scalar_one()
+            )
+
+    limit = get_settings().login_max_failures_per_ip
+    _failures(owner, "root", ["192.0.2.8"] * limit + ["192.0.2.9"] * limit)
+    for username in ("root", "admin", "someone.else"):
+        refuse(username, "192.0.2.8")
+    assert rows("192.0.2.8") == 1
+    refuse("root", "192.0.2.9")
+    assert rows("192.0.2.9") == 1, "another address writes its own row"
+    with owner.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE audit_log SET occurred_at = occurred_at - CAST(:w AS interval) "
+                "WHERE action = 'auth.sign_in.limited'"
+            ),
+            {"w": f"{get_settings().login_lockout_minutes + 1} minutes"},
+        )
+    refuse("root", "192.0.2.8")
+    assert rows("192.0.2.8") == 2, "a new window writes a new row"
+
+
+def test_a_busy_password_check_answers_503_and_records_nothing(
+    client: TestClient, owner: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    taken = threading.BoundedSemaphore(1)
+    taken.acquire()
+    monkeypatch.setattr(sessions, "_argon2_slots", taken)
+    monkeypatch.setattr(sessions, "ARGON2_WAIT_SECONDS", 0.01)
+    busy = client.post("/api/v1/auth/sign-in", json={"username": "admin", "password": "x"})
+    assert busy.status_code == 503 and "Retry-After" in busy.headers
+    assert "argon" not in busy.text
+    with owner.connect() as conn:
+        assert conn.execute(text("SELECT count(*) FROM login_failure")).scalar_one() == 0
+    assert "auth.sign_in.failed" not in _audit(owner)
+
+
+def test_at_most_the_cap_of_password_operations_run_at_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    running = 0
+    most = 0
+    lock = threading.Lock()
+
+    class SlowHasher:
+        def _work(self) -> None:
+            nonlocal running, most
+            with lock:
+                running += 1
+                most = max(most, running)
+            time.sleep(0.05)
+            with lock:
+                running -= 1
+
+        def hash(self, _password: str) -> str:
+            self._work()
+            return "hash"
+
+        def verify(self, _stored: str, _password: str) -> bool:
+            self._work()
+            return True
+
+    monkeypatch.setattr(sessions, "_hasher", SlowHasher)
+    # A stored hash for some, a dummy for others, and a new hash: every path takes a slot.
+    jobs = [lambda: sessions.password_matches("stored", "x")] * 3
+    jobs += [lambda: sessions.password_matches(None, "x")] * 3
+    jobs += [lambda: sessions.hash_password("x")] * 3
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        for future in [pool.submit(job) for job in jobs]:
+            future.result()
+    assert most == sessions.ARGON2_AT_ONCE
 
 
 def test_one_address_spraying_usernames_is_limited(api_engine: Engine, owner: Engine) -> None:

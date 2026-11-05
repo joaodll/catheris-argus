@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import Engine, text
 
-from argus import ingest, inventory, relationships
+from argus import auth, ingest, inventory, relationships
 from argus.core.rawstore import FilesystemRawStore
 
 log = logging.getLogger("argus.retention")
@@ -16,6 +16,7 @@ class RetentionResult:
     partitions_dropped: list[str]
     configs_deleted: int
     demo_runs_pruned: int
+    sign_in_rows_purged: int
 
 
 def run_retention(
@@ -39,6 +40,7 @@ def run_retention(
         configs = inventory.delete_orphan_configs(conn)
         inventory.delete_loads_before(conn, cutoff=cutoff)
         relationships.delete_loads_before(conn, cutoff=cutoff)
+        sign_in_rows = auth.purge_old_sign_in_rows(conn)
         demo_paths = ingest.synthetic_raw_paths_before(
             conn, day=today - timedelta(days=demo_raw_days)
         )
@@ -50,13 +52,14 @@ def run_retention(
             if run_dir.exists():
                 shutil.rmtree(run_dir)  # synthetic output is regenerable from its seed
                 pruned += 1
-    result = RetentionResult(dropped, configs, pruned)
+    result = RetentionResult(dropped, configs, pruned, sign_in_rows)
     log.info(
         "retention",
         extra={
             "partitions_dropped": len(dropped),
             "configs_deleted": configs,
             "demo_runs_pruned": pruned,
+            "sign_in_rows_purged": sign_in_rows,
         },
     )
     return result

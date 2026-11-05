@@ -6,6 +6,7 @@ import AlertBanner from '@/components/AlertBanner.vue'
 import AuthCard from '@/components/AuthCard.vue'
 import PasswordInput from '@/components/PasswordInput.vue'
 import { refreshSession } from '@/composables/useSession'
+import { waitTime } from '@/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,6 +28,8 @@ const notice = computed(() => {
 })
 const locked = computed(() => lockedUntil.value !== null && lockedUntil.value > now.value)
 const unlockAt = computed(() => (lockedUntil.value ? new Date(lockedUntil.value).toISOString().slice(11, 16) : ''))
+// Under a minute, a clock time says nothing the error doesn't.
+const longLock = computed(() => locked.value && (lockedUntil.value as number) - now.value >= 60_000)
 
 /** Only same-app paths: never an open redirect. */
 function nextPath(): string {
@@ -51,7 +54,7 @@ async function submit(): Promise<void> {
     if (response.status === 429) {
       const seconds = Number(response.headers.get('Retry-After') ?? '900')
       lockedUntil.value = Date.now() + seconds * 1000
-      error.value = `Too many attempts. Try again in ${Math.round(seconds / 60)} minutes.`
+      error.value = `Too many attempts. Try again in ${waitTime(seconds)}.`
     } else if (response.status === 401) {
       error.value = 'Wrong username or password.'
     } else {
@@ -86,7 +89,7 @@ async function submit(): Promise<void> {
       <button class="btn btn-primary btn-lg full" type="submit" :disabled="busy || locked || !name || !password">
         <span v-if="busy" class="spinner" aria-hidden="true"></span>{{ busy ? 'Signing in…' : 'Sign in' }}
       </button>
-      <span v-if="locked" class="cap center">You can try again at <span class="mono">{{ unlockAt }}</span> UTC.</span>
+      <span v-if="longLock" class="cap center">You can try again at <span class="mono">{{ unlockAt }}</span> UTC.</span>
     </form>
     <template #below>
       <p class="cap center">

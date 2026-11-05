@@ -89,6 +89,7 @@ refused "more database connections than Postgres allows" --set api.autoscaling.e
 refused "a scan Job pool below a run's peak" --set database.pools.scanJob=2
 refused "a session of no minutes" --set api.session.idleMinutes=0
 refused "no sign-in failures allowed" --set api.signIn.maxFailures=0
+refused "a lockout longer than retention keeps failures" --set api.signIn.lockoutMinutes=43201
 refused "a history bound below the UI's minimum" --set retention.maxHistoryDays=10
 # With the rest of a valid ingress, so it's refused for this reason and no other.
 INGRESS=(--set web.ingress.enabled=true --set web.ingress.host=argus.example)

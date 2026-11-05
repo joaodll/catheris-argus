@@ -118,7 +118,12 @@ when their checks need it. Argus never stores such a value:
 - **Sign-in limits** per 15 minutes: 5 failures for a username from one address, 20 from one
   address, 100 for a username from anywhere. One attacker cannot lock an administrator out, and
   guessing the current password in a password change counts against the same limits.
-- **The audit log** records every sign-in and every change.
+- **Limits on unauthenticated load:** web allows one sign-in request a second per address, with a
+  burst of 5, and each web pod counts on its own. The API runs at most 2 password checks at once,
+  each using 64 MiB, and answers 503 when one can't start within a second. Retention deletes
+  failures and ended sessions after 30 days.
+- **The audit log** records every sign-in and every change. Refused sign-ins, which never reach a
+  password check, write one row per address per lockout window. It is never purged.
 - **The API's role in the database** reads scan data read-only, with a 5-second statement timeout.
   It writes only administration rows, and the API never serves its own API description
   ([ADR-0025](adr/0025-openapi-build-time-contract.md)).

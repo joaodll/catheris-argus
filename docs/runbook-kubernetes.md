@@ -136,7 +136,8 @@ Also review:
   runs**. `scheduler.maxTestJobs`: how many more Jobs may start while connection tests wait, so
   a test never waits behind a long scan.
 - `retention.schedule`: the daily CronJob that drops history older than the UI's **History**
-  setting, unused configurations and old rule loads. Without it the database grows for ever.
+  setting, unused configurations, old rule loads, and sign-in failures and ended sessions past 30
+  days. Without it the database grows for ever.
 - `api.autoscaling`, `web.autoscaling`: an HPA each, off by default; needs metrics-server.
 - `postgres.storage` (20 Gi) and `postgres.maxConnections` (200), and `database.pools`: the
   most connections each pod opens. The install fails, naming the numbers, when every pod's pool
