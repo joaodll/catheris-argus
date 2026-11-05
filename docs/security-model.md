@@ -30,7 +30,9 @@ policy change. It observes and recommends; a human applies every fix.
   passed (a test asserts it). CloudFox's suggested exploitation commands are shown to the operator
   as text and never run ([ADR-0038](adr/0038-cloudfox-loot-commands.md)).
 - **Argus's own code calls AWS only** to sign in (STS: assuming the scanner role, and asking who
-  it signed in as for Test connection) and to write raw output to the operator's bucket. Its only writes go to things it owns: its database, that bucket, and, on
+  it signed in as, for Test connection and before every scan) and to write raw output to the
+  operator's bucket. A scan signed in to any account but its connection's fails before a tool
+  starts, so another account's key can't change this account's history. Its only writes go to things it owns: its database, that bucket, and, on
   Kubernetes, Jobs in its own namespace.
 
 ## Credentials Argus holds
