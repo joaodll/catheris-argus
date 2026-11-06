@@ -644,6 +644,16 @@
               }
             ]
           },
+          "assume_role": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleIn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "enabled": {
             "anyOf": [
               {
@@ -3073,6 +3083,43 @@
           }
         },
         "title": "RetentionSettings",
+        "type": "object"
+      },
+      "RoleIn": {
+        "additionalProperties": false,
+        "description": "A change to an assume-role connection: a role in the same account, a new ExternalId, or\nthe ExternalId removed. What is left out keeps its stored value; the ExternalId is never\nreturned.",
+        "properties": {
+          "clear_external_id": {
+            "default": false,
+            "title": "Clear External Id",
+            "type": "boolean"
+          },
+          "external_id": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Id"
+          },
+          "role_arn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Arn"
+          }
+        },
+        "title": "RoleIn",
         "type": "object"
       },
       "RunNowIn": {

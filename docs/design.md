@@ -379,7 +379,7 @@ The second MVP screen is where the platform is operated, so nothing needs a depl
 
 | Page | What it does |
 | --- | --- |
-| Connections | Accounts registered by hand (ADR-0021): Demo, AWS assume role, or AWS access key; enable or disable; secrets are write-only |
+| Connections | Accounts registered by hand (ADR-0021): Demo, AWS assume role, or AWS access key; enable or disable; secrets are write-only. An access key is replaced whole; an assume-role connection changes its role within its own account and sets, replaces or removes its ExternalId (owner, 2026-11-06). The account and the sign-in method never change: that is a new connection |
 | Schedules | One or more tools each (queued in tool order), searchable by name: a cron expression with a plain-language preview and the next runs, the connections in scope, enabled or not; a minimum interval is enforced. Run now for chosen connections and tools, and the queue. Run now and a new schedule tick Steampipe, Prowler and CloudFox, and Vulnerabilities only when its latest run on every chosen connection finished, so an account without a scanner enabled gets no failed run; the ticks follow the connections until one is changed by hand (owner's decision, 2026-10-31) |
 | Runs | Status, duration, exit code, throttle events and log tail per run, newest or oldest first, 20 per page; the actions a run was denied and raw output stored without KMS; runs in progress on top; a failed run also shows on the Overview context bar |
 | Settings | Collection and throttling, retention, and the platform identity (ADR-0023). An Operator sees Collection and throttling only |
