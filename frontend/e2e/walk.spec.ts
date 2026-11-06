@@ -330,6 +330,38 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await navLink(page, 'Misconfigurations')
   await expect(page).toHaveURL(/\/investigate\/misconfigurations/)
   await expect(page.getByRole('heading', { level: 1, name: 'Misconfigurations' })).toBeVisible()
+  // Summary | List (owner's decision 2026-11-05): the bare screen opens the summary, and every
+  // number opens the list that reproduces it.
+  const tabs = page.getByRole('tablist', { name: 'Misconfigurations views' })
+  await expect(tabs.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
+  const severe = page.locator('.stat-card').filter({ hasText: 'Critical + high' })
+  await expect(severe.locator('.stat-value')).toHaveText(/^[\d,]+$/)
+  await expect(page.getByRole('heading', { level: 2, name: 'By category' })).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'misconfigurations summary')
+  await shot(page, '69-misconfigurations-summary')
+  const severeCount = (await severe.locator('.stat-value').innerText()).trim()
+  await severe.getByRole('link', { name: /Show in list$/ }).click()
+  await expect(page).toHaveURL(/tab=list/)
+  await expect(page).toHaveURL(/severity=critical&severity=high/)
+  await expect(tabs.getByRole('tab', { name: 'List' })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('.panel-foot .total')).toHaveText(new RegExp(`^${severeCount} records?$`))
+  // An age column opens the list with the first-seen range that reproduces it.
+  await tabs.getByRole('tab', { name: 'Summary' }).click()
+  const age = page.getByRole('link', { name: /^Under 30 days: / })
+  const ageCount = ((await age.getAttribute('aria-label')) ?? '').match(/^Under 30 days: ([\d,]+) open/)?.[1] ?? 'missing'
+  await age.click()
+  await expect(page).toHaveURL(/first_seen_from=/)
+  await expect(page.locator('.panel-foot .total')).toHaveText(new RegExp(`^${ageCount} records?$`))
+  // The arrow keys move between the tabs; the list keeps its account.
+  await tabs.getByRole('tab', { name: 'List' }).focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(tabs.getByRole('tab', { name: 'Summary' })).toBeFocused()
+  await expect(page).toHaveURL(/tab=summary/)
+  await tabs.getByRole('tab', { name: 'List' }).click()
+  await expect(page).toHaveURL(/tab=list/)
+  // The list steps below start from a fresh list (More filters closed).
+  await page.goto('/investigate/misconfigurations?tab=list')
   const findings = page.getByRole('table')
   await expect(findings).toBeVisible()
   await axe(page, 'findings')
@@ -585,6 +617,7 @@ test('light theme: every screen passes axe, and the toggle cycles', async ({ pag
     ['/posture/compliance', 'Compliance', 'L80-compliance'],
     ['/posture/compliance/cis_6.0_aws', 'CIS Amazon Web Services Foundations Benchmark v6.0.0', 'L81-framework'],
     ['/investigate/misconfigurations', 'Misconfigurations', 'L70-misconfigurations'],
+    ['/investigate/misconfigurations?tab=list', 'Misconfigurations', 'L71-misconfigurations-list'],
     ['/investigate/vulnerabilities', 'Vulnerabilities', 'L75-vulnerabilities'],
     ['/investigate/resources', 'Resources', 'L72-resources'],
     ['/scans/schedules', 'Schedules', 'L30-schedules'],

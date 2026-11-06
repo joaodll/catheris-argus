@@ -18,7 +18,9 @@ from argus.metrics.store import (
     put,
     read,
     rollup,
+    rollup_family,
 )
+from argus.metrics.summary import misconfiguration_summary
 
 __all__ = [
     "ALL_CONNECTIONS",
@@ -29,7 +31,9 @@ __all__ = [
     "compliance_history",
     "compliance_scores",
     "copy_previous",
+    "misconfiguration_summary",
     "put",
     "read",
     "rollup",
+    "rollup_family",
 ]

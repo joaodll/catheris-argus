@@ -17,6 +17,7 @@ coverage (one in seven not scanned).
 import math
 import time
 from collections.abc import Callable, Iterator
+from dataclasses import replace
 from datetime import date, timedelta
 from typing import Any
 
@@ -47,6 +48,7 @@ STALE_DAY = TODAY - timedelta(days=90)
 FRAMEWORKS = 40
 REQUIREMENTS = 100
 FRAMEWORK = "fw_7_aws"
+SEVERITIES = ("critical", "high", "medium", "low", "informational")
 
 
 def _generate(conn: Connection) -> None:
@@ -175,10 +177,44 @@ def _generate(conn: Connection) -> None:
     """),
         {"n": ACCOUNTS, "d": TODAY},
     )
+    _generate_misconfiguration_metrics(conn)
     _generate_edges(conn)
     _generate_compliance(conn)
     _generate_vulnerabilities(conn)
     conn.execute(text("ANALYZE"))
+
+
+def _generate_misconfiguration_metrics(conn: Connection) -> None:
+    """The Misconfigurations summary's rows (metrics.summary), as if every account and the
+    rollup were counted every day for 180 days: real accounts are counted on scan days only, so
+    this is the worst case. About 400 rows per account and day: 40 services, 10 regions, 10
+    categories, 12 first-seen days, the reach verdicts and the day's events."""
+    conn.execute(
+        text("""
+        INSERT INTO metric_daily (snapshot_date, connection_id, metric, dimension, value)
+        SELECT :d - day, c, m.metric, m.dim, floor(random() * 500)
+        FROM generate_series(0, 179) day, generate_series(0, :n) c,
+             (SELECT 'misconfigurations.open_by_severity', s
+                FROM unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'misconfigurations.open_by_tool', t || '|' || s
+                FROM unnest(ARRAY['prowler', 'cloudfox']) t, unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'misconfigurations.open_by_service', 'svc' || g || '|' || s
+                FROM generate_series(1, 40) g, unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'misconfigurations.open_by_region', 'region-' || g || '|' || s
+                FROM generate_series(1, 10) g, unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'misconfigurations.open_by_category', 'category-' || g || '|' || s
+                FROM generate_series(1, 10) g, unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'misconfigurations.open_by_first_seen',
+                               to_char(CAST(:d AS date) - g * 30, 'YYYY-MM-DD') || '|' || s
+                FROM generate_series(0, 11) g, unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'misconfigurations.reach', r || '|' || s
+                FROM unnest(ARRAY['confirmed', 'restricted', 'unknown', 'not_covered']) r,
+                     unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'misconfigurations.events', e
+                FROM unnest(ARRAY['opened', 'reopened', 'resolved']) e) AS m(metric, dim)
+    """),
+        {"n": ACCOUNTS, "d": TODAY, "sev": list(SEVERITIES)},
+    )
 
 
 def _generate_vulnerabilities(conn: Connection) -> None:
@@ -407,6 +443,9 @@ def _p95_ms(engine: Engine, query: Callable[[Connection], Any]) -> float:
 # The Misconfigurations list's tools: every finding but a CVE (api/routes/findings.TOOLS).
 MISCONFIGURATIONS = ("prowler", "cloudfox")
 
+# What every summary number counts (metrics.summary): open, FAIL, not muted, both tools.
+SUMMARY_FILTERS = findings.FindingFilters(tools=MISCONFIGURATIONS, statuses=("FAIL",), muted="hide")
+
 QUERIES: dict[str, Callable[[Connection], Any]] = {
     "overview, all accounts": lambda c: metrics.build_overview(c, connection_id=0, as_of=TODAY),
     "overview, one account": lambda c: metrics.build_overview(c, connection_id=7, as_of=TODAY),
@@ -513,6 +552,27 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     ),
     "misconfigurations: by check": lambda c: findings.finding_groups(
         c, limit=20, offset=0, filters=findings.FindingFilters(tools=MISCONFIGURATIONS)
+    ),
+    "misconfigurations: summary, all accounts": lambda c: metrics.misconfiguration_summary(
+        c, connection_id=0, today=TODAY
+    ),
+    "misconfigurations: summary, one account": lambda c: metrics.misconfiguration_summary(
+        c, connection_id=7, today=TODAY
+    ),
+    # The summary's Top failing checks: the list by check with the summary's filters.
+    "misconfigurations: summary, top checks": lambda c: findings.finding_groups(
+        c, limit=10, offset=0, filters=SUMMARY_FILTERS
+    ),
+    # An age column's link: the list with the summary's filters and a first-seen range.
+    "misconfigurations: first seen 30 to 90 days ago": lambda c: findings.list_findings(
+        c,
+        limit=20,
+        offset=0,
+        filters=replace(
+            SUMMARY_FILTERS,
+            first_seen_from=TODAY - timedelta(days=89),
+            first_seen_to=TODAY - timedelta(days=30),
+        ),
     ),
     "findings, counts for a page of resources": lambda c: findings.open_finding_counts(
         c, list(range(1000, 1020))
@@ -698,3 +758,36 @@ def test_an_account_scanned_90_days_ago_shows_its_latest_scan(estate: Engine) ->
     assert stale["seen_on"] == STALE_DAY
     scanned = {n for n in _relations(plan) if n.startswith("resource_snapshot")}
     assert scanned == {f"resource_snapshot_{STALE_DAY:%Y%m}"}, scanned
+
+
+def test_the_misconfigurations_summary_reads_one_day_of_one_scope(estate: Engine) -> None:
+    """The summary's breakdowns read one day by equality: one monthly partition."""
+    with estate.connect() as conn:
+        plan = conn.execute(
+            text("""
+            EXPLAIN (FORMAT JSON) SELECT metric, dimension, value FROM metric_daily
+            WHERE snapshot_date = :d AND connection_id = 0
+              AND metric = ANY(CAST(:m AS text[]))
+        """),
+            {"d": TODAY, "m": ["misconfigurations.open_by_service"]},
+        ).scalar_one()
+    scanned = {n for n in _relations(plan) if n.startswith("metric_daily")}
+    assert scanned == {f"metric_daily_{TODAY:%Y%m}"}, scanned
+
+
+# Ingest, not the API: no 300 ms budget, but a bound that catches a full scan of finding or of
+# every metric_daily partition (the rollup reads each account's latest day, however old).
+WRITER_BOUND_MS = 3000.0
+
+
+def test_the_summary_counts_of_one_account_stay_cheap_to_write(estate: Engine) -> None:
+    with estate.connect() as conn:
+        transaction = conn.begin()
+        try:
+            start = time.perf_counter()
+            findings.put_misconfiguration_metrics(conn, connection_id=7, day=TODAY)
+            elapsed = (time.perf_counter() - start) * 1000
+        finally:
+            transaction.rollback()
+    print(f"misconfigurations: one account's counts and the rollup: {elapsed:.1f} ms")
+    assert elapsed < WRITER_BOUND_MS

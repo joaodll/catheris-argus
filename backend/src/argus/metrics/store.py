@@ -7,7 +7,7 @@ from argus import connections
 ALL_CONNECTIONS = 0
 # What happened on a day, not how things stood: summed over that day only. Every other metric
 # describes a state, and all connections take each connection's latest value (rollup).
-FLOW_METRICS = frozenset({"findings.events"})
+FLOW_METRICS = frozenset({"findings.events", "misconfigurations.events"})
 
 
 def put(
@@ -154,3 +154,68 @@ def rollup(conn: Connection, *, day: date, metrics: list[str]) -> None:
             "flows": sorted(FLOW_METRICS),
         },
     )
+
+
+def rollup_family(
+    conn: Connection, *, day: date, metrics: list[str], marker: tuple[str, str]
+) -> None:
+    """rollup() for metrics an owner always writes together, with one row (`marker`, a metric
+    and dimension) written every time. Each connection's latest day is then one index probe on
+    the marker (metric_daily_by_connection), instead of a group-by over every day it has, which
+    took about 3 s at 37 accounts counted daily for 180 days (the budget, 2026-11-05). Same
+    rules as rollup(): enabled connections, however old; FLOW_METRICS that day only."""
+    conn.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext('argus.metrics.rollup'), :d)"),
+        {"d": (day - date(2000, 1, 1)).days},
+    )
+    conn.execute(
+        text(
+            "DELETE FROM metric_daily WHERE snapshot_date = :d AND connection_id = 0 "
+            "AND metric = ANY(CAST(:m AS text[]))"
+        ),
+        {"d": day, "m": metrics},
+    )
+    flows = sorted(FLOW_METRICS & set(metrics))
+    states = [m for m in metrics if m not in FLOW_METRICS]
+    # The planner prices the per-account reads high and JIT-compiles them: 360 ms of compiling
+    # for 8 ms of work (the budget, 2026-11-05). Off for this statement, then as it was.
+    jit = conn.execute(text("SELECT current_setting('jit')")).scalar_one()
+    conn.execute(text("SELECT set_config('jit', 'off', true)"))
+    conn.execute(
+        text(f"""
+            WITH latest AS (
+              SELECT c.id AS connection_id,
+                     (SELECT max(snapshot_date) FROM metric_daily
+                      WHERE connection_id = c.id AND metric = :mm AND dimension = :md
+                        AND snapshot_date <= :d) AS day
+              FROM ({connections.DIRECTORY_SQL}) c
+              WHERE c.enabled AND c.id > 0
+            ), days AS (
+              SELECT connection_id, day, CAST(:states AS text[]) AS names FROM latest
+              WHERE day IS NOT NULL
+              UNION ALL
+              SELECT connection_id, CAST(:d AS date), CAST(:flows AS text[]) FROM latest
+            )
+            INSERT INTO metric_daily (snapshot_date, connection_id, metric, dimension, value)
+            SELECT :d, 0, md.metric, md.dimension, sum(md.value)
+            FROM days l
+            -- Lateral and fenced (OFFSET 0 keeps the planner from flattening it back into a
+            -- hash join), so each account's day is read through its own partition's primary
+            -- key: the hash join read every partition (4.4 M rows, 1 to 2 s, in the budget).
+            CROSS JOIN LATERAL (
+              SELECT m.metric, m.dimension, m.value FROM metric_daily m
+              WHERE m.snapshot_date = l.day AND m.connection_id = l.connection_id
+                AND m.metric = ANY(l.names)
+              OFFSET 0
+            ) md
+            GROUP BY md.metric, md.dimension
+        """),  # noqa: S608 - an exported SQL constant only
+        {
+            "d": day,
+            "mm": marker[0],
+            "md": marker[1],
+            "states": states,
+            "flows": flows,
+        },
+    )
+    conn.execute(text("SELECT set_config('jit', :v, true)"), {"v": jit})

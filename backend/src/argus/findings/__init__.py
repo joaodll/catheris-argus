@@ -42,7 +42,13 @@ from argus.findings.lifecycle import (
     set_reach,
 )
 from argus.findings.metrics import ADDITIVE as FINDING_ADDITIVE_METRICS
-from argus.findings.metrics import put_findings_metrics, rederive_scores
+from argus.findings.metrics import (
+    MISCONFIGURATION_METRICS,
+    MISCONFIGURATION_TOOLS,
+    put_findings_metrics,
+    put_misconfiguration_metrics,
+    rederive_scores,
+)
 from argus.findings.model import (
     SEVERITIES,
     VULNERABILITY_TOOL,
@@ -87,6 +93,8 @@ __all__ = [
     "ANY_CHECK",
     "ANY_REGION",
     "FINDING_ADDITIVE_METRICS",
+    "MISCONFIGURATION_METRICS",
+    "MISCONFIGURATION_TOOLS",
     "PROWLER_EXPOSURE_CHECKS",
     "SEVERITIES",
     "SUPPORTED_VERSIONS",
@@ -128,6 +136,7 @@ __all__ = [
     "parse_prowler",
     "parse_vulnerabilities",
     "put_findings_metrics",
+    "put_misconfiguration_metrics",
     "rederive_scores",
     "remove_compliance_items",
     "resource_coverage",

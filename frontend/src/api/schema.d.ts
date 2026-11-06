@@ -331,6 +331,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/findings/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finding Summary
+         * @description The Misconfigurations summary for all connections (0) or one: stored counts written by
+         *     ingest, so it never counts findings at request time.
+         */
+        get: operations["finding_summary_api_v1_findings_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/findings/{finding_id}": {
         parameters: {
             query?: never;
@@ -1479,6 +1500,28 @@ export interface components {
             /** Tool */
             tool: string;
         };
+        /**
+         * MisconfigurationSummary
+         * @description Investigate → Misconfigurations → Summary, from stored counts only. Each account counts
+         *     as of its latest scan, however old; disabled accounts are left out, as on the Overview.
+         *     Null: no Prowler or CloudFox scan yet, never 0.
+         */
+        MisconfigurationSummary: {
+            by_account: components["schemas"]["SummaryAccounts"] | null;
+            /** By Age */
+            by_age: components["schemas"]["SummaryAge"][] | null;
+            by_category: components["schemas"]["SummaryBreakdown"] | null;
+            by_region: components["schemas"]["SummaryBreakdown"] | null;
+            by_service: components["schemas"]["SummaryBreakdown"] | null;
+            /** Data Through */
+            data_through: string | null;
+            last_30_days: components["schemas"]["SummaryRecent"] | null;
+            open: components["schemas"]["SummaryOpen"] | null;
+            /** Reach */
+            reach: components["schemas"]["SummaryItem"][] | null;
+            /** Weeks */
+            weeks: components["schemas"]["SummaryWeek"][];
+        };
         /** MonthRow */
         MonthRow: {
             /** Change */
@@ -2031,6 +2074,19 @@ export interface components {
             /** Value */
             value: number | null;
         };
+        /** SeverityCounts */
+        SeverityCounts: {
+            /** Critical */
+            critical: number;
+            /** High */
+            high: number;
+            /** Informational */
+            informational: number;
+            /** Low */
+            low: number;
+            /** Medium */
+            medium: number;
+        };
         /** SeverityOverTime */
         SeverityOverTime: {
             /** Month Table */
@@ -2073,6 +2129,108 @@ export interface components {
             month: string;
             /** Score */
             score: number | null;
+        };
+        /** SummaryAccount */
+        SummaryAccount: {
+            /** Connection Id */
+            connection_id: number;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "aws" | "gcp" | "oci";
+            severities: components["schemas"]["SeverityCounts"];
+            /** Total */
+            total: number;
+            /** Value */
+            value: string;
+        };
+        /** SummaryAccounts */
+        SummaryAccounts: {
+            /** Items */
+            items: components["schemas"]["SummaryAccount"][];
+            /** More */
+            more: number;
+        };
+        /**
+         * SummaryAge
+         * @description Open findings by how long ago they were first seen, counted from today. The two dates
+         *     are the list's first-seen filter that reproduces the column (null: no bound).
+         */
+        SummaryAge: {
+            /** First Seen From */
+            first_seen_from: string | null;
+            /** First Seen To */
+            first_seen_to: string | null;
+            /**
+             * Key
+             * @enum {string}
+             */
+            key: "under_30_days" | "30_to_90_days" | "90_to_180_days" | "180_to_365_days" | "over_a_year";
+            severities: components["schemas"]["SeverityCounts"];
+            /** Total */
+            total: number;
+        };
+        /** SummaryBreakdown */
+        SummaryBreakdown: {
+            /** Items */
+            items: components["schemas"]["SummaryItem"][];
+            /** More */
+            more: number;
+        };
+        /**
+         * SummaryItem
+         * @description One bar of a breakdown: a category, service or region (the list filter of the same name),
+         *     or a reach. An empty value is the findings with none (no category, no service).
+         */
+        SummaryItem: {
+            severities: components["schemas"]["SeverityCounts"];
+            /** Total */
+            total: number;
+            /** Value */
+            value: string;
+        };
+        /**
+         * SummaryOpen
+         * @description Open misconfigurations: open or reopened, status FAIL, not muted, Prowler and CloudFox
+         *     (the list filters `state=open&status=FAIL&muted=hide`).
+         */
+        SummaryOpen: {
+            severities: components["schemas"]["SeverityCounts"];
+            /** Tools */
+            tools: {
+                [key: string]: number;
+            };
+            /** Total */
+            total: number;
+        };
+        /** SummaryRecent */
+        SummaryRecent: {
+            /** Opened */
+            opened: number;
+            /** Reopened */
+            reopened: number;
+            /** Resolved */
+            resolved: number;
+        };
+        /**
+         * SummaryWeek
+         * @description One ISO week (`week` is its Monday). Null counts: before the summary was first counted.
+         */
+        SummaryWeek: {
+            /** Opened */
+            opened: number | null;
+            /** Partial */
+            partial: boolean;
+            /** Reopened */
+            reopened: number | null;
+            /** Resolved */
+            resolved: number | null;
+            /**
+             * Week
+             * Format: date
+             */
+            week: string;
         };
         /** TableError */
         TableError: {
@@ -2927,6 +3085,8 @@ export interface operations {
                 reach?: ("confirmed" | "restricted" | "unknown" | "not_covered")[];
                 muted?: "any" | "hide" | "only";
                 new?: boolean;
+                first_seen_from?: string | null;
+                first_seen_to?: string | null;
                 resource_id?: number | null;
                 q?: string | null;
                 order?: "severity" | "severity_asc" | "last_seen_desc" | "last_seen_asc";
@@ -3017,6 +3177,8 @@ export interface operations {
                 reach?: ("confirmed" | "restricted" | "unknown" | "not_covered")[];
                 muted?: "any" | "hide" | "only";
                 new?: boolean;
+                first_seen_from?: string | null;
+                first_seen_to?: string | null;
                 resource_id?: number | null;
                 q?: string | null;
                 order?: "severity" | "severity_asc" | "last_seen_desc" | "last_seen_asc";
@@ -3039,6 +3201,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FindingGroupPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finding_summary_api_v1_findings_summary_get: {
+        parameters: {
+            query?: {
+                connection_id?: number;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MisconfigurationSummary"];
                 };
             };
             /** @description Validation Error */

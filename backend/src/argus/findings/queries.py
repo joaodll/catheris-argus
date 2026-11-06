@@ -3,6 +3,7 @@ resource. Filters are plain columns (most take several values, any of which matc
 is a contains match on three text columns."""
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any, Literal
 
 from sqlalchemy import Connection, text
@@ -54,6 +55,8 @@ _FILTERS = f"""
     AND (CAST(:reach AS text[]) IS NULL OR f.reach = ANY(CAST(:reach AS text[])))
     AND (CAST(:muted AS boolean) IS NULL OR f.muted = :muted)
     AND (NOT :new OR f.first_seen = f.last_seen)
+    AND (CAST(:fs_from AS date) IS NULL OR f.first_seen >= CAST(:fs_from AS date))
+    AND (CAST(:fs_to AS date) IS NULL OR f.first_seen <= CAST(:fs_to AS date))
     AND (CAST(:res AS bigint) IS NULL OR f.resource_id = :res)
     AND (CAST(:p AS text) IS NULL OR {_SEARCH} ILIKE :p ESCAPE '\\')
     AND (NOT :expl OR EXISTS (SELECT 1 FROM finding_vulnerability v
@@ -98,6 +101,9 @@ class FindingFilters:
     reaches: tuple[str, ...] = ()  # Argus's reach (FindingReach)
     muted: MutedFilter = "any"
     new: bool = False
+    # First seen on or after / on or before these days (the summary's age columns).
+    first_seen_from: date | None = None
+    first_seen_to: date | None = None
     resource_id: int | None = None
     q: str | None = None
     # Vulnerabilities only (finding_vulnerability): a public exploit exists; a fix exists or not.
@@ -126,6 +132,8 @@ def _params(filters: FindingFilters) -> dict[str, Any]:
         "reach": _any(filters.reaches),
         "muted": _MUTED[filters.muted],
         "new": filters.new,
+        "fs_from": filters.first_seen_from,
+        "fs_to": filters.first_seen_to,
         "res": filters.resource_id,
         "p": like_contains(filters.q) if filters.q else None,
         "expl": filters.exploitable,

@@ -35,6 +35,7 @@ from argus.core.rawstore import RawRun, RawRunError, RawStore, read_run
 from argus.core.redaction import redact_text
 from argus.findings import (
     FINDING_ADDITIVE_METRICS,
+    MISCONFIGURATION_TOOLS,
     PROWLER_EXPOSURE_CHECKS,
     VULNERABILITY_TOOL,
     carry_forward_compliance,
@@ -43,11 +44,13 @@ from argus.findings import (
     parse_prowler,
     parse_vulnerabilities,
     put_findings_metrics,
+    put_misconfiguration_metrics,
     rederive_scores,
     set_reach,
 )
 from argus.findings.inspector import UnsupportedVersionError as InspectorVersionError
 from argus.findings.prowler import UnsupportedVersionError as ProwlerVersionError
+from argus.ingest.queries import data_through
 from argus.inventory import (
     INVENTORY_METRICS,
     load_inventory,
@@ -258,11 +261,18 @@ def rule_set(rules_dir: Path) -> str:
     return hashlib.sha256("\n".join(sorted(names)).encode()).hexdigest()
 
 
-def check_reach(conn: Connection, *, connection_id: int, day: date) -> int:
+def check_reach(
+    conn: Connection, *, connection_id: int, day: date, findings_loaded: bool = False
+) -> int:
     """CloudFox calls an endpoint public from its settings, and Prowler a port exposed when a
     group is open; Argus's internet rules say whether traffic can really arrive, and why
     (ADR-0035, sixth amendment). Run after every tool and after a re-derive, whichever comes
-    last. Returns how many findings changed."""
+    last. Returns how many findings changed.
+
+    Then the Misconfigurations summary's counts, which read the findings and their reach as
+    they now stand: after a Prowler or CloudFox load (`findings_loaded`), or after a Steampipe
+    run or a re-derive of a connection either tool has already scanned. An account neither has
+    scanned gets none, so its summary says "no scan yet" rather than zero."""
     reach = internet_reach(conn, connection_id=connection_id, day=day)
     doors = {uid: (d.reach, d.reason) for uid, d in reach.doors.items()}
     endpoints = set_reach(
@@ -276,6 +286,10 @@ def check_reach(conn: Connection, *, connection_id: int, day: date) -> int:
         rules_judge=True,
         rule_day=reach.day,
     )
+    if findings_loaded or data_through(
+        conn, connection_id=connection_id, tools=MISCONFIGURATION_TOOLS
+    ):
+        put_misconfiguration_metrics(conn, connection_id=connection_id, day=day)
     return endpoints + exposure
 
 
@@ -291,7 +305,9 @@ def _prowler(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
             scan_run_id=run.scan_run_id,
         )
         put_findings_metrics(conn, connection_id=run.connection_id, day=run.day)
-        loaded["reach_checked"] = check_reach(conn, connection_id=run.connection_id, day=run.day)
+        loaded["reach_checked"] = check_reach(
+            conn, connection_id=run.connection_id, day=run.day, findings_loaded=True
+        )
     return loaded
 
 
@@ -306,7 +322,9 @@ def _cloudfox(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
             account_id=run.account_id,
             scan_run_id=run.scan_run_id,
         )
-        loaded["reach_checked"] = check_reach(conn, connection_id=run.connection_id, day=run.day)
+        loaded["reach_checked"] = check_reach(
+            conn, connection_id=run.connection_id, day=run.day, findings_loaded=True
+        )
     return loaded
 
 
