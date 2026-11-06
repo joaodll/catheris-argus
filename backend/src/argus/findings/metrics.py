@@ -13,7 +13,7 @@ from sqlalchemy import Connection, text
 
 from argus import metrics
 from argus.findings.lifecycle import CHECK_METRICS
-from argus.findings.model import SEVERITIES
+from argus.findings.model import SEVERITIES, VULNERABILITY_TOOL
 from argus.metrics import summary
 
 THREATSCORE_FRAMEWORK = "prowler_threatscore_aws"
@@ -138,23 +138,37 @@ def put_findings_metrics(conn: Connection, *, connection_id: int, day: date) -> 
     _derive(conn, metrics.ALL_CONNECTIONS, day)
 
 
-# The Misconfigurations summary (Investigate → Misconfigurations → Summary, owner 2026-11-05):
-# open, failing, unmuted Prowler and CloudFox findings. The Overview keeps findings.* (Prowler
-# only, from the day's snapshot); these count the current finding table, so they also follow a
-# reach change after a Steampipe run or a re-derive. The names and the "<value>|<severity>"
-# dimensions are defined once by their reader, metrics.summary.
+# The Investigate summaries (owner, 2026-11-05 and 2026-11-06): one family of rows per screen,
+# counted from the current finding table, so they follow every change to open findings (and, for
+# misconfigurations, to their reach after a Steampipe run or a re-derive), and a failed run, which
+# changes nothing there, needs nothing carried forward. The Overview keeps findings.* (Prowler
+# only, from the day's snapshot). The names and the "<value>|<severity>" dimensions are defined
+# once by their reader, metrics.summary.
 MISCONFIGURATION_TOOLS = ("prowler", "cloudfox")
-MISCONFIGURATION_METRICS = summary.METRICS
+MISCONFIGURATION_METRICS = summary.MISCONFIGURATIONS.metrics
+VULNERABILITY_METRICS = summary.VULNERABILITIES.metrics
+
+
+def _events(
+    conn: Connection, family: summary.Family, *, where: str, params: dict[str, object]
+) -> dict[tuple[str, str], float]:
+    """The day's opened, reopened and resolved findings of a family, by the finding's current
+    status and muting (an accepted approximation: not as they were when the event happened)."""
+    rows = conn.execute(
+        text(f"""
+            SELECT e.event, count(*) FROM finding_event e JOIN finding f ON f.id = e.finding_id
+            WHERE e.occurred_on = :d AND f.connection_id = :c AND {where}
+              AND e.event = ANY(CAST(:kinds AS text[]))
+            GROUP BY e.event"""),  # noqa: S608 - fixed fragments only
+        {**params, "kinds": list(summary.EVENT_KINDS)},
+    )
+    return {(family.events, event): float(n) for event, n in rows}
 
 
 def _misconfiguration_values(
     conn: Connection, connection_id: int, day: date
 ) -> dict[tuple[str, str], float]:
-    # Zero-filled: a day with these rows is a day the summary was counted, so the weekly flow
-    # tells a week without changes (0) from the weeks before any count (no data).
-    values: dict[tuple[str, str], float] = {(summary.OPEN_BY_SEVERITY, s): 0.0 for s in SEVERITIES}
-    values |= {(summary.EVENTS, e): 0.0 for e in summary.EVENT_KINDS}
-
+    values = summary.MISCONFIGURATIONS.zero()
     dim = summary.dimension
 
     def add(metric: str, dimension: str, n: int) -> None:
@@ -170,69 +184,126 @@ def _misconfiguration_values(
             GROUP BY 1, 2, 3, 4, 5, 6, 7"""),
         {"c": connection_id, "tools": list(MISCONFIGURATION_TOOLS)},
     ):
-        add(summary.OPEN_BY_SEVERITY, severity, n)
+        add(summary.MISCONFIGURATIONS.open_by_severity, severity, n)
         add(summary.OPEN_BY_TOOL, dim(tool, severity), n)
         add(summary.OPEN_BY_SERVICE, dim(service, severity), n)
         add(summary.OPEN_BY_REGION, dim(region, severity), n)
-        add(summary.OPEN_BY_FIRST_SEEN, dim(first_seen.isoformat(), severity), n)
+        add(summary.MISCONFIGURATIONS.open_by_first_seen, dim(first_seen.isoformat(), severity), n)
         # A finding counts once under each of its categories; "" holds the ones with none.
         for category in sorted(set(categories)) or [""]:
             add(summary.OPEN_BY_CATEGORY, dim(category, severity), n)
         if reach is not None:
             add(summary.REACH, dim(reach, severity), n)
-    for event, n in conn.execute(
-        text("""
-            SELECT e.event, count(*) FROM finding_event e JOIN finding f ON f.id = e.finding_id
-            WHERE e.occurred_on = :d AND f.connection_id = :c
-              AND f.tool = ANY(CAST(:tools AS text[])) AND f.status = 'FAIL' AND NOT f.muted
-              AND e.event = ANY(CAST(:kinds AS text[]))
-            GROUP BY e.event"""),
-        {
-            "d": day,
-            "c": connection_id,
-            "tools": list(MISCONFIGURATION_TOOLS),
-            "kinds": list(summary.EVENT_KINDS),
-        },
-    ):
-        values[(summary.EVENTS, event)] = n
+    values |= _events(
+        conn,
+        summary.MISCONFIGURATIONS,
+        where="f.tool = ANY(CAST(:tools AS text[])) AND f.status = 'FAIL' AND NOT f.muted",
+        params={"d": day, "c": connection_id, "tools": list(MISCONFIGURATION_TOOLS)},
+    )
     return values
 
 
-def put_misconfiguration_metrics(conn: Connection, *, connection_id: int, day: date) -> None:
-    """The Misconfigurations summary's numbers for one connection after a run that changed its
-    findings or their reach (Prowler, CloudFox, a Steampipe run's reach check, a re-derive),
-    then all connections. Counted from the current finding table, so a failed run, which
-    changes nothing there, needs nothing carried forward.
+def _vulnerability_values(
+    conn: Connection, connection_id: int, day: date
+) -> dict[tuple[str, str], float]:
+    values = summary.VULNERABILITIES.zero()
+    dim = summary.dimension
+
+    def add(metric: str, dimension: str, n: int) -> None:
+        values[(metric, dimension)] = values.get((metric, dimension), 0) + n
+
+    # The fix and exploit buckets are the list's filters: fix=available is YES or PARTIAL,
+    # fix=none is NO, exploit=1 a public exploit; a finding without facts is neither.
+    for severity, muted, resource_type, region, first_seen, fix, exploit, n in conn.execute(
+        text(f"""
+            SELECT f.severity, f.muted, coalesce(f.resource_type, ''), f.region, f.first_seen,
+                   CASE WHEN v.fix_available IN ('YES', 'PARTIAL') THEN 'available'
+                        WHEN v.fix_available = 'NO' THEN 'none' ELSE 'unknown' END,
+                   coalesce(v.exploit_available, false), count(*)
+            FROM finding f LEFT JOIN finding_vulnerability v ON v.finding_id = f.id
+            WHERE f.connection_id = :c AND f.tool = '{VULNERABILITY_TOOL}'
+              AND f.state IN ('open', 'reopened')
+            GROUP BY 1, 2, 3, 4, 5, 6, 7"""),  # noqa: S608 - a constant only
+        {"c": connection_id},
+    ):
+        if muted:  # suppressed in the scanner: counted apart, left out of everything else
+            add(summary.SUPPRESSED_BY_SEVERITY, severity, n)
+            continue
+        add(summary.VULNERABILITIES.open_by_severity, severity, n)
+        add(summary.OPEN_BY_RESOURCE_TYPE, dim(resource_type, severity), n)
+        add(summary.VULNERABILITIES_BY_REGION, dim(region, severity), n)
+        add(summary.VULNERABILITIES.open_by_first_seen, dim(first_seen.isoformat(), severity), n)
+        add(summary.OPEN_BY_FIX, dim(fix, severity), n)
+        if exploit:
+            add(summary.OPEN_EXPLOITABLE_BY_FIX, dim(fix, severity), n)
+    values |= _events(
+        conn,
+        summary.VULNERABILITIES,
+        where=f"f.tool = '{VULNERABILITY_TOOL}' AND NOT f.muted",
+        params={"d": day, "c": connection_id},
+    )
+    return values
+
+
+def _put_family(
+    conn: Connection,
+    family: summary.Family,
+    *,
+    connection_id: int,
+    day: date,
+    values: dict[tuple[str, str], float],
+) -> None:
+    """One family's rows for one connection, then all connections.
 
     The day's events go on the run's day. The counts are the current state, so they go on the
     run's day or the connection's newest counted day, whichever is later: a re-derive of an
     older load, or an older run ingested late, must not leave the newest row stale. All
     connections is then rolled up on those days and on every later day that carried this
     connection's previous counts."""
-    values = _misconfiguration_values(conn, connection_id, day)
-    latest = summary.latest_counted_day(conn, connection_id)
+    latest = summary.latest_counted_day(conn, family, connection_id)
     state_day = max(day, latest) if latest else day
     metrics.put(
         conn,
         day=day,
         connection_id=connection_id,
-        values={k: v for k, v in values.items() if k[0] == summary.EVENTS},
-        replace=[summary.EVENTS],
+        values={k: v for k, v in values.items() if k[0] == family.events},
+        replace=[family.events],
     )
     metrics.put(
         conn,
         day=state_day,
         connection_id=connection_id,
-        values={k: v for k, v in values.items() if k[0] != summary.EVENTS},
-        replace=list(summary.STATE_METRICS),
+        values={k: v for k, v in values.items() if k[0] != family.events},
+        replace=list(family.state_metrics),
     )
     carried = metrics.carried_days(
-        conn, after=state_day, metrics=[summary.OPEN_BY_SEVERITY], connection_id=connection_id
+        conn, after=state_day, metrics=[family.open_by_severity], connection_id=connection_id
     )
     for rolled in sorted({day, state_day, *carried}):
-        metrics.rollup_family(
-            conn,
-            day=rolled,
-            metrics=MISCONFIGURATION_METRICS,
-            marker=(summary.OPEN_BY_SEVERITY, "critical"),  # zero-filled: written every time
-        )
+        # The marker is zero-filled (Family.zero), so it is written every time.
+        metrics.rollup_family(conn, day=rolled, metrics=family.metrics, marker=family.marker)
+
+
+def put_misconfiguration_metrics(conn: Connection, *, connection_id: int, day: date) -> None:
+    """The Misconfigurations summary's numbers for one connection after a run that changed its
+    findings or their reach (Prowler, CloudFox, a Steampipe run's reach check, a re-derive),
+    then all connections."""
+    _put_family(
+        conn,
+        summary.MISCONFIGURATIONS,
+        connection_id=connection_id,
+        day=day,
+        values=_misconfiguration_values(conn, connection_id, day),
+    )
+
+
+def put_vulnerability_metrics(conn: Connection, *, connection_id: int, day: date) -> None:
+    """The Vulnerabilities summary's numbers for one connection after a vulnerabilities run,
+    then all connections. Vulnerabilities have no reach, so no other run changes them."""
+    _put_family(
+        conn,
+        summary.VULNERABILITIES,
+        connection_id=connection_id,
+        day=day,
+        values=_vulnerability_values(conn, connection_id, day),
+    )

@@ -4,7 +4,8 @@
  * scanner reports (AWS Inspector on AWS), in one read-only list, apart from Misconfigurations.
  * As there, every filter, the order, the view and the page live in the URL
  * (vulnerabilityFilters.ts), and the resource sheet links here with ?resource= and a CVE's
- * own link with ?finding=.
+ * own link with ?finding=. It opens on a Summary (owner's decision 2026-11-06), the bare
+ * screen only: any list parameter opens the list (summary/summaryTab.ts).
  */
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -29,6 +30,9 @@ import FindingDetail from './FindingDetail.vue'
 import { type Muted, type Order, parseFinding, parseOrder, parsePage } from './findingFilters'
 import { type FindingState, regionLabel, uidTail } from './labels'
 import { epssPercent, packageLine } from './vulnerability'
+import InvestigateTabs from './summary/InvestigateTabs.vue'
+import VulnerabilitySummary from './summary/VulnerabilitySummary.vue'
+import { type Tab, parseTab, summaryConnection } from './summary/summaryTab'
 import {
   type Fix,
   type VulnerabilityFilters,
@@ -56,10 +60,28 @@ const order = computed(() => parseOrder(route.query))
 // One CVE's own link (?finding=): it shows alone, expanded; the filters do not apply.
 const single = computed(() => parseFinding(route.query))
 const view = computed<VulnerabilityView>(() => (single.value != null ? 'list' : parseVulnerabilityView(route.query)))
+// Summary | List: the bare screen opens the summary, any list parameter the list. A CVE's own
+// link is always the list.
+const tab = computed<Tab>(() => (single.value != null ? 'list' : parseTab(route.query)))
+// The summary's account: the list's connection when it names exactly one.
+const summaryAccount = computed(() => summaryConnection(filters.value.connection))
 
+/** A new filter set: a history entry (typing in the search box replaces it), page 1. The tab is
+ * written out, so clearing every filter keeps the list. */
 function navigate(next: VulnerabilityFilters, how: 'push' | 'replace' = 'push'): void {
   const sort = order.value === 'severity' ? undefined : order.value
-  void router[how]({ query: { ...vulnerabilityFiltersToQuery(next), order: sort, view: vulnerabilityViewToQuery(view.value) } })
+  void router[how]({ query: { ...vulnerabilityFiltersToQuery(next), order: sort, view: vulnerabilityViewToQuery(view.value), tab: tab.value } })
+}
+
+/** Summary keeps only its account; List opens with that account as its connection filter. */
+function setTab(next: Tab): void {
+  if (next === tab.value) return
+  const account = summaryAccount.value ? String(summaryAccount.value) : undefined
+  void router.push({ query: { tab: next, connection: account } })
+}
+
+function selectAccount(id: number): void {
+  void router.push({ query: { tab: 'summary', connection: id ? String(id) : undefined } })
 }
 
 function set<K extends keyof VulnerabilityFilters>(key: K, value: VulnerabilityFilters[K]): void {
@@ -149,7 +171,8 @@ const error = ref<string | null>(null)
 const open = ref<Set<number>>(new Set())
 let generation = 0
 
-const requestKey = (target: number): string => JSON.stringify([vulnerabilityApiFilters(filters.value), order.value, target, single.value, view.value])
+const requestKey = (target: number): string =>
+  JSON.stringify([vulnerabilityApiFilters(filters.value), order.value, target, single.value, view.value, tab.value])
 let loadedKey = ''
 
 // The CVE of its own link, with the scanner's text: its details row needs no second request.
@@ -172,6 +195,10 @@ async function loadOne(id: number, mine: number): Promise<void> {
 
 async function load(target: number, how: 'push' | 'replace' = 'replace'): Promise<void> {
   const mine = ++generation
+  if (tab.value !== 'list') {
+    loading.value = false // the summary loads its own numbers; the list waits for its tab
+    return
+  }
   loading.value = true
   error.value = null
   try {
@@ -236,17 +263,17 @@ async function goTo(target: number): Promise<void> {
 }
 
 function setOrder(next: Order): void {
-  void router.push({ query: { ...vulnerabilityFiltersToQuery(filters.value), order: next === 'severity' ? undefined : next, view: vulnerabilityViewToQuery(view.value) } })
+  void router.push({ query: { ...vulnerabilityFiltersToQuery(filters.value), order: next === 'severity' ? undefined : next, view: vulnerabilityViewToQuery(view.value), tab: 'list' } })
 }
 
 function setView(next: VulnerabilityView): void {
   if (next === view.value) return
-  void router.push({ query: { ...vulnerabilityFiltersToQuery(filters.value), order: route.query.order, view: vulnerabilityViewToQuery(next) } })
+  void router.push({ query: { ...vulnerabilityFiltersToQuery(filters.value), order: route.query.order, view: vulnerabilityViewToQuery(next), tab: 'list' } })
 }
 
 /** A CVE's group opens the list filtered to it. */
 function openGroup(g: Schemas['FindingGroupOut']): void {
-  void router.push({ query: { ...vulnerabilityFiltersToQuery(cveFilters(filters.value, g)), order: route.query.order } })
+  void router.push({ query: { ...vulnerabilityFiltersToQuery(cveFilters(filters.value, g)), order: route.query.order, tab: 'list' } })
 }
 
 function onGroupClick(event: MouseEvent, g: Schemas['FindingGroupOut']): void {
@@ -323,217 +350,257 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
     <template v-else-if="loaded">No scan yet</template>
   </PageHeader>
 
-  <AlertBanner v-if="single != null" kind="info">
-    Showing one vulnerability from its link.
-    <template #action><RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'vulnerabilities' }">Show all vulnerabilities</RouterLink></template>
-  </AlertBanner>
-  <FilterBar v-else label="Filter vulnerabilities" :active="filtered" @clear="clearFilters">
-    <span v-if="resourceId" class="filter-chip" :title="resource.data.value?.resource_uid">
-      Resource: <span class="mono">{{ resourceChip }}</span>
-      <button type="button" class="icon-btn chip-x" aria-label="Remove resource filter" @click="set('resource', null)">
-        <AppIcon name="cross" :size="14" :stroke="2.2" />
-      </button>
-    </span>
-    <span v-if="filters.check.length" class="filter-chip" :title="filters.check.join(', ')">
-      CVE: <span class="mono">{{ filters.check.map(cveLabel).join(', ') }}</span>
-      <button type="button" class="icon-btn chip-x" aria-label="Remove CVE filter" @click="set('check', [])">
-        <AppIcon name="cross" :size="14" :stroke="2.2" />
-      </button>
-    </span>
-    <div class="field search">
-      <label class="lbl" for="v-q">Search</label>
-      <span class="search-wrap">
-        <AppIcon name="search" :size="16" class="search-icon" />
-        <input id="v-q" v-model="search" class="input" type="search" placeholder="Search by CVE, package or resource" maxlength="200" autocomplete="off">
+  <InvestigateTabs v-if="single == null" :model-value="tab" label="Vulnerabilities views" id-prefix="vul" @update:model-value="setTab" />
+  <div v-if="tab === 'summary'" id="vul-summary" role="tabpanel" aria-labelledby="vul-tab-summary" class="tabpanel">
+    <VulnerabilitySummary :connection-id="summaryAccount" :connections="connections.data.value" @select-connection="selectAccount" />
+  </div>
+  <div v-else id="vul-list" :role="single == null ? 'tabpanel' : undefined" :aria-labelledby="single == null ? 'vul-tab-list' : undefined" class="tabpanel">
+    <AlertBanner v-if="single != null" kind="info">
+      Showing one vulnerability from its link.
+      <template #action><RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'vulnerabilities', query: { tab: 'list' } }">Show all vulnerabilities</RouterLink></template>
+    </AlertBanner>
+    <FilterBar v-else label="Filter vulnerabilities" :active="filtered" @clear="clearFilters">
+      <span v-if="resourceId" class="filter-chip" :title="resource.data.value?.resource_uid">
+        Resource: <span class="mono">{{ resourceChip }}</span>
+        <button type="button" class="icon-btn chip-x" aria-label="Remove resource filter" @click="set('resource', null)">
+          <AppIcon name="cross" :size="14" :stroke="2.2" />
+        </button>
       </span>
-    </div>
-    <MultiSelect id="v-sev" label="Severity" :options="severityOptions" :model-value="filters.severity" @update:model-value="set('severity', $event as Severity[])" />
-    <div class="field">
-      <label class="lbl" for="v-state">State</label>
-      <select id="v-state" class="select" :value="filters.state" @change="set('state', ($event.target as HTMLSelectElement).value as FindingState)">
-        <option value="open">Open</option>
-        <option value="reopened">Reopened</option>
-        <option value="resolved">Resolved</option>
-        <option value="accepted_risk">Accepted risk</option>
-      </select>
-    </div>
-    <MultiSelect
-      id="v-conn"
-      label="Connection"
-      :options="connectionOptions"
-      :status="connections.error.value ? 'error' : connections.data.value ? 'ready' : 'loading'"
-      :model-value="filters.connection.map(String)"
-      @update:model-value="set('connection', $event.map(Number))"
-    />
-    <MultiSelect id="v-provider" label="Provider" :options="providerOptions" :model-value="filters.provider" @update:model-value="set('provider', $event as Provider[])" />
-    <div class="field">
-      <span id="v-fix" class="lbl">Fix</span>
-      <div class="segmented" role="group" aria-labelledby="v-fix">
-        <button v-for="c in FIX_CHOICES" :key="c.value" type="button" :aria-pressed="filters.fix === c.value" @click="set('fix', c.value)">{{ c.label }}</button>
+      <span v-if="filters.check.length" class="filter-chip" :title="filters.check.join(', ')">
+        CVE: <span class="mono">{{ filters.check.map(cveLabel).join(', ') }}</span>
+        <button type="button" class="icon-btn chip-x" aria-label="Remove CVE filter" @click="set('check', [])">
+          <AppIcon name="cross" :size="14" :stroke="2.2" />
+        </button>
+      </span>
+      <div class="field search">
+        <label class="lbl" for="v-q">Search</label>
+        <span class="search-wrap">
+          <AppIcon name="search" :size="16" class="search-icon" />
+          <input id="v-q" v-model="search" class="input" type="search" placeholder="Search by CVE, package or resource" maxlength="200" autocomplete="off">
+        </span>
       </div>
-    </div>
-    <label class="check inline-check">
-      <input type="checkbox" :checked="filters.exploitable" @change="set('exploitable', ($event.target as HTMLInputElement).checked)">
-      Public exploit
-    </label>
-    <button type="button" class="btn btn-secondary more-btn" :aria-expanded="more" aria-controls="v-more" @click="more = !more">
-      More filters<template v-if="moreCount"> · {{ moreCount }}</template>
-      <AppIcon name="chevron" :size="16" :stroke="2" class="more-chev" />
-    </button>
-    <template #after>
-      <div v-show="more" id="v-more" class="more-row">
-        <MultiSelect id="v-type" label="Resource type" :options="typeOptions" :status="facetStatus" :model-value="filters.type" @update:model-value="set('type', $event)" />
-        <MultiSelect id="v-region" label="Region" :options="regionOptions" :status="facetStatus" :model-value="filters.region" @update:model-value="set('region', $event)" />
-        <div class="field">
-          <span id="v-muted" class="lbl">Suppressed</span>
-          <div class="segmented" role="group" aria-labelledby="v-muted">
-            <button v-for="m in MUTED_CHOICES" :key="m.value" type="button" :aria-pressed="filters.muted === m.value" @click="set('muted', m.value)">{{ m.label }}</button>
-          </div>
+      <MultiSelect id="v-sev" label="Severity" :options="severityOptions" :model-value="filters.severity" @update:model-value="set('severity', $event as Severity[])" />
+      <div class="field">
+        <label class="lbl" for="v-state">State</label>
+        <select id="v-state" class="select" :value="filters.state" @change="set('state', ($event.target as HTMLSelectElement).value as FindingState)">
+          <option value="open">Open</option>
+          <option value="reopened">Reopened</option>
+          <option value="resolved">Resolved</option>
+          <option value="accepted_risk">Accepted risk</option>
+        </select>
+      </div>
+      <MultiSelect
+        id="v-conn"
+        label="Connection"
+        :options="connectionOptions"
+        :status="connections.error.value ? 'error' : connections.data.value ? 'ready' : 'loading'"
+        :model-value="filters.connection.map(String)"
+        @update:model-value="set('connection', $event.map(Number))"
+      />
+      <MultiSelect id="v-provider" label="Provider" :options="providerOptions" :model-value="filters.provider" @update:model-value="set('provider', $event as Provider[])" />
+      <div class="field">
+        <span id="v-fix" class="lbl">Fix</span>
+        <div class="segmented" role="group" aria-labelledby="v-fix">
+          <button v-for="c in FIX_CHOICES" :key="c.value" type="button" :aria-pressed="filters.fix === c.value" @click="set('fix', c.value)">{{ c.label }}</button>
         </div>
-        <label class="check inline-check">
-          <input type="checkbox" :checked="filters.new" @change="set('new', ($event.target as HTMLInputElement).checked)">
-          New in latest scan
-        </label>
       </div>
-    </template>
-  </FilterBar>
+      <label class="check inline-check">
+        <input type="checkbox" :checked="filters.exploitable" @change="set('exploitable', ($event.target as HTMLInputElement).checked)">
+        Public exploit
+      </label>
+      <button type="button" class="btn btn-secondary more-btn" :aria-expanded="more" aria-controls="v-more" @click="more = !more">
+        More filters<template v-if="moreCount"> · {{ moreCount }}</template>
+        <AppIcon name="chevron" :size="16" :stroke="2" class="more-chev" />
+      </button>
+      <template #after>
+        <div v-show="more" id="v-more" class="more-row">
+          <MultiSelect id="v-type" label="Resource type" :options="typeOptions" :status="facetStatus" :model-value="filters.type" @update:model-value="set('type', $event)" />
+          <MultiSelect id="v-region" label="Region" :options="regionOptions" :status="facetStatus" :model-value="filters.region" @update:model-value="set('region', $event)" />
+          <div class="field">
+            <span id="v-muted" class="lbl">Suppressed</span>
+            <div class="segmented" role="group" aria-labelledby="v-muted">
+              <button v-for="m in MUTED_CHOICES" :key="m.value" type="button" :aria-pressed="filters.muted === m.value" @click="set('muted', m.value)">{{ m.label }}</button>
+            </div>
+          </div>
+          <label class="check inline-check">
+            <input type="checkbox" :checked="filters.new" @change="set('new', ($event.target as HTMLInputElement).checked)">
+            New in latest scan
+          </label>
+          <fieldset class="field first-seen">
+            <legend class="lbl">First seen</legend>
+            <span class="dates">
+              <label class="sr-only" for="v-seen-from">First seen on or after</label>
+              <input id="v-seen-from" class="input date" type="date" :value="filters.firstSeenFrom" :max="filters.firstSeenTo || undefined" @change="set('firstSeenFrom', ($event.target as HTMLInputElement).value)">
+              <span aria-hidden="true">to</span>
+              <label class="sr-only" for="v-seen-to">First seen on or before</label>
+              <input id="v-seen-to" class="input date" type="date" :value="filters.firstSeenTo" :min="filters.firstSeenFrom || undefined" @change="set('firstSeenTo', ($event.target as HTMLInputElement).value)">
+            </span>
+          </fieldset>
+        </div>
+      </template>
+    </FilterBar>
 
-  <section class="card panel" aria-labelledby="vulns-h">
-    <div class="panel-h view-h">
-      <div class="titles">
-        <h2 id="vulns-h" class="h2">{{ shown === 'cves' ? 'CVEs with findings' : 'Vulnerabilities by resource' }}</h2>
-        <span v-if="single != null" class="cap">One vulnerability, from its own link. Read-only.</span>
-        <span v-else-if="shown === 'cves'" class="cap">{{ GROUP_ORDER_NOTE[order] }} Read-only.</span>
-        <span v-else class="cap">{{ ORDER_NOTE[order] }} Read-only.</span>
+    <section class="card panel" aria-labelledby="vulns-h">
+      <div class="panel-h view-h">
+        <div class="titles">
+          <h2 id="vulns-h" class="h2">{{ shown === 'cves' ? 'CVEs with findings' : 'Vulnerabilities by resource' }}</h2>
+          <span v-if="single != null" class="cap">One vulnerability, from its own link. Read-only.</span>
+          <span v-else-if="shown === 'cves'" class="cap">{{ GROUP_ORDER_NOTE[order] }} Read-only.</span>
+          <span v-else class="cap">{{ ORDER_NOTE[order] }} Read-only.</span>
+        </div>
+        <div v-if="single == null" class="segmented" role="group" aria-label="View">
+          <button v-for="v in VIEWS" :key="v.value" type="button" :aria-pressed="view === v.value" @click="setView(v.value)">{{ v.label }}</button>
+        </div>
       </div>
-      <div v-if="single == null" class="segmented" role="group" aria-label="View">
-        <button v-for="v in VIEWS" :key="v.value" type="button" :aria-pressed="view === v.value" @click="setView(v.value)">{{ v.label }}</button>
-      </div>
-    </div>
 
-    <div v-if="error" class="panel-body">
-      <AlertBanner kind="fail">
-        Vulnerabilities didn't load: {{ error }}
-        <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load(page)">Retry</button></template>
-      </AlertBanner>
-    </div>
-    <div v-else-if="!loaded" aria-busy="true" class="panel-body loading"><div v-for="n in 5" :key="n" class="skeleton sk-44"></div></div>
-    <EmptyState v-else-if="noData" icon="bug" title="No vulnerabilities yet." text="They appear after a Vulnerabilities scan is ingested: each provider's own scanner (AWS Inspector on AWS).">
-      <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
-    </EmptyState>
-    <EmptyState v-else-if="rows === 0 && filtered" icon="info" :title="shown === 'cves' ? 'No CVEs match these filters.' : 'No vulnerabilities match these filters.'">
-      <button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button>
-    </EmptyState>
-    <EmptyState v-else-if="rows === 0" icon="check" title="No open vulnerabilities." text="Every scanned resource is clean, or its vulnerabilities were resolved." />
-    <div v-else-if="shown === 'cves'" ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="vulns-h" :aria-busy="loading">
-      <table class="table stackable stack-narrow dense vulns-table">
-        <thead>
-          <tr>
-            <SortHeader
-              label="Severity"
-              :direction="order === 'severity' ? 'desc' : order === 'severity_asc' ? 'asc' : null"
-              desc-text="worst first"
-              asc-text="least severe first"
-              @toggle="sortBySeverity"
-            /><th scope="col">CVE</th><th scope="col" class="right">Findings</th><th scope="col" class="right">Accounts</th>
-            <SortHeader
-              label="Last seen"
-              class="right"
-              :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
-              desc-text="newest first"
-              asc-text="oldest first"
-              @toggle="toggleLastSeen"
-            />
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="g in groups" :key="g.check_id" class="row" @click="onGroupClick($event, g)">
-            <td data-label="Severity"><SeverityTag :severity="g.severity" /></td>
-            <td data-label="CVE" class="lead-cell">
-              <button type="button" class="lead group-link" :class="{ mono: !g.check_id.startsWith('code:') }" :aria-label="`Show the ${int(g.findings)} finding${g.findings === 1 ? '' : 's'} of ${cveLabel(g.check_id)}`" @click="openGroup(g)">{{ cveLabel(g.check_id) }}</button>
-              <span v-if="cveSubline(g.check_id, g.title)" class="sub" :title="g.title">{{ cveSubline(g.check_id, g.title) }}</span>
-            </td>
-            <td data-label="Findings" class="right mono">{{ int(g.findings) }}</td>
-            <td data-label="Accounts" class="right mono">{{ int(g.connections) }}</td>
-            <td data-label="Last seen" class="right mono">{{ g.last_seen }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div v-else ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="vulns-h" :aria-busy="loading">
-      <table class="table stackable stack-narrow dense vulns-table">
-        <thead>
-          <tr>
-            <SortHeader
-              label="Severity"
-              :direction="order === 'severity' ? 'desc' : order === 'severity_asc' ? 'asc' : null"
-              desc-text="worst first"
-              asc-text="least severe first"
-              @toggle="sortBySeverity"
-            /><th scope="col">Vulnerability</th><th scope="col">Resource</th><th scope="col">Connection</th><th scope="col">State</th>
-            <SortHeader
-              label="Last seen"
-              class="right"
-              :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
-              desc-text="newest first"
-              asc-text="oldest first"
-              @toggle="toggleLastSeen"
-            /><th scope="col"><span class="sr-only">Details</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="v in items" :key="v.id">
-            <tr class="row" :class="{ expanded: open.has(v.id) }" @click="onRowClick($event, v.id)">
-              <td data-label="Severity"><SeverityTag :severity="v.severity" /></td>
-              <!-- The CVE leads; the package and its fix, a public exploit and EPSS follow. -->
-              <td data-label="Vulnerability" class="lead-cell">
-                <span class="lead" :class="{ mono: v.vulnerability?.vulnerability_id }" :title="v.title">{{ lead(v) }}</span>
-                <span class="meta">
-                  <span v-if="v.vulnerability" class="mono package">{{ packageLine(v.vulnerability) }}</span>
-                  <ExploitMark v-if="v.vulnerability?.exploit_available" />
-                  <span v-if="epssPercent(v.vulnerability?.epss_score)" class="mono epss">EPSS {{ epssPercent(v.vulnerability?.epss_score) }}</span>
-                </span>
-              </td>
-              <td data-label="Resource" class="resource">
-                <span class="mono" :title="v.resource_uid">{{ v.resource_name ?? uidTail(v.resource_uid) }}</span>
-                <span v-if="v.resource_id == null" class="cap">Not in inventory</span>
-              </td>
-              <td data-label="Connection">
-                <span class="conn"><ProviderTag :provider="v.provider" /><span class="conn-name">{{ v.connection }}</span></span>
-                <span class="mono region">{{ regionLabel(v.region) }}</span>
-              </td>
-              <td data-label="State">
-                <span class="states">
-                  <StatusBadge :status="v.state" />
-                  <span v-if="v.muted" class="chip">Suppressed</span>
-                  <span v-if="isNew(v)" class="chip">New</span>
-                </span>
-              </td>
-              <td data-label="Last seen" class="right mono">{{ v.last_seen }}</td>
-              <td data-label="">
-                <button type="button" class="icon-btn chev" :aria-expanded="open.has(v.id)" :aria-label="`${open.has(v.id) ? 'Hide' : 'Show'} details of ${lead(v)}`" @click="toggle(v.id)">
-                  <AppIcon name="chevron" :size="16" :stroke="2" />
-                </button>
-              </td>
+      <div v-if="error" class="panel-body">
+        <AlertBanner kind="fail">
+          Vulnerabilities didn't load: {{ error }}
+          <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load(page)">Retry</button></template>
+        </AlertBanner>
+      </div>
+      <div v-else-if="!loaded" aria-busy="true" class="panel-body loading"><div v-for="n in 5" :key="n" class="skeleton sk-44"></div></div>
+      <EmptyState v-else-if="noData" icon="bug" title="No vulnerabilities yet." text="They appear after a Vulnerabilities scan is ingested: each provider's own scanner (AWS Inspector on AWS).">
+        <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
+      </EmptyState>
+      <EmptyState v-else-if="rows === 0 && filtered" icon="info" :title="shown === 'cves' ? 'No CVEs match these filters.' : 'No vulnerabilities match these filters.'">
+        <button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button>
+      </EmptyState>
+      <EmptyState v-else-if="rows === 0" icon="check" title="No open vulnerabilities." text="Every scanned resource is clean, or its vulnerabilities were resolved." />
+      <div v-else-if="shown === 'cves'" ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="vulns-h" :aria-busy="loading">
+        <table class="table stackable stack-narrow dense vulns-table">
+          <thead>
+            <tr>
+              <SortHeader
+                label="Severity"
+                :direction="order === 'severity' ? 'desc' : order === 'severity_asc' ? 'asc' : null"
+                desc-text="worst first"
+                asc-text="least severe first"
+                @toggle="sortBySeverity"
+              /><th scope="col">CVE</th><th scope="col" class="right">Findings</th><th scope="col" class="right">Accounts</th>
+              <SortHeader
+                label="Last seen"
+                class="right"
+                :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
+                desc-text="newest first"
+                asc-text="oldest first"
+                @toggle="toggleLastSeen"
+              />
             </tr>
-            <tr v-if="open.has(v.id)" class="detail">
-              <td colspan="7">
-                <FindingDetail :finding="v" :preloaded="single != null ? singleDetail : null" :own-link="single == null" />
+          </thead>
+          <tbody>
+            <tr v-for="g in groups" :key="g.check_id" class="row" @click="onGroupClick($event, g)">
+              <td data-label="Severity"><SeverityTag :severity="g.severity" /></td>
+              <td data-label="CVE" class="lead-cell">
+                <button type="button" class="lead group-link" :class="{ mono: !g.check_id.startsWith('code:') }" :aria-label="`Show the ${int(g.findings)} finding${g.findings === 1 ? '' : 's'} of ${cveLabel(g.check_id)}`" @click="openGroup(g)">{{ cveLabel(g.check_id) }}</button>
+                <span v-if="cveSubline(g.check_id, g.title)" class="sub" :title="g.title">{{ cveSubline(g.check_id, g.title) }}</span>
               </td>
+              <td data-label="Findings" class="right mono">{{ int(g.findings) }}</td>
+              <td data-label="Accounts" class="right mono">{{ int(g.connections) }}</td>
+              <td data-label="Last seen" class="right mono">{{ g.last_seen }}</td>
             </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
-    <div v-if="rows && single == null" class="panel-foot">
-      <AppPagination :total="total" :capped="capped" :page="page" :limit="PAGE" :noun="shown === 'cves' ? 'CVE' : undefined" @change="goTo" />
-    </div>
-  </section>
+          </tbody>
+        </table>
+      </div>
+      <div v-else ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="vulns-h" :aria-busy="loading">
+        <table class="table stackable stack-narrow dense vulns-table">
+          <thead>
+            <tr>
+              <SortHeader
+                label="Severity"
+                :direction="order === 'severity' ? 'desc' : order === 'severity_asc' ? 'asc' : null"
+                desc-text="worst first"
+                asc-text="least severe first"
+                @toggle="sortBySeverity"
+              /><th scope="col">Vulnerability</th><th scope="col">Resource</th><th scope="col">Connection</th><th scope="col">State</th>
+              <SortHeader
+                label="Last seen"
+                class="right"
+                :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
+                desc-text="newest first"
+                asc-text="oldest first"
+                @toggle="toggleLastSeen"
+              /><th scope="col"><span class="sr-only">Details</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="v in items" :key="v.id">
+              <tr class="row" :class="{ expanded: open.has(v.id) }" @click="onRowClick($event, v.id)">
+                <td data-label="Severity"><SeverityTag :severity="v.severity" /></td>
+                <!-- The CVE leads; the package and its fix, a public exploit and EPSS follow. -->
+                <td data-label="Vulnerability" class="lead-cell">
+                  <span class="lead" :class="{ mono: v.vulnerability?.vulnerability_id }" :title="v.title">{{ lead(v) }}</span>
+                  <span class="meta">
+                    <span v-if="v.vulnerability" class="mono package">{{ packageLine(v.vulnerability) }}</span>
+                    <ExploitMark v-if="v.vulnerability?.exploit_available" />
+                    <span v-if="epssPercent(v.vulnerability?.epss_score)" class="mono epss">EPSS {{ epssPercent(v.vulnerability?.epss_score) }}</span>
+                  </span>
+                </td>
+                <td data-label="Resource" class="resource">
+                  <span class="mono" :title="v.resource_uid">{{ v.resource_name ?? uidTail(v.resource_uid) }}</span>
+                  <span v-if="v.resource_id == null" class="cap">Not in inventory</span>
+                </td>
+                <td data-label="Connection">
+                  <span class="conn"><ProviderTag :provider="v.provider" /><span class="conn-name">{{ v.connection }}</span></span>
+                  <span class="mono region">{{ regionLabel(v.region) }}</span>
+                </td>
+                <td data-label="State">
+                  <span class="states">
+                    <StatusBadge :status="v.state" />
+                    <span v-if="v.muted" class="chip">Suppressed</span>
+                    <span v-if="isNew(v)" class="chip">New</span>
+                  </span>
+                </td>
+                <td data-label="Last seen" class="right mono">{{ v.last_seen }}</td>
+                <td data-label="">
+                  <button type="button" class="icon-btn chev" :aria-expanded="open.has(v.id)" :aria-label="`${open.has(v.id) ? 'Hide' : 'Show'} details of ${lead(v)}`" @click="toggle(v.id)">
+                    <AppIcon name="chevron" :size="16" :stroke="2" />
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="open.has(v.id)" class="detail">
+                <td colspan="7">
+                  <FindingDetail :finding="v" :preloaded="single != null ? singleDetail : null" :own-link="single == null" />
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div v-if="rows && single == null" class="panel-foot">
+        <AppPagination :total="total" :capped="capped" :page="page" :limit="PAGE" :noun="shown === 'cves' ? 'CVE' : undefined" @change="goTo" />
+      </div>
+    </section>
+  </div>
 </template>
 
 <style scoped>
 .strong {
   color: var(--text);
+}
+
+.tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-16); /* as the shell's main column, which held these blocks before the tabs */
+}
+
+.first-seen {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.dates {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-6);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.date {
+  width: 150px;
 }
 
 .titles {

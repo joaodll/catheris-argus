@@ -4930,6 +4930,154 @@
         "title": "ValidationError",
         "type": "object"
       },
+      "VulnerabilitiesSummary": {
+        "description": "Investigate → Vulnerabilities → Summary, from stored counts only. Each account counts as\nof its latest vulnerabilities scan, however old; disabled accounts are left out, as on the\nOverview. Null: no vulnerabilities scan yet, never 0.",
+        "properties": {
+          "by_account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryAccounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by_age": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SummaryAge"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Age"
+          },
+          "by_fix": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/VulnerabilityFixItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Fix"
+          },
+          "by_region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by_resource_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "last_30_days": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryRecent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "open": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VulnerabilitiesSummaryOpen"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/SummaryWeek"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data_through",
+          "open",
+          "by_account",
+          "by_resource_type",
+          "by_region",
+          "by_age",
+          "by_fix",
+          "weeks",
+          "last_30_days"
+        ],
+        "title": "VulnerabilitiesSummary",
+        "type": "object"
+      },
+      "VulnerabilitiesSummaryOpen": {
+        "description": "Open vulnerabilities: open or reopened, not suppressed in the scanner (the list filters\n`state=open&muted=hide`).",
+        "properties": {
+          "exploitable": {
+            "title": "Exploitable",
+            "type": "integer"
+          },
+          "exploitable_with_fix": {
+            "title": "Exploitable With Fix",
+            "type": "integer"
+          },
+          "severities": {
+            "$ref": "#/components/schemas/SeverityCounts"
+          },
+          "suppressed": {
+            "title": "Suppressed",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "severities",
+          "suppressed",
+          "exploitable",
+          "exploitable_with_fix"
+        ],
+        "title": "VulnerabilitiesSummaryOpen",
+        "type": "object"
+      },
       "VulnerabilityFacets": {
         "properties": {
           "regions": {
@@ -4952,6 +5100,34 @@
           "resource_types"
         ],
         "title": "VulnerabilityFacets",
+        "type": "object"
+      },
+      "VulnerabilityFixItem": {
+        "description": "Open vulnerabilities by whether a fix exists: `available` and `none` are the list's fix\nfilter; `unknown` (the scanner does not say) has none.",
+        "properties": {
+          "severities": {
+            "$ref": "#/components/schemas/SeverityCounts"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "value": {
+            "enum": [
+              "available",
+              "none",
+              "unknown"
+            ],
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "total",
+          "severities"
+        ],
+        "title": "VulnerabilityFixItem",
         "type": "object"
       },
       "VulnerabilityOut": {
@@ -10648,6 +10824,40 @@
           },
           {
             "in": "query",
+            "name": "first_seen_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "first_seen_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen To"
+            }
+          },
+          {
+            "in": "query",
             "name": "exploitable",
             "required": false,
             "schema": {
@@ -11060,6 +11270,40 @@
           },
           {
             "in": "query",
+            "name": "first_seen_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "first_seen_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen To"
+            }
+          },
+          {
+            "in": "query",
             "name": "exploitable",
             "required": false,
             "schema": {
@@ -11204,6 +11448,99 @@
           }
         },
         "summary": "Vulnerability Groups",
+        "tags": [
+          "vulnerabilities"
+        ]
+      }
+    },
+    "/api/v1/vulnerabilities/summary": {
+      "get": {
+        "description": "The Vulnerabilities summary for all connections (0) or one: stored counts written by\ningest, so it never counts findings at request time.",
+        "operationId": "vulnerability_summary_api_v1_vulnerabilities_summary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Connection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VulnerabilitiesSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Vulnerability Summary",
         "tags": [
           "vulnerabilities"
         ]

@@ -213,4 +213,4 @@ export function keptChecks(f: FindingFilters, offered: string[]): string[] {
 }
 
 /** Query-string readers the Vulnerabilities filters share. */
-export { ids, known, oneOf, strings }
+export { day, ids, known, oneOf, strings }

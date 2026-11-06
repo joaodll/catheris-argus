@@ -842,6 +842,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vulnerabilities/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Vulnerability Summary
+         * @description The Vulnerabilities summary for all connections (0) or one: stored counts written by
+         *     ingest, so it never counts findings at request time.
+         */
+        get: operations["vulnerability_summary_api_v1_vulnerabilities_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -2430,12 +2451,64 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * VulnerabilitiesSummary
+         * @description Investigate → Vulnerabilities → Summary, from stored counts only. Each account counts as
+         *     of its latest vulnerabilities scan, however old; disabled accounts are left out, as on the
+         *     Overview. Null: no vulnerabilities scan yet, never 0.
+         */
+        VulnerabilitiesSummary: {
+            by_account: components["schemas"]["SummaryAccounts"] | null;
+            /** By Age */
+            by_age: components["schemas"]["SummaryAge"][] | null;
+            /** By Fix */
+            by_fix: components["schemas"]["VulnerabilityFixItem"][] | null;
+            by_region: components["schemas"]["SummaryBreakdown"] | null;
+            by_resource_type: components["schemas"]["SummaryBreakdown"] | null;
+            /** Data Through */
+            data_through: string | null;
+            last_30_days: components["schemas"]["SummaryRecent"] | null;
+            open: components["schemas"]["VulnerabilitiesSummaryOpen"] | null;
+            /** Weeks */
+            weeks: components["schemas"]["SummaryWeek"][];
+        };
+        /**
+         * VulnerabilitiesSummaryOpen
+         * @description Open vulnerabilities: open or reopened, not suppressed in the scanner (the list filters
+         *     `state=open&muted=hide`).
+         */
+        VulnerabilitiesSummaryOpen: {
+            /** Exploitable */
+            exploitable: number;
+            /** Exploitable With Fix */
+            exploitable_with_fix: number;
+            severities: components["schemas"]["SeverityCounts"];
+            /** Suppressed */
+            suppressed: number;
+            /** Total */
+            total: number;
+        };
         /** VulnerabilityFacets */
         VulnerabilityFacets: {
             /** Regions */
             regions: string[];
             /** Resource Types */
             resource_types: string[];
+        };
+        /**
+         * VulnerabilityFixItem
+         * @description Open vulnerabilities by whether a fix exists: `available` and `none` are the list's fix
+         *     filter; `unknown` (the scanner does not say) has none.
+         */
+        VulnerabilityFixItem: {
+            severities: components["schemas"]["SeverityCounts"];
+            /** Total */
+            total: number;
+            /**
+             * Value
+             * @enum {string}
+             */
+            value: "available" | "none" | "unknown";
         };
         /**
          * VulnerabilityOut
@@ -4307,6 +4380,8 @@ export interface operations {
                 check_id?: string[];
                 muted?: "any" | "hide" | "only";
                 new?: boolean;
+                first_seen_from?: string | null;
+                first_seen_to?: string | null;
                 exploitable?: boolean;
                 fix?: "any" | "available" | "none";
                 resource_id?: number | null;
@@ -4394,6 +4469,8 @@ export interface operations {
                 check_id?: string[];
                 muted?: "any" | "hide" | "only";
                 new?: boolean;
+                first_seen_from?: string | null;
+                first_seen_to?: string | null;
                 exploitable?: boolean;
                 fix?: "any" | "available" | "none";
                 resource_id?: number | null;
@@ -4418,6 +4495,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FindingGroupPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    vulnerability_summary_api_v1_vulnerabilities_summary_get: {
+        parameters: {
+            query?: {
+                connection_id?: number;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VulnerabilitiesSummary"];
                 };
             };
             /** @description Validation Error */

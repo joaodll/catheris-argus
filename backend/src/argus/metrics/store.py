@@ -7,7 +7,7 @@ from argus import connections
 ALL_CONNECTIONS = 0
 # What happened on a day, not how things stood: summed over that day only. Every other metric
 # describes a state, and all connections take each connection's latest value (rollup).
-FLOW_METRICS = frozenset({"findings.events", "misconfigurations.events"})
+FLOW_METRICS = frozenset({"findings.events", "misconfigurations.events", "vulnerabilities.events"})
 
 
 def put(

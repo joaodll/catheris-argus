@@ -258,6 +258,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
         "/api/v1/vulnerabilities?limit=200&state=resolved",
         "/api/v1/vulnerabilities/facets",
         "/api/v1/vulnerabilities/groups?limit=200",
+        "/api/v1/vulnerabilities/summary",
     ):
         response = signed_in.get(path)
         assert response.status_code == 200, (path, response.text)

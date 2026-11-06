@@ -99,8 +99,9 @@ def test_a_complete_run_resolves_what_it_no_longer_reports_and_a_partial_one_not
 def test_a_failed_inspector_run_is_recorded_and_resolves_nothing(
     owner: Engine, worker: Engine, store: FilesystemRawStore
 ) -> None:
-    """Inspector has no metric to carry forward (ADR-0042): a failed run still ends failed,
-    with nothing loaded and nothing resolved."""
+    """Nothing to carry forward (ADR-0042): the Overview shows no vulnerability number, and the
+    summary counts the finding table. A failed run still ends failed, with nothing loaded and
+    nothing resolved."""
     target = make_demo(owner)
     run_tool(worker, store, target, "steampipe", DAY)
     run_tool(worker, store, target, "vulnerabilities", DAY)

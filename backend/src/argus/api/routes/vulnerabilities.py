@@ -4,18 +4,25 @@ findings, with the lifecycle every finding has; this list keeps them apart from 
 CloudFox's (Misconfigurations) and adds what only a vulnerability can be filtered on. A CVE's
 own link and details row are /findings/{finding_id}. Read-only."""
 
-from typing import Annotated, Any
+from datetime import UTC, date, datetime
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from argus import findings
+from argus import findings, metrics
 from argus.api.deps import Db, Viewer
 from argus.api.routes.findings import (
     Facet,
     FindingGroupPage,
     FindingPage,
     Severity,
+    SeverityCounts,
+    SummaryAccounts,
+    SummaryAge,
+    SummaryBreakdown,
+    SummaryRecent,
+    SummaryWeek,
     finding_page,
     group_page,
 )
@@ -49,6 +56,9 @@ class VulnerabilityQuery(BaseModel):
     muted: findings.MutedFilter = "any"
     # Only vulnerabilities first seen in their latest scan.
     new: bool = False
+    # First seen on or after / on or before these days, both inclusive.
+    first_seen_from: date | None = None
+    first_seen_to: date | None = None
     # Only those with a public exploit.
     exploitable: bool = False
     # available: a fixed version exists for its packages (or some of them); none: not yet.
@@ -71,6 +81,8 @@ def _filters(query: VulnerabilityQuery) -> findings.FindingFilters:
         check_ids=tuple(query.check_id),
         muted=query.muted,
         new=query.new,
+        first_seen_from=query.first_seen_from,
+        first_seen_to=query.first_seen_to,
         resource_id=query.resource_id,
         q=query.q or None,
         exploitable=query.exploitable,
@@ -113,3 +125,53 @@ def vulnerability_facets(
     """The options of the Vulnerabilities filters that come from the data."""
     facets = findings.finding_facets(conn, tools=TOOLS, connection_ids=tuple(connection_id))
     return VulnerabilityFacets(regions=facets.regions, resource_types=facets.resource_types)
+
+
+class VulnerabilitiesSummaryOpen(BaseModel):
+    """Open vulnerabilities: open or reopened, not suppressed in the scanner (the list filters
+    `state=open&muted=hide`)."""
+
+    total: int
+    severities: SeverityCounts
+    suppressed: int  # open but suppressed in the scanner (`muted=only`), left out of the rest
+    exploitable: int  # with a public exploit (`exploit=1`)
+    exploitable_with_fix: int  # of those, with a fix available (`exploit=1&fix=available`)
+
+
+class VulnerabilityFixItem(BaseModel):
+    """Open vulnerabilities by whether a fix exists: `available` and `none` are the list's fix
+    filter; `unknown` (the scanner does not say) has none."""
+
+    value: Literal["available", "none", "unknown"]
+    total: int
+    severities: SeverityCounts
+
+
+class VulnerabilitiesSummary(BaseModel):
+    """Investigate → Vulnerabilities → Summary, from stored counts only. Each account counts as
+    of its latest vulnerabilities scan, however old; disabled accounts are left out, as on the
+    Overview. Null: no vulnerabilities scan yet, never 0."""
+
+    data_through: date | None
+    open: VulnerabilitiesSummaryOpen | None
+    by_account: SummaryAccounts | None  # all connections only
+    by_resource_type: SummaryBreakdown | None  # the list's resource_type filter
+    by_region: SummaryBreakdown | None
+    by_age: list[SummaryAge] | None
+    by_fix: list[VulnerabilityFixItem] | None  # available, none, unknown
+    weeks: list[SummaryWeek]  # opened, reopened and resolved per week, the last 12 weeks
+    last_30_days: SummaryRecent | None
+
+
+@router.get("/vulnerabilities/summary")
+def vulnerability_summary(
+    conn: Db,
+    _user: Viewer,
+    connection_id: Annotated[int, Query(ge=0)] = 0,
+) -> VulnerabilitiesSummary:
+    """The Vulnerabilities summary for all connections (0) or one: stored counts written by
+    ingest, so it never counts findings at request time."""
+    data = metrics.vulnerability_summary(
+        conn, connection_id=connection_id, today=datetime.now(UTC).date()
+    )
+    return VulnerabilitiesSummary.model_validate(data)

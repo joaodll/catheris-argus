@@ -18,10 +18,11 @@ import SeverityColumns, { type SeverityColumn } from '@/components/charts/Severi
 import WeeklyFlow from '@/components/charts/WeeklyFlow.vue'
 import { useResource } from '@/composables/useResource'
 import { int } from '@/format'
-import { SEVERITIES, SEVERITY_COLOR, SEVERITY_LABEL, SEVERITY_TEXT, type Severity } from '@/views/overview/severity'
+import { SEVERITIES, SEVERITY_TEXT, type Severity } from '@/views/overview/severity'
 import { type FindingFilters, type Tool, categoryLabel, emptyFilters, filtersToQuery } from '../findingFilters'
 import { regionLabel } from '../labels'
 import type { FindingReach } from '../reachReason'
+import SummaryHeader from './SummaryHeader.vue'
 
 const props = defineProps<{ connectionId: number; connections: Schemas['ConnectionOut'][] | null }>()
 const emit = defineEmits<{ selectConnection: [id: number] }>()
@@ -177,28 +178,13 @@ function total(items: SeverityBarItem[]): number {
   return items.reduce((n, i) => n + i.total, 0)
 }
 
-const connectionOptions = computed(() => props.connections ?? [])
 </script>
 
 <template>
   <div class="summary">
-    <div class="head">
-      <div class="field">
-        <label class="lbl" for="s-account">Account</label>
-        <select id="s-account" class="select account" :value="String(connectionId)" @change="emit('selectConnection', Number(($event.target as HTMLSelectElement).value))">
-          <option value="0">All connections</option>
-          <option v-for="c in connectionOptions" :key="c.id" :value="String(c.id)">{{ c.name }}</option>
-        </select>
-      </div>
-      <span class="through">
-        <template v-if="data?.data_through">Data through <span class="mono strong">{{ data.data_through }}</span></template>
-        <template v-else-if="data">No scan yet</template>
-      </span>
-    </div>
-    <p class="cap scope">Open, failing findings from Prowler and CloudFox, muted ones left out. Each number opens the list it counts.</p>
-    <ul class="legend" aria-label="Severity colours">
-      <li v-for="s in SEVERITIES" :key="s"><span class="dot mark-dot" :style="{ '--series': SEVERITY_COLOR[s] }" aria-hidden="true"></span>{{ SEVERITY_LABEL[s] }}</li>
-    </ul>
+    <SummaryHeader id-prefix="s" :connection-id="connectionId" :connections="connections" :data-through="data?.data_through" :loaded="Boolean(data)" @select-connection="emit('selectConnection', $event)">
+      Open, failing findings from Prowler and CloudFox, muted ones left out. Each number opens the list it counts.
+    </SummaryHeader>
 
     <AlertBanner v-if="summary.error.value && !data" kind="fail">
       The summary didn't load: {{ summary.error.value }}
@@ -352,149 +338,4 @@ const connectionOptions = computed(() => props.connections ?? [])
   </div>
 </template>
 
-<style scoped>
-.summary {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-14);
-}
-
-.head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--s-12);
-}
-
-.account {
-  min-width: 220px;
-}
-
-.through {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--text-3);
-}
-
-.strong {
-  color: var(--text);
-}
-
-.scope {
-  margin: 0;
-  max-width: 90ch;
-}
-
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-14);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.legend li {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-6);
-}
-
-.legend .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.tile {
-  gap: var(--s-4);
-}
-
-.stat-value.none {
-  color: var(--text-3);
-}
-
-.meter {
-  display: flex;
-  gap: 1px;
-  height: 8px;
-  margin: var(--s-6) 0 var(--s-4);
-  overflow: hidden;
-  border-radius: 3px;
-}
-
-.meter .seg {
-  height: 100%;
-}
-
-.drill-link {
-  margin-top: var(--s-8);
-  align-self: flex-start;
-}
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--s-14);
-}
-
-.flow-row {
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-}
-
-@media (max-width: 1150px) {
-  .grid,
-  .flow-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.panel-h {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--s-12);
-}
-
-.count {
-  font-size: 13px;
-  color: var(--text-2);
-}
-
-.panel-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-10);
-}
-
-.fit {
-  container-type: inline-size;
-}
-
-.loading {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-8);
-}
-
-.none-open {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-2);
-}
-
-.more {
-  margin: 0;
-}
-
-.more .drill-link {
-  margin-top: 0;
-  display: inline-flex;
-}
-
-p.cap {
-  margin: 0;
-}
-</style>
+<style scoped src="./summary.css"></style>
