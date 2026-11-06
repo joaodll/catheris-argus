@@ -1,6 +1,6 @@
 [project]
 name = "argus"
-version = "0.1.4"
+version = "0.2.0"
 description = "CatherIs Argus: cloud security platform joining Prowler, CloudFox and Steampipe"
 license = "Apache-2.0"
 requires-python = ">=3.13,<3.14"
