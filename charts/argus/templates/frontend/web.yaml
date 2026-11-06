@@ -16,9 +16,11 @@ and autoscaler are in services.yaml, pdb.yaml and hpa.yaml. */ -}}
 {{- define "argus.web.ports" -}}
 ports:
   - {name: http, containerPort: 8080}
-# Ready when it can serve the API through itself; alive while nginx accepts.
+# Ready and alive on nginx alone, never on the API: a down API or database would otherwise take
+# every web pod out of the Service, and the ingress would serve nothing at all. The API's own
+# probes cover the API.
 readinessProbe:
-  httpGet: {path: /api/v1/health, port: http}
+  httpGet: {path: /healthz, port: http}
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3

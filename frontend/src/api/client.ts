@@ -88,6 +88,8 @@ export function messageOf(status: number, body: unknown): string {
   if (detail && typeof detail === 'object' && 'message' in detail) {
     return String((detail as { message: unknown }).message)
   }
+  // nginx answers these itself when the API is down or too slow: web stays up without it.
+  if (status === 502 || status === 504) return "Argus can't reach its API. Try again in a moment."
   if (status >= 500) return 'Argus had a problem answering. Try again in a moment.'
   if (status === 0) return "Argus can't reach its API."
   return `The request failed (${status}).`

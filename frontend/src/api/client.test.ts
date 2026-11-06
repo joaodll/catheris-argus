@@ -33,6 +33,9 @@ describe('messageOf', () => {
       'nothing queued: cooldown',
     )
     expect(messageOf(503, null)).toMatch(/problem/)
+    // nginx's own answers while the API is down: web stays up without it.
+    expect(messageOf(502, null)).toBe("Argus can't reach its API. Try again in a moment.")
+    expect(messageOf(504, null)).toBe("Argus can't reach its API. Try again in a moment.")
     // A model-level check has no field: its own words, as a sentence.
     expect(messageOf(422, { detail: [{ loc: ['body'], msg: 'Value error, bucket and region are set together' }] })).toBe(
       'Bucket and region are set together.',

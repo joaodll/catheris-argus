@@ -392,6 +392,39 @@ test_web() {
   ok "a scan Job answered it"
 }
 
+# web's readiness is nginx's own (/healthz): with no API at all, web stays in its Service and
+# serves the app, which says it can't reach the API; nginx answers /api itself with a 502.
+test_web_without_api() {
+  step "web stays Ready while the API is down"
+  local base=http://127.0.0.1:18081 pf="" replicas pods ready code
+  replicas=$(k get "deploy/$FULL-api" -o jsonpath='{.spec.replicas}')
+  k scale "deploy/$FULL-api" --replicas 0 > /dev/null
+  trap 'kill $pf 2>/dev/null || true; k scale "deploy/$FULL-api" --replicas "$replicas" > /dev/null; trap - RETURN' RETURN
+  k wait --for=delete pod -l "app.kubernetes.io/instance=$RELEASE,app.kubernetes.io/component=api" \
+    --timeout 120s > /dev/null || fail "the api pods did not stop"
+  # Longer than three failed readiness probes (10 s apart): long enough to drop web if it
+  # still depended on the API.
+  sleep 35
+  pods=$(k get pods -l "app.kubernetes.io/instance=$RELEASE,app.kubernetes.io/component=web" -o json)
+  ready=$(jq '[.items[] | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))] | length' <<< "$pods")
+  [ "$ready" -ge 1 ] && [ "$ready" -eq "$(jq '.items | length' <<< "$pods")" ] \
+    || fail "web pods dropped out without the API: $ready ready"
+  ok "every web pod stayed Ready without the API ($ready)"
+  k port-forward "svc/$FULL-web" 18081:8080 > /dev/null 2>&1 &
+  pf=$!
+  for _ in $(seq 30); do curl -fs -o /dev/null "$base/healthz" && break; sleep 1; done
+  curl -fsS "$base/" | grep -qi '<!doctype html' || fail "/ is not the app without the API"
+  ok "/ serves the app without the API"
+  # In seconds, not after nginx's default minute (proxy_connect_timeout 5s).
+  code=$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "$base/api/v1/health" || true)
+  [ "$code" = 502 ] || [ "$code" = 504 ] || fail "/api without the API answered $code, expected 502 or 504"
+  ok "/api without the API: $code from nginx"
+  kill $pf 2>/dev/null || true
+  k scale "deploy/$FULL-api" --replicas "$replicas" > /dev/null
+  k rollout status "deploy/$FULL-api" --timeout 300s > /dev/null || fail "api did not come back"
+  ok "api back at $replicas replicas"
+}
+
 # The address the API records for a failed sign-in sent with this X-Forwarded-For. A port-forward
 # reaches web from 127.0.0.1, standing in for the peer: the ingress, or any other client.
 recorded_address() { # <X-Forwarded-For> <username>
@@ -640,6 +673,7 @@ run_tests() {
   test_network
   test_demo_refused
   test_web
+  test_web_without_api
   test_client_address
   test_sign_in_rate
   test_upgrade
