@@ -25,11 +25,20 @@ Parameters:
   ExternalId:
     Type: String
     NoEcho: true
-    MinLength: 16
-    Description: Shared ExternalId the hub presents when assuming this role.
+    Default: ""
+    AllowedPattern: "^$|^[A-Za-z0-9+=,.@:/-]{16,1224}$"
+    ConstraintDescription: empty, or 16 to 1224 letters, digits and +=,.@:/-
+    Description: >-
+      Optional. The ExternalId the hub presents when assuming this role. Empty: the trust asks for
+      none, and only the hub role named above can assume it.
   RoleName:
     Type: String
     Default: ArgusScanner
+
+# An ExternalId is optional (owner, 2026-11-05, ADR-0024 amended): it guards against the confused
+# deputy, which matters little inside one organization with a hub role only Argus uses.
+Conditions:
+  HasExternalId: !Not [!Equals [!Ref ExternalId, ""]]
 
 Resources:
   ScannerRole:
@@ -47,9 +56,11 @@ Resources:
             Principal:
               AWS: !Ref HubRoleArn
             Action: sts:AssumeRole
-            Condition:
-              StringEquals:
-                sts:ExternalId: !Ref ExternalId
+            Condition: !If
+              - HasExternalId
+              - StringEquals:
+                  sts:ExternalId: !Ref ExternalId
+              - !Ref AWS::NoValue
       ManagedPolicyArns:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/SecurityAudit
         - !Sub arn:${AWS::Partition}:iam::aws:policy/job-function/ViewOnlyAccess

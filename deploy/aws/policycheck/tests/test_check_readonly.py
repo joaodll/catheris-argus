@@ -77,6 +77,32 @@ def test_trust_without_external_id_fails(template: dict[str, Any]) -> None:
     assert any("ExternalId" in e for e in check_template(template))
 
 
+def test_the_template_asks_for_an_external_id_only_when_given_one(
+    template: dict[str, Any],
+) -> None:
+    trust = template["Resources"]["ScannerRole"]["Properties"]["AssumeRolePolicyDocument"]
+    condition = trust["Statement"][0]["Condition"]
+    assert condition == {
+        "Fn::If": [
+            "HasExternalId",
+            {"StringEquals": {"sts:ExternalId": {"Ref": "ExternalId"}}},
+            {"Ref": "AWS::NoValue"},
+        ]
+    }
+    assert template["Parameters"]["ExternalId"]["Default"] == ""
+    assert not check_template(template)
+
+
+def test_an_empty_external_id_cannot_swap_in_another_condition(
+    template: dict[str, Any],
+) -> None:
+    trust = template["Resources"]["ScannerRole"]["Properties"]["AssumeRolePolicyDocument"]
+    trust["Statement"][0]["Condition"]["Fn::If"][2] = {
+        "StringLike": {"aws:PrincipalArn": "arn:aws:iam::*:role/*"}
+    }
+    assert any("ExternalId" in e for e in check_template(template))
+
+
 def test_inline_role_policy_is_checked(template: dict[str, Any]) -> None:
     template["Resources"]["ScannerRole"]["Properties"]["Policies"] = [
         {

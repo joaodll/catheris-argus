@@ -334,6 +334,48 @@ def test_aws_assume_role_connection(signed_in: TestClient) -> None:
     assert wrong_account.status_code == 422
 
 
+def test_an_assume_role_connection_may_have_no_external_id(
+    signed_in: TestClient, owner: Engine
+) -> None:
+    """Optional since 2026-11-05 (ADR-0024 amended): left out or blank, none is stored. One
+    that is set must still be 16 or more characters."""
+
+    def body(name: str, account: str) -> dict[str, str]:
+        role_arn = f"arn:aws:iam::{account}:role/ArgusScanner"
+        kind = {"kind": "aws", "auth_method": "assume_role"}
+        return {**kind, "name": name, "account_id": account, "role_arn": role_arn}
+
+    cases = (("no-ext", "210987654321", {}), ("blank-ext", "210987654322", {"external_id": ""}))
+    for name, account, extra in cases:
+        created = signed_in.post(
+            "/api/v1/connections", headers=csrf(signed_in), json={**body(name, account), **extra}
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["external_id_set"] is False
+    short = signed_in.post(
+        "/api/v1/connections",
+        headers=csrf(signed_in),
+        json={**body("short-ext", "210987654323"), "external_id": "too-short"},
+    )
+    assert short.status_code == 422
+    with owner.connect() as conn:
+        stored = conn.execute(
+            text("SELECT name, external_id FROM connection WHERE name LIKE '%-ext' ORDER BY name")
+        ).all()
+        audited = (
+            conn.execute(
+                text(
+                    "SELECT detail->>'external_id' FROM audit_log "
+                    "WHERE action = 'connection.create' ORDER BY id DESC LIMIT 2"
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert [tuple(r) for r in stored] == [("blank-ext", None), ("no-ext", None)]
+    assert audited == ["false", "false"]  # whether one is set, never its value
+
+
 def test_an_access_key_connection_is_sealed_and_never_returned(
     signed_in: TestClient, owner: Engine
 ) -> None:

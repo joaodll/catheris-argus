@@ -72,6 +72,31 @@ def test_a_connection_that_reaches_its_account_passes(
     assert audited == 1
 
 
+def test_a_role_connection_without_an_external_id_is_tested_without_one(
+    signed_in: TestClient, owner: Engine, worker: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with owner.begin() as conn:
+        cid = conn.execute(
+            text(
+                "INSERT INTO connection (name, kind, account_id, auth_method, role_arn, "
+                "created_by, updated_by) VALUES ('no-ext', 'aws', :a, 'assume_role', :r, 't', "
+                "'t') RETURNING id"
+            ),
+            {"a": ACCOUNT, "r": ROLE},
+        ).scalar_one()
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "argus.collection.aws.access.aws.assume_role",
+        lambda **kw: calls.append(kw) or _assumed(),
+    )
+    monkeypatch.setattr(connection_checks.aws, "caller_identity", _identity(ACCOUNT))
+    queued = signed_in.post(f"/api/v1/connections/{cid}/test", headers=csrf(signed_in))
+    assert queued.status_code == 202, queued.text
+    assert connection_checks.run_pending(worker) is True
+    assert _result(signed_in, queued.json()["id"])["status"] == "passed"
+    assert calls[0]["role_arn"] == ROLE and calls[0]["external_id"] is None
+
+
 def test_a_role_in_another_account_fails(
     signed_in: TestClient, owner: Engine, worker: Engine, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -31,11 +31,11 @@ class AwsAccess:
             return SessionCredentials(
                 self.auth.access_key_id, self.auth.secret_access_key, self.auth.session_token
             )
-        if not self.auth.role_arn or not self.auth.external_id:
-            raise ValueError("the connection's role ARN or ExternalId is missing")
+        if not self.auth.role_arn:
+            raise ValueError("the connection's role ARN is missing")
         return aws.assume_role(
             role_arn=self.auth.role_arn,
-            external_id=self.auth.external_id,
+            external_id=self.auth.external_id or None,
             session_name=session_name,
             credentials=self.identity,
         )

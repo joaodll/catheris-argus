@@ -66,7 +66,7 @@ async function submit(): Promise<void> {
         api.POST('/api/v1/connections', {
           body:
             kind.value === 'assume_role'
-              ? { kind: 'aws', name: form.name, account_id: form.accountId, auth_method: 'assume_role', role_arn: form.roleArn, external_id: form.externalId }
+              ? { kind: 'aws', name: form.name, account_id: form.accountId, auth_method: 'assume_role', role_arn: form.roleArn, ...(form.externalId ? { external_id: form.externalId } : {}) }
               : { kind: 'aws', name: form.name, account_id: form.accountId, auth_method: 'access_key', ...accessKeyBody(accessKey.value) },
         }),
       )
@@ -152,10 +152,10 @@ async function submit(): Promise<void> {
           </div>
           <SecretField
             v-model="form.externalId"
-            label="External ID"
+            label="External ID (optional)"
             allow-generate
             :error="fieldError('externalId')"
-            help="Only the scan worker can read it, and it is never shown again. Put the same value in the role's trust policy."
+            help="Only if the role's trust policy asks for one: then put the same value there, 16 or more characters. Only the scan worker can read it, and it is never shown again."
           />
         </template>
         <template v-else>
