@@ -3,7 +3,9 @@
  * Investigate -> Resources (docs/ui/screens.md, E8): Steampipe's inventory, read-only. Every
  * filter, the order and the page live in the URL (resourceFilters.ts, 2026-11-06), as on
  * Misconfigurations and Vulnerabilities, so a link reproduces a list. The open resource sheet
- * lives there too (?open=), so a link to it works and Back closes it.
+ * lives there too (?open=), so a link to it works and Back closes it. It opens on a Summary
+ * (owner's decision 2026-11-06), the bare screen only: any list parameter, the sheet's
+ * included, opens the list (summary/summaryTab.ts).
  */
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -37,6 +39,9 @@ import {
   resourceSecondaryCount,
 } from './resourceFilters'
 import ResourceSheet from './ResourceSheet.vue'
+import InvestigateTabs from './summary/InvestigateTabs.vue'
+import ResourceSummary from './summary/ResourceSummary.vue'
+import { type Tab, parseTab, summaryConnection } from './summary/summaryTab'
 
 const VULNERABILITY_OPTIONS: { value: VulnerabilityLevel; label: string }[] = [
   { value: 'any', label: 'Any open vulnerability' },
@@ -53,11 +58,27 @@ const route = useRoute()
 const router = useRouter()
 const filters = computed(() => parseResourceFilters(route.query))
 const order = computed(() => parseResourceOrder(route.query))
+// Summary | List: the bare screen opens the summary, any list parameter the list.
+const tab = computed<Tab>(() => parseTab(route.query))
+// The summary's account: the list's connection when it names exactly one.
+const summaryAccount = computed(() => summaryConnection(filters.value.connection))
 
-/** A new filter set: a history entry (typing in the search box replaces it), page 1. */
+/** A new filter set: a history entry (typing in the search box replaces it), page 1. The tab is
+ * written out, so clearing every filter keeps the list. */
 function navigate(next: ResourceFilters, how: 'push' | 'replace' = 'push'): void {
   const sort = order.value === 'name_asc' ? undefined : order.value
-  void router[how]({ query: { ...resourceFiltersToQuery(next), order: sort, tab: route.query.tab } })
+  void router[how]({ query: { ...resourceFiltersToQuery(next), order: sort, tab: tab.value } })
+}
+
+/** Summary keeps only its account; List opens with that account as its connection filter. */
+function setTab(next: Tab): void {
+  if (next === tab.value) return
+  const account = summaryAccount.value ? String(summaryAccount.value) : undefined
+  void router.push({ query: { tab: next, connection: account } })
+}
+
+function selectAccount(id: number): void {
+  void router.push({ query: { tab: 'summary', connection: id ? String(id) : undefined } })
 }
 
 function set<K extends keyof ResourceFilters>(key: K, value: ResourceFilters[K]): void {
@@ -118,11 +139,15 @@ const table = ref<HTMLElement | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 let generation = 0
-const requestKey = (target: number): string => JSON.stringify([resourceApiFilters(filters.value), order.value, target])
+const requestKey = (target: number): string => JSON.stringify([resourceApiFilters(filters.value), order.value, target, tab.value])
 let loadedKey = ''
 
 async function load(target: number, how: 'push' | 'replace' = 'replace'): Promise<void> {
   const mine = ++generation
+  if (tab.value !== 'list') {
+    loading.value = false // the summary loads its own numbers; the list waits for its tab
+    return
+  }
   loading.value = true
   error.value = null
   try {
@@ -170,7 +195,7 @@ async function goTo(target: number): Promise<void> {
 }
 
 function setOrder(next: ResourceOrder): void {
-  void router.push({ query: { ...resourceFiltersToQuery(filters.value), order: next === 'name_asc' ? undefined : next, tab: route.query.tab } })
+  void router.push({ query: { ...resourceFiltersToQuery(filters.value), order: next === 'name_asc' ? undefined : next, tab: 'list' } })
 }
 
 function toggleName(): void {
@@ -231,195 +256,201 @@ const inventoryNote = computed(() =>
     <template v-else-if="loaded">No scan yet</template>
   </PageHeader>
 
-  <FilterBar label="Filter resources" :active="filtered" @clear="clearFilters">
-    <div class="field search">
-      <label class="lbl" for="r-q">Search</label>
-      <span class="search-wrap">
-        <AppIcon name="search" :size="16" class="search-icon" />
-        <input id="r-q" v-model="search" class="input" type="search" placeholder="Search by name, id or ARN" maxlength="200" autocomplete="off">
-      </span>
-    </div>
-    <MultiSelect
-      id="r-conn"
-      label="Connection"
-      :options="connectionOptions"
-      :status="connections.error.value ? 'error' : connections.data.value ? 'ready' : 'loading'"
-      :model-value="filters.connection.map(String)"
-      @update:model-value="set('connection', $event.map(Number))"
-    />
-    <MultiSelect id="r-type" label="Type" :options="typeOptions" :status="facetStatus" :model-value="filters.type" @update:model-value="set('type', $event)" />
-    <MultiSelect id="r-region" label="Region" :options="regionOptions" :status="facetStatus" :model-value="filters.region" @update:model-value="set('region', $event)" />
-    <div class="field">
-      <label class="lbl" for="r-vuln">Vulnerabilities</label>
-      <select
-        id="r-vuln"
-        class="select"
-        :value="filters.vulnerabilities ?? ''"
-        @change="set('vulnerabilities', fromSelect(($event.target as HTMLSelectElement).value) as VulnerabilityLevel | null)"
-      >
-        <option value="">All resources</option>
-        <option v-for="o in VULNERABILITY_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-      </select>
-    </div>
-    <button type="button" class="btn btn-secondary more-btn" :aria-expanded="more" aria-controls="r-more" @click="more = !more">
-      More filters<template v-if="moreCount"> · {{ moreCount }}</template>
-      <AppIcon name="chevron" :size="16" :stroke="2" class="more-chev" />
-    </button>
-    <template #after>
-      <div v-show="more" id="r-more" class="more-row">
-        <div class="field">
-          <label class="lbl" for="r-misconf">Misconfigurations</label>
-          <select
-            id="r-misconf"
-            class="select"
-            :value="filters.misconfigurations ?? ''"
-            @change="set('misconfigurations', fromSelect(($event.target as HTMLSelectElement).value) as MisconfigurationLevel | null)"
-          >
-            <option value="">All resources</option>
-            <option v-for="o in MISCONFIGURATION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
-          </select>
+  <InvestigateTabs :model-value="tab" label="Resources views" id-prefix="res" @update:model-value="setTab" />
+  <div v-if="tab === 'summary'" id="res-summary" role="tabpanel" aria-labelledby="res-tab-summary" class="tabpanel">
+    <ResourceSummary :connection-id="summaryAccount" :connections="connections.data.value" @select-connection="selectAccount" />
+  </div>
+  <div v-else id="res-list" role="tabpanel" aria-labelledby="res-tab-list" class="tabpanel">
+    <FilterBar label="Filter resources" :active="filtered" @clear="clearFilters">
+      <div class="field search">
+        <label class="lbl" for="r-q">Search</label>
+        <span class="search-wrap">
+          <AppIcon name="search" :size="16" class="search-icon" />
+          <input id="r-q" v-model="search" class="input" type="search" placeholder="Search by name, id or ARN" maxlength="200" autocomplete="off">
+        </span>
+      </div>
+      <MultiSelect
+        id="r-conn"
+        label="Connection"
+        :options="connectionOptions"
+        :status="connections.error.value ? 'error' : connections.data.value ? 'ready' : 'loading'"
+        :model-value="filters.connection.map(String)"
+        @update:model-value="set('connection', $event.map(Number))"
+      />
+      <MultiSelect id="r-type" label="Type" :options="typeOptions" :status="facetStatus" :model-value="filters.type" @update:model-value="set('type', $event)" />
+      <MultiSelect id="r-region" label="Region" :options="regionOptions" :status="facetStatus" :model-value="filters.region" @update:model-value="set('region', $event)" />
+      <div class="field">
+        <label class="lbl" for="r-vuln">Vulnerabilities</label>
+        <select
+          id="r-vuln"
+          class="select"
+          :value="filters.vulnerabilities ?? ''"
+          @change="set('vulnerabilities', fromSelect(($event.target as HTMLSelectElement).value) as VulnerabilityLevel | null)"
+        >
+          <option value="">All resources</option>
+          <option v-for="o in VULNERABILITY_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+        </select>
+      </div>
+      <button type="button" class="btn btn-secondary more-btn" :aria-expanded="more" aria-controls="r-more" @click="more = !more">
+        More filters<template v-if="moreCount"> · {{ moreCount }}</template>
+        <AppIcon name="chevron" :size="16" :stroke="2" class="more-chev" />
+      </button>
+      <template #after>
+        <div v-show="more" id="r-more" class="more-row">
+          <div class="field">
+            <label class="lbl" for="r-misconf">Misconfigurations</label>
+            <select
+              id="r-misconf"
+              class="select"
+              :value="filters.misconfigurations ?? ''"
+              @change="set('misconfigurations', fromSelect(($event.target as HTMLSelectElement).value) as MisconfigurationLevel | null)"
+            >
+              <option value="">All resources</option>
+              <option v-for="o in MISCONFIGURATION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+            </select>
+          </div>
+          <label class="check inline-check" title="An open misconfiguration that Argus's rules confirm is reachable from the internet">
+            <input type="checkbox" :checked="filters.internet" @change="set('internet', ($event.target as HTMLInputElement).checked)">
+            Internet reachable
+          </label>
+          <label class="check inline-check" title="Leave out parts, settings and links (rules, attachments, versions): what the Overview counts as assets">
+            <input type="checkbox" :checked="filters.assets" @change="set('assets', ($event.target as HTMLInputElement).checked)">
+            Assets only
+          </label>
+          <fieldset class="field days">
+            <legend class="lbl">First seen</legend>
+            <span class="dates">
+              <label class="sr-only" for="r-seen-from">First seen on or after</label>
+              <input id="r-seen-from" class="input date" type="date" :value="filters.firstSeenFrom" :max="filters.firstSeenTo || undefined" @change="set('firstSeenFrom', ($event.target as HTMLInputElement).value)">
+              <span aria-hidden="true">to</span>
+              <label class="sr-only" for="r-seen-to">First seen on or before</label>
+              <input id="r-seen-to" class="input date" type="date" :value="filters.firstSeenTo" :min="filters.firstSeenFrom || undefined" @change="set('firstSeenTo', ($event.target as HTMLInputElement).value)">
+            </span>
+          </fieldset>
+          <fieldset class="field days">
+            <legend class="lbl">Removed</legend>
+            <span class="dates">
+              <label class="sr-only" for="r-removed-from">Removed on or after</label>
+              <input id="r-removed-from" class="input date" type="date" :value="filters.removedFrom" :max="filters.removedTo || undefined" @change="set('removedFrom', ($event.target as HTMLInputElement).value)">
+              <span aria-hidden="true">to</span>
+              <label class="sr-only" for="r-removed-to">Removed on or before</label>
+              <input id="r-removed-to" class="input date" type="date" :value="filters.removedTo" :min="filters.removedFrom || undefined" @change="set('removedTo', ($event.target as HTMLInputElement).value)">
+            </span>
+          </fieldset>
+          <label class="check inline-check">
+            <input type="checkbox" :checked="filters.includeDeleted" @change="set('includeDeleted', ($event.target as HTMLInputElement).checked)">
+            Include deleted
+          </label>
         </div>
-        <label class="check inline-check" title="An open misconfiguration that Argus's rules confirm is reachable from the internet">
-          <input type="checkbox" :checked="filters.internet" @change="set('internet', ($event.target as HTMLInputElement).checked)">
-          Internet reachable
-        </label>
-        <label class="check inline-check" title="Leave out parts, settings and links (rules, attachments, versions): what the Overview counts as assets">
-          <input type="checkbox" :checked="filters.assets" @change="set('assets', ($event.target as HTMLInputElement).checked)">
-          Assets only
-        </label>
-        <fieldset class="field days">
-          <legend class="lbl">First seen</legend>
-          <span class="dates">
-            <label class="sr-only" for="r-seen-from">First seen on or after</label>
-            <input id="r-seen-from" class="input date" type="date" :value="filters.firstSeenFrom" :max="filters.firstSeenTo || undefined" @change="set('firstSeenFrom', ($event.target as HTMLInputElement).value)">
-            <span aria-hidden="true">to</span>
-            <label class="sr-only" for="r-seen-to">First seen on or before</label>
-            <input id="r-seen-to" class="input date" type="date" :value="filters.firstSeenTo" :min="filters.firstSeenFrom || undefined" @change="set('firstSeenTo', ($event.target as HTMLInputElement).value)">
-          </span>
-        </fieldset>
-        <fieldset class="field days">
-          <legend class="lbl">Removed</legend>
-          <span class="dates">
-            <label class="sr-only" for="r-removed-from">Removed on or after</label>
-            <input id="r-removed-from" class="input date" type="date" :value="filters.removedFrom" :max="filters.removedTo || undefined" @change="set('removedFrom', ($event.target as HTMLInputElement).value)">
-            <span aria-hidden="true">to</span>
-            <label class="sr-only" for="r-removed-to">Removed on or before</label>
-            <input id="r-removed-to" class="input date" type="date" :value="filters.removedTo" :min="filters.removedFrom || undefined" @change="set('removedTo', ($event.target as HTMLInputElement).value)">
-          </span>
-        </fieldset>
-        <label class="check inline-check">
-          <input type="checkbox" :checked="filters.includeDeleted" @change="set('includeDeleted', ($event.target as HTMLInputElement).checked)">
-          Include deleted
-        </label>
-      </div>
-    </template>
-  </FilterBar>
+      </template>
+    </FilterBar>
 
-  <!-- The Platform's list panel: a header bar, the table edge to edge, a footer bar. -->
-  <section class="card panel" aria-labelledby="resources-h">
-    <div class="panel-h">
-      <div class="titles">
-        <h2 id="resources-h" class="h2">Inventory</h2>
-        <span class="cap">{{ inventoryNote }} Read-only.</span>
+    <!-- The Platform's list panel: a header bar, the table edge to edge, a footer bar. -->
+    <section class="card panel" aria-labelledby="resources-h">
+      <div class="panel-h">
+        <div class="titles">
+          <h2 id="resources-h" class="h2">Inventory</h2>
+          <span class="cap">{{ inventoryNote }} Read-only.</span>
+        </div>
       </div>
-    </div>
 
-    <div v-if="error" class="panel-body">
-      <AlertBanner kind="fail">
-        Resources didn't load: {{ error }}
-        <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load(page)">Retry</button></template>
-      </AlertBanner>
-    </div>
-    <div v-else-if="!loaded" aria-busy="true" class="panel-body loading"><div v-for="n in 5" :key="n" class="skeleton sk-48"></div></div>
-    <div v-else-if="noData" class="panel-body">
-      <EmptyState icon="stack" title="No resources yet." text="The inventory appears after a Steampipe scan is ingested.">
-        <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
-      </EmptyState>
-    </div>
-    <div v-else-if="resources.length === 0 && filtered" class="panel-body">
-      <EmptyState icon="info" title="No resources match these filters.">
-        <button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button>
-      </EmptyState>
-    </div>
-    <div v-else-if="resources.length === 0" class="panel-body">
-      <EmptyState icon="stack" title="No resources in the latest inventory." />
-    </div>
-    <div v-else ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="resources-h" :aria-busy="loading">
-      <table class="table stackable stack-narrow dense resources-table">
-        <thead>
-          <tr>
-            <SortHeader
-              label="Name"
-              :direction="order === 'name_asc' ? 'asc' : order === 'name_desc' ? 'desc' : null"
-              desc-text="Z to A"
-              asc-text="A to Z"
-              @toggle="toggleName"
-            /><th scope="col">Connection</th><th scope="col">VPC</th><th scope="col" class="right">Misconfigurations</th><th scope="col" class="right">Vulnerabilities</th>
-            <SortHeader
-              label="Last seen"
-              class="right"
-              :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
-              desc-text="newest first"
-              asc-text="oldest first"
-              @toggle="toggleLastSeen"
-            />
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="r in resources" :key="r.id">
-            <td data-label="Name" class="name">
-              <span class="name-cell">
-                <!-- A link, so it opens in a new tab too (?open= works on direct load). -->
-                <RouterLink
-                  class="btn btn-ghost btn-sm open"
-                  :class="{ mono: r.name == null }"
-                  :title="r.resource_uid"
-                  :to="{ query: { ...route.query, open: String(r.id) } }"
-                >
-                  {{ label(r) }}
-                </RouterLink>
-                <span v-if="r.deleted_on" :title="`Deleted on ${r.deleted_on}`"><StatusBadge status="deleted" /></span>
-              </span>
-              <span class="mono sub">{{ r.type }}</span>
-            </td>
-            <td data-label="Connection">
-              <span class="conn"><ProviderTag :provider="r.provider" /><span class="conn-name">{{ connectionName(r.connection_id) }}</span></span>
-              <span class="mono sub">{{ regionLabel(r.region) }}</span>
-            </td>
-            <td data-label="VPC" class="mono" :class="{ soft: !r.vpc_id }">{{ r.vpc_id ?? '—' }}</td>
-            <td data-label="Misconfigurations" class="right">
-              <span v-if="r.open_findings > 0" class="count">
-                <SeverityTag v-if="r.worst_severity" :severity="r.worst_severity" compact />
-                <span class="mono">{{ r.open_findings }}</span>
-              </span>
-              <span v-else class="mono soft">0</span>
-            </td>
-            <td data-label="Vulnerabilities" class="right">
-              <span v-if="r.vulnerabilities == null" class="soft" title="No vulnerability scanner covers this resource">—</span>
-              <template v-else>
-                <span v-if="r.vulnerabilities.open > 0" class="count">
-                  <SeverityTag v-if="r.vulnerabilities.worst" :severity="r.vulnerabilities.worst" compact />
-                  <span class="mono">{{ r.vulnerabilities.open }}</span>
-                  <ExploitMark v-if="r.vulnerabilities.exploitable > 0" :count="r.vulnerabilities.exploitable" />
+      <div v-if="error" class="panel-body">
+        <AlertBanner kind="fail">
+          Resources didn't load: {{ error }}
+          <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load(page)">Retry</button></template>
+        </AlertBanner>
+      </div>
+      <div v-else-if="!loaded" aria-busy="true" class="panel-body loading"><div v-for="n in 5" :key="n" class="skeleton sk-48"></div></div>
+      <div v-else-if="noData" class="panel-body">
+        <EmptyState icon="stack" title="No resources yet." text="The inventory appears after a Steampipe scan is ingested.">
+          <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
+        </EmptyState>
+      </div>
+      <div v-else-if="resources.length === 0 && filtered" class="panel-body">
+        <EmptyState icon="info" title="No resources match these filters.">
+          <button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button>
+        </EmptyState>
+      </div>
+      <div v-else-if="resources.length === 0" class="panel-body">
+        <EmptyState icon="stack" title="No resources in the latest inventory." />
+      </div>
+      <div v-else ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="resources-h" :aria-busy="loading">
+        <table class="table stackable stack-narrow dense resources-table">
+          <thead>
+            <tr>
+              <SortHeader
+                label="Name"
+                :direction="order === 'name_asc' ? 'asc' : order === 'name_desc' ? 'desc' : null"
+                desc-text="Z to A"
+                asc-text="A to Z"
+                @toggle="toggleName"
+              /><th scope="col">Connection</th><th scope="col">VPC</th><th scope="col" class="right">Misconfigurations</th><th scope="col" class="right">Vulnerabilities</th>
+              <SortHeader
+                label="Last seen"
+                class="right"
+                :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
+                desc-text="newest first"
+                asc-text="oldest first"
+                @toggle="toggleLastSeen"
+              />
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="r in resources" :key="r.id">
+              <td data-label="Name" class="name">
+                <span class="name-cell">
+                  <!-- A link, so it opens in a new tab too (?open= works on direct load). -->
+                  <RouterLink
+                    class="btn btn-ghost btn-sm open"
+                    :class="{ mono: r.name == null }"
+                    :title="r.resource_uid"
+                    :to="{ query: { ...route.query, open: String(r.id) } }"
+                  >
+                    {{ label(r) }}
+                  </RouterLink>
+                  <span v-if="r.deleted_on" :title="`Deleted on ${r.deleted_on}`"><StatusBadge status="deleted" /></span>
                 </span>
-                <span v-else-if="r.vulnerabilities.scanned" class="mono soft">0</span>
-                <span
-                  v-if="!r.vulnerabilities.scanned"
-                  class="soft not-scanned"
-                  :class="{ sub: r.vulnerabilities.open > 0 }"
-                  title="The vulnerability scanner does not scan this resource; open it for the reason"
-                >Not scanned</span>
-              </template>
-            </td>
-            <td data-label="Last seen" class="right mono">{{ r.last_seen }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div v-if="resources.length" class="panel-foot">
-      <AppPagination :total="total" :capped="capped" :page="page" :limit="PAGE" @change="goTo" />
-    </div>
-  </section>
+                <span class="mono sub">{{ r.type }}</span>
+              </td>
+              <td data-label="Connection">
+                <span class="conn"><ProviderTag :provider="r.provider" /><span class="conn-name">{{ connectionName(r.connection_id) }}</span></span>
+                <span class="mono sub">{{ regionLabel(r.region) }}</span>
+              </td>
+              <td data-label="VPC" class="mono" :class="{ soft: !r.vpc_id }">{{ r.vpc_id ?? '—' }}</td>
+              <td data-label="Misconfigurations" class="right">
+                <span v-if="r.open_findings > 0" class="count">
+                  <SeverityTag v-if="r.worst_severity" :severity="r.worst_severity" compact />
+                  <span class="mono">{{ r.open_findings }}</span>
+                </span>
+                <span v-else class="mono soft">0</span>
+              </td>
+              <td data-label="Vulnerabilities" class="right">
+                <span v-if="r.vulnerabilities == null" class="soft" title="No vulnerability scanner covers this resource">—</span>
+                <template v-else>
+                  <span v-if="r.vulnerabilities.open > 0" class="count">
+                    <SeverityTag v-if="r.vulnerabilities.worst" :severity="r.vulnerabilities.worst" compact />
+                    <span class="mono">{{ r.vulnerabilities.open }}</span>
+                    <ExploitMark v-if="r.vulnerabilities.exploitable > 0" :count="r.vulnerabilities.exploitable" />
+                  </span>
+                  <span v-else-if="r.vulnerabilities.scanned" class="mono soft">0</span>
+                  <span
+                    v-if="!r.vulnerabilities.scanned"
+                    class="soft not-scanned"
+                    :class="{ sub: r.vulnerabilities.open > 0 }"
+                    title="The vulnerability scanner does not scan this resource; open it for the reason"
+                  >Not scanned</span>
+                </template>
+              </td>
+              <td data-label="Last seen" class="right mono">{{ r.last_seen }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-if="resources.length" class="panel-foot">
+        <AppPagination :total="total" :capped="capped" :page="page" :limit="PAGE" @change="goTo" />
+      </div>
+    </section>
+  </div>
 
   <ResourceSheet
     v-if="openId != null"
@@ -434,6 +465,12 @@ const inventoryNote = computed(() =>
 <style scoped>
 .strong {
   color: var(--text);
+}
+
+.tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-16); /* as the shell's main column, which held these blocks before the tabs */
 }
 
 .titles {

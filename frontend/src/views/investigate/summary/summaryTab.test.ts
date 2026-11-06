@@ -8,6 +8,8 @@ describe('Summary | List in the URL', () => {
     expect(parseTab({ finding: '12' })).toBe('list')
     expect(parseTab({ page: '2' })).toBe('list')
     expect(parseTab({ q: '' })).toBe('summary') // an empty value is no filter
+    expect(parseTab({ open: '42' })).toBe('list') // a resource's sheet (Resources)
+    expect(parseTab({ assets: '1', type: ['aws_s3_bucket'] })).toBe('list') // an Overview asset link
   })
 
   it('lets an explicit tab win', () => {

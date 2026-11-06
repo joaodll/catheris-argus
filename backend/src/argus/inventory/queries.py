@@ -32,6 +32,14 @@ RESOURCES_IN_REGIONS_SQL = """
 """
 
 
+# The ids of one connection's current assets, :c: an asset type (resource.asset, migration
+# 0045) and not removed. The Resources summary's risk counts, as the Resources list keeps them
+# with `assets=1` (deleted resources left out).
+CURRENT_ASSETS_SQL = """
+  SELECT id FROM resource WHERE connection_id = :c AND asset AND deleted_on IS NULL
+"""
+
+
 def resource_id_sql(param: str) -> str:
     """A scalar subquery: the id of the resource whose uid is bound to :param, or NULL."""
     # The parameter name is code, never input.

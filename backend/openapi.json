@@ -36,6 +36,60 @@
         "title": "AccessKeyIn",
         "type": "object"
       },
+      "AccountCount": {
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "enum": [
+              "aws",
+              "gcp",
+              "oci"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connection_id",
+          "name",
+          "provider",
+          "total"
+        ],
+        "title": "AccountCount",
+        "type": "object"
+      },
+      "AccountCounts": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AccountCount"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "more": {
+            "title": "More",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "more"
+        ],
+        "title": "AccountCounts",
+        "type": "object"
+      },
       "AccountList": {
         "properties": {
           "data_through": {
@@ -124,6 +178,43 @@
           "months"
         ],
         "title": "AccountMonths",
+        "type": "object"
+      },
+      "AssetTypeCount": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "count"
+        ],
+        "title": "AssetTypeCount",
+        "type": "object"
+      },
+      "AtRiskCount": {
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count",
+          "as_of"
+        ],
+        "title": "AtRiskCount",
         "type": "object"
       },
       "AwsIn": {
@@ -703,6 +794,45 @@
           "providers"
         ],
         "title": "Context",
+        "type": "object"
+      },
+      "CountBreakdown": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CountItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "more": {
+            "title": "More",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "more"
+        ],
+        "title": "CountBreakdown",
+        "type": "object"
+      },
+      "CountItem": {
+        "properties": {
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "total"
+        ],
+        "title": "CountItem",
         "type": "object"
       },
       "CoverageOut": {
@@ -2030,6 +2160,85 @@
         "title": "Inventory",
         "type": "object"
       },
+      "InventoryRecent": {
+        "properties": {
+          "added": {
+            "title": "Added",
+            "type": "integer"
+          },
+          "baseline": {
+            "title": "Baseline",
+            "type": "integer"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "added",
+          "removed",
+          "baseline"
+        ],
+        "title": "InventoryRecent",
+        "type": "object"
+      },
+      "InventoryWeek": {
+        "description": "One ISO week (`week` is its Monday). Null counts: before the inventory was first counted.\n`baseline`: how many accounts had their first scan that week; their resources are their\nstarting inventory, not counted as added.",
+        "properties": {
+          "added": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "removed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed"
+          },
+          "week": {
+            "format": "date",
+            "title": "Week",
+            "type": "string"
+          }
+        },
+        "required": [
+          "week",
+          "partial",
+          "added",
+          "removed",
+          "baseline"
+        ],
+        "title": "InventoryWeek",
+        "type": "object"
+      },
       "Kpi": {
         "properties": {
           "value": {
@@ -3179,6 +3388,165 @@
           "vulnerabilities"
         ],
         "title": "ResourceRow",
+        "type": "object"
+      },
+      "ResourcesSummary": {
+        "description": "Investigate → Resources → Summary, from stored counts only. Each account counts as of its\nlatest Steampipe load, however old; disabled accounts are left out, as on the Overview.\nNull: no Steampipe scan yet, never 0.",
+        "properties": {
+          "assets": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResourcesSummaryAssets"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "at_risk": {
+            "$ref": "#/components/schemas/ResourcesSummaryAtRisk"
+          },
+          "by_account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AccountCounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by_region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CountBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by_type": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AssetTypeCount"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Type"
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "last_30_days": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InventoryRecent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/InventoryWeek"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data_through",
+          "assets",
+          "at_risk",
+          "by_type",
+          "by_account",
+          "by_region",
+          "weeks",
+          "last_30_days"
+        ],
+        "title": "ResourcesSummary",
+        "type": "object"
+      },
+      "ResourcesSummaryAssets": {
+        "description": "The inventory's assets (the list filter `assets=1`): the types the Overview counts.",
+        "properties": {
+          "accounts": {
+            "title": "Accounts",
+            "type": "integer"
+          },
+          "regions": {
+            "title": "Regions",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "accounts",
+          "regions"
+        ],
+        "title": "ResourcesSummaryAssets",
+        "type": "object"
+      },
+      "ResourcesSummaryAtRisk": {
+        "description": "Distinct current assets at risk, each as of its tools' latest count. Null: no scan by\nthose tools yet (Prowler or CloudFox; the vulnerabilities tool), never 0.",
+        "properties": {
+          "critical_high": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AtRiskCount"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "exploitable": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AtRiskCount"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reachable": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AtRiskCount"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "critical_high",
+          "reachable",
+          "exploitable"
+        ],
+        "title": "ResourcesSummaryAtRisk",
         "type": "object"
       },
       "RetentionSettings": {
@@ -8514,6 +8882,99 @@
           }
         },
         "summary": "Resource Facets",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/api/v1/resources/summary": {
+      "get": {
+        "description": "The Resources summary for all connections (0) or one: stored counts written by ingest,\nso it never counts resources or findings at request time.",
+        "operationId": "resource_summary_api_v1_resources_summary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Connection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResourcesSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resource Summary",
         "tags": [
           "inventory"
         ]

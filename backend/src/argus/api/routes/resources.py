@@ -7,9 +7,10 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from argus import findings, ingest, inventory, relationships
+from argus import findings, ingest, inventory, metrics, relationships
 from argus.api.deps import Db, Viewer
 from argus.api.routes.findings import CommandOut, VulnerabilityOut
+from argus.api.types import Provider
 from argus.core.db import SEARCH_COUNT_CAP
 
 router = APIRouter(tags=["inventory"])
@@ -284,6 +285,108 @@ def _vulnerability_section(conn: Db, found: dict[str, Any]) -> VulnerabilitySect
             for c in findings.resource_coverage(conn, found["id"])
         ],
     )
+
+
+class ResourcesSummaryAssets(BaseModel):
+    """The inventory's assets (the list filter `assets=1`): the types the Overview counts."""
+
+    total: int
+    accounts: int  # enabled accounts with an inventory (1 for one connection)
+    regions: int  # regions with assets
+
+
+class AtRiskCount(BaseModel):
+    count: int  # distinct current assets
+    as_of: date  # the day of the latest count by the tools behind it
+
+
+class ResourcesSummaryAtRisk(BaseModel):
+    """Distinct current assets at risk, each as of its tools' latest count. Null: no scan by
+    those tools yet (Prowler or CloudFox; the vulnerabilities tool), never 0."""
+
+    critical_high: AtRiskCount | None  # `misconfigurations=high`
+    reachable: AtRiskCount | None  # `internet=1`
+    exploitable: AtRiskCount | None  # `vulnerabilities=exploitable`
+
+
+class AssetTypeCount(BaseModel):
+    type: str
+    count: int
+
+
+class CountItem(BaseModel):
+    value: str
+    total: int
+
+
+class CountBreakdown(BaseModel):
+    items: list[CountItem]  # the 10 largest
+    more: int  # how many more values have assets
+
+
+class AccountCount(BaseModel):
+    connection_id: int
+    name: str
+    provider: Provider
+    total: int
+
+
+class AccountCounts(BaseModel):
+    items: list[AccountCount]  # the 10 largest
+    more: int
+
+
+class InventoryWeek(BaseModel):
+    """One ISO week (`week` is its Monday). Null counts: before the inventory was first counted.
+    `baseline`: how many accounts had their first scan that week; their resources are their
+    starting inventory, not counted as added."""
+
+    week: date
+    partial: bool  # the current week, so far
+    added: int | None
+    removed: int | None
+    baseline: int | None
+
+
+class InventoryRecent(BaseModel):
+    added: int
+    removed: int
+    baseline: int
+
+
+class ResourcesSummary(BaseModel):
+    """Investigate → Resources → Summary, from stored counts only. Each account counts as of its
+    latest Steampipe load, however old; disabled accounts are left out, as on the Overview.
+    Null: no Steampipe scan yet, never 0."""
+
+    data_through: date | None
+    assets: ResourcesSummaryAssets | None
+    at_risk: ResourcesSummaryAtRisk
+    by_type: list[AssetTypeCount] | None  # every type, largest first
+    by_account: AccountCounts | None  # all connections only
+    by_region: CountBreakdown | None
+    weeks: list[InventoryWeek]  # assets added and removed per week, the last 12 weeks
+    last_30_days: InventoryRecent | None
+
+
+@router.get("/resources/summary")
+def resource_summary(
+    conn: Db,
+    _user: Viewer,
+    connection_id: Annotated[int, Query(ge=0)] = 0,
+) -> ResourcesSummary:
+    """The Resources summary for all connections (0) or one: stored counts written by ingest,
+    so it never counts resources or findings at request time."""
+    data = metrics.resource_summary(
+        conn, connection_id=connection_id, today=datetime.now(UTC).date()
+    )
+    if data["assets"] is not None:
+        # The day the List tab shows too: the newest ingested Steampipe run. A failed run
+        # carries the counts forward onto its day (for the Overview) but scanned nothing.
+        data["data_through"] = ingest.data_through(
+            conn, connection_id=connection_id or None, tools=["steampipe"]
+        )
+    return ResourcesSummary.model_validate(data)
 
 
 @router.get("/resources/facets")

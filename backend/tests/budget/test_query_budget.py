@@ -190,6 +190,7 @@ def _generate(conn: Connection) -> None:
     )
     _generate_misconfiguration_metrics(conn)
     _generate_vulnerability_metrics(conn)
+    _generate_asset_metrics(conn)
     _generate_edges(conn)
     _generate_compliance(conn)
     _generate_vulnerabilities(conn)
@@ -222,6 +223,8 @@ def _generate_misconfiguration_metrics(conn: Connection) -> None:
               UNION ALL SELECT 'misconfigurations.reach', r || '|' || s
                 FROM unnest(ARRAY['confirmed', 'restricted', 'unknown', 'not_covered']) r,
                      unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'misconfigurations.resources', k
+                FROM unnest(ARRAY['critical_high', 'reachable']) k
               UNION ALL SELECT 'misconfigurations.events', e
                 FROM unnest(ARRAY['opened', 'reopened', 'resolved']) e) AS m(metric, dim)
     """),
@@ -255,10 +258,29 @@ def _generate_vulnerability_metrics(conn: Connection) -> None:
               UNION ALL SELECT 'vulnerabilities.open_exploitable_by_fix', f || '|' || s
                 FROM unnest(ARRAY['available', 'none', 'unknown']) f,
                      unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'vulnerabilities.resources', 'exploitable'
               UNION ALL SELECT 'vulnerabilities.events', e
                 FROM unnest(ARRAY['opened', 'reopened', 'resolved']) e) AS m(metric, dim)
     """),
         {"n": ACCOUNTS, "d": TODAY, "sev": list(SEVERITIES)},
+    )
+
+
+def _generate_asset_metrics(conn: Connection) -> None:
+    """The Resources summary's rows (metrics.summary.ASSETS) besides the total: as if every
+    account were loaded every day for 180 days, with 400 asset types (the real table list holds
+    about that many), 17 regions and the day's events. About 420 rows per account and day."""
+    conn.execute(
+        text("""
+        INSERT INTO metric_daily (snapshot_date, connection_id, metric, dimension, value)
+        SELECT :d - day, c, m.metric, m.dim, floor(random() * 500)
+        FROM generate_series(0, 179) day, generate_series(0, :n) c,
+             (SELECT 'assets.by_type', 'aws_type_' || g FROM generate_series(1, 400) g
+              UNION ALL SELECT 'assets.by_region', 'region-' || g FROM generate_series(1, 17) g
+              UNION ALL SELECT 'assets.events', e
+                FROM unnest(ARRAY['added', 'removed', 'baseline']) e) AS m(metric, dim)
+    """),
+        {"n": ACCOUNTS, "d": TODAY},
     )
 
 
@@ -789,6 +811,12 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         filters=findings.FindingFilters(tools=("vulnerabilities",), fix="none"),
     ),
     "vulnerabilities: facets": lambda c: findings.finding_facets(c, tools=("vulnerabilities",)),
+    "resources: summary, all accounts": lambda c: metrics.resource_summary(
+        c, connection_id=0, today=TODAY
+    ),
+    "resources: summary, one account": lambda c: metrics.resource_summary(
+        c, connection_id=7, today=TODAY
+    ),
     "vulnerabilities: summary, all accounts": lambda c: metrics.vulnerability_summary(
         c, connection_id=0, today=TODAY
     ),
@@ -932,6 +960,21 @@ def test_the_summary_counts_of_one_account_stay_cheap_to_write(estate: Engine) -
         finally:
             transaction.rollback()
     print(f"misconfigurations: one account's counts and the rollup: {elapsed:.1f} ms")
+    assert elapsed < WRITER_BOUND_MS
+
+
+def test_the_asset_counts_of_one_account_stay_cheap_to_write(estate: Engine) -> None:
+    """After a Steampipe load: one account's assets by type and region, its added and removed,
+    and the rollup of all accounts (inventory.put_inventory_metrics)."""
+    with estate.connect() as conn:
+        transaction = conn.begin()
+        try:
+            start = time.perf_counter()
+            inventory.put_inventory_metrics(conn, connection_id=7, day=TODAY)
+            elapsed = (time.perf_counter() - start) * 1000
+        finally:
+            transaction.rollback()
+    print(f"assets: one account's counts and the rollup: {elapsed:.1f} ms")
     assert elapsed < WRITER_BOUND_MS
 
 
