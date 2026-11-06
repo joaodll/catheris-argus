@@ -31,14 +31,23 @@ EVENT_KINDS = ("opened", "reopened", "resolved")
 
 @dataclass(frozen=True)
 class Family:
-    """One Investigate screen's summary metrics, all written together by their owner: open
-    findings by severity (zero-filled, so its "critical" row marks every day the family was
-    counted), opened / reopened / resolved that day (a flow, zero-filled), open findings by
-    first-seen day, and the screen's own breakdowns, each "<value>|<severity>" unless its name
-    says by severity (vulnerabilities.suppressed_by_severity)."""
+    """One Investigate screen's summary metrics, all written together by their owner.
+
+    A findings family (Misconfigurations, Vulnerabilities): open findings by severity
+    (zero-filled, so its "critical" row marks every day the family was counted), opened /
+    reopened / resolved that day (a flow, zero-filled), open findings by first-seen day, and the
+    screen's own breakdowns, each "<value>|<severity>" unless its name says otherwise
+    (vulnerabilities.suppressed_by_severity by severity; <family>.resources, distinct resources
+    by a fixed key). A family without severities (the inventory's assets) names its own marker,
+    a row written every time it is counted, and its own event kinds."""
 
     prefix: str
     breakdowns: tuple[str, ...]
+    # Findings families count open findings by severity and by first-seen day.
+    by_severity: bool = True
+    # (metric name, dimension) of the row written every time the family is counted.
+    marker_row: tuple[str, str] = ("open_by_severity", "critical")
+    event_kinds: tuple[str, ...] = EVENT_KINDS
 
     def metric(self, name: str) -> str:
         return f"{self.prefix}.{name}"
@@ -57,15 +66,14 @@ class Family:
 
     @property
     def marker(self) -> tuple[str, str]:
-        return (self.open_by_severity, "critical")
+        return (self.metric(self.marker_row[0]), self.marker_row[1])
 
     @property
     def state_metrics(self) -> tuple[str, ...]:
-        return (
-            self.open_by_severity,
-            *(self.metric(b) for b in self.breakdowns),
-            self.open_by_first_seen,
-        )
+        breakdowns = tuple(self.metric(b) for b in self.breakdowns)
+        if not self.by_severity:
+            return breakdowns
+        return (self.open_by_severity, *breakdowns, self.open_by_first_seen)
 
     @property
     def metrics(self) -> list[str]:
@@ -74,14 +82,23 @@ class Family:
     def zero(self) -> dict[tuple[str, str], float]:
         """The rows written every time, at 0: a day with them is a day the family was counted,
         so the weekly flow tells a week without changes (0) from the weeks before any count."""
-        values = {(self.open_by_severity, s): 0.0 for s in SEVERITIES}
-        return values | {(self.events, e): 0.0 for e in EVENT_KINDS}
+        values = {(self.events, e): 0.0 for e in self.event_kinds}
+        if self.by_severity:
+            values |= {(self.open_by_severity, s): 0.0 for s in SEVERITIES}
+        return values
 
 
 # Investigate → Misconfigurations: open, status FAIL, not muted, Prowler and CloudFox.
 MISCONFIGURATIONS = Family(
     "misconfigurations",
-    ("open_by_tool", "open_by_category", "open_by_service", "open_by_region", "reach"),
+    (
+        "open_by_tool",
+        "open_by_category",
+        "open_by_service",
+        "open_by_region",
+        "reach",
+        "resources",
+    ),
 )
 OPEN_BY_TOOL = MISCONFIGURATIONS.metric("open_by_tool")
 OPEN_BY_CATEGORY = MISCONFIGURATIONS.metric("open_by_category")
@@ -100,6 +117,7 @@ VULNERABILITIES = Family(
         "open_by_region",
         "open_by_fix",
         "open_exploitable_by_fix",
+        "resources",
     ),
 )
 SUPPRESSED_BY_SEVERITY = VULNERABILITIES.metric("suppressed_by_severity")  # dimension: severity
@@ -110,6 +128,30 @@ VULNERABILITIES_BY_REGION = VULNERABILITIES.metric("open_by_region")
 OPEN_BY_FIX = VULNERABILITIES.metric("open_by_fix")
 OPEN_EXPLOITABLE_BY_FIX = VULNERABILITIES.metric("open_exploitable_by_fix")
 FIXES = ("available", "none", "unknown")
+
+# The Resources summary's risk tiles (2026-11-06): distinct assets of the current inventory (an
+# asset type, not removed) with an open misconfiguration of critical or high severity, with one
+# whose reach is confirmed, and with an open CVE that has a public exploit. The same sets as the
+# Resources list's filters `assets=1` and misconfigurations=high, internet=1 and
+# vulnerabilities=exploitable. Written with their family, every time it is counted, zeros
+# included.
+MISCONFIGURED_RESOURCES = MISCONFIGURATIONS.metric("resources")  # critical_high, reachable
+VULNERABLE_RESOURCES = VULNERABILITIES.metric("resources")  # exploitable
+
+# Investigate → Resources: the inventory, written by inventory after each Steampipe load. Assets
+# only (inventory.is_asset). The total is the marker: written on every load, 0 included. Events:
+# assets first seen (added) and removed that day, and baseline 1 on a connection's first load,
+# whose resources are its starting inventory, not additions (owner, 2026-11-06).
+ASSETS = Family(
+    "assets",
+    ("total", "by_type", "by_region"),
+    by_severity=False,
+    marker_row=("total", ""),
+    event_kinds=("added", "removed", "baseline"),
+)
+ASSETS_TOTAL = ASSETS.metric("total")
+ASSETS_BY_TYPE = ASSETS.metric("by_type")  # dimension: the type
+ASSETS_BY_REGION = ASSETS.metric("by_region")  # dimension: the region
 
 TOP = 10  # items per breakdown; the rest are counted in `more`
 WEEKS = 12
@@ -176,10 +218,10 @@ def _latest_day(
     day: date | None = conn.execute(
         text("""
             SELECT max(snapshot_date) FROM metric_daily
-            WHERE connection_id = :c AND metric = :m AND dimension = 'critical'
+            WHERE connection_id = :c AND metric = :m AND dimension = :md
               AND snapshot_date BETWEEN :s AND :e
         """),
-        {"c": connection_id, "m": family.open_by_severity, "s": start, "e": end},
+        {"c": connection_id, "m": family.marker[0], "md": family.marker[1], "s": start, "e": end},
     ).scalar_one()
     return day
 
@@ -192,9 +234,9 @@ def latest_counted_day(conn: Connection, family: Family, connection_id: int) -> 
     day: date | None = conn.execute(
         text("""
             SELECT max(snapshot_date) FROM metric_daily
-            WHERE connection_id = :c AND metric = :m AND dimension = 'critical'
+            WHERE connection_id = :c AND metric = :m AND dimension = :md
         """),
-        {"c": connection_id, "m": family.open_by_severity},
+        {"c": connection_id, "m": family.marker[0], "md": family.marker[1]},
     ).scalar_one()
     return day
 
@@ -215,13 +257,16 @@ def _day_rows(
     return out
 
 
-def _by_account(conn: Connection, family: Family, start: date, end: date) -> dict[str, Any]:
-    """Each enabled connection's open findings by severity, on its latest day in the window."""
+def _account_rows(
+    conn: Connection, family: Family, metric: str, start: date, end: date
+) -> list[tuple[int, str, str, str, float]]:
+    """(connection id, name, provider, dimension, value) of one of the family's metrics for each
+    enabled connection, on its latest counted day in the window (found by the marker)."""
     rows = conn.execute(
         text(f"""
             WITH latest AS (
               SELECT connection_id, max(snapshot_date) AS day FROM metric_daily
-              WHERE metric = :m AND dimension = 'critical' AND connection_id > 0
+              WHERE metric = :mm AND dimension = :md AND connection_id > 0
                 AND snapshot_date BETWEEN :s AND :e
               GROUP BY connection_id
             )
@@ -232,10 +277,17 @@ def _by_account(conn: Connection, family: Family, start: date, end: date) -> dic
             JOIN ({connections.DIRECTORY_SQL}) c ON c.id = l.connection_id AND c.enabled
             WHERE md.snapshot_date BETWEEN :s AND :e
         """),  # noqa: S608 - an exported SQL constant only
-        {"m": family.open_by_severity, "s": start, "e": end},
+        {"mm": family.marker[0], "md": family.marker[1], "m": metric, "s": start, "e": end},
     )
+    return [(cid, name, provider, dim, float(value)) for cid, name, provider, dim, value in rows]
+
+
+def _by_account(conn: Connection, family: Family, start: date, end: date) -> dict[str, Any]:
+    """Each enabled connection's open findings by severity, on its latest day in the window."""
     accounts: dict[int, dict[str, Any]] = {}
-    for cid, name, provider, severity, value in rows:
+    for cid, name, provider, severity, value in _account_rows(
+        conn, family, family.open_by_severity, start, end
+    ):
         account = accounts.setdefault(
             cid, {"connection_id": cid, "name": name, "provider": provider, "s": _counts()}
         )
@@ -287,8 +339,9 @@ def _ages(dims: dict[str, float], today: date) -> list[dict[str, Any]]:
 
 
 def _flow(conn: Connection, family: Family, connection_id: int, today: date) -> dict[str, Any]:
-    """Opened, reopened and resolved per ISO week, the last WEEKS weeks, and over the last
-    RECENT_DAYS days. A week before the first counted day is None (no history), a later week
+    """The family's events (opened, reopened and resolved; for assets, added, removed and
+    baseline) per ISO week, the last WEEKS weeks, and over the last RECENT_DAYS days.
+    A week before the first counted day is None (no history), a later week
     without a run is 0 (nothing can open or resolve without one)."""
     monday = today - timedelta(days=today.weekday())
     start = monday - timedelta(weeks=WEEKS - 1)
@@ -316,8 +369,10 @@ def _flow(conn: Connection, family: Family, connection_id: int, today: date) -> 
     ).scalar_one()
     first = date.min if earlier else min(by_day, default=None)
 
+    kinds = family.event_kinds
+
     def total(days: list[date]) -> dict[str, int]:
-        return {k: int(sum(by_day.get(d, {}).get(k, 0) for d in days)) for k in EVENT_KINDS}
+        return {k: int(sum(by_day.get(d, {}).get(k, 0) for d in days)) for k in kinds}
 
     weeks = []
     for i in range(WEEKS):
@@ -328,7 +383,7 @@ def _flow(conn: Connection, family: Family, connection_id: int, today: date) -> 
             {
                 "week": week,
                 "partial": week == monday,
-                **(total(days) if known else dict.fromkeys(EVENT_KINDS)),
+                **(total(days) if known else dict.fromkeys(kinds)),
             }
         )
     recent = [today - timedelta(days=n) for n in range(RECENT_DAYS)]
@@ -370,6 +425,8 @@ def _read(conn: Connection, family: Family, connection_id: int, today: date) -> 
     if day is None:
         return _Read(None, {}, flow, None, None)
     rows = _day_rows(conn, family, connection_id, day)
+    if not family.by_severity:  # no severity split and no age (the assets)
+        return _Read(day, rows, flow, None, None)
     return _Read(
         day,
         rows,
@@ -451,5 +508,103 @@ def vulnerability_summary(
         "by_region": _breakdown(rows.get(VULNERABILITIES_BY_REGION, {})),
         "by_age": read.by_age,
         "by_fix": _fixed(_items(rows.get(OPEN_BY_FIX, {})), FIXES),
+        **read.flow,
+    }
+
+
+def _at_risk(
+    conn: Connection,
+    family: Family,
+    metric: str,
+    keys: tuple[str, ...],
+    connection_id: int,
+    today: date,
+) -> dict[str, dict[str, Any] | None]:
+    """The family's distinct-resource counts on its latest counted day, each with that day; None
+    while the family was never counted (no scan by its tools yet). A counted day without the row
+    is 0: the rows are written every time, zeros included, but a count from before they existed
+    has none."""
+    day = _latest_day(conn, family, connection_id, today - timedelta(days=HISTORY_DAYS), today)
+    if day is None:
+        return dict.fromkeys(keys)
+    rows = conn.execute(
+        text("""
+            SELECT dimension, value FROM metric_daily
+            WHERE snapshot_date = :d AND connection_id = :c AND metric = :m
+        """),
+        {"d": day, "c": connection_id, "m": metric},
+    )
+    counts = {dim: int(value) for dim, value in rows}
+    return {key: {"count": counts.get(key, 0), "as_of": day} for key in keys}
+
+
+def _counted(dims: dict[str, float]) -> list[dict[str, Any]]:
+    """Plain counts, largest first, then by name."""
+    return [
+        {"value": value, "total": int(n)}
+        for value, n in sorted(dims.items(), key=lambda kv: (-kv[1], kv[0]))
+        if n
+    ]
+
+
+def resource_summary(
+    conn: Connection, *, connection_id: int = ALL_CONNECTIONS, today: date
+) -> dict[str, Any]:
+    """The Resources Summary tab for all connections (0) or one: the inventory's assets as of
+    each account's latest Steampipe load, however old, and the risk tiles as of each account's
+    latest count by the findings tools."""
+    read = _read(conn, ASSETS, connection_id, today)
+    at_risk = {
+        **_at_risk(
+            conn,
+            MISCONFIGURATIONS,
+            MISCONFIGURED_RESOURCES,
+            ("critical_high", "reachable"),
+            connection_id,
+            today,
+        ),
+        **_at_risk(
+            conn, VULNERABILITIES, VULNERABLE_RESOURCES, ("exploitable",), connection_id, today
+        ),
+    }
+    if read.day is None:
+        return {
+            "data_through": None,
+            "assets": None,
+            "at_risk": at_risk,
+            "by_type": None,
+            "by_account": None,
+            "by_region": None,
+            **read.flow,
+        }
+    rows = read.rows
+    regions = _counted(rows.get(ASSETS_BY_REGION, {}))
+    accounts = None
+    if connection_id == ALL_CONNECTIONS:
+        start = today - timedelta(days=HISTORY_DAYS)
+        listed: list[dict[str, Any]] = sorted(
+            (
+                {"connection_id": cid, "name": name, "provider": provider, "total": int(value)}
+                for cid, name, provider, _dim, value in _account_rows(
+                    conn, ASSETS, ASSETS_TOTAL, start, today
+                )
+            ),
+            key=lambda a: (-int(a["total"]), str(a["name"]), int(a["connection_id"])),
+        )
+        accounts = {"items": listed[:TOP], "more": max(0, len(listed) - TOP), "count": len(listed)}
+    return {
+        "data_through": read.day,
+        "assets": {
+            "total": int(rows.get(ASSETS_TOTAL, {}).get("", 0)),
+            "accounts": accounts["count"] if accounts else 1,
+            "regions": len(regions),
+        },
+        "at_risk": at_risk,
+        "by_type": [
+            {"type": item["value"], "count": item["total"]}
+            for item in _counted(rows.get(ASSETS_BY_TYPE, {}))
+        ],
+        "by_account": accounts and {"items": accounts["items"], "more": accounts["more"]},
+        "by_region": {"items": regions[:TOP], "more": max(0, len(regions) - TOP)},
         **read.flow,
     }

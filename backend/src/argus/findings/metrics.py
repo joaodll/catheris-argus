@@ -13,7 +13,13 @@ from sqlalchemy import Connection, text
 
 from argus import metrics
 from argus.findings.lifecycle import CHECK_METRICS
-from argus.findings.model import SEVERITIES, VULNERABILITY_TOOL
+from argus.findings.model import (
+    MISCONFIGURATION_TOOLS,
+    OPEN_MISCONFIGURATION,
+    SEVERITIES,
+    VULNERABILITY_TOOL,
+)
+from argus.inventory import CURRENT_ASSETS_SQL
 from argus.metrics import summary
 
 THREATSCORE_FRAMEWORK = "prowler_threatscore_aws"
@@ -144,7 +150,6 @@ def put_findings_metrics(conn: Connection, *, connection_id: int, day: date) -> 
 # changes nothing there, needs nothing carried forward. The Overview keeps findings.* (Prowler
 # only, from the day's snapshot). The names and the "<value>|<severity>" dimensions are defined
 # once by their reader, metrics.summary.
-MISCONFIGURATION_TOOLS = ("prowler", "cloudfox")
 MISCONFIGURATION_METRICS = summary.MISCONFIGURATIONS.metrics
 VULNERABILITY_METRICS = summary.VULNERABILITIES.metrics
 
@@ -160,7 +165,7 @@ def _events(
             WHERE e.occurred_on = :d AND f.connection_id = :c AND {where}
               AND e.event = ANY(CAST(:kinds AS text[]))
             GROUP BY e.event"""),  # noqa: S608 - fixed fragments only
-        {**params, "kinds": list(summary.EVENT_KINDS)},
+        {**params, "kinds": list(family.event_kinds)},
     )
     return {(family.events, event): float(n) for event, n in rows}
 
@@ -175,14 +180,13 @@ def _misconfiguration_values(
         values[(metric, dimension)] = values.get((metric, dimension), 0) + n
 
     for severity, tool, service, region, categories, first_seen, reach, n in conn.execute(
-        text("""
+        text(f"""
             SELECT f.severity, f.tool, coalesce(f.service, ''), f.region, f.categories,
                    f.first_seen, f.reach, count(*)
             FROM finding f
-            WHERE f.connection_id = :c AND f.tool = ANY(CAST(:tools AS text[]))
-              AND f.state IN ('open', 'reopened') AND f.status = 'FAIL' AND NOT f.muted
-            GROUP BY 1, 2, 3, 4, 5, 6, 7"""),
-        {"c": connection_id, "tools": list(MISCONFIGURATION_TOOLS)},
+            WHERE f.connection_id = :c AND {OPEN_MISCONFIGURATION}
+            GROUP BY 1, 2, 3, 4, 5, 6, 7"""),  # noqa: S608 - a constant only
+        {"c": connection_id},
     ):
         add(summary.MISCONFIGURATIONS.open_by_severity, severity, n)
         add(summary.OPEN_BY_TOOL, dim(tool, severity), n)
@@ -194,6 +198,19 @@ def _misconfiguration_values(
             add(summary.OPEN_BY_CATEGORY, dim(category, severity), n)
         if reach is not None:
             add(summary.REACH, dim(reach, severity), n)
+    # The Resources summary's tiles: distinct current assets (the Resources list's
+    # misconfigurations=high and internet=1, with assets=1).
+    critical_high, reachable = conn.execute(
+        text(f"""
+            SELECT count(DISTINCT f.resource_id) FILTER (WHERE f.severity IN ('critical', 'high')),
+                   count(DISTINCT f.resource_id) FILTER (WHERE f.reach = 'confirmed')
+            FROM finding f
+            WHERE f.connection_id = :c AND {OPEN_MISCONFIGURATION}
+              AND f.resource_id IN ({CURRENT_ASSETS_SQL})"""),  # noqa: S608 - constants only
+        {"c": connection_id},
+    ).one()
+    values[(summary.MISCONFIGURED_RESOURCES, "critical_high")] = critical_high
+    values[(summary.MISCONFIGURED_RESOURCES, "reachable")] = reachable
     values |= _events(
         conn,
         summary.MISCONFIGURATIONS,
@@ -236,6 +253,17 @@ def _vulnerability_values(
         add(summary.OPEN_BY_FIX, dim(fix, severity), n)
         if exploit:
             add(summary.OPEN_EXPLOITABLE_BY_FIX, dim(fix, severity), n)
+    # The Resources summary's tile: distinct current assets with an open CVE that has a public
+    # exploit (the Resources list's vulnerabilities=exploitable, with assets=1).
+    values[(summary.VULNERABLE_RESOURCES, "exploitable")] = conn.execute(
+        text(f"""
+            SELECT count(DISTINCT f.resource_id)
+            FROM finding f JOIN finding_vulnerability v ON v.finding_id = f.id
+            WHERE f.connection_id = :c AND f.tool = '{VULNERABILITY_TOOL}'
+              AND f.state IN ('open', 'reopened') AND NOT f.muted AND v.exploit_available
+              AND f.resource_id IN ({CURRENT_ASSETS_SQL})"""),  # noqa: S608 - constants only
+        {"c": connection_id},
+    ).scalar_one()
     values |= _events(
         conn,
         summary.VULNERABILITIES,
@@ -277,7 +305,7 @@ def _put_family(
         replace=list(family.state_metrics),
     )
     carried = metrics.carried_days(
-        conn, after=state_day, metrics=[family.open_by_severity], connection_id=connection_id
+        conn, after=state_day, metrics=[family.marker[0]], connection_id=connection_id
     )
     for rolled in sorted({day, state_day, *carried}):
         # The marker is zero-filled (Family.zero), so it is written every time.
@@ -299,7 +327,9 @@ def put_misconfiguration_metrics(conn: Connection, *, connection_id: int, day: d
 
 def put_vulnerability_metrics(conn: Connection, *, connection_id: int, day: date) -> None:
     """The Vulnerabilities summary's numbers for one connection after a vulnerabilities run,
-    then all connections. Vulnerabilities have no reach, so no other run changes them."""
+    then all connections; and after a Steampipe run, which can remove the assets the Resources
+    summary's exploitable count holds (ADR-0042 amended 2026-11-06). Vulnerabilities have no
+    reach, so no other run changes them."""
     _put_family(
         conn,
         summary.VULNERABILITIES,

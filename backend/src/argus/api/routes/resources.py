@@ -7,9 +7,10 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from argus import findings, ingest, inventory, relationships
+from argus import findings, ingest, inventory, metrics, relationships
 from argus.api.deps import Db, Viewer
 from argus.api.routes.findings import CommandOut, VulnerabilityOut
+from argus.api.types import Provider
 from argus.core.db import SEARCH_COUNT_CAP
 
 router = APIRouter(tags=["inventory"])
@@ -137,19 +138,54 @@ class ResourceDetail(ResourceOut):
     vulnerabilities: VulnerabilitySection | None
 
 
+Facet = Annotated[str, Field(min_length=1, max_length=128)]
+
+
+def _many(n: int = 50) -> Any:
+    return Field(default_factory=list, max_length=n)
+
+
 class ResourceQuery(BaseModel):
-    """The Resources list's query parameters."""
+    """The Resources list's query parameters. A list parameter repeats (`type=a&type=b`) and
+    matches any of its values; absent, it does not filter."""
 
     limit: int = Field(20, ge=1, le=200)
     offset: int = Field(0, ge=0)
-    connection_id: int | None = None
-    type: str | None = Field(None, max_length=128)
-    region: str | None = Field(None, max_length=64)
+    connection_id: list[int] = _many()
+    # Up to 200: a Resources summary's service links with every type of that service.
+    type: list[Facet] = _many(200)
+    region: list[Facet] = _many()
     q: str | None = Field(None, max_length=200)
     include_deleted: bool = False
+    # Only the types the Overview counts as assets (parts, settings and links left out).
+    assets: bool = False
+    # First seen, or removed (deleted), on or after / on or before these days, both inclusive.
+    # A removed bound lists removed resources only.
+    first_seen_from: date | None = None
+    first_seen_to: date | None = None
+    deleted_from: date | None = None
+    deleted_to: date | None = None
     order: inventory.ResourceOrder = "name_asc"
     # Only resources with open CVEs: any, critical or high, or with a public exploit.
     vulnerabilities: findings.VulnerabilityLevel | None = None
+    # Only resources with open misconfigurations (open, FAIL, not muted): any, or critical or
+    # high.
+    misconfigurations: findings.MisconfigurationLevel | None = None
+    # Only resources with an open misconfiguration that Argus's rules confirm is reachable from
+    # the internet.
+    internet: bool = False
+
+
+def _within(query: ResourceQuery) -> tuple[str, ...]:
+    """The other modules' exported resource sets these filters keep, all of them applied."""
+    within: list[str] = []
+    if query.vulnerabilities:
+        within.append(findings.VULNERABLE_RESOURCES_SQL[query.vulnerabilities])
+    if query.misconfigurations:
+        within.append(findings.MISCONFIGURED_RESOURCES_SQL[query.misconfigurations])
+    if query.internet:
+        within.append(findings.INTERNET_REACHABLE_RESOURCES_SQL)
+    return tuple(within)
 
 
 @router.get("/resources")
@@ -162,16 +198,17 @@ def list_resources(
         limit=query.limit,
         offset=query.offset,
         filters=inventory.ResourceFilters(
-            connection_id=query.connection_id,
-            resource_type=query.type,
-            region=query.region,
+            connection_ids=tuple(query.connection_id),
+            resource_types=tuple(query.type),
+            regions=tuple(query.region),
             q=q,
             include_deleted=query.include_deleted,
-            within=(
-                findings.VULNERABLE_RESOURCES_SQL[query.vulnerabilities]
-                if query.vulnerabilities
-                else None
-            ),
+            assets=query.assets,
+            first_seen_from=query.first_seen_from,
+            first_seen_to=query.first_seen_to,
+            deleted_from=query.deleted_from,
+            deleted_to=query.deleted_to,
+            within=_within(query),
         ),
         order=query.order,
     )
@@ -195,7 +232,7 @@ def list_resources(
         total=SEARCH_COUNT_CAP if capped else total,
         total_capped=capped,
         data_through=ingest.data_through(
-            conn, connection_id=query.connection_id, tools=["steampipe"]
+            conn, connection_ids=query.connection_id, tools=["steampipe"]
         ),
     )
 
@@ -250,11 +287,118 @@ def _vulnerability_section(conn: Db, found: dict[str, Any]) -> VulnerabilitySect
     )
 
 
+class ResourcesSummaryAssets(BaseModel):
+    """The inventory's assets (the list filter `assets=1`): the types the Overview counts."""
+
+    total: int
+    accounts: int  # enabled accounts with an inventory (1 for one connection)
+    regions: int  # regions with assets
+
+
+class AtRiskCount(BaseModel):
+    count: int  # distinct current assets
+    as_of: date  # the day of the latest count by the tools behind it
+
+
+class ResourcesSummaryAtRisk(BaseModel):
+    """Distinct current assets at risk, each as of its tools' latest count. Null: no scan by
+    those tools yet (Prowler or CloudFox; the vulnerabilities tool), never 0."""
+
+    critical_high: AtRiskCount | None  # `misconfigurations=high`
+    reachable: AtRiskCount | None  # `internet=1`
+    exploitable: AtRiskCount | None  # `vulnerabilities=exploitable`
+
+
+class AssetTypeCount(BaseModel):
+    type: str
+    count: int
+
+
+class CountItem(BaseModel):
+    value: str
+    total: int
+
+
+class CountBreakdown(BaseModel):
+    items: list[CountItem]  # the 10 largest
+    more: int  # how many more values have assets
+
+
+class AccountCount(BaseModel):
+    connection_id: int
+    name: str
+    provider: Provider
+    total: int
+
+
+class AccountCounts(BaseModel):
+    items: list[AccountCount]  # the 10 largest
+    more: int
+
+
+class InventoryWeek(BaseModel):
+    """One ISO week (`week` is its Monday). Null counts: before the inventory was first counted.
+    `baseline`: how many accounts had their first scan that week; their resources are their
+    starting inventory, not counted as added."""
+
+    week: date
+    partial: bool  # the current week, so far
+    added: int | None
+    removed: int | None
+    baseline: int | None
+
+
+class InventoryRecent(BaseModel):
+    added: int
+    removed: int
+    baseline: int
+
+
+class ResourcesSummary(BaseModel):
+    """Investigate → Resources → Summary, from stored counts only. Each account counts as of its
+    latest Steampipe load, however old; disabled accounts are left out, as on the Overview.
+    Null: no Steampipe scan yet, never 0."""
+
+    data_through: date | None
+    assets: ResourcesSummaryAssets | None
+    at_risk: ResourcesSummaryAtRisk
+    by_type: list[AssetTypeCount] | None  # every type, largest first
+    by_account: AccountCounts | None  # all connections only
+    by_region: CountBreakdown | None
+    weeks: list[InventoryWeek]  # assets added and removed per week, the last 12 weeks
+    last_30_days: InventoryRecent | None
+
+
+@router.get("/resources/summary")
+def resource_summary(
+    conn: Db,
+    _user: Viewer,
+    connection_id: Annotated[int, Query(ge=0)] = 0,
+) -> ResourcesSummary:
+    """The Resources summary for all connections (0) or one: stored counts written by ingest,
+    so it never counts resources or findings at request time."""
+    data = metrics.resource_summary(
+        conn, connection_id=connection_id, today=datetime.now(UTC).date()
+    )
+    if data["assets"] is not None:
+        # The day the List tab shows too: the newest ingested Steampipe run. A failed run
+        # carries the counts forward onto its day (for the Overview) but scanned nothing.
+        data["data_through"] = ingest.data_through(
+            conn, connection_id=connection_id or None, tools=["steampipe"]
+        )
+    return ResourcesSummary.model_validate(data)
+
+
 @router.get("/resources/facets")
-def resource_facets(conn: Db, _user: Viewer, connection_id: int | None = None) -> ResourceFacets:
-    """The options of the Resources filters that come from the data."""
+def resource_facets(
+    conn: Db,
+    _user: Viewer,
+    connection_id: Annotated[list[int], Query(max_length=50)] = [],  # noqa: B006 - FastAPI copies
+) -> ResourceFacets:
+    """The options of the Resources filters that come from the data, for these connections (all
+    when none is given)."""
     return ResourceFacets.model_validate(
-        inventory.resource_facets(conn, connection_id=connection_id)
+        inventory.resource_facets(conn, connection_ids=tuple(connection_id))
     )
 
 

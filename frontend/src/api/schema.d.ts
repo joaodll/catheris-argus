@@ -456,9 +456,31 @@ export interface paths {
         };
         /**
          * Resource Facets
-         * @description The options of the Resources filters that come from the data.
+         * @description The options of the Resources filters that come from the data, for these connections (all
+         *     when none is given).
          */
         get: operations["resource_facets_api_v1_resources_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/resources/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resource Summary
+         * @description The Resources summary for all connections (0) or one: stored counts written by ingest,
+         *     so it never counts resources or findings at request time.
+         */
+        get: operations["resource_summary_api_v1_resources_summary_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -882,6 +904,27 @@ export interface components {
             /** Session Token */
             session_token?: string | null;
         };
+        /** AccountCount */
+        AccountCount: {
+            /** Connection Id */
+            connection_id: number;
+            /** Name */
+            name: string;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "aws" | "gcp" | "oci";
+            /** Total */
+            total: number;
+        };
+        /** AccountCounts */
+        AccountCounts: {
+            /** Items */
+            items: components["schemas"]["AccountCount"][];
+            /** More */
+            more: number;
+        };
         /** AccountList */
         AccountList: {
             /** Data Through */
@@ -905,6 +948,23 @@ export interface components {
             months: components["schemas"]["MonthScore"][];
             /** Score */
             score: number | null;
+        };
+        /** AssetTypeCount */
+        AssetTypeCount: {
+            /** Count */
+            count: number;
+            /** Type */
+            type: string;
+        };
+        /** AtRiskCount */
+        AtRiskCount: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /** Count */
+            count: number;
         };
         /** AwsIn */
         AwsIn: {
@@ -1102,6 +1162,20 @@ export interface components {
             providers: {
                 [key: string]: string;
             };
+        };
+        /** CountBreakdown */
+        CountBreakdown: {
+            /** Items */
+            items: components["schemas"]["CountItem"][];
+            /** More */
+            more: number;
+        };
+        /** CountItem */
+        CountItem: {
+            /** Total */
+            total: number;
+            /** Value */
+            value: string;
         };
         /**
          * CoverageOut
@@ -1492,6 +1566,36 @@ export interface components {
             /** By Type */
             by_type: components["schemas"]["TypeCount"][];
         };
+        /** InventoryRecent */
+        InventoryRecent: {
+            /** Added */
+            added: number;
+            /** Baseline */
+            baseline: number;
+            /** Removed */
+            removed: number;
+        };
+        /**
+         * InventoryWeek
+         * @description One ISO week (`week` is its Monday). Null counts: before the inventory was first counted.
+         *     `baseline`: how many accounts had their first scan that week; their resources are their
+         *     starting inventory, not counted as added.
+         */
+        InventoryWeek: {
+            /** Added */
+            added: number | null;
+            /** Baseline */
+            baseline: number | null;
+            /** Partial */
+            partial: boolean;
+            /** Removed */
+            removed: number | null;
+            /**
+             * Week
+             * Format: date
+             */
+            week: string;
+        };
         /** Kpi */
         Kpi: {
             /** Value */
@@ -1830,6 +1934,47 @@ export interface components {
             vulnerabilities: components["schemas"]["VulnerabilitySummary"] | null;
             /** Worst Severity */
             worst_severity: string | null;
+        };
+        /**
+         * ResourcesSummary
+         * @description Investigate → Resources → Summary, from stored counts only. Each account counts as of its
+         *     latest Steampipe load, however old; disabled accounts are left out, as on the Overview.
+         *     Null: no Steampipe scan yet, never 0.
+         */
+        ResourcesSummary: {
+            assets: components["schemas"]["ResourcesSummaryAssets"] | null;
+            at_risk: components["schemas"]["ResourcesSummaryAtRisk"];
+            by_account: components["schemas"]["AccountCounts"] | null;
+            by_region: components["schemas"]["CountBreakdown"] | null;
+            /** By Type */
+            by_type: components["schemas"]["AssetTypeCount"][] | null;
+            /** Data Through */
+            data_through: string | null;
+            last_30_days: components["schemas"]["InventoryRecent"] | null;
+            /** Weeks */
+            weeks: components["schemas"]["InventoryWeek"][];
+        };
+        /**
+         * ResourcesSummaryAssets
+         * @description The inventory's assets (the list filter `assets=1`): the types the Overview counts.
+         */
+        ResourcesSummaryAssets: {
+            /** Accounts */
+            accounts: number;
+            /** Regions */
+            regions: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * ResourcesSummaryAtRisk
+         * @description Distinct current assets at risk, each as of its tools' latest count. Null: no scan by
+         *     those tools yet (Prowler or CloudFox; the vulnerabilities tool), never 0.
+         */
+        ResourcesSummaryAtRisk: {
+            critical_high: components["schemas"]["AtRiskCount"] | null;
+            exploitable: components["schemas"]["AtRiskCount"] | null;
+            reachable: components["schemas"]["AtRiskCount"] | null;
         };
         /** RetentionSettings */
         RetentionSettings: {
@@ -3442,13 +3587,20 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
-                connection_id?: number | null;
-                type?: string | null;
-                region?: string | null;
+                connection_id?: number[];
+                type?: string[];
+                region?: string[];
                 q?: string | null;
                 include_deleted?: boolean;
+                assets?: boolean;
+                first_seen_from?: string | null;
+                first_seen_to?: string | null;
+                deleted_from?: string | null;
+                deleted_to?: string | null;
                 order?: "name_asc" | "name_desc" | "last_seen_desc" | "last_seen_asc";
                 vulnerabilities?: ("any" | "high" | "exploitable") | null;
+                misconfigurations?: ("any" | "high") | null;
+                internet?: boolean;
             };
             header?: {
                 "X-Argus-CSRF"?: string | null;
@@ -3484,7 +3636,7 @@ export interface operations {
     resource_facets_api_v1_resources_facets_get: {
         parameters: {
             query?: {
-                connection_id?: number | null;
+                connection_id?: number[];
             };
             header?: {
                 "X-Argus-CSRF"?: string | null;
@@ -3504,6 +3656,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResourceFacets"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resource_summary_api_v1_resources_summary_get: {
+        parameters: {
+            query?: {
+                connection_id?: number;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResourcesSummary"];
                 };
             };
             /** @description Validation Error */

@@ -32,6 +32,14 @@ RESOURCES_IN_REGIONS_SQL = """
 """
 
 
+# The ids of one connection's current assets, :c: an asset type (resource.asset, migration
+# 0045) and not removed. The Resources summary's risk counts, as the Resources list keeps them
+# with `assets=1` (deleted resources left out).
+CURRENT_ASSETS_SQL = """
+  SELECT id FROM resource WHERE connection_id = :c AND asset AND deleted_on IS NULL
+"""
+
+
 def resource_id_sql(param: str) -> str:
     """A scalar subquery: the id of the resource whose uid is bound to :param, or NULL."""
     # The parameter name is code, never input.
@@ -90,26 +98,60 @@ _ORDERS: dict[str, str] = {
 # The searched text, exactly as the trigram index resource_search is defined (migration 0008).
 _SEARCH = r"(coalesce(r.name, '') || E'\n' || r.native_id || E'\n' || r.resource_uid)"
 _FILTERS = f"""
-  WHERE (CAST(:c AS bigint) IS NULL OR r.connection_id = :c)
-    AND (CAST(:t AS text) IS NULL OR r.type = :t)
-    AND (CAST(:rg AS text) IS NULL OR r.region = :rg)
+  WHERE (CAST(:c AS bigint[]) IS NULL OR r.connection_id = ANY(CAST(:c AS bigint[])))
+    AND (CAST(:t AS text[]) IS NULL OR r.type = ANY(CAST(:t AS text[])))
+    AND (CAST(:rg AS text[]) IS NULL OR r.region = ANY(CAST(:rg AS text[])))
+    AND (NOT CAST(:assets AS boolean) OR r.asset)
     AND (CAST(:deleted AS boolean) OR r.deleted_on IS NULL)
+    AND (CAST(:fs_from AS date) IS NULL OR r.first_seen >= CAST(:fs_from AS date))
+    AND (CAST(:fs_to AS date) IS NULL OR r.first_seen <= CAST(:fs_to AS date))
+    AND (CAST(:del_from AS date) IS NULL OR r.deleted_on >= CAST(:del_from AS date))
+    AND (CAST(:del_to AS date) IS NULL OR r.deleted_on <= CAST(:del_to AS date))
     AND (CAST(:p AS text) IS NULL OR {_SEARCH} ILIKE :p ESCAPE '\\')
 """
 
 
 @dataclass(frozen=True)
 class ResourceFilters:
-    """What the Resources list is narrowed to; None does not filter. Deleted resources are left
-    out unless asked for. `within`: parameter-free SQL exported by another module, selecting
-    the resource ids to keep (the Vulnerabilities filter, findings.VULNERABLE_RESOURCES_SQL)."""
+    """What the Resources list is narrowed to. An empty tuple or None does not filter; a tuple
+    matches any of its values. Deleted resources are left out unless asked for, or unless a
+    removed-on bound is set, which keeps removed resources only. `assets`: only the types the
+    Overview counts as assets (is_asset, stored as resource.asset by migration 0045). `within`:
+    parameter-free SQL exported by another module, each selecting the resource ids to keep, all
+    of them applied (the Vulnerabilities and Misconfigurations filters,
+    findings.VULNERABLE_RESOURCES_SQL and its siblings)."""
 
-    connection_id: int | None = None
-    resource_type: str | None = None
-    region: str | None = None
+    connection_ids: tuple[int, ...] = ()
+    resource_types: tuple[str, ...] = ()
+    regions: tuple[str, ...] = ()
     q: str | None = None
     include_deleted: bool = False
-    within: str | None = None
+    assets: bool = False
+    first_seen_from: date | None = None
+    first_seen_to: date | None = None
+    deleted_from: date | None = None
+    deleted_to: date | None = None
+    within: tuple[str, ...] = ()
+
+
+def _any(values: tuple[Any, ...]) -> list[Any] | None:
+    return list(values) if values else None
+
+
+def _params(f: ResourceFilters) -> dict[str, Any]:
+    removed = f.deleted_from is not None or f.deleted_to is not None
+    return {
+        "c": _any(f.connection_ids),
+        "t": _any(f.resource_types),
+        "rg": _any(f.regions),
+        "assets": f.assets,
+        "deleted": f.include_deleted or removed,
+        "fs_from": f.first_seen_from,
+        "fs_to": f.first_seen_to,
+        "del_from": f.deleted_from,
+        "del_to": f.deleted_to,
+        "p": like_contains(f.q) if f.q else None,
+    }
 
 
 def list_resources(
@@ -123,14 +165,8 @@ def list_resources(
     """One page of resources matching the filters, in `order`, and how many match (with a
     search, at most SEARCH_COUNT_CAP + 1)."""
     f = filters
-    where = f"{_FILTERS} AND r.id IN ({f.within})" if f.within else _FILTERS
-    params = {
-        "c": f.connection_id,
-        "t": f.resource_type,
-        "rg": f.region,
-        "deleted": f.include_deleted,
-        "p": like_contains(f.q) if f.q else None,
-    }
+    where = _FILTERS + "".join(f" AND r.id IN ({within})" for within in f.within)
+    params = _params(f)
     rows = conn.execute(
         text(f"""
         SELECT r.id, r.resource_uid, r.connection_id, r.provider, r.region, r.type, r.native_id,
@@ -148,10 +184,13 @@ def list_resources(
     return [dict(r._mapping) for r in rows], int(total)
 
 
-def resource_facets(conn: Connection, *, connection_id: int | None) -> dict[str, list[str]]:
-    """The types and regions in the inventory, for the Type and Region filters."""
-    params = {"c": connection_id}
-    where = "WHERE CAST(:c AS bigint) IS NULL OR connection_id = :c"
+def resource_facets(
+    conn: Connection, *, connection_ids: tuple[int, ...] = ()
+) -> dict[str, list[str]]:
+    """The types and regions in the inventory of these connections (all when empty), for the
+    Type and Region filters."""
+    params = {"c": _any(connection_ids)}
+    where = "WHERE CAST(:c AS bigint[]) IS NULL OR connection_id = ANY(CAST(:c AS bigint[]))"
     types = conn.execute(
         text(f"SELECT DISTINCT type FROM resource {where} ORDER BY type"),  # noqa: S608
         params,

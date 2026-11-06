@@ -426,7 +426,38 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await expect(page).not.toHaveURL(/check=/)
 
   await navLink(page, 'Resources')
-  await expect(page).toHaveURL(/\/investigate\/resources/)
+  await expect(page).toHaveURL(/\/investigate\/resources$/)
+  // Summary | List (owner's decisions 2026-11-06): the inventory, and every number opens the list
+  // that reproduces it, Assets only.
+  const resTabs = page.getByRole('tablist', { name: 'Resources views' })
+  await expect(resTabs.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
+  const resTile = (label: string) => page.locator('.stat-card').filter({ has: page.locator('.stat-label', { hasText: new RegExp(`^${label}$`) }) })
+  await expect(resTile('Assets').locator('.stat-value')).toHaveText(/^[\d,]+$/)
+  await expect(page.getByRole('heading', { level: 2, name: 'By type' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: 'Added and removed, last 12 weeks' })).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'resources summary')
+  await shot(page, '71a-resources-summary')
+  for (const [label, param] of [
+    ['Assets', /assets=1/],
+    ['Critical or high misconfiguration', /misconfigurations=high/],
+  ] as const) {
+    await resTabs.getByRole('tab', { name: 'Summary' }).click()
+    const count = (await resTile(label).locator('.stat-value').innerText()).trim()
+    await resTile(label).getByRole('link', { name: /Show in list$/ }).click()
+    await expect(page).toHaveURL(/tab=list/)
+    await expect(page).toHaveURL(param)
+    await expect(page.locator('.panel-foot .total')).toHaveText(new RegExp(`^${count} records?$`))
+  }
+  // A type in the number panel opens the list of that type.
+  await resTabs.getByRole('tab', { name: 'Summary' }).click()
+  const typeCell = page.locator('.cells a.cell').first()
+  const typeCount = ((await typeCell.locator('.cell-count').innerText()).match(/^[\d,]+/) ?? ['missing'])[0]
+  await typeCell.click()
+  await expect(page).toHaveURL(/type=/)
+  await expect(page.locator('.panel-foot .total')).toHaveText(new RegExp(`^${typeCount} records?$`))
+  // The list steps below start from a fresh list.
+  await page.goto('/investigate/resources?tab=list')
   const resources = page.getByRole('table')
   await expect(resources).toBeVisible()
   await axe(page, 'resources')
@@ -464,10 +495,21 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await axe(page, 'resource sheet commands')
   await shot(page, '73b-resource-sheet-commands')
   await page.keyboard.press('Escape')
+  // The filters live in the URL (2026-11-06): a filter is a history entry, and Back restores
+  // the list before it. Internet reachable keeps the resource facing the internet.
+  await page.goto('/investigate/resources?tab=list')
+  await page.getByRole('button', { name: /^More filters/ }).click()
+  await page.getByLabel('Internet reachable').check()
+  await expect(page).toHaveURL(/internet=1/)
+  await expect(resources.locator('tbody tr', { hasText: 'prod-edge-alb' }).first()).toBeVisible()
+  await axe(page, 'resources reachable from the internet')
+  await page.goBack()
+  await expect(page).not.toHaveURL(/internet=/)
   // CVEs (ADR-0042): the Vulnerabilities filter, then a resource's Vulnerabilities block, which
   // names the provider's scanner (AWS Inspector on the Demo estate).
-  await page.goto('/investigate/resources')
+  await page.goto('/investigate/resources?tab=list')
   await page.getByLabel('Vulnerabilities').selectOption('exploitable')
+  await expect(page).toHaveURL(/vulnerabilities=exploitable/)
   await expect(resources.locator('tbody tr').first().getByText('Exploit')).toBeVisible()
   await axe(page, 'resources with an exploitable CVE')
   await shot(page, '73c-resources-vulnerabilities')
@@ -646,7 +688,8 @@ test('light theme: every screen passes axe, and the toggle cycles', async ({ pag
     ['/investigate/misconfigurations?tab=list', 'Misconfigurations', 'L71-misconfigurations-list'],
     ['/investigate/vulnerabilities', 'Vulnerabilities', 'L74-vulnerabilities-summary'],
     ['/investigate/vulnerabilities?tab=list', 'Vulnerabilities', 'L75-vulnerabilities'],
-    ['/investigate/resources', 'Resources', 'L72-resources'],
+    ['/investigate/resources', 'Resources', 'L71a-resources-summary'],
+    ['/investigate/resources?tab=list', 'Resources', 'L72-resources'],
     ['/scans/schedules', 'Schedules', 'L30-schedules'],
     ['/scans/runs', 'Runs', 'L40-runs'],
     ['/admin/connections', 'Connections', 'L20-connections'],

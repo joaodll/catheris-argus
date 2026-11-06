@@ -57,6 +57,7 @@ from argus.inventory import (
     load_inventory,
     parse_steampipe,
     put_inventory_metrics,
+    rollup_inventory_metrics,
 )
 from argus.inventory.steampipe import UnsupportedVersionError as SteampipeVersionError
 from argus.relationships import internet_reach, load_rules, write_edges
@@ -229,7 +230,10 @@ def _fail(engine: Engine, run: _Run, reason: str | None) -> IngestOutcome:
         metrics.copy_previous(
             conn, day=run.day, connection_id=run.connection_id, metrics=tool_metrics
         )
-        metrics.rollup(conn, day=run.day, metrics=tool_metrics)
+        if run.tool == "steampipe":  # the assets roll up as a family, on their marker
+            rollup_inventory_metrics(conn, day=run.day)
+        else:
+            metrics.rollup(conn, day=run.day, metrics=tool_metrics)
         if run.tool == "prowler":
             rederive_scores(conn, connection_id=run.connection_id, day=run.day)
     return IngestOutcome(run.scan_run_id, "failed", error=reason)
@@ -249,6 +253,10 @@ def _steampipe(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[
     with engine.begin() as conn:
         put_inventory_metrics(conn, connection_id=run.connection_id, day=run.day)
         loaded["reach_checked"] = check_reach(conn, connection_id=run.connection_id, day=run.day)
+        # A removed asset leaves the Resources summary's exploitable count, which the
+        # vulnerabilities family holds (ADR-0042 amended 2026-11-06).
+        if data_through(conn, connection_id=run.connection_id, tools=[VULNERABILITY_TOOL]):
+            put_vulnerability_metrics(conn, connection_id=run.connection_id, day=run.day)
     return loaded
 
 

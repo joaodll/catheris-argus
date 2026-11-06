@@ -5,6 +5,10 @@
  * A list, not a table. The item's name is the one link (a 12 px segment can't be a 24 px
  * target); its accessible name carries all five counts, and the sub-line names critical and high
  * in words, so no severity is told by colour alone. Widths share one scale: the largest item.
+ *
+ * Plain counts (the Resources summary's accounts, regions and services: assets have no
+ * severity) leave `severities` out and give the bars one `series` colour; the name then carries
+ * the count alone.
  */
 import { computed } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
@@ -15,7 +19,7 @@ import { SEVERITIES, SEVERITY_COLOR, SEVERITY_LABEL, SEVERITY_TEXT, type Severit
 export interface SeverityBarItem {
   key: string
   label: string
-  severities: Record<Severity, number>
+  severities?: Record<Severity, number> // absent: a plain count, drawn in the `series` colour
   total: number
   to: RouteLocationRaw | null // null: nothing in the list reproduces it (no category)
   mono?: boolean // an id or slug (a service, a region)
@@ -26,18 +30,31 @@ export interface SeverityBarItem {
 }
 
 // `wrap`: long names (a check's title) take two lines and a wider column instead of an ellipsis.
-const props = defineProps<{ items: SeverityBarItem[]; noun?: string; wrap?: boolean }>()
+const props = defineProps<{ items: SeverityBarItem[]; noun?: string; wrap?: boolean; series?: string }>()
 
 const max = computed(() => Math.max(1, ...props.items.map((i) => i.total)))
 const rows = computed(() =>
   props.items.map((item) => {
-    const shown = SEVERITIES.filter((s) => item.severities[s] > 0)
+    const width = `${(item.total / max.value) * 100}%`
+    const counts = item.severities
+    if (!counts) {
+      return {
+        ...item,
+        width,
+        plain: true,
+        segments: item.total ? [{ severity: 'all', grow: item.total, color: props.series ?? 'var(--text-3)' }] : [],
+        words: [],
+        name: `${item.label}: ${int(item.total)} ${props.noun ?? 'open'}.`,
+      }
+    }
+    const shown = SEVERITIES.filter((s) => counts[s] > 0)
     return {
       ...item,
-      width: `${(item.total / max.value) * 100}%`,
-      segments: shown.map((s) => ({ severity: s, grow: item.severities[s], color: SEVERITY_COLOR[s] })),
-      words: (['critical', 'high'] as Severity[]).filter((s) => item.severities[s] > 0).map((s) => ({ s, text: `${int(item.severities[s])} ${s}` })),
-      name: `${item.label}: ${int(item.total)} ${props.noun ?? 'open'}: ${SEVERITIES.map((s) => `${int(item.severities[s])} ${SEVERITY_LABEL[s].toLowerCase()}`).join(', ')}.`,
+      width,
+      plain: false,
+      segments: shown.map((s) => ({ severity: s, grow: counts[s], color: SEVERITY_COLOR[s] })),
+      words: (['critical', 'high'] as Severity[]).filter((s) => counts[s] > 0).map((s) => ({ s, text: `${int(counts[s])} ${s}` })),
+      name: `${item.label}: ${int(item.total)} ${props.noun ?? 'open'}: ${SEVERITIES.map((s) => `${int(counts[s])} ${SEVERITY_LABEL[s].toLowerCase()}`).join(', ')}.`,
     }
   }),
 )
@@ -57,7 +74,7 @@ const rows = computed(() =>
             {{ r.label }}<span class="sr-only"> — {{ r.name }}</span>
           </span>
         </span>
-        <span class="sub">
+        <span v-if="!r.plain || r.sub" class="sub">
           <template v-if="r.sub">{{ r.sub }}</template>
           <template v-else-if="r.words.length">
             <template v-for="(w, i) in r.words" :key="w.s"><template v-if="i"> · </template><span class="mono" :style="{ color: SEVERITY_TEXT[w.s] }">{{ w.text }}</span></template>

@@ -8,6 +8,15 @@ SEVERITIES = ("critical", "high", "medium", "low", "informational")
 # The provider-neutral vulnerabilities collector (ADR-0042, amended 2026-10-31): its findings
 # are CVEs, counted apart from Prowler's and CloudFox's.
 VULNERABILITY_TOOL = "vulnerabilities"
+# The tools whose findings are misconfigurations.
+MISCONFIGURATION_TOOLS = ("prowler", "cloudfox")
+# One definition of an open misconfiguration, on `finding f` (owner's decision 2026-11-05):
+# open or reopened, status FAIL, not muted, Prowler or CloudFox. The Investigate summaries, the
+# Resources list's Misconfigurations column and its Misconfigurations filter all count this.
+OPEN_MISCONFIGURATION = (
+    "f.tool IN ('prowler', 'cloudfox') AND f.state IN ('open', 'reopened') "
+    "AND f.status = 'FAIL' AND NOT f.muted"
+)
 
 
 @dataclass(frozen=True)

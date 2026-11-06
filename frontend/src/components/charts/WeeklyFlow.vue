@@ -16,42 +16,64 @@ import { int, shortDate } from '@/format'
 export interface FlowWeek {
   week: string // its Monday, YYYY-MM-DD
   partial: boolean
-  opened: number | null
-  reopened: number | null
-  resolved: number | null
+  // Findings: opened (reopened stacked on it) above zero, resolved below.
+  opened?: number | null
+  reopened?: number | null
+  resolved?: number | null
+  // Assets (the Resources summary): added above zero, removed below, and how many accounts had
+  // their first scan that week (their resources are their starting inventory, not added).
+  added?: number | null
+  removed?: number | null
+  baseline?: number | null
 }
 
-const props = defineProps<{ weeks: FlowWeek[]; noun: string }>()
+const props = withDefaults(defineProps<{ weeks: FlowWeek[]; noun: string; kind?: 'findings' | 'assets' }>(), { kind: 'findings' })
 
 const PLOT = 200
 const hovered = ref<number | null>(null)
+const assets = computed(() => props.kind === 'assets')
 
-const known = computed(() => props.weeks.filter((w) => w.opened != null))
+/** The kind's three numbers of a week: rising, stacked on the rising one, falling. */
+function parts(w: FlowWeek): { up: number | null; stack: number | null; down: number | null } {
+  return assets.value ? { up: w.added ?? null, stack: null, down: w.removed ?? null } : { up: w.opened ?? null, stack: w.reopened ?? null, down: w.resolved ?? null }
+}
+
+const known = computed(() => props.weeks.map(parts).filter((p) => p.up != null))
 const scale = computed(() => {
-  const up = Math.max(0, ...known.value.map((w) => (w.opened ?? 0) + (w.reopened ?? 0)))
-  const down = Math.max(0, ...known.value.map((w) => w.resolved ?? 0))
+  const up = Math.max(0, ...known.value.map((p) => (p.up ?? 0) + (p.stack ?? 0)))
+  const down = Math.max(0, ...known.value.map((p) => p.down ?? 0))
   const sum = up + down
   return { up, down, px: sum ? PLOT / sum : 0, zero: sum ? (up / sum) * PLOT : PLOT / 2 }
 })
 const columns = computed(() =>
-  props.weeks.map((w, i) => ({
-    ...w,
-    i,
-    label: shortDate(w.week),
-    opened: w.opened == null ? null : w.opened * scale.value.px,
-    reopened: w.reopened == null ? null : w.reopened * scale.value.px,
-    resolved: w.resolved == null ? null : w.resolved * scale.value.px,
-    // Every week ≥1150 px, every 2nd ≥600, every 3rd below, counted from the latest.
-    every2: (props.weeks.length - 1 - i) % 2 === 0,
-    every3: (props.weeks.length - 1 - i) % 3 === 0,
-  })),
+  props.weeks.map((w, i) => {
+    const p = parts(w)
+    return {
+      week: w.week,
+      partial: w.partial,
+      i,
+      label: shortDate(w.week),
+      up: p.up == null ? null : p.up * scale.value.px,
+      stack: p.stack == null ? null : p.stack * scale.value.px,
+      down: p.down == null ? null : p.down * scale.value.px,
+      baseline: Boolean(w.baseline),
+      // Every week ≥1150 px, every 2nd ≥600, every 3rd below, counted from the latest.
+      every2: (props.weeks.length - 1 - i) % 2 === 0,
+      every3: (props.weeks.length - 1 - i) % 3 === 0,
+    }
+  }),
 )
 
 function words(w: FlowWeek): string {
   const when = w.partial ? `This week so far (from ${shortDate(w.week)})` : `Week of ${shortDate(w.week)}`
-  if (w.opened == null) return `${when}: no data yet`
-  const opened = w.opened + (w.reopened ?? 0)
-  return `${when}: ${int(opened)} opened (${int(w.reopened)} reopened), ${int(w.resolved)} resolved`
+  const p = parts(w)
+  if (p.up == null) return `${when}: no data yet`
+  if (assets.value) {
+    const first = w.baseline ? `first scan of ${int(w.baseline)} account${w.baseline === 1 ? '' : 's'}; ` : ''
+    return `${when}: ${first}${int(p.up)} added, ${int(p.down)} removed`
+  }
+  const opened = p.up + (p.stack ?? 0)
+  return `${when}: ${int(opened)} opened (${int(p.stack)} reopened), ${int(p.down)} resolved`
 }
 
 const caption = computed(() => {
@@ -62,11 +84,18 @@ const caption = computed(() => {
 </script>
 
 <template>
-  <div class="flow">
+  <div class="flow" :class="{ assets }">
     <div class="legend" aria-hidden="true">
-      <span><span class="sw opened"></span>Opened</span>
-      <span><span class="sw reopened"></span>Reopened</span>
-      <span><span class="sw resolved"></span>Resolved</span>
+      <template v-if="assets">
+        <span><span class="sw added"></span>Added</span>
+        <span><span class="sw removed"></span>Removed</span>
+        <span><span class="first-dot"></span>First scan</span>
+      </template>
+      <template v-else>
+        <span><span class="sw opened"></span>Opened</span>
+        <span><span class="sw reopened"></span>Reopened</span>
+        <span><span class="sw resolved"></span>Resolved</span>
+      </template>
     </div>
     <div class="plot" aria-hidden="true" :style="{ '--zero': `${scale.zero}px` }" @mouseleave="hovered = null">
       <span class="zero"></span>
@@ -78,11 +107,22 @@ const caption = computed(() => {
         @mouseenter="hovered = c.i"
       >
         <span class="up">
-          <span v-if="c.reopened" class="bar reopened" :style="{ height: `${c.reopened}px` }"></span>
-          <span v-if="c.opened" class="bar opened mark-col" :style="{ height: `${c.opened}px`, '--series': 'var(--delta-worse)' }"></span>
+          <span v-if="c.baseline" class="first-dot mark"></span>
+          <span v-if="c.stack" class="bar reopened" :style="{ height: `${c.stack}px` }"></span>
+          <span
+            v-if="c.up"
+            class="bar mark-col"
+            :class="assets ? 'added' : 'opened'"
+            :style="{ height: `${c.up}px`, '--series': assets ? 'var(--tool-steampipe)' : 'var(--delta-worse)' }"
+          ></span>
         </span>
         <span class="down">
-          <span v-if="c.resolved" class="bar resolved mark-col" :style="{ height: `${c.resolved}px`, '--series': 'var(--delta-better)' }"></span>
+          <span
+            v-if="c.down"
+            class="bar mark-col"
+            :class="assets ? 'removed' : 'resolved'"
+            :style="{ height: `${c.down}px`, '--series': assets ? 'var(--text-3)' : 'var(--delta-better)' }"
+          ></span>
         </span>
         <span class="tick">{{ c.partial ? 'This week' : c.label }}</span>
       </span>
@@ -131,6 +171,31 @@ const caption = computed(() => {
 
 .resolved {
   background: var(--delta-better);
+}
+
+.added {
+  background: var(--tool-steampipe);
+}
+
+.removed {
+  background: var(--text-3);
+}
+
+/* A week with an account's first scan: a dot above the zero line, named in the caption. */
+.first-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.legend .first-dot {
+  display: inline-block;
+}
+
+.first-dot.mark {
+  align-self: center;
+  margin-bottom: var(--s-4);
 }
 
 .plot {
@@ -184,7 +249,8 @@ const caption = computed(() => {
   min-height: 1px;
 }
 
-.up .bar:first-child {
+.up .bar:first-child,
+.up .first-dot + .bar {
   border-radius: 3px 3px 0 0;
 }
 

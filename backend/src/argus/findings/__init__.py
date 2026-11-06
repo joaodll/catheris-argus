@@ -17,7 +17,9 @@ Public interface:
                         each provider's scanner (AWS Inspector today; ADR-0042)
     scanner_for(), vulnerability_counts(), scanned_resources(), resource_vulnerabilities(),
     resource_coverage(), vulnerability_facts()   their read side (Resources, Findings)
-    VULNERABLE_RESOURCES_SQL   resource ids with open CVEs, for the Resources filter
+    VULNERABLE_RESOURCES_SQL, MISCONFIGURED_RESOURCES_SQL, INTERNET_REACHABLE_RESOURCES_SQL
+                        resource ids with open CVEs, open misconfigurations, or an open
+                        misconfiguration reachable from the internet, for the Resources filters
 """
 
 from argus.findings.commands import (
@@ -44,13 +46,13 @@ from argus.findings.lifecycle import (
 from argus.findings.metrics import ADDITIVE as FINDING_ADDITIVE_METRICS
 from argus.findings.metrics import (
     MISCONFIGURATION_METRICS,
-    MISCONFIGURATION_TOOLS,
     put_findings_metrics,
     put_misconfiguration_metrics,
     put_vulnerability_metrics,
     rederive_scores,
 )
 from argus.findings.model import (
+    MISCONFIGURATION_TOOLS,
     SEVERITIES,
     VULNERABILITY_TOOL,
     FindingResult,
@@ -59,12 +61,15 @@ from argus.findings.model import (
 from argus.findings.prowler import EXPOSURE_CHECKS as PROWLER_EXPOSURE_CHECKS
 from argus.findings.prowler import SUPPORTED_VERSIONS, ProwlerBatch, parse_prowler
 from argus.findings.queries import (
+    INTERNET_REACHABLE_RESOURCES_SQL,
+    MISCONFIGURED_RESOURCES_SQL,
     FindingFacets,
     FindingFilters,
     FindingOrder,
     FindingReach,
     FindingState,
     FixFilter,
+    MisconfigurationLevel,
     MutedFilter,
     finding_facets,
     finding_groups,
@@ -94,8 +99,10 @@ __all__ = [
     "ANY_CHECK",
     "ANY_REGION",
     "FINDING_ADDITIVE_METRICS",
+    "INTERNET_REACHABLE_RESOURCES_SQL",
     "MISCONFIGURATION_METRICS",
     "MISCONFIGURATION_TOOLS",
+    "MISCONFIGURED_RESOURCES_SQL",
     "PROWLER_EXPOSURE_CHECKS",
     "SEVERITIES",
     "SUPPORTED_VERSIONS",
@@ -110,6 +117,7 @@ __all__ = [
     "FindingState",
     "FixFilter",
     "Framework",
+    "MisconfigurationLevel",
     "MutedFilter",
     "ProwlerBatch",
     "RequirementPage",

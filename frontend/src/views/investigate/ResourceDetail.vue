@@ -47,9 +47,15 @@ const detail = useResource(
     ),
   { watch: [() => props.resourceId] },
 )
+// The resource's open misconfigurations, as the Resources list's column counts them (one
+// definition, 2026-11-06): open or reopened, status FAIL, not muted.
+const OPEN_MISCONFIGURATIONS = { status: ['FAIL' as const], muted: 'hide' as const }
 const toolFindings = (tool: Tool) =>
   useResource(
-    () => unwrap(api.GET('/api/v1/findings', { params: { query: { resource_id: props.resourceId, tool: [tool], limit: SHOWN } } })),
+    () =>
+      unwrap(
+        api.GET('/api/v1/findings', { params: { query: { resource_id: props.resourceId, tool: [tool], ...OPEN_MISCONFIGURATIONS, limit: SHOWN } } }),
+      ),
     { watch: [() => props.resourceId] },
   )
 const findings: Record<Tool, ReturnType<typeof toolFindings>> = { prowler: toolFindings('prowler'), cloudfox: toolFindings('cloudfox') }
@@ -158,7 +164,7 @@ const vulns = computed(() => {
         </ul>
         <RouterLink
           class="btn btn-ghost btn-sm see-all"
-          :to="{ name: 'misconfigurations', query: { resource: String(resourceId), tool: t.tool } }"
+          :to="{ name: 'misconfigurations', query: { resource: String(resourceId), tool: t.tool, result: 'FAIL', muted: 'hide' } }"
         >
           See all {{ findings[t.tool].data.value!.total }} {{ t.name }} findings
         </RouterLink>

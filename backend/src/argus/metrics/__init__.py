@@ -20,7 +20,11 @@ from argus.metrics.store import (
     rollup,
     rollup_family,
 )
-from argus.metrics.summary import misconfiguration_summary, vulnerability_summary
+from argus.metrics.summary import (
+    misconfiguration_summary,
+    resource_summary,
+    vulnerability_summary,
+)
 
 __all__ = [
     "ALL_CONNECTIONS",
@@ -34,6 +38,7 @@ __all__ = [
     "misconfiguration_summary",
     "put",
     "read",
+    "resource_summary",
     "rollup",
     "rollup_family",
     "vulnerability_summary",

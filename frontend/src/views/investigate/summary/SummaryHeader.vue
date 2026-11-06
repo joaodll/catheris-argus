@@ -7,13 +7,15 @@
 import type { Schemas } from '@/api/client'
 import { SEVERITIES, SEVERITY_COLOR, SEVERITY_LABEL } from '@/views/overview/severity'
 
-defineProps<{
+withDefaults(defineProps<{
   idPrefix: string
   connectionId: number
   connections: Schemas['ConnectionOut'][] | null
   dataThrough: string | null | undefined
   loaded: boolean
-}>()
+  // The severity legend, for summaries whose charts split by severity (not the inventory's).
+  legend?: boolean
+}>(), { legend: true })
 const emit = defineEmits<{ selectConnection: [id: number] }>()
 </script>
 
@@ -32,7 +34,7 @@ const emit = defineEmits<{ selectConnection: [id: number] }>()
     </span>
   </div>
   <p class="cap scope"><slot /></p>
-  <ul class="legend" aria-label="Severity colours">
+  <ul v-if="legend" class="legend" aria-label="Severity colours">
     <li v-for="s in SEVERITIES" :key="s"><span class="dot mark-dot" :style="{ '--series': SEVERITY_COLOR[s] }" aria-hidden="true"></span>{{ SEVERITY_LABEL[s] }}</li>
   </ul>
 </template>
