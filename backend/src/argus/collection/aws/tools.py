@@ -358,12 +358,26 @@ def _status(ok: bool, throttle_events: int) -> str:
     return "partial" if throttle_events else "complete"
 
 
+# The plugin's own record of an AWS answer to one of its calls, written before the table's
+# IgnoreConfig decides whether the answer stops the table: "[ERROR] <ts>: <table>.<function>:
+# api_error=...". The pinned plugin (1.34.1) writes it for answers it then ignores too, such as
+# CloudFront's NoSuchMonitoringSubscription or Shield's ResourceNotFoundException (seen
+# 2026-11-05). Only api_error: client_error, connection_error and the like are setup failures.
+_PLUGIN_API_ERROR = re.compile(r"^\[ERROR\]\s+\d+: aws_[a-z0-9_]+\.[A-Za-z0-9_]+: api_error=")
+
+
 def table_failed(rc: int, errors: str, rows: Path) -> bool:
-    """The export can exit 0 after logging errors, and some failures are printed to stdout.
-    Any of the three marks the table failed: its rows are not kept. One denied hydrate call
-    makes the pinned plugin stop the whole table with [ERROR] (collection/tables.py)."""
+    """Whether the export says the table failed: its rows are not kept. Three signs, any one:
+    a non-zero exit; stdout holding anything but JSON rows (some failures are printed there);
+    an [ERROR] line other than the plugin's record of an API answer (_PLUGIN_API_ERROR). An
+    answer the plugin ignores leaves only that record, exit 0 and every row; one that stops the
+    table also exits 1, prints to stdout and, from a hydrate call, logs "callHydrate ...
+    finished with error" (owner, 2026-11-05; tests pin each shape for the pinned version)."""
     bad_rows = any(not line.startswith("{") for line in rows.read_text().splitlines() if line)
-    return rc != 0 or "[ERROR]" in errors or bad_rows
+    stopped = any(
+        "[ERROR]" in line and not _PLUGIN_API_ERROR.match(line) for line in errors.splitlines()
+    )
+    return rc != 0 or stopped or bad_rows
 
 
 def table_outcome(errors: str) -> str | None:

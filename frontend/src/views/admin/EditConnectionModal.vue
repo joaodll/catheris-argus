@@ -7,6 +7,7 @@ import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import AppModal from '@/components/AppModal.vue'
 import MaskedValue from '@/components/MaskedValue.vue'
+import SecretField from '@/components/SecretField.vue'
 import SwitchToggle from '@/components/SwitchToggle.vue'
 import TestConnection from './TestConnection.vue'
 
@@ -19,10 +20,25 @@ const enabled = ref(props.connection.enabled)
 // A replacement is the whole key: a rotated key or a new SSO session changes every part.
 const replacing = ref(false)
 const key = ref<AccessKeyInput>({ accessKeyId: '', secret: '', sessionToken: '' })
+// An assume-role connection's role can change within its account (owner, 2026-11-06). The
+// ExternalId is write-only: kept, set (or replaced), or removed; never shown.
+const roleArn = ref(props.connection.role_arn ?? '')
+const externalId = ref<'keep' | 'set' | 'clear'>('keep')
+const newExternalId = ref('')
 const saving = ref(false)
 const error = ref<string | null>(null)
 
-const dirty = computed(() => name.value !== props.connection.name || enabled.value !== props.connection.enabled || replacing.value)
+const assumeRole = computed(() => props.connection.auth_method === 'assume_role')
+const roleChanged = computed(() => assumeRole.value && roleArn.value !== (props.connection.role_arn ?? ''))
+const externalIdChanged = computed(() => externalId.value === 'clear' || (externalId.value === 'set' && newExternalId.value !== ''))
+const dirty = computed(
+  () =>
+    name.value !== props.connection.name ||
+    enabled.value !== props.connection.enabled ||
+    replacing.value ||
+    roleChanged.value ||
+    externalIdChanged.value,
+)
 const auth = computed(() =>
   props.connection.kind === 'demo' ? 'Synthetic' : props.connection.auth_method === 'assume_role' ? 'Assume role' : 'Access key',
 )
@@ -34,15 +50,28 @@ async function save(): Promise<void> {
   if (name.value !== props.connection.name) body.name = name.value
   if (enabled.value !== props.connection.enabled) body.enabled = enabled.value
   if (replacing.value) body.access_key = accessKeyBody(key.value)
+  if (roleChanged.value || externalIdChanged.value) {
+    body.assume_role = {
+      ...(roleChanged.value ? { role_arn: roleArn.value } : {}),
+      ...(externalId.value === 'set' && newExternalId.value ? { external_id: newExternalId.value } : {}),
+      clear_external_id: externalId.value === 'clear',
+    }
+  }
   try {
     await unwrap(api.PATCH('/api/v1/connections/{connection_id}', { params: { path: { connection_id: props.connection.id } }, body }))
     stopReplacing()
+    keepExternalId()
     emit('saved', `${name.value} saved.`)
   } catch (err) {
     error.value = err instanceof ApiError ? err.message : 'The changes were not saved.'
   } finally {
     saving.value = false
   }
+}
+
+function keepExternalId(): void {
+  externalId.value = 'keep'
+  newExternalId.value = ''
 }
 
 function stopReplacing(): void {
@@ -87,14 +116,40 @@ function stopReplacing(): void {
           <AccessKeyFields v-model="key" />
           <button type="button" class="btn btn-secondary btn-sm cancel" @click="stopReplacing">Cancel replacing</button>
         </template>
+        <template v-if="assumeRole">
+          <div class="field">
+            <label class="lbl" for="e-arn">Role ARN</label>
+            <input id="e-arn" v-model.trim="roleArn" class="input mono" required spellcheck="false">
+            <span class="cap">Must be in account <span class="mono">{{ props.connection.account_id }}</span>. The current role stays in use until you save.</span>
+          </div>
+          <div v-if="externalId !== 'set'" class="field">
+            <span class="lbl">External ID</span>
+            <div class="set-line">
+              <span v-if="externalId === 'clear'">Removed when you save</span>
+              <MaskedValue v-else-if="props.connection.external_id_set" />
+              <span v-else>None</span>
+              <template v-if="!props.readonly">
+                <button v-if="externalId === 'clear'" type="button" class="btn btn-secondary btn-sm" @click="keepExternalId">Keep it</button>
+                <template v-else>
+                  <button type="button" class="btn btn-secondary btn-sm" @click="externalId = 'set'">{{ props.connection.external_id_set ? 'Replace' : 'Set' }}</button>
+                  <button v-if="props.connection.external_id_set" type="button" class="btn btn-secondary btn-sm" @click="externalId = 'clear'">Remove</button>
+                </template>
+              </template>
+            </div>
+          </div>
+          <template v-else>
+            <SecretField
+              v-model="newExternalId"
+              label="New external ID"
+              allow-generate
+              help="Put the same value in the role's trust policy, 16 or more characters. Only the scan worker can read it, and it is never shown again."
+            />
+            <button type="button" class="btn btn-secondary btn-sm cancel" @click="keepExternalId">{{ props.connection.external_id_set ? 'Keep the current one' : 'Cancel' }}</button>
+          </template>
+        </template>
       </fieldset>
       <dl class="facts">
         <dt class="lbl">Account</dt><dd class="mono">{{ props.connection.account_id }}</dd>
-        <template v-if="props.connection.role_arn"><dt class="lbl">Role</dt><dd class="mono arn">{{ props.connection.role_arn }}</dd></template>
-        <template v-if="props.connection.auth_method === 'assume_role'">
-          <dt class="lbl">External ID</dt>
-          <dd><MaskedValue v-if="props.connection.external_id_set" /><template v-else>None</template></dd>
-        </template>
         <template v-if="props.connection.access_key_id_hint"><dt class="lbl">Access key ID</dt><dd class="mono">{{ props.connection.access_key_id_hint }}</dd></template>
         <dt class="lbl">Authentication</dt><dd>{{ auth }}</dd>
       </dl>
@@ -142,10 +197,6 @@ function stopReplacing(): void {
 
 .facts dd {
   margin: 0;
-}
-
-.arn {
-  word-break: break-all;
 }
 
 .set-line {

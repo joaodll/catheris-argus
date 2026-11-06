@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from argus import connections
 from argus.api.deps import Db, Operator, Viewer, client_ip
-from argus.connections import AwsAuth
+from argus.connections import AwsAuth, RoleChange
 from argus.core.db import get_engine
 from argus.scheduling import create_demo_connection
 
@@ -65,11 +65,23 @@ class AccessKeyIn(BaseModel):
     session_token: SecretStr | None = None
 
 
+class RoleIn(BaseModel):
+    """A change to an assume-role connection: a role in the same account, a new ExternalId, or
+    the ExternalId removed. What is left out keeps its stored value; the ExternalId is never
+    returned."""
+
+    model_config = ConfigDict(extra="forbid")
+    role_arn: str | None = None
+    external_id: SecretStr | None = None
+    clear_external_id: bool = False
+
+
 class ConnectionPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: Name | None = None
     enabled: bool | None = None
     access_key: AccessKeyIn | None = None
+    assume_role: RoleIn | None = None
 
 
 def _secret(value: SecretStr | None) -> str | None:
@@ -150,6 +162,20 @@ def update_connection(
                 session_token=_secret(body.access_key.session_token),
             )
             if body.access_key
+            else None
+        ),
+        role=(
+            RoleChange(
+                role_arn=body.assume_role.role_arn,
+                # An empty one is passed on, so it is refused rather than read as "unchanged".
+                external_id=(
+                    body.assume_role.external_id.get_secret_value()
+                    if body.assume_role.external_id is not None
+                    else None
+                ),
+                clear_external_id=body.assume_role.clear_external_id,
+            )
+            if body.assume_role
             else None
         ),
         client_ip=client_ip(request),

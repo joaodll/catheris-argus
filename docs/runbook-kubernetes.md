@@ -422,6 +422,7 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
+| The UI loads, but every page says "Argus can't reach its API" | The API's pods are down or not Ready: web stays Ready on nginx alone (`/healthz`, since 2026-11-06), and nginx answers `/api` with a 502 | `kubectl -n argus get pods -l app.kubernetes.io/component=api`; the API is Ready only while Postgres answers (`/api/v1/ready`), so check the database and the pool next |
 | `helm install` refused with a schema error | A required value is missing, an image has a tag, or a key is misspelled | The message names the path; set it |
 | `api` and the scheduler stay in `Init` | The migrate Job has not finished, or the role cannot log in yet | `kubectl -n argus logs job/argus-migrate-<hash>`; check the Secret's keys |
 | A pod logs `exec /opt/venv/bin/python: exec format error` | The pod is on a node with another CPU type than its image | Set `nodeSelector` and `tolerations` on every block, including `tasks`, so it lands on nodes matching the image: `kubectl get nodes -L kubernetes.io/arch` |

@@ -1146,6 +1146,7 @@ export interface components {
         /** ConnectionPatch */
         ConnectionPatch: {
             access_key?: components["schemas"]["AccessKeyIn"] | null;
+            assume_role?: components["schemas"]["RoleIn"] | null;
             /** Enabled */
             enabled?: boolean | null;
             /** Name */
@@ -1987,6 +1988,23 @@ export interface components {
              * @default 180
              */
             history_days: number;
+        };
+        /**
+         * RoleIn
+         * @description A change to an assume-role connection: a role in the same account, a new ExternalId, or
+         *     the ExternalId removed. What is left out keeps its stored value; the ExternalId is never
+         *     returned.
+         */
+        RoleIn: {
+            /**
+             * Clear External Id
+             * @default false
+             */
+            clear_external_id: boolean;
+            /** External Id */
+            external_id?: string | null;
+            /** Role Arn */
+            role_arn?: string | null;
         };
         /** RunNowIn */
         RunNowIn: {

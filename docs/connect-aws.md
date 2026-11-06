@@ -149,6 +149,14 @@ says "Could not assume the role: AccessDenied", the role's trust policy does not
 identity, or the ExternalId differs: an empty External ID with a role that asks for one, or the
 other way round ([runbook.md, Troubleshooting](runbook.md#troubleshooting)).
 
+**Changing the role later.** Open the connection to change its **Role ARN** or its **External
+ID**, for example when you move from a hand-built role to the `ArgusScanner` stack. The new role
+must be in the same account, because the connection's history belongs to that account. Replace,
+set or remove the External ID there; it stays write-only. The connection keeps its history, and
+the next test or scan uses the new values. To change the account, or to switch between assume
+role and an access key, add a new connection and disable the old one. Every change is in the
+audit log, without the External ID's value.
+
 **Test connection** under **Settings → Platform identity** checks the identity on its own: it signs
 in and writes a small marker object to each tool's folder of the bucket, and reports the encryption
 S3 applied.
