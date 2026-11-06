@@ -103,6 +103,9 @@ def fakes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             '  echo "[ERROR] AccessDenied" >&2; exit 0; fi\n'
             'if grep -qx "$1" "$HOME/../denied.txt" 2>/dev/null; then\n'
             '  cat "$HOME/../denied.err" >&2; fi\n'
+            # A table the export stopped: exit 1, the SDK's error on stdout, no rows (1.34.1).
+            'if grep -qx "$1" "$HOME/../exit1.txt" 2>/dev/null; then\n'
+            '  echo "[ERROR] Error executing query: aws: operation error X: Y"; exit 1; fi\n'
             'echo \'{"arn": "x"}\'\n',
         ),
     )
@@ -504,6 +507,7 @@ def test_a_table_whose_service_is_not_used_is_carried_without_making_the_run_par
     fakes: Path,
 ) -> None:
     _control(fakes / "homes", "denied.txt", "aws_timestreamwrite_table\n")
+    _control(fakes / "homes", "exit1.txt", "aws_timestreamwrite_table\n")  # it stops, as for real
     _control(fakes / "homes", "denied.err", STEAMPIPE_NOT_USED)
     _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
     assert manifest.status == "complete"
@@ -517,6 +521,7 @@ def test_a_table_a_resource_refused_is_carried_and_its_action_reported_apart(
     fakes: Path,
 ) -> None:
     _control(fakes / "homes", "denied.txt", "aws_vpc_endpoint_service\n")
+    _control(fakes / "homes", "exit1.txt", "aws_vpc_endpoint_service\n")  # it stops, as for real
     _control(fakes / "homes", "denied.err", STEAMPIPE_REFUSED)
     _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
     assert manifest.status == "complete"
@@ -662,6 +667,7 @@ def test_a_table_blocked_outside_the_role_makes_the_run_partial_and_says_where(
     fakes: Path,
 ) -> None:
     _control(fakes / "homes", "denied.txt", "aws_s3_bucket\n")
+    _control(fakes / "homes", "exit1.txt", "aws_s3_bucket\n")  # it stops, as for real
     _control(fakes / "homes", "denied.err", STEAMPIPE_BLOCKED)
     _, manifest = _run(fakes, "steampipe", ("us-east-1",))
     assert "aws_s3_bucket.jsonl" not in [f.path for f in manifest.files]
@@ -683,6 +689,7 @@ def test_an_explicit_scp_deny_is_blocked_not_refused(fakes: Path) -> None:
     """Before 2026-11-05 an explicit Deny in a service control policy counted as refused on
     purpose, and the run stayed complete. Its data is missing, so now it is partial."""
     _control(fakes / "homes", "denied.txt", "aws_vpc_endpoint_service\n")
+    _control(fakes / "homes", "exit1.txt", "aws_vpc_endpoint_service\n")  # it stops, as for real
     _control(
         fakes / "homes",
         "denied.err",
@@ -730,6 +737,7 @@ def test_every_table_left_out_keeps_the_reason_aws_gave(fakes: Path) -> None:
 
 def test_a_not_applicable_table_keeps_its_reason_too(fakes: Path) -> None:
     _control(fakes / "homes", "denied.txt", "aws_timestreamwrite_table\n")
+    _control(fakes / "homes", "exit1.txt", "aws_timestreamwrite_table\n")  # it stops, as for real
     _control(fakes / "homes", "denied.err", STEAMPIPE_NOT_USED)
     _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
     assert manifest.status == "complete"
@@ -795,6 +803,88 @@ def test_a_blocked_cloudfox_module_makes_the_run_partial(fakes: Path) -> None:
     assert manifest.status == "partial"
     assert manifest.denied_actions == []
     assert manifest.blocked_actions == ["lambda:ListFunctions (permissions boundary)"]
+
+
+# What steampipe_export_aws 1.34.1 printed on 2026-11-05 for one CloudFront distribution (moto
+# with auth off, and GetMonitoringSubscription answered as AWS documents it). Kept verbatim but
+# for the timestamps: a plugin upgrade refreshes them first.
+_MONITORING = (
+    "aws_cloudfront_distribution.getCloudFrontDistributionMonitoringSubscription: api_error="
+    '"operation error CloudFront: GetMonitoringSubscription, https response error StatusCode: '
+)
+PLUGIN_IGNORED = (
+    f"[ERROR] 1793933237168: {_MONITORING}404, RequestID: r-1, NoSuchMonitoringSubscription: "
+    'The specified monitoring subscription does not exist."\n'
+)
+_DENIED_ANSWER = (
+    "403, RequestID: r-2, api error AccessDenied: User: "
+    "arn:aws:sts::123456789012:assumed-role/S/a is not authorized to perform: "
+    "cloudfront:GetMonitoringSubscription because no identity-based policy allows the "
+    'cloudfront:GetMonitoringSubscription action"\n'
+)
+HYDRATE_STOPPED = (
+    f"[ERROR] 1793933242683: {_MONITORING}{_DENIED_ANSWER}"
+    "[ERROR] 1793933242683: callHydrate getCloudFrontDistributionMonitoringSubscription "
+    "finished with error: operation error CloudFront: GetMonitoringSubscription, https response "
+    "error StatusCode: 403\n"
+)
+LIST_STOPPED = (
+    "[ERROR] 1793933140186: aws_cloudfront_cache_policy.listCloudFrontCachePolicies: api_error="
+    '"operation error CloudFront: ListCachePolicies, https response error StatusCode: 404, '
+    'RequestID: , error while deserializing xml error response"\n'
+    "[WARN]  1793933140186: doList callHydrateWithRetries (aws-1793933140186) returned err "
+    "operation error CloudFront: ListCachePolicies\n"
+)
+STOPPED_STDOUT = "[ERROR] Error executing query: aws: operation error CloudFront: X\n"
+
+
+@pytest.mark.parametrize(
+    ("rc", "errors", "stdout", "failed"),
+    [
+        (0, PLUGIN_IGNORED, '{"id": "E2EXAMPLE"}\n', False),
+        (1, HYDRATE_STOPPED, STOPPED_STDOUT, True),
+        (0, HYDRATE_STOPPED, '{"id": "E2EXAMPLE"}\n', True),  # the callHydrate line alone
+        (1, LIST_STOPPED, STOPPED_STDOUT, True),
+        (0, LIST_STOPPED, STOPPED_STDOUT, True),  # stdout alone
+        (
+            0,
+            '[ERROR] 1: aws_x.listX: client_error="failed to create client"\n',
+            "",
+            True,
+        ),
+        (0, "[ERROR] AccessDenied\n", '{"arn": "x"}\n', True),
+        (0, "", '{"arn": "x"}\n', False),
+    ],
+    ids=[
+        "ignored-answer",
+        "hydrate-stopped",
+        "hydrate-stopped-exit-0",
+        "list-stopped",
+        "list-stopped-exit-0",
+        "client-error",
+        "bare-error",
+        "clean",
+    ],
+)
+def test_a_table_fails_only_when_the_export_says_so(
+    tmp_path: Path, rc: int, errors: str, stdout: str, failed: bool
+) -> None:
+    """The plugin logs an AWS answer before deciding to ignore it (owner, 2026-11-05)."""
+    rows = tmp_path / "rows.jsonl"
+    rows.write_text(stdout)
+    assert aws_tools.table_failed(rc, errors, rows) is failed
+
+
+def test_an_answer_the_plugin_ignores_keeps_the_table(fakes: Path) -> None:
+    """aws_cloudfront_distribution on an account whose distribution has no additional metrics,
+    the default: dropped on every run before 2026-11-05."""
+    _control(fakes / "homes", "denied.txt", "aws_cloudfront_distribution\n")
+    _control(fakes / "homes", "denied.err", PLUGIN_IGNORED)
+    _, manifest = _run(fakes, "steampipe", ("us-east-1",))
+    assert "aws_cloudfront_distribution.jsonl" in [f.path for f in manifest.files]
+    assert manifest.status == "complete"
+    assert manifest.incomplete_tables == [] and manifest.table_errors == []
+    assert manifest.denied_actions == [] and manifest.blocked_actions == []
 
 
 def test_inspector_exports_this_accounts_open_findings_and_its_coverage(fakes: Path) -> None:

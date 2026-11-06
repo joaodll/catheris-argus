@@ -378,7 +378,9 @@ answers 403 to anyone who is not already a customer, Organizations is not in use
 carry their resources forward. A table that stays in the Partial list on every run although its
 service is not used means its error wording is not in the reviewed list yet
 (`NOT_APPLICABLE` in `collection/aws/tools.py`). Each table in the run's lists shows the line AWS
-answered with, redacted, under its name: send that line.
+answered with, redacted, under its name: send that line. An answer the plugin itself ignores
+("not found", "not initialized") no longer fails a table (2026-11-05): the plugin logs it, and
+Argus judges the table by the export's exit and output.
 
 One denied column can stop a whole Steampipe table. The pinned plugin logs `[ERROR]` and the
 table is dropped from that run (the log says `table failed: <table>`). The fix is a narrower
