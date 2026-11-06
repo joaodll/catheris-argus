@@ -2117,6 +2117,132 @@
         "title": "LastRun",
         "type": "object"
       },
+      "MisconfigurationSummary": {
+        "description": "Investigate → Misconfigurations → Summary, from stored counts only. Each account counts\nas of its latest scan, however old; disabled accounts are left out, as on the Overview.\nNull: no Prowler or CloudFox scan yet, never 0.",
+        "properties": {
+          "by_account": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryAccounts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by_age": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SummaryAge"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Age"
+          },
+          "by_category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by_region": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "by_service": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryBreakdown"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "last_30_days": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryRecent"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "open": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SummaryOpen"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reach": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SummaryItem"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reach"
+          },
+          "weeks": {
+            "items": {
+              "$ref": "#/components/schemas/SummaryWeek"
+            },
+            "title": "Weeks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data_through",
+          "open",
+          "by_account",
+          "by_category",
+          "by_service",
+          "by_region",
+          "by_age",
+          "reach",
+          "weeks",
+          "last_30_days"
+        ],
+        "title": "MisconfigurationSummary",
+        "type": "object"
+      },
       "MonthRow": {
         "properties": {
           "change": {
@@ -3725,6 +3851,39 @@
         "title": "SeverityCount",
         "type": "object"
       },
+      "SeverityCounts": {
+        "properties": {
+          "critical": {
+            "title": "Critical",
+            "type": "integer"
+          },
+          "high": {
+            "title": "High",
+            "type": "integer"
+          },
+          "informational": {
+            "title": "Informational",
+            "type": "integer"
+          },
+          "low": {
+            "title": "Low",
+            "type": "integer"
+          },
+          "medium": {
+            "title": "Medium",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "critical",
+          "high",
+          "medium",
+          "low",
+          "informational"
+        ],
+        "title": "SeverityCounts",
+        "type": "object"
+      },
       "SeverityOverTime": {
         "properties": {
           "month_table": {
@@ -3885,6 +4044,275 @@
           "change"
         ],
         "title": "StripPoint",
+        "type": "object"
+      },
+      "SummaryAccount": {
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "provider": {
+            "enum": [
+              "aws",
+              "gcp",
+              "oci"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "severities": {
+            "$ref": "#/components/schemas/SeverityCounts"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "total",
+          "severities",
+          "connection_id",
+          "provider"
+        ],
+        "title": "SummaryAccount",
+        "type": "object"
+      },
+      "SummaryAccounts": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SummaryAccount"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "more": {
+            "title": "More",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "more"
+        ],
+        "title": "SummaryAccounts",
+        "type": "object"
+      },
+      "SummaryAge": {
+        "description": "Open findings by how long ago they were first seen, counted from today. The two dates\nare the list's first-seen filter that reproduces the column (null: no bound).",
+        "properties": {
+          "first_seen_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen From"
+          },
+          "first_seen_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen To"
+          },
+          "key": {
+            "enum": [
+              "under_30_days",
+              "30_to_90_days",
+              "90_to_180_days",
+              "180_to_365_days",
+              "over_a_year"
+            ],
+            "title": "Key",
+            "type": "string"
+          },
+          "severities": {
+            "$ref": "#/components/schemas/SeverityCounts"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "first_seen_from",
+          "first_seen_to",
+          "total",
+          "severities"
+        ],
+        "title": "SummaryAge",
+        "type": "object"
+      },
+      "SummaryBreakdown": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SummaryItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "more": {
+            "title": "More",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "more"
+        ],
+        "title": "SummaryBreakdown",
+        "type": "object"
+      },
+      "SummaryItem": {
+        "description": "One bar of a breakdown: a category, service or region (the list filter of the same name),\nor a reach. An empty value is the findings with none (no category, no service).",
+        "properties": {
+          "severities": {
+            "$ref": "#/components/schemas/SeverityCounts"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "total",
+          "severities"
+        ],
+        "title": "SummaryItem",
+        "type": "object"
+      },
+      "SummaryOpen": {
+        "description": "Open misconfigurations: open or reopened, status FAIL, not muted, Prowler and CloudFox\n(the list filters `state=open&status=FAIL&muted=hide`).",
+        "properties": {
+          "severities": {
+            "$ref": "#/components/schemas/SeverityCounts"
+          },
+          "tools": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "prowler",
+                "cloudfox"
+              ]
+            },
+            "title": "Tools",
+            "type": "object"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "severities",
+          "tools"
+        ],
+        "title": "SummaryOpen",
+        "type": "object"
+      },
+      "SummaryRecent": {
+        "properties": {
+          "opened": {
+            "title": "Opened",
+            "type": "integer"
+          },
+          "reopened": {
+            "title": "Reopened",
+            "type": "integer"
+          },
+          "resolved": {
+            "title": "Resolved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "opened",
+          "reopened",
+          "resolved"
+        ],
+        "title": "SummaryRecent",
+        "type": "object"
+      },
+      "SummaryWeek": {
+        "description": "One ISO week (`week` is its Monday). Null counts: before the summary was first counted.",
+        "properties": {
+          "opened": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened"
+          },
+          "partial": {
+            "title": "Partial",
+            "type": "boolean"
+          },
+          "reopened": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reopened"
+          },
+          "resolved": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved"
+          },
+          "week": {
+            "format": "date",
+            "title": "Week",
+            "type": "string"
+          }
+        },
+        "required": [
+          "week",
+          "partial",
+          "opened",
+          "reopened",
+          "resolved"
+        ],
+        "title": "SummaryWeek",
         "type": "object"
       },
       "TableError": {
@@ -6486,6 +6914,40 @@
           },
           {
             "in": "query",
+            "name": "first_seen_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "first_seen_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen To"
+            }
+          },
+          {
+            "in": "query",
             "name": "resource_id",
             "required": false,
             "schema": {
@@ -6956,6 +7418,40 @@
           },
           {
             "in": "query",
+            "name": "first_seen_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "first_seen_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen To"
+            }
+          },
+          {
+            "in": "query",
             "name": "resource_id",
             "required": false,
             "schema": {
@@ -7075,6 +7571,99 @@
           }
         },
         "summary": "Finding Groups",
+        "tags": [
+          "findings"
+        ]
+      }
+    },
+    "/api/v1/findings/summary": {
+      "get": {
+        "description": "The Misconfigurations summary for all connections (0) or one: stored counts written by\ningest, so it never counts findings at request time.",
+        "operationId": "finding_summary_api_v1_findings_summary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Connection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MisconfigurationSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finding Summary",
         "tags": [
           "findings"
         ]

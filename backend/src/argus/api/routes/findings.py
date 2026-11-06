@@ -3,13 +3,13 @@ The vulnerabilities tool's CVEs are findings too, listed apart (routes/vulnerabi
 ADR-0042 amended 2026-10-31); a finding's own link (/findings/{id}) opens either. Read-only:
 changing a finding's state waits for roles."""
 
-from datetime import date
+from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 
-from argus import findings, ingest, inventory
+from argus import findings, ingest, inventory, metrics
 from argus.api.deps import Db, Viewer
 from argus.api.types import Provider
 from argus.core.db import SEARCH_COUNT_CAP
@@ -166,6 +166,93 @@ class FindingFacets(BaseModel):
     checks: list[CheckFacet]
 
 
+class SeverityCounts(BaseModel):
+    critical: int
+    high: int
+    medium: int
+    low: int
+    informational: int
+
+
+class SummaryOpen(BaseModel):
+    """Open misconfigurations: open or reopened, status FAIL, not muted, Prowler and CloudFox
+    (the list filters `state=open&status=FAIL&muted=hide`)."""
+
+    total: int
+    severities: SeverityCounts
+    tools: dict[Literal["prowler", "cloudfox"], int]
+
+
+class SummaryItem(BaseModel):
+    """One bar of a breakdown: a category, service or region (the list filter of the same name),
+    or a reach. An empty value is the findings with none (no category, no service)."""
+
+    value: str
+    total: int
+    severities: SeverityCounts
+
+
+class SummaryBreakdown(BaseModel):
+    items: list[SummaryItem]  # the 10 worst: most critical, then high, then in all
+    more: int  # how many more values have open findings
+
+
+class SummaryAccount(SummaryItem):
+    connection_id: int
+    provider: Provider
+
+
+class SummaryAccounts(BaseModel):
+    items: list[SummaryAccount]
+    more: int
+
+
+class SummaryAge(BaseModel):
+    """Open findings by how long ago they were first seen, counted from today. The two dates
+    are the list's first-seen filter that reproduces the column (null: no bound)."""
+
+    key: Literal[
+        "under_30_days", "30_to_90_days", "90_to_180_days", "180_to_365_days", "over_a_year"
+    ]
+    first_seen_from: date | None
+    first_seen_to: date | None
+    total: int
+    severities: SeverityCounts
+
+
+class SummaryWeek(BaseModel):
+    """One ISO week (`week` is its Monday). Null counts: before the summary was first counted."""
+
+    week: date
+    partial: bool  # the current week, so far
+    opened: int | None
+    reopened: int | None
+    resolved: int | None
+
+
+class SummaryRecent(BaseModel):
+    opened: int
+    reopened: int
+    resolved: int
+
+
+class MisconfigurationSummary(BaseModel):
+    """Investigate → Misconfigurations → Summary, from stored counts only. Each account counts
+    as of its latest scan, however old; disabled accounts are left out, as on the Overview.
+    Null: no Prowler or CloudFox scan yet, never 0."""
+
+    data_through: date | None
+    open: SummaryOpen | None
+    by_account: SummaryAccounts | None  # all connections only
+    by_category: SummaryBreakdown | None  # a finding counts under each of its categories
+    by_service: SummaryBreakdown | None
+    by_region: SummaryBreakdown | None
+    by_age: list[SummaryAge] | None
+    reach: list[SummaryItem] | None  # confirmed, restricted, unknown, not_covered
+    weeks: list[SummaryWeek]  # opened, reopened and resolved per week, the last 12 weeks
+    last_30_days: SummaryRecent | None
+
+
 Severity = Literal["critical", "high", "medium", "low", "informational"]
 # A value the data offers (a region, service, type, category or check id): short, plain text.
 Facet = Annotated[str, Field(min_length=1, max_length=128)]
@@ -198,6 +285,9 @@ class FindingQuery(BaseModel):
     muted: findings.MutedFilter = "any"
     # Only findings first seen in their latest scan.
     new: bool = False
+    # First seen on or after / on or before these days, both inclusive.
+    first_seen_from: date | None = None
+    first_seen_to: date | None = None
     resource_id: int | None = None
     # Matches the title, check id or resource uid anywhere, in any case.
     q: str | None = Field(None, max_length=200)
@@ -220,6 +310,8 @@ def _filters(query: FindingQuery) -> findings.FindingFilters:
         reaches=tuple(query.reach),
         muted=query.muted,
         new=query.new,
+        first_seen_from=query.first_seen_from,
+        first_seen_to=query.first_seen_to,
         resource_id=query.resource_id,
         q=query.q or None,
     )
@@ -290,6 +382,20 @@ def group_page(
             conn, connection_ids=list(filters.connection_ids), tools=list(filters.tools)
         ),
     )
+
+
+@router.get("/findings/summary")
+def finding_summary(
+    conn: Db,
+    _user: Viewer,
+    connection_id: Annotated[int, Query(ge=0)] = 0,
+) -> MisconfigurationSummary:
+    """The Misconfigurations summary for all connections (0) or one: stored counts written by
+    ingest, so it never counts findings at request time."""
+    data = metrics.misconfiguration_summary(
+        conn, connection_id=connection_id, today=datetime.now(UTC).date()
+    )
+    return MisconfigurationSummary.model_validate(data)
 
 
 @router.get("/findings/facets")

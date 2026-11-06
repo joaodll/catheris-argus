@@ -29,13 +29,17 @@ export interface FindingFilters {
   result: Result[]
   muted: Muted
   new: boolean
+  // First seen on or after / on or before (YYYY-MM-DD, '' for no bound): the summary's age
+  // columns (2026-11-05).
+  firstSeenFrom: string
+  firstSeenTo: string
   state: FindingState
   q: string
   resource: number | null
 }
 
 /** The filters in row 2 (More filters): how many are set, for the button's count. */
-export const SECONDARY: (keyof FindingFilters)[] = ['service', 'type', 'check', 'reach', 'region', 'result', 'muted', 'new']
+export const SECONDARY: (keyof FindingFilters)[] = ['service', 'type', 'check', 'reach', 'region', 'result', 'muted', 'new', 'firstSeenFrom']
 
 const TOOLS: Tool[] = ['prowler', 'cloudfox']
 const PROVIDER_IDS: Provider[] = PROVIDERS.map((p) => p.id)
@@ -57,6 +61,14 @@ function oneOf<T extends string>(value: LocationQuery[string] | undefined, allow
 
 function known<T extends string>(value: LocationQuery[string] | undefined, allowed: readonly T[]): T[] {
   return strings(value).filter((v): v is T => allowed.includes(v as T))
+}
+
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
+
+/** A day as YYYY-MM-DD, or '' when absent or not a real day. */
+function day(value: LocationQuery[string] | undefined): string {
+  const first = strings(value)[0] ?? ''
+  return ISO_DAY.test(first) && !Number.isNaN(Date.parse(`${first}T00:00:00Z`)) ? first : ''
 }
 
 function ids(value: LocationQuery[string] | undefined): number[] {
@@ -81,6 +93,8 @@ export function parseFilters(query: LocationQuery): FindingFilters {
     result: known(query.result, RESULTS),
     muted: oneOf(query.muted, MUTED, 'any'),
     new: query.new === '1',
+    firstSeenFrom: day(query.first_seen_from),
+    firstSeenTo: day(query.first_seen_to),
     state: oneOf(query.state, STATES, 'open'),
     q: strings(query.q)[0]?.slice(0, 200) ?? '',
     resource,
@@ -118,6 +132,8 @@ export function filtersToQuery(f: FindingFilters): LocationQueryRaw {
     result: list(f.result),
     muted: f.muted === 'any' ? undefined : f.muted,
     new: f.new ? '1' : undefined,
+    first_seen_from: f.firstSeenFrom || undefined,
+    first_seen_to: f.firstSeenTo || undefined,
     state: f.state === 'open' ? undefined : f.state,
     q: f.q || undefined,
     resource: f.resource == null ? undefined : String(f.resource),
@@ -140,6 +156,8 @@ export function apiFilters(f: FindingFilters) {
     status: f.result,
     muted: f.muted,
     new: f.new,
+    first_seen_from: f.firstSeenFrom || null,
+    first_seen_to: f.firstSeenTo || null,
     state: f.state,
     q: f.q || null,
     resource_id: f.resource,
@@ -158,6 +176,7 @@ export function isFiltered(f: FindingFilters): boolean {
 /** How many row-2 filters are set. */
 export function secondaryCount(f: FindingFilters): number {
   return SECONDARY.filter((key) => {
+    if (key === 'firstSeenFrom') return Boolean(f.firstSeenFrom || f.firstSeenTo) // one filter, two ends
     const value = f[key]
     return Array.isArray(value) ? value.length > 0 : key === 'muted' ? value !== 'any' : Boolean(value)
   }).length

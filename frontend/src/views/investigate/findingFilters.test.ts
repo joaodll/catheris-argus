@@ -122,3 +122,17 @@ describe('Findings by check', () => {
     expect(keptChecks({ ...cve, check: ['a', 'b'] }, ['b'])).toEqual(['b'])
   })
 })
+
+describe('First seen (the summary age columns)', () => {
+  it('round-trips a range, ignores what is not a day, and counts as one filter', () => {
+    const f = parseFilters({ first_seen_from: '2026-08-07', first_seen_to: '2026-10-05' })
+    expect(f.firstSeenFrom).toBe('2026-08-07')
+    expect(f.firstSeenTo).toBe('2026-10-05')
+    expect(filtersToQuery(f)).toMatchObject({ first_seen_from: '2026-08-07', first_seen_to: '2026-10-05' })
+    expect(apiFilters(f)).toMatchObject({ first_seen_from: '2026-08-07', first_seen_to: '2026-10-05' })
+    expect(secondaryCount(f)).toBe(1)
+    expect(parseFilters({ first_seen_from: '2026-13-45' }).firstSeenFrom).toBe('')
+    expect(parseFilters({ first_seen_to: 'yesterday' }).firstSeenTo).toBe('')
+    expect(apiFilters(emptyFilters())).toMatchObject({ first_seen_from: null, first_seen_to: null })
+  })
+})

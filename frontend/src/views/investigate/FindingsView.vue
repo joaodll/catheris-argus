@@ -51,6 +51,9 @@ import FindingDetail from './FindingDetail.vue'
 import { type FindingState, findingLine, regionLabel, uidTail } from './labels'
 import ReachBadge from './ReachBadge.vue'
 import { FINDING_REACHES, FINDING_REACH_LABEL, type FindingReach } from './reachReason'
+import InvestigateTabs from './summary/InvestigateTabs.vue'
+import MisconfigurationSummary from './summary/MisconfigurationSummary.vue'
+import { type Tab, parseTab, summaryConnection } from './summary/summaryTab'
 
 const PAGE = 20
 
@@ -63,11 +66,28 @@ const order = computed(() => parseOrder(route.query))
 const single = computed(() => parseFinding(route.query))
 // List, or by check (?view=checks): a finding's own link is always the list.
 const view = computed<View>(() => (single.value != null ? 'list' : parseView(route.query)))
+// Summary | List (owner's decision 2026-11-05): the bare screen opens the summary, any list
+// parameter the list (summaryTab.ts). A finding's own link is always the list.
+const tab = computed<Tab>(() => (single.value != null ? 'list' : parseTab(route.query)))
+// The summary's account: the list's connection when it names exactly one.
+const summaryAccount = computed(() => summaryConnection(filters.value.connection))
 
-/** A new filter set: a history entry (typing in the search box replaces it), page 1. */
+/** A new filter set: a history entry (typing in the search box replaces it), page 1. The tab is
+ * written out, so clearing every filter keeps the list. */
 function navigate(next: FindingFilters, how: 'push' | 'replace' = 'push'): void {
   const sort = order.value === 'severity' ? undefined : order.value
-  void router[how]({ query: { ...filtersToQuery(next), order: sort, view: viewToQuery(view.value) } })
+  void router[how]({ query: { ...filtersToQuery(next), order: sort, view: viewToQuery(view.value), tab: tab.value } })
+}
+
+/** Summary keeps only its account; List opens with that account as its connection filter. */
+function setTab(next: Tab): void {
+  if (next === tab.value) return
+  const account = summaryAccount.value ? String(summaryAccount.value) : undefined
+  void router.push({ query: next === 'summary' ? { tab: 'summary', connection: account } : { tab: 'list', connection: account } })
+}
+
+function selectAccount(id: number): void {
+  void router.push({ query: { tab: 'summary', connection: id ? String(id) : undefined } })
 }
 
 function set<K extends keyof FindingFilters>(key: K, value: FindingFilters[K]): void {
@@ -178,7 +198,7 @@ const error = ref<string | null>(null)
 const open = ref<Set<number>>(new Set())
 let generation = 0
 
-const requestKey = (target: number): string => JSON.stringify([apiFilters(filters.value), order.value, target, single.value, view.value])
+const requestKey = (target: number): string => JSON.stringify([apiFilters(filters.value), order.value, target, single.value, view.value, tab.value])
 let loadedKey = ''
 
 // The finding of its own link, with the tool's text: its details row needs no second request.
@@ -201,6 +221,10 @@ async function loadOne(id: number, mine: number): Promise<void> {
 
 async function load(target: number, how: 'push' | 'replace' = 'replace'): Promise<void> {
   const mine = ++generation
+  if (tab.value !== 'list') {
+    loading.value = false // the summary loads its own numbers; the list waits for its tab
+    return
+  }
   loading.value = true
   error.value = null
   try {
@@ -268,18 +292,18 @@ async function goTo(target: number): Promise<void> {
 }
 
 function setOrder(next: Order): void {
-  void router.push({ query: { ...filtersToQuery(filters.value), order: next === 'severity' ? undefined : next, view: viewToQuery(view.value) } })
+  void router.push({ query: { ...filtersToQuery(filters.value), order: next === 'severity' ? undefined : next, view: viewToQuery(view.value), tab: 'list' } })
 }
 
 /** List or by check: the filters and the order stay, the page goes back to 1. */
 function setView(next: View): void {
   if (next === view.value) return
-  void router.push({ query: { ...filtersToQuery(filters.value), order: route.query.order, view: viewToQuery(next) } })
+  void router.push({ query: { ...filtersToQuery(filters.value), order: route.query.order, view: viewToQuery(next), tab: 'list' } })
 }
 
 /** A check's group opens the list filtered to it (the Check and Tool filters show it). */
 function openGroup(g: Schemas['FindingGroupOut']): void {
-  void router.push({ query: { ...filtersToQuery(groupFilters(filters.value, g)), order: route.query.order } })
+  void router.push({ query: { ...filtersToQuery(groupFilters(filters.value, g)), order: route.query.order, tab: 'list' } })
 }
 
 function onGroupClick(event: MouseEvent, g: Schemas['FindingGroupOut']): void {
@@ -360,276 +384,294 @@ const VIEWS: { value: View; label: string }[] = [
     <template v-else-if="loaded">No scan yet</template>
   </PageHeader>
 
-  <AlertBanner v-if="single != null" kind="info">
-    Showing one finding from its link.
-    <template #action><RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'misconfigurations' }">Show all misconfigurations</RouterLink></template>
-  </AlertBanner>
-  <FilterBar v-else label="Filter misconfigurations" :active="filtered" @clear="clearFilters">
-    <span v-if="resourceId" class="filter-chip" :title="resource.data.value?.resource_uid">
-      Resource: <span class="mono">{{ resourceChip }}</span>
-      <button type="button" class="icon-btn chip-x" aria-label="Remove resource filter" @click="removeResource">
-        <AppIcon name="cross" :size="14" :stroke="2.2" />
-      </button>
-    </span>
-    <div class="field search">
-      <label class="lbl" for="f-q">Search</label>
-      <span class="search-wrap">
-        <AppIcon name="search" :size="16" class="search-icon" />
-        <input id="f-q" v-model="search" class="input" type="search" placeholder="Search by title, check or resource" maxlength="200" autocomplete="off">
+  <InvestigateTabs v-if="single == null" :model-value="tab" label="Misconfigurations views" id-prefix="mis" @update:model-value="setTab" />
+
+  <div v-if="tab === 'summary'" id="mis-summary" role="tabpanel" aria-labelledby="mis-tab-summary" class="tabpanel">
+    <MisconfigurationSummary :connection-id="summaryAccount" :connections="connections.data.value" @select-connection="selectAccount" />
+  </div>
+
+  <div v-else id="mis-list" :role="single == null ? 'tabpanel' : undefined" :aria-labelledby="single == null ? 'mis-tab-list' : undefined" class="tabpanel">
+    <AlertBanner v-if="single != null" kind="info">
+      Showing one finding from its link.
+      <template #action><RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'misconfigurations', query: { tab: 'list' } }">Show all misconfigurations</RouterLink></template>
+    </AlertBanner>
+    <FilterBar v-else label="Filter misconfigurations" :active="filtered" @clear="clearFilters">
+      <span v-if="resourceId" class="filter-chip" :title="resource.data.value?.resource_uid">
+        Resource: <span class="mono">{{ resourceChip }}</span>
+        <button type="button" class="icon-btn chip-x" aria-label="Remove resource filter" @click="removeResource">
+          <AppIcon name="cross" :size="14" :stroke="2.2" />
+        </button>
       </span>
-    </div>
-    <MultiSelect
-      id="f-sev"
-      label="Severity"
-      :options="severityOptions"
-      :model-value="filters.severity"
-      @update:model-value="set('severity', $event as Severity[])"
-    />
-    <div class="field">
-      <label class="lbl" for="f-state">State</label>
-      <select id="f-state" class="select" :value="filters.state" @change="set('state', ($event.target as HTMLSelectElement).value as FindingState)">
-        <option value="open">Open</option>
-        <option value="reopened">Reopened</option>
-        <option value="resolved">Resolved</option>
-        <option value="accepted_risk">Accepted risk</option>
-      </select>
-    </div>
-    <MultiSelect
-      id="f-conn"
-      label="Connection"
-      :options="connectionOptions"
-      :status="connections.error.value ? 'error' : connections.data.value ? 'ready' : 'loading'"
-      :model-value="filters.connection.map(String)"
-      @update:model-value="set('connection', $event.map(Number))"
-    />
-    <MultiSelect
-      id="f-provider"
-      label="Provider"
-      :options="providerOptions"
-      :model-value="filters.provider"
-      @update:model-value="set('provider', $event as Provider[])"
-    />
-    <MultiSelect id="f-tool" label="Tool" :options="toolOptions" :model-value="filters.tool" @update:model-value="set('tool', $event as Tool[])" />
-    <MultiSelect
-      id="f-cat"
-      label="Category"
-      :options="categoryOptions"
-      :status="facetStatus"
-      :model-value="filters.category"
-      @update:model-value="set('category', $event)"
-    />
-    <button type="button" class="btn btn-secondary more-btn" :aria-expanded="more" aria-controls="f-more" @click="more = !more">
-      More filters<template v-if="moreCount"> · {{ moreCount }}</template>
-      <AppIcon name="chevron" :size="16" :stroke="2" class="more-chev" />
-    </button>
-    <template #after>
-      <div v-show="more" id="f-more" class="more-row">
-        <MultiSelect
-          id="f-svc"
-          label="Service"
-          :options="serviceOptions"
-          :status="facetStatus"
-          :model-value="filters.service"
-          @update:model-value="set('service', $event)"
-        />
-        <MultiSelect
-          id="f-type"
-          label="Resource type"
-          :options="typeOptions"
-          :status="facetStatus"
-          :model-value="filters.type"
-          @update:model-value="set('type', $event)"
-        />
-        <MultiSelect
-          id="f-check"
-          label="Check"
-          :options="checkOptions"
-          :status="facetStatus"
-          :model-value="filters.check"
-          @update:model-value="set('check', $event)"
-        />
-        <MultiSelect
-          id="f-reach"
-          label="Reach"
-          :options="reachOptions"
-          :model-value="filters.reach"
-          @update:model-value="set('reach', $event as FindingReach[])"
-        />
-        <MultiSelect
-          id="f-region"
-          label="Region"
-          :options="regionOptions"
-          :status="facetStatus"
-          :model-value="filters.region"
-          @update:model-value="set('region', $event)"
-        />
-        <MultiSelect
-          id="f-result"
-          label="Result"
-          :options="resultOptions"
-          :model-value="filters.result"
-          @update:model-value="set('result', $event as Result[])"
-        />
-        <div class="field">
-          <span id="f-muted" class="lbl">Muted</span>
-          <div class="segmented" role="group" aria-labelledby="f-muted">
-            <button
-              v-for="m in MUTED_CHOICES"
-              :key="m.value"
-              type="button"
-              :aria-pressed="filters.muted === m.value"
-              @click="set('muted', m.value)"
-            >
-              {{ m.label }}
-            </button>
+      <div class="field search">
+        <label class="lbl" for="f-q">Search</label>
+        <span class="search-wrap">
+          <AppIcon name="search" :size="16" class="search-icon" />
+          <input id="f-q" v-model="search" class="input" type="search" placeholder="Search by title, check or resource" maxlength="200" autocomplete="off">
+        </span>
+      </div>
+      <MultiSelect
+        id="f-sev"
+        label="Severity"
+        :options="severityOptions"
+        :model-value="filters.severity"
+        @update:model-value="set('severity', $event as Severity[])"
+      />
+      <div class="field">
+        <label class="lbl" for="f-state">State</label>
+        <select id="f-state" class="select" :value="filters.state" @change="set('state', ($event.target as HTMLSelectElement).value as FindingState)">
+          <option value="open">Open</option>
+          <option value="reopened">Reopened</option>
+          <option value="resolved">Resolved</option>
+          <option value="accepted_risk">Accepted risk</option>
+        </select>
+      </div>
+      <MultiSelect
+        id="f-conn"
+        label="Connection"
+        :options="connectionOptions"
+        :status="connections.error.value ? 'error' : connections.data.value ? 'ready' : 'loading'"
+        :model-value="filters.connection.map(String)"
+        @update:model-value="set('connection', $event.map(Number))"
+      />
+      <MultiSelect
+        id="f-provider"
+        label="Provider"
+        :options="providerOptions"
+        :model-value="filters.provider"
+        @update:model-value="set('provider', $event as Provider[])"
+      />
+      <MultiSelect id="f-tool" label="Tool" :options="toolOptions" :model-value="filters.tool" @update:model-value="set('tool', $event as Tool[])" />
+      <MultiSelect
+        id="f-cat"
+        label="Category"
+        :options="categoryOptions"
+        :status="facetStatus"
+        :model-value="filters.category"
+        @update:model-value="set('category', $event)"
+      />
+      <button type="button" class="btn btn-secondary more-btn" :aria-expanded="more" aria-controls="f-more" @click="more = !more">
+        More filters<template v-if="moreCount"> · {{ moreCount }}</template>
+        <AppIcon name="chevron" :size="16" :stroke="2" class="more-chev" />
+      </button>
+      <template #after>
+        <div v-show="more" id="f-more" class="more-row">
+          <MultiSelect
+            id="f-svc"
+            label="Service"
+            :options="serviceOptions"
+            :status="facetStatus"
+            :model-value="filters.service"
+            @update:model-value="set('service', $event)"
+          />
+          <MultiSelect
+            id="f-type"
+            label="Resource type"
+            :options="typeOptions"
+            :status="facetStatus"
+            :model-value="filters.type"
+            @update:model-value="set('type', $event)"
+          />
+          <MultiSelect
+            id="f-check"
+            label="Check"
+            :options="checkOptions"
+            :status="facetStatus"
+            :model-value="filters.check"
+            @update:model-value="set('check', $event)"
+          />
+          <MultiSelect
+            id="f-reach"
+            label="Reach"
+            :options="reachOptions"
+            :model-value="filters.reach"
+            @update:model-value="set('reach', $event as FindingReach[])"
+          />
+          <MultiSelect
+            id="f-region"
+            label="Region"
+            :options="regionOptions"
+            :status="facetStatus"
+            :model-value="filters.region"
+            @update:model-value="set('region', $event)"
+          />
+          <MultiSelect
+            id="f-result"
+            label="Result"
+            :options="resultOptions"
+            :model-value="filters.result"
+            @update:model-value="set('result', $event as Result[])"
+          />
+          <div class="field">
+            <span id="f-muted" class="lbl">Muted</span>
+            <div class="segmented" role="group" aria-labelledby="f-muted">
+              <button
+                v-for="m in MUTED_CHOICES"
+                :key="m.value"
+                type="button"
+                :aria-pressed="filters.muted === m.value"
+                @click="set('muted', m.value)"
+              >
+                {{ m.label }}
+              </button>
+            </div>
           </div>
+          <label class="check new-check">
+            <input type="checkbox" :checked="filters.new" @change="set('new', ($event.target as HTMLInputElement).checked)">
+            New in latest scan
+          </label>
+          <fieldset class="field first-seen">
+            <legend class="lbl">First seen</legend>
+            <span class="dates">
+              <label class="sr-only" for="f-seen-from">First seen on or after</label>
+              <input id="f-seen-from" class="input date" type="date" :value="filters.firstSeenFrom" :max="filters.firstSeenTo || undefined" @change="set('firstSeenFrom', ($event.target as HTMLInputElement).value)">
+              <span aria-hidden="true">to</span>
+              <label class="sr-only" for="f-seen-to">First seen on or before</label>
+              <input id="f-seen-to" class="input date" type="date" :value="filters.firstSeenTo" :min="filters.firstSeenFrom || undefined" @change="set('firstSeenTo', ($event.target as HTMLInputElement).value)">
+            </span>
+          </fieldset>
         </div>
-        <label class="check new-check">
-          <input type="checkbox" :checked="filters.new" @change="set('new', ($event.target as HTMLInputElement).checked)">
-          New in latest scan
-        </label>
-      </div>
-    </template>
-  </FilterBar>
+      </template>
+    </FilterBar>
 
-  <!-- The Platform's list panel: a header bar, the table edge to edge, a footer bar. -->
-  <section class="card panel" aria-labelledby="findings-h">
-    <div class="panel-h view-h">
-      <div class="titles">
-        <h2 id="findings-h" class="h2">{{ shown === 'checks' ? 'Checks with findings' : 'Prowler and CloudFox findings' }}</h2>
-        <span v-if="single != null" class="cap">One finding, from its own link. Read-only.</span>
-        <span v-else-if="shown === 'checks'" class="cap">{{ GROUP_ORDER_NOTE[order] }} Read-only.</span>
-        <span v-else class="cap">{{ ORDER_NOTE[order] }} Read-only.</span>
+    <!-- The Platform's list panel: a header bar, the table edge to edge, a footer bar. -->
+    <section class="card panel" aria-labelledby="findings-h">
+      <div class="panel-h view-h">
+        <div class="titles">
+          <h2 id="findings-h" class="h2">{{ shown === 'checks' ? 'Checks with findings' : 'Prowler and CloudFox findings' }}</h2>
+          <span v-if="single != null" class="cap">One finding, from its own link. Read-only.</span>
+          <span v-else-if="shown === 'checks'" class="cap">{{ GROUP_ORDER_NOTE[order] }} Read-only.</span>
+          <span v-else class="cap">{{ ORDER_NOTE[order] }} Read-only.</span>
+        </div>
+        <div v-if="single == null" class="segmented" role="group" aria-label="View">
+          <button v-for="v in VIEWS" :key="v.value" type="button" :aria-pressed="view === v.value" @click="setView(v.value)">{{ v.label }}</button>
+        </div>
       </div>
-      <div v-if="single == null" class="segmented" role="group" aria-label="View">
-        <button v-for="v in VIEWS" :key="v.value" type="button" :aria-pressed="view === v.value" @click="setView(v.value)">{{ v.label }}</button>
-      </div>
-    </div>
 
-    <div v-if="error" class="panel-body">
-      <AlertBanner kind="fail">
-        Findings didn't load: {{ error }}
-        <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load(page)">Retry</button></template>
-      </AlertBanner>
-    </div>
-    <div v-else-if="!loaded" aria-busy="true" class="panel-body loading"><div v-for="n in 5" :key="n" class="skeleton sk-44"></div></div>
-    <EmptyState v-else-if="noData" icon="flag" title="No misconfigurations yet." text="They appear after a Prowler or CloudFox scan is ingested.">
-      <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
-    </EmptyState>
-    <EmptyState v-else-if="rows === 0 && filtered" icon="info" :title="shown === 'checks' ? 'No checks match these filters.' : 'No findings match these filters.'">
-      <button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button>
-    </EmptyState>
-    <EmptyState
-      v-else-if="rows === 0"
-      icon="check"
-      title="No open findings."
-      text="Every check that ran passed, or its findings were resolved."
-    />
-    <div v-else-if="shown === 'checks'" ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="findings-h" :aria-busy="loading">
-      <table class="table stackable stack-narrow dense findings-table groups-table">
-        <thead>
-          <tr>
-            <SortHeader
-              label="Severity"
-              :direction="order === 'severity' ? 'desc' : order === 'severity_asc' ? 'asc' : null"
-              desc-text="worst first"
-              asc-text="least severe first"
-              @toggle="sortBySeverity"
-            /><th scope="col">Check</th><th scope="col" class="right">Findings</th><th scope="col" class="right">Accounts</th>
-            <SortHeader
-              label="Last seen"
-              class="right"
-              :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
-              desc-text="newest first"
-              asc-text="oldest first"
-              @toggle="toggleLastSeen"
-            />
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="g in groups" :key="`${g.tool}|${g.check_id}`" class="row" @click="onGroupClick($event, g)">
-            <td data-label="Severity"><SeverityTag :severity="g.severity" /></td>
-            <td data-label="Check" class="finding">
-              <button type="button" class="title group-link" :title="g.title" :aria-label="`Show the ${int(g.findings)} findings of ${g.title}`" @click="openGroup(g)">{{ g.title }}</button>
-              <span class="meta"><ToolChip :tool="g.tool" /><span class="mono check">{{ g.check_id }}</span></span>
-            </td>
-            <td data-label="Findings" class="right mono">{{ int(g.findings) }}</td>
-            <td data-label="Accounts" class="right mono">{{ int(g.connections) }}</td>
-            <td data-label="Last seen" class="right mono">{{ g.last_seen }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div v-else ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="findings-h" :aria-busy="loading">
-      <table class="table stackable stack-narrow dense findings-table">
-        <thead>
-          <tr>
-            <SortHeader
-              label="Severity"
-              :direction="order === 'severity' ? 'desc' : order === 'severity_asc' ? 'asc' : null"
-              desc-text="worst first"
-              asc-text="least severe first"
-              @toggle="sortBySeverity"
-            /><th scope="col">Finding</th><th scope="col">Resource</th><th scope="col">Connection</th><th scope="col">State</th>
-            <SortHeader
-              label="Last seen"
-              class="right"
-              :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
-              desc-text="newest first"
-              asc-text="oldest first"
-              @toggle="toggleLastSeen"
-            /><th scope="col"><span class="sr-only">Details</span></th>
-          </tr>
-        </thead>
-        <tbody>
-          <template v-for="f in findings" :key="f.id">
-            <tr class="row" :class="{ expanded: open.has(f.id) }" @click="onRowClick($event, f.id)">
-              <td data-label="Severity"><SeverityTag :severity="f.severity" /></td>
-              <!-- Two lines (2026-10-31 review): Prowler's result for this resource leads, the
+      <div v-if="error" class="panel-body">
+        <AlertBanner kind="fail">
+          Findings didn't load: {{ error }}
+          <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load(page)">Retry</button></template>
+        </AlertBanner>
+      </div>
+      <div v-else-if="!loaded" aria-busy="true" class="panel-body loading"><div v-for="n in 5" :key="n" class="skeleton sk-44"></div></div>
+      <EmptyState v-else-if="noData" icon="flag" title="No misconfigurations yet." text="They appear after a Prowler or CloudFox scan is ingested.">
+        <RouterLink class="btn btn-ghost" :to="{ name: 'schedules' }">Go to Schedules</RouterLink>
+      </EmptyState>
+      <EmptyState v-else-if="rows === 0 && filtered" icon="info" :title="shown === 'checks' ? 'No checks match these filters.' : 'No findings match these filters.'">
+        <button type="button" class="btn btn-secondary" @click="clearFilters">Clear filters</button>
+      </EmptyState>
+      <EmptyState
+        v-else-if="rows === 0"
+        icon="check"
+        title="No open findings."
+        text="Every check that ran passed, or its findings were resolved."
+      />
+      <div v-else-if="shown === 'checks'" ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="findings-h" :aria-busy="loading">
+        <table class="table stackable stack-narrow dense findings-table groups-table">
+          <thead>
+            <tr>
+              <SortHeader
+                label="Severity"
+                :direction="order === 'severity' ? 'desc' : order === 'severity_asc' ? 'asc' : null"
+                desc-text="worst first"
+                asc-text="least severe first"
+                @toggle="sortBySeverity"
+              /><th scope="col">Check</th><th scope="col" class="right">Findings</th><th scope="col" class="right">Accounts</th>
+              <SortHeader
+                label="Last seen"
+                class="right"
+                :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
+                desc-text="newest first"
+                asc-text="oldest first"
+                @toggle="toggleLastSeen"
+              />
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="g in groups" :key="`${g.tool}|${g.check_id}`" class="row" @click="onGroupClick($event, g)">
+              <td data-label="Severity"><SeverityTag :severity="g.severity" /></td>
+              <td data-label="Check" class="finding">
+                <button type="button" class="title group-link" :title="g.title" :aria-label="`Show the ${int(g.findings)} findings of ${g.title}`" @click="openGroup(g)">{{ g.title }}</button>
+                <span class="meta"><ToolChip :tool="g.tool" /><span class="mono check">{{ g.check_id }}</span></span>
+              </td>
+              <td data-label="Findings" class="right mono">{{ int(g.findings) }}</td>
+              <td data-label="Accounts" class="right mono">{{ int(g.connections) }}</td>
+              <td data-label="Last seen" class="right mono">{{ g.last_seen }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else ref="table" class="table-wrap table-fit" tabindex="-1" aria-labelledby="findings-h" :aria-busy="loading">
+        <table class="table stackable stack-narrow dense findings-table">
+          <thead>
+            <tr>
+              <SortHeader
+                label="Severity"
+                :direction="order === 'severity' ? 'desc' : order === 'severity_asc' ? 'asc' : null"
+                desc-text="worst first"
+                asc-text="least severe first"
+                @toggle="sortBySeverity"
+              /><th scope="col">Finding</th><th scope="col">Resource</th><th scope="col">Connection</th><th scope="col">State</th>
+              <SortHeader
+                label="Last seen"
+                class="right"
+                :direction="order === 'last_seen_desc' ? 'desc' : order === 'last_seen_asc' ? 'asc' : null"
+                desc-text="newest first"
+                asc-text="oldest first"
+                @toggle="toggleLastSeen"
+              /><th scope="col"><span class="sr-only">Details</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="f in findings" :key="f.id">
+              <tr class="row" :class="{ expanded: open.has(f.id) }" @click="onRowClick($event, f.id)">
+                <td data-label="Severity"><SeverityTag :severity="f.severity" /></td>
+                <!-- Two lines (2026-10-31 review): Prowler's result for this resource leads, the
                    check's title (its passing condition) follows; other tools keep their title. -->
-              <td data-label="Finding" class="finding">
-                <span class="title" :title="findingLine(f).lead">{{ findingLine(f).lead }}</span>
-                <span class="meta">
-                  <ToolChip :tool="f.tool" />
-                  <span v-if="findingLine(f).check" class="check-title" :title="findingLine(f).check!">Check: {{ findingLine(f).check }}</span>
-                  <ReachBadge :reach="f.reach" :reason="f.reach_reason" />
-                </span>
-              </td>
-              <td data-label="Resource" class="resource">
-                <span class="mono" :title="f.resource_uid">{{ resourceCell(f) }}</span>
-                <span v-if="f.resource_id == null" class="cap">Not in inventory</span>
-              </td>
-              <td data-label="Connection">
-                <span class="conn"><ProviderTag :provider="f.provider" /><span class="conn-name">{{ f.connection }}</span></span>
-                <span class="mono region">{{ regionLabel(f.region) }}</span>
-              </td>
-              <td data-label="State">
-                <span class="states">
-                  <StatusBadge :status="f.state" />
-                  <span v-if="f.muted" class="chip">Muted</span>
-                  <span v-if="isNew(f)" class="chip">New</span>
-                </span>
-              </td>
-              <td data-label="Last seen" class="right mono">{{ f.last_seen }}</td>
-              <td data-label="">
-                <button type="button" class="icon-btn chev" :aria-expanded="open.has(f.id)" :aria-label="`${open.has(f.id) ? 'Hide' : 'Show'} details of ${findingLine(f).lead}`" @click="toggle(f.id)">
-                  <AppIcon name="chevron" :size="16" :stroke="2" />
-                </button>
-              </td>
-            </tr>
-            <tr v-if="open.has(f.id)" class="detail">
-              <td colspan="7">
-                <FindingDetail :finding="f" :preloaded="single != null ? singleDetail : null" :own-link="single == null" />
-              </td>
-            </tr>
-          </template>
-        </tbody>
-      </table>
-    </div>
-    <div v-if="rows && single == null" class="panel-foot">
-      <AppPagination :total="total" :capped="capped" :page="page" :limit="PAGE" :noun="shown === 'checks' ? 'check' : undefined" @change="goTo" />
-    </div>
-  </section>
+                <td data-label="Finding" class="finding">
+                  <span class="title" :title="findingLine(f).lead">{{ findingLine(f).lead }}</span>
+                  <span class="meta">
+                    <ToolChip :tool="f.tool" />
+                    <span v-if="findingLine(f).check" class="check-title" :title="findingLine(f).check!">Check: {{ findingLine(f).check }}</span>
+                    <ReachBadge :reach="f.reach" :reason="f.reach_reason" />
+                  </span>
+                </td>
+                <td data-label="Resource" class="resource">
+                  <span class="mono" :title="f.resource_uid">{{ resourceCell(f) }}</span>
+                  <span v-if="f.resource_id == null" class="cap">Not in inventory</span>
+                </td>
+                <td data-label="Connection">
+                  <span class="conn"><ProviderTag :provider="f.provider" /><span class="conn-name">{{ f.connection }}</span></span>
+                  <span class="mono region">{{ regionLabel(f.region) }}</span>
+                </td>
+                <td data-label="State">
+                  <span class="states">
+                    <StatusBadge :status="f.state" />
+                    <span v-if="f.muted" class="chip">Muted</span>
+                    <span v-if="isNew(f)" class="chip">New</span>
+                  </span>
+                </td>
+                <td data-label="Last seen" class="right mono">{{ f.last_seen }}</td>
+                <td data-label="">
+                  <button type="button" class="icon-btn chev" :aria-expanded="open.has(f.id)" :aria-label="`${open.has(f.id) ? 'Hide' : 'Show'} details of ${findingLine(f).lead}`" @click="toggle(f.id)">
+                    <AppIcon name="chevron" :size="16" :stroke="2" />
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="open.has(f.id)" class="detail">
+                <td colspan="7">
+                  <FindingDetail :finding="f" :preloaded="single != null ? singleDetail : null" :own-link="single == null" />
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div v-if="rows && single == null" class="panel-foot">
+        <AppPagination :total="total" :capped="capped" :page="page" :limit="PAGE" :noun="shown === 'checks' ? 'check' : undefined" @change="goTo" />
+      </div>
+    </section>
+  </div>
 </template>
 
 <style scoped>
@@ -678,6 +720,30 @@ const VIEWS: { value: View; label: string }[] = [
 
 .new-check {
   min-height: var(--control-h);
+}
+
+.tabpanel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-16); /* as the shell's main column, which held these blocks before the tabs */
+}
+
+.first-seen {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.dates {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-6);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.date {
+  width: 150px;
 }
 
 .search-wrap {
