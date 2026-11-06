@@ -181,6 +181,15 @@ def test_prowler_runs_read_only_in_the_regions_set(fakes: Path) -> None:
     assert SECRET not in manifest.command
 
 
+def test_prowler_retries_as_often_as_the_other_tools(fakes: Path) -> None:
+    # Prowler's own botocore Config wins over AWS_MAX_ATTEMPTS, so it needs the flag.
+    _run(fakes, "prowler")
+    argv = (fakes / "homes" / "argv.txt").read_text()
+    env = (fakes / "homes" / "env-prowler.txt").read_text()
+    assert f"--aws-retries-max-attempts {aws_tools.AWS_MAX_ATTEMPTS} " in argv
+    assert f"AWS_MAX_ATTEMPTS={aws_tools.AWS_MAX_ATTEMPTS}\n" in env
+
+
 def test_a_tool_sees_its_profile_and_nothing_of_argus(fakes: Path) -> None:
     _run(fakes, "prowler")
     env = (fakes / "homes" / "env-prowler.txt").read_text()
