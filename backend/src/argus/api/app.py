@@ -70,7 +70,7 @@ def _busy(_: Request, __: Exception) -> JSONResponse:
 def create_app() -> FastAPI:
     app = FastAPI(
         title="CatherIs Argus API",
-        version="0.1.4",
+        version="0.2.0",
         # The OpenAPI document is a build-time contract (entrypoints/openapi.py renders it from
         # the routes), never served: unauthenticated, it would map every endpoint and field.
         openapi_url=None,

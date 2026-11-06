@@ -1,7 +1,7 @@
 # Connecting AWS accounts
 
 **Owner:** `cloud-native-platform-engineer` (procedure) · `documentation-writer` (document)
-**Applies to:** Argus 0.1.4 (2026-11-04), on Docker Compose or Kubernetes
+**Applies to:** Argus 0.2.0 (2026-11-06), on Docker Compose or Kubernetes
 
 Argus scans an AWS account by assuming a **read-only scanner role** in it. This page sets that
 up: the identity Argus signs in with, the bucket its raw output goes to, the role in each
