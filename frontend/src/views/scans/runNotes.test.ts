@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commandLabel, cooldownNote, encryptionLabel, partialReason, partialTables, partialTablesNote, refusedBecause, regionsLabel, shortRunId, storedWithoutKms, triggerLabel } from './runNotes'
+import { commandLabel, cooldownNote, encryptionLabel, partialReason, partialTables, partialTablesNote, refusedBecause, regionsLabel, shortRunId, storedWithoutKms, tableReasons, triggerLabel } from './runNotes'
 
 describe('run notes', () => {
   it('flags raw output stored without KMS only', () => {
@@ -50,6 +50,10 @@ describe('run notes', () => {
     expect(partialReason({ throttle_events: 1, denied_actions: [] })).toBe('the tool was throttled 1 time, so some results may be missing')
     expect(partialReason({ throttle_events: 0, denied_actions: ['s3:GetBucketPolicy'] })).toBe('some data was not readable (below)')
     expect(partialReason({ throttle_events: 0, denied_actions: [] })).toBe('the tool stopped early')
+    // Blocked outside the role is missing data too (owner, 2026-11-05).
+    expect(partialReason({ throttle_events: 0, denied_actions: [], blocked_actions: ['s3:ListAllMyBuckets (VPC endpoint policy)'] })).toBe(
+      'some data was not readable (below)',
+    )
   })
 
   it('leaves tables not used in the account, or refused by a resource, out of the partial ones', () => {
@@ -70,5 +74,16 @@ describe('a partial run, per tool', () => {
       "Partial: the vulnerability scanner's findings export failed, was denied or was throttled. No vulnerability was resolved by this run, and those already open stay open.",
     )
     expect(partialTablesNote('steampipe', 3)).toMatch(/^Partial: 3 of the tables failed, were denied or were throttled\. Their resources were carried forward/)
+  })
+})
+
+describe('tableReasons', () => {
+  it('finds each table its reason, and none on runs from before reasons were kept', () => {
+    const reasons = tableReasons({
+      table_errors: [{ table: 'aws_s3_bucket', reason: 'S3: ListBuckets (HTTP 403): AccessDenied: no VPC endpoint policy allows it' }],
+    })
+    expect(reasons.get('aws_s3_bucket')).toMatch(/^S3: ListBuckets/)
+    expect(reasons.get('aws_sns_topic')).toBeUndefined()
+    expect(tableReasons({}).size).toBe(0)
   })
 })

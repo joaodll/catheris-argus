@@ -27,6 +27,16 @@ class RunTrigger(BaseModel):
     attempt: int
 
 
+class TableError(BaseModel):
+    table: str
+    reason: str  # the table's most telling error line, redacted, at most 300 characters
+
+
+def _table_errors(stored: list[str]) -> list[dict[str, str]]:
+    """scan_run.table_errors holds "<table>: <reason>"; a table name holds no colon."""
+    return [{"table": t, "reason": r} for t, _, r in (e.partition(": ") for e in stored)]
+
+
 class RunOut(BaseModel):
     id: int
     # The run's folder name in the raw archive: <prefix>/aws/<account>/<YYYY>/<MM>/<DD>/<run_uid>.
@@ -67,6 +77,12 @@ class RunOut(BaseModel):
     # those a resource refused. Neither makes the run partial.
     not_applicable_tables: list[str] = []
     refused_tables: list[str] = []
+    # Refused by a policy outside the role, "<action> (<policy type>)": a service or resource
+    # control policy, a permissions boundary, a session policy or a VPC endpoint policy. The
+    # data is missing, so the run is partial, but the fix is in that policy (owner, 2026-11-05).
+    blocked_actions: list[str] = []
+    # Steampipe and vulnerabilities: why each of incomplete_tables was left out.
+    table_errors: list[TableError] = []
     # None when the request behind the run is gone (runs from before requests were kept).
     trigger: RunTrigger | None = None
 
@@ -103,7 +119,11 @@ def list_runs(
     return RunPage(
         items=[
             RunOut.model_validate(
-                {**r, "trigger": vars(t) if (t := triggers.get(int(r["id"]))) else None}
+                {
+                    **r,
+                    "table_errors": _table_errors(r["table_errors"]),
+                    "trigger": vars(t) if (t := triggers.get(int(r["id"]))) else None,
+                }
             )
             for r in rows
         ],

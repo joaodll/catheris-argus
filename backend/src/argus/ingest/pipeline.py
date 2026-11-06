@@ -103,11 +103,12 @@ def register_run(conn: Connection, *, connection_id: int, raw_path: str, manifes
                                   snapshot_date, region_scope, status, started_at, finished_at,
                                   raw_path, exit_code, throttle_events, api_regions, log_tail,
                                   denied_actions, raw_encryption, command, incomplete_tables,
-                                  refused_actions, not_applicable_tables, refused_tables)
+                                  refused_actions, not_applicable_tables, refused_tables,
+                                  blocked_actions, table_errors)
             VALUES (:uid, :c, :tool, :version, :source, :day, :regions, :status, :started,
                     :finished, :path, :exit, :throttle, :api_regions, :log, :denied,
                     :encryption, :command, :incomplete, :refused, :not_applicable,
-                    :refused_tables)
+                    :refused_tables, :blocked, :table_errors)
             RETURNING id
         """),
         {
@@ -133,6 +134,9 @@ def register_run(conn: Connection, *, connection_id: int, raw_path: str, manifes
             "refused": manifest.refused_actions,
             "not_applicable": manifest.not_applicable_tables,
             "refused_tables": manifest.refused_tables,
+            "blocked": manifest.blocked_actions,
+            # Error lines from the tool: the manifest is input, so redact again.
+            "table_errors": [redact_text(e) for e in manifest.table_errors],
         },
     ).scalar_one()
     return scan_run_id

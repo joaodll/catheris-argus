@@ -72,6 +72,8 @@ class Outcome:
     refused_actions: list[str] = field(default_factory=list)  # by the resource's own policy
     not_applicable_tables: list[str] = field(default_factory=list)  # Steampipe only
     refused_tables: list[str] = field(default_factory=list)  # Steampipe only
+    blocked_actions: list[str] = field(default_factory=list)  # by a policy outside the role
+    table_errors: list[str] = field(default_factory=list)  # why each incomplete table
 
 
 class Source(Protocol):
@@ -232,4 +234,6 @@ def _manifest(
         refused_actions=outcome.refused_actions,
         not_applicable_tables=outcome.not_applicable_tables,
         refused_tables=outcome.refused_tables,
+        blocked_actions=outcome.blocked_actions,
+        table_errors=outcome.table_errors,  # redacted by tools.table_error, again by ingest
     )

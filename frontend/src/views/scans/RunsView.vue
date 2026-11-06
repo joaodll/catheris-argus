@@ -15,7 +15,7 @@ import ToolChip from '@/components/ToolChip.vue'
 import { useResource } from '@/composables/useResource'
 import { COLLECTORS, type Collector } from '@/tools'
 import { duration, elapsed, relative, utc, utcTime } from '@/format'
-import { commandLabel, encryptionLabel, partialReason, partialTables, partialTablesNote, regionsLabel, shortRunId, storedWithoutKms, triggerLabel } from './runNotes'
+import { commandLabel, encryptionLabel, partialReason, partialTables, partialTablesNote, regionsLabel, shortRunId, storedWithoutKms, tableReasons, triggerLabel } from './runNotes'
 
 type Tool = Collector
 type Status = 'complete' | 'partial' | 'failed' | 'running'
@@ -218,7 +218,7 @@ function fromSelect(value: string): string | null {
     </div>
     <label class="check">
       <input v-model="missingPermissions" type="checkbox">
-      Missing permissions only
+      Missing or blocked permissions only
     </label>
   </FilterBar>
 
@@ -276,6 +276,7 @@ function fromSelect(value: string): string | null {
                     status="warning"
                     :label="`${r.denied_actions.length} permission${r.denied_actions.length === 1 ? '' : 's'} missing`"
                   />
+                  <StatusBadge v-if="r.blocked_actions.length" status="warning" :label="`${r.blocked_actions.length} blocked`" />
                   <StatusBadge v-if="storedWithoutKms(r)" status="warning" label="No KMS" />
                 </span>
                 <span v-if="r.exit_code != null && r.exit_code !== 0" class="sub mono bad">Exit {{ r.exit_code }}</span>
@@ -299,7 +300,7 @@ function fromSelect(value: string): string | null {
                     <details class="tables">
                       <summary>Show the {{ partialTables(r).length }} table{{ partialTables(r).length === 1 ? '' : 's' }}</summary>
                       <ul class="denied mono">
-                        <li v-for="t in partialTables(r)" :key="t">{{ t }}</li>
+                        <li v-for="t in partialTables(r)" :key="t">{{ t }}<span v-if="tableReasons(r).get(t)" class="reason">{{ tableReasons(r).get(t) }}</span></li>
                       </ul>
                     </details>
                   </AlertBanner>
@@ -315,18 +316,27 @@ function fromSelect(value: string): string | null {
                       <li v-for="a in r.denied_actions" :key="a">{{ a }}</li>
                     </ul>
                   </AlertBanner>
+                  <AlertBanner v-if="r.blocked_actions.length" kind="warn">
+                    <strong>Blocked outside the role.</strong> A policy outside the scanner role refused these actions: a VPC endpoint
+                    policy on the network the scans run from, a service or resource control policy, a permissions boundary or a
+                    session policy. Their data is missing from this run. Adding them to the role will not help: allow these read
+                    actions in the policy named beside each one, then run again. The AWS setup guide has the VPC endpoint statements.
+                    <ul class="denied mono">
+                      <li v-for="a in r.blocked_actions" :key="a">{{ a }}</li>
+                    </ul>
+                  </AlertBanner>
                   <AlertBanner v-if="r.refused_actions.length || r.refused_tables.length" kind="info">
                     <strong>Refused by a policy.</strong> A resource's own policy refused the scanner (a KMS key whose key policy does
-                    not hand access to IAM, a service the account does not own), or an explicit Deny did: the scanner role's own, which
-                    keeps secret values, code, log content and API keys out of reach on purpose, or a service control policy. Do not add
-                    these to the role. Their data was carried forward and the run is not partial because of it.
+                    not hand access to IAM, a service the account does not own), or an explicit Deny in the scanner role did: its own
+                    denies keep secret values, code, log content and API keys out of reach on purpose. Do not add these to the role.
+                    Their data was carried forward and the run is not partial because of it.
                     <ul v-if="r.refused_actions.length" class="denied mono">
                       <li v-for="a in r.refused_actions" :key="a">{{ a }}</li>
                     </ul>
                     <details v-if="r.refused_tables.length" class="tables">
                       <summary>Show the {{ r.refused_tables.length }} table{{ r.refused_tables.length === 1 ? '' : 's' }}</summary>
                       <ul class="denied mono">
-                        <li v-for="t in r.refused_tables" :key="t">{{ t }}</li>
+                        <li v-for="t in r.refused_tables" :key="t">{{ t }}<span v-if="tableReasons(r).get(t)" class="reason">{{ tableReasons(r).get(t) }}</span></li>
                       </ul>
                     </details>
                   </AlertBanner>
@@ -338,7 +348,7 @@ function fromSelect(value: string): string | null {
                     <details class="tables">
                       <summary>Show the {{ r.not_applicable_tables.length }} table{{ r.not_applicable_tables.length === 1 ? '' : 's' }}</summary>
                       <ul class="denied mono">
-                        <li v-for="t in r.not_applicable_tables" :key="t">{{ t }}</li>
+                        <li v-for="t in r.not_applicable_tables" :key="t">{{ t }}<span v-if="tableReasons(r).get(t)" class="reason">{{ tableReasons(r).get(t) }}</span></li>
                       </ul>
                     </details>
                   </AlertBanner>
@@ -584,6 +594,15 @@ td.right .sub {
   margin: var(--s-6) 0 0;
   padding-left: var(--s-20);
   font-size: 12px;
+}
+
+/* Why a table was left out: AWS's answer under the table's name, wrapped, never scrolled. */
+.denied .reason {
+  display: block;
+  margin: 2px 0 var(--s-4);
+  font-size: 11px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
 }
 
 .runs-table td {

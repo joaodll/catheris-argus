@@ -14,6 +14,18 @@ MANIFEST_NAME = "manifest.json"
 Tool = Literal["steampipe", "prowler", "cloudfox", "vulnerabilities"]
 RunStatus = Literal["complete", "partial", "failed"]
 MAX_DENIED_ACTIONS = 200
+# The policies outside the role that can refuse a call, as IAM's error messages name them.
+BLOCKING_POLICIES = (
+    "service control policy",
+    "resource control policy",
+    "permissions boundary",
+    "session policy",
+    "VPC endpoint policy",
+)
+BLOCKED_ACTION_PATTERN = r"^[A-Za-z0-9:*_-]{1,128} \((" + "|".join(BLOCKING_POLICIES) + r")\)$"
+# A table, then why it was left out. Table names hold no colon, so the first ": " splits it.
+MAX_TABLE_ERROR_CHARS = 300
+TABLE_ERROR_PATTERN = r"^aws_[a-z0-9_]{1,80}: [^\n]{1," + str(MAX_TABLE_ERROR_CHARS) + "}$"
 
 
 class ManifestFile(BaseModel):
@@ -80,3 +92,14 @@ class Manifest(BaseModel):
     # The tool's command line as Argus ran it (temporary paths shortened, no credential in it);
     # "" for the synthetic source and for manifests written before it was recorded.
     command: str = Field("", max_length=1000)
+    # Actions a policy outside the role refused, each with the policy's type as IAM names it:
+    # "s3:ListAllMyBuckets (VPC endpoint policy)". The data is missing, so they make the run
+    # partial, but the fix is in that policy, not the role (owner, 2026-11-05).
+    blocked_actions: list[Annotated[str, Field(pattern=BLOCKED_ACTION_PATTERN)]] = Field(
+        default_factory=list, max_length=MAX_DENIED_ACTIONS
+    )
+    # Steampipe and the vulnerabilities collector: why each table in incomplete_tables was left
+    # out, "<table>: <its first error line>", redacted and at most MAX_TABLE_ERROR_CHARS.
+    table_errors: list[Annotated[str, Field(pattern=TABLE_ERROR_PATTERN)]] = Field(
+        default_factory=list, max_length=1000
+    )
