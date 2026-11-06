@@ -35,6 +35,14 @@ server {
         return 429 '{"detail":"too many attempts"}';
     }
 
+    # Readiness and health checks: nginx itself, never the API. A Service keeps web while the API
+    # or its database is down, so the app can still load and say Argus can't be reached.
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
     location /api/ {
         include /etc/nginx/snippets/api-proxy.conf;
         proxy_pass http://${ARGUS_API_UPSTREAM};

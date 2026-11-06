@@ -5,7 +5,7 @@ import { api } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
 import AuthCard from '@/components/AuthCard.vue'
 import PasswordInput from '@/components/PasswordInput.vue'
-import { refreshSession } from '@/composables/useSession'
+import { apiUnreachable, refreshSession } from '@/composables/useSession'
 import { waitTime } from '@/format'
 
 const route = useRoute()
@@ -22,6 +22,7 @@ const tick = window.setInterval(() => (now.value = Date.now()), 1000)
 onScopeDispose(() => window.clearInterval(tick))
 
 const notice = computed(() => {
+  if (apiUnreachable.value) return "Argus can't reach its API right now. Sign in once it is back."
   if (route.query.reason === 'expired') return 'Your session ended. Sign in again.'
   if (route.query.reason === 'signed-out') return 'You signed out.'
   return null
@@ -57,6 +58,8 @@ async function submit(): Promise<void> {
       error.value = `Too many attempts. Try again in ${waitTime(seconds)}.`
     } else if (response.status === 401) {
       error.value = 'Wrong username or password.'
+    } else if (response.status === 502 || response.status === 504) {
+      error.value = "Argus can't reach its API. Try again in a moment."
     } else {
       error.value = 'Argus had a problem signing you in. Try again in a moment.'
     }
