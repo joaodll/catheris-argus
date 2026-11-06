@@ -46,6 +46,16 @@ class AwsAuth:
 
 
 @dataclass(frozen=True)
+class RoleChange:
+    """A change to an assume-role connection: a new role in the same account, a new ExternalId,
+    or the ExternalId removed. A field left as None keeps what is stored."""
+
+    role_arn: str | None = None
+    external_id: str | None = field(default=None, repr=False)
+    clear_external_id: bool = False
+
+
+@dataclass(frozen=True)
 class ConnectionRow:
     id: int
     name: str
@@ -221,11 +231,14 @@ def update(
     name: str | None = None,
     enabled: bool | None = None,
     access_key: AwsAuth | None = None,
+    role: RoleChange | None = None,
     client_ip: str | None = None,
 ) -> ConnectionRow:
-    """Rename, enable or disable, or replace an access key. A replacement is the whole set
-    (key id, secret, session token): a rotated IAM key or a new SSO session changes all three.
-    Connections are disabled, not deleted: their history references them."""
+    """Rename, enable or disable, replace an access key, or change an assume-role connection's
+    role and ExternalId. A replacement key is the whole set (key id, secret, session token): a
+    rotated IAM key or a new SSO session changes all three. A role stays in the connection's
+    account: the account is what the connection's history belongs to. Connections are disabled,
+    not deleted: their history references them."""
     current = get(conn, connection_id)
     if current is None:
         raise LookupError(connection_id)
@@ -239,6 +252,8 @@ def update(
             raise ConnectionError("only access-key connections have an access key to replace")
         _check_access_key(access_key)
         changes.update(_seal_access_key(current.account_id, access_key))
+    if role is not None:
+        changes.update(_role_changes(conn, current, role))
     if not changes:
         return current
     assignments = ", ".join(f"{column} = :{column}" for column in changes)
@@ -251,6 +266,14 @@ def update(
         ),
         {**changes, "actor": actor, "id": connection_id},
     ).one()
+    detail: dict[str, object] = {
+        "fields": sorted(
+            {"name", "enabled", "role_arn", "external_id"} & changes.keys()
+            | ({"access_key"} if access_key else set())
+        )
+    }
+    if "external_id" in changes:  # whether one is set after the change, never its value
+        detail["external_id"] = changes["external_id"] is not None
     audit.record(
         conn,
         actor=actor,
@@ -258,13 +281,35 @@ def update(
         target_type="connection",
         target_id=str(connection_id),
         client_ip=client_ip,
-        detail={
-            "fields": sorted(
-                {"name", "enabled"} & changes.keys() | ({"access_key"} if access_key else set())
-            )
-        },
+        detail=detail,
     )
     return ConnectionRow(*row)
+
+
+def _role_changes(conn: Connection, current: ConnectionRow, role: RoleChange) -> dict[str, object]:
+    """The columns a role change writes, checked as a new connection's would be. Only what
+    changes is written; the stored ExternalId is never read (the API's role cannot)."""
+    if current.auth_method != "assume_role":
+        raise ConnectionError("only assume-role connections have a role to change")
+    if role.external_id is not None and role.clear_external_id:
+        raise ConnectionError("set an external_id or clear it, not both")
+    if role.external_id == "":
+        raise ConnectionError("external_id is empty: clear it instead")
+    if role.role_arn is None and role.external_id is None and not role.clear_external_id:
+        raise ConnectionError("nothing to change in the role")
+    stored = conn.execute(
+        text("SELECT role_arn FROM connection WHERE id = :id"), {"id": current.id}
+    ).scalar_one()
+    role_arn = role.role_arn if role.role_arn is not None else stored
+    _check_aws(current.account_id, AwsAuth("assume_role", role_arn, role.external_id))
+    changes: dict[str, object] = {}
+    if role_arn != stored:
+        changes["role_arn"] = role_arn
+    if role.external_id is not None:
+        changes["external_id"] = role.external_id
+    elif role.clear_external_id:
+        changes["external_id"] = None
+    return changes
 
 
 def open_auth(conn: Connection, connection: ConnectionRow) -> AwsAuth:

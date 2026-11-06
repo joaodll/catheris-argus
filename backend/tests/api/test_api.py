@@ -10,6 +10,7 @@ from sqlalchemy import Engine, create_engine, text
 from tests.api.conftest import PASSWORD, csrf
 from tests.ingest.conftest import make_demo, run_tool
 
+from argus import connections
 from argus.api import deps
 from argus.auth import sessions
 from argus.auth.sessions import SignInError, TooManyAttemptsError, sign_in
@@ -374,6 +375,105 @@ def test_an_assume_role_connection_may_have_no_external_id(
         )
     assert [tuple(r) for r in stored] == [("blank-ext", None), ("no-ext", None)]
     assert audited == ["false", "false"]  # whether one is set, never its value
+
+
+def test_an_assume_role_connection_changes_its_role_in_its_own_account(
+    signed_in: TestClient, owner: Engine
+) -> None:
+    """Owner, 2026-11-06: the role and the ExternalId can change; the account cannot, since the
+    connection's history belongs to it. The ExternalId is never returned or audited."""
+    account = "210987654321"
+    created = signed_in.post(
+        "/api/v1/connections",
+        headers=csrf(signed_in),
+        json={
+            "kind": "aws",
+            "name": "prod",
+            "account_id": account,
+            "auth_method": "assume_role",
+            "role_arn": f"arn:aws:iam::{account}:role/HandBuilt",
+        },
+    )
+    assert created.status_code == 201, created.text
+    url = f"/api/v1/connections/{created.json()['id']}"
+    new_id = "argus-external-id-0002"
+    scanner = f"arn:aws:iam::{account}:role/ArgusScanner"
+
+    def patch(role: dict[str, object]) -> object:
+        return signed_in.patch(url, headers=csrf(signed_in), json={"assume_role": role})
+
+    def stored() -> tuple[str, str | None]:
+        with owner.connect() as conn:
+            row = conn.execute(text("SELECT role_arn, external_id FROM connection")).one()
+        return row.role_arn, row.external_id
+
+    # A new role and an ExternalId together; only that it is set comes back.
+    changed = patch({"role_arn": scanner, "external_id": new_id})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["role_arn"] == f"arn:aws:iam::{account}:role/ArgusScanner"
+    assert changed.json()["external_id_set"] is True and new_id not in changed.text
+    assert stored() == (f"arn:aws:iam::{account}:role/ArgusScanner", new_id)
+    with owner.connect() as conn:  # what the next scan or test assumes
+        row = connections.get(conn, created.json()["id"])
+        assert row is not None
+        auth = connections.open_auth(conn, row)
+    assert (auth.role_arn, auth.external_id) == (scanner, new_id)
+    # The ExternalId alone is replaced, then removed; the role stays.
+    assert patch({"external_id": "argus-external-id-0003"}).status_code == 200
+    assert stored() == (f"arn:aws:iam::{account}:role/ArgusScanner", "argus-external-id-0003")
+    cleared = patch({"clear_external_id": True})
+    assert cleared.status_code == 200 and cleared.json()["external_id_set"] is False
+    assert stored() == (f"arn:aws:iam::{account}:role/ArgusScanner", None)
+
+    refused = {
+        "another-account": {"role_arn": "arn:aws:iam::111111111111:role/ArgusScanner"},
+        "not-a-role": {"role_arn": f"arn:aws:iam::{account}:user/someone"},
+        "short-external-id": {"external_id": "too-short"},
+        "empty-external-id": {"external_id": ""},
+        "set-and-clear": {"external_id": new_id, "clear_external_id": True},
+        "nothing": {},
+    }
+    for case, role in refused.items():
+        assert patch(role).status_code == 422, case
+    assert stored() == (f"arn:aws:iam::{account}:role/ArgusScanner", None)
+
+    with owner.connect() as conn:
+        details = (
+            conn.execute(
+                text("SELECT detail FROM audit_log WHERE action = 'connection.update' ORDER BY id")
+            )
+            .scalars()
+            .all()
+        )
+    assert details == [
+        {"fields": ["external_id", "role_arn"], "external_id": True},
+        {"fields": ["external_id"], "external_id": True},
+        {"fields": ["external_id"], "external_id": False},
+    ]
+    assert new_id not in json.dumps(details)
+
+
+def test_an_access_key_connection_has_no_role_to_change(signed_in: TestClient) -> None:
+    created = signed_in.post(
+        "/api/v1/connections",
+        headers=csrf(signed_in),
+        json={
+            "kind": "aws",
+            "name": "local",
+            "account_id": "210987654321",
+            "auth_method": "access_key",
+            "access_key_id": "AKIA" + "Z" * 16,
+            "secret_access_key": SECRET,
+        },
+    )
+    assert created.status_code == 201
+    refused = signed_in.patch(
+        f"/api/v1/connections/{created.json()['id']}",
+        headers=csrf(signed_in),
+        json={"assume_role": {"role_arn": "arn:aws:iam::210987654321:role/ArgusScanner"}},
+    )
+    assert refused.status_code == 422
+    assert "only assume-role connections" in refused.json()["detail"]
 
 
 def test_an_access_key_connection_is_sealed_and_never_returned(
