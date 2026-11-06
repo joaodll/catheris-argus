@@ -67,6 +67,8 @@ from argus.core.redaction import (
         "signing_key",
         "ssh_key",
         "webhook_url",
+        "HeaderValue",
+        "header_value",
     ],
 )
 def test_secret_keys(key: str) -> None:
@@ -531,3 +533,28 @@ def test_no_key_a_rule_reads_is_masked() -> None:
     }
     assert len(read) > 50
     assert not {key for key in read if is_secret_key(key)}
+
+
+def test_a_cloudfront_origin_header_keeps_its_name_but_never_its_value() -> None:
+    """The shared secret between CloudFront and its origin: an ordinary header name, so only
+    the value's key says it is secret (owner, 2026-11-05)."""
+    value = "not-real-" + "origin-verify"
+    origins = {
+        "Items": [
+            {
+                "Id": "alb",
+                "DomainName": "app.example.com",
+                "CustomHeaders": {
+                    "Quantity": 1,
+                    "Items": [{"HeaderName": "X-Origin-Verify", "HeaderValue": value}],
+                },
+            }
+        ]
+    }
+    masked = redact({"origins": origins})
+    header = masked["origins"]["Items"][0]["CustomHeaders"]["Items"][0]
+    assert header == {"HeaderName": "X-Origin-Verify", "HeaderValue": REDACTED}
+    assert masked["origins"]["Items"][0]["DomainName"] == "app.example.com"
+    # A response header's value is sent to every browser: not a secret, and its key says Value.
+    policy = {"Items": [{"Header": "X-Frame-Options", "Value": "DENY", "Override": True}]}
+    assert redact({"custom_headers_config": policy}) == {"custom_headers_config": policy}

@@ -118,3 +118,35 @@ def test_secrets_in_json_text_are_redacted_per_key(tmp_path: Path) -> None:
     assert function.config["environment_variables"] == {
         "Variables": {"DB_PASSWORD": REDACTED, "STAGE": REDACTED}
     }
+
+
+def test_a_distributions_origin_header_value_never_reaches_the_configuration(
+    tmp_path: Path,
+) -> None:
+    """The shared secret between CloudFront and its origin, as the export writes the origins
+    column: JSON text in the SDK's own shape (owner, 2026-11-05)."""
+    value = "not-real-" + "origin-verify"
+    origins = [
+        {
+            "Id": "alb",
+            "DomainName": "app.example.com",
+            "CustomHeaders": {
+                "Quantity": 1,
+                "Items": [{"HeaderName": "X-Origin-Verify", "HeaderValue": value}],
+            },
+        }
+    ]
+    arn = f"arn:aws:cloudfront::{ACCOUNT}:distribution/E2EXAMPLE"
+    run = _run(
+        tmp_path,
+        {
+            "aws_cloudfront_distribution": [
+                {"arn": arn, "id": "E2EXAMPLE", "origins": json.dumps(origins)}
+            ]
+        },
+    )
+    (distribution,) = parse_steampipe(run).resources
+    assert value not in json.dumps(distribution.config)
+    (header,) = distribution.config["origins"][0]["CustomHeaders"]["Items"]
+    assert header == {"HeaderName": "X-Origin-Verify", "HeaderValue": REDACTED}
+    assert distribution.config["origins"][0]["DomainName"] == "app.example.com"

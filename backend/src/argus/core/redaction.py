@@ -53,6 +53,9 @@ _SECRET_PAIRS = frozenset(
 )
 # Secret only as the name's end: Authorization holds a credential, authorization_type says NONE or
 # IAM, which the rules read. encryption_key holds a key, encryption_key_arn names one.
+# HeaderValue: a CloudFront origin custom header ({"HeaderName", "HeaderValue"}) is the usual way
+# an origin checks a request came through CloudFront, so its value is a shared secret whatever
+# the header is called (X-Origin-Verify). The name stays (owner, 2026-11-05).
 _SECRET_LAST_WORDS = frozenset(
     {"authorization", "bearer", "cookie", "dsn", "pass", "sas", "signature", "webhook"}
 )
@@ -60,6 +63,7 @@ _SECRET_LAST_PAIRS = frozenset(
     {
         ("client", "key"),
         ("encryption", "key"),
+        ("header", "value"),
         ("license", "key"),
         ("master", "key"),
         ("session", "key"),
