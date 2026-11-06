@@ -1,0 +1,98 @@
+/* The layout every Investigate summary shares: stat tiles, the panel grid, panel heads and
+   bodies, loading and empty lines. Imported scoped by each summary. */
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-14);
+}
+
+.tile {
+  gap: var(--s-4);
+}
+
+.stat-value.none {
+  color: var(--text-3);
+}
+
+.meter {
+  display: flex;
+  gap: 1px;
+  height: 8px;
+  margin: var(--s-6) 0 var(--s-4);
+  overflow: hidden;
+  border-radius: 3px;
+}
+
+.meter .seg {
+  height: 100%;
+}
+
+.drill-link {
+  margin-top: var(--s-8);
+  align-self: flex-start;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-14);
+}
+
+.flow-row {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+@media (max-width: 1150px) {
+  .grid,
+  .flow-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.panel-h {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-12);
+}
+
+.count {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-10);
+}
+
+.fit {
+  container-type: inline-size;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+}
+
+.none-open {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.more {
+  margin: 0;
+}
+
+.more .drill-link {
+  margin-top: 0;
+  display: inline-flex;
+}
+
+p.cap {
+  margin: 0;
+}

@@ -47,6 +47,7 @@ from argus.findings.metrics import (
     MISCONFIGURATION_TOOLS,
     put_findings_metrics,
     put_misconfiguration_metrics,
+    put_vulnerability_metrics,
     rederive_scores,
 )
 from argus.findings.model import (
@@ -137,6 +138,7 @@ __all__ = [
     "parse_vulnerabilities",
     "put_findings_metrics",
     "put_misconfiguration_metrics",
+    "put_vulnerability_metrics",
     "rederive_scores",
     "remove_compliance_items",
     "resource_coverage",

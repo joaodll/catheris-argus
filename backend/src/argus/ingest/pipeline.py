@@ -4,7 +4,7 @@
     prowler    findings lifecycle + compliance -> findings metrics
     cloudfox   cloudfox edges + attacker findings
     vulnerabilities  CVE findings lifecycle + vulnerability facts + coverage, from the
-               provider's own scanner (ADR-0042)
+               provider's own scanner (ADR-0042) -> Vulnerabilities summary metrics
 
 A run that failed collection, or whose raw output cannot be trusted (no manifest, files that
 do not match it, an unsupported tool version), is recorded as failed, resolves nothing, and
@@ -45,6 +45,7 @@ from argus.findings import (
     parse_vulnerabilities,
     put_findings_metrics,
     put_misconfiguration_metrics,
+    put_vulnerability_metrics,
     rederive_scores,
     set_reach,
 )
@@ -75,7 +76,8 @@ TOOL_METRICS = {
     "prowler": FINDING_ADDITIVE_METRICS,
     # No metric: the Overview shows no CloudFox number, so its scan date ignores CloudFox.
     "cloudfox": [],
-    # No metric yet: the Overview does not show vulnerabilities (ADR-0042).
+    # None to carry: the Overview shows no vulnerability number, and the Vulnerabilities
+    # summary counts the finding table, which a failed run leaves as it was.
     VULNERABILITY_TOOL: [],
 }
 
@@ -329,10 +331,12 @@ def _cloudfox(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
 
 
 def _vulnerabilities(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
-    """CVEs touch no edge or metric (ADR-0042): one transaction, nothing re-evaluated."""
+    """CVEs touch no edge (ADR-0042): one transaction, nothing re-evaluated. Then the
+    Vulnerabilities summary's counts in the same transaction (ADR-0042 amended 2026-11-06);
+    the Overview shows no vulnerability number, so the tool has no Overview metric."""
     batch = parse_vulnerabilities(raw)
     with engine.begin() as conn:
-        return load_vulnerabilities(
+        loaded = load_vulnerabilities(
             conn,
             batch=batch,
             connection_id=run.connection_id,
@@ -340,6 +344,8 @@ def _vulnerabilities(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
             account_id=run.account_id,
             scan_run_id=run.scan_run_id,
         )
+        put_vulnerability_metrics(conn, connection_id=run.connection_id, day=run.day)
+    return loaded
 
 
 def ingest_run(

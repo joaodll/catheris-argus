@@ -6,7 +6,8 @@ scanner `aws-inspector`, today), parsed by its adapter into one VulnerabilityBat
 vulnerability finding is a finding like any other (lifecycle, snapshots, events, facets); this
 module adds what only a vulnerability has (finding_vulnerability) and what the scanner scans
 (vulnerability_coverage). Open CVEs are counted apart from Prowler's and CloudFox's findings:
-the Resources "Open findings" column leaves them out.
+the Resources "Open findings" column leaves them out. The Vulnerabilities summary's counts
+(vulnerabilities.* in metric_daily) are written after each load by findings.metrics.
 """
 
 from collections.abc import Callable

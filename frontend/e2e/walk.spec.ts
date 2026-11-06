@@ -487,6 +487,32 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await navLink(page, 'Vulnerabilities')
   await expect(page).toHaveURL(/\/investigate\/vulnerabilities$/)
   await expect(page.getByRole('heading', { level: 1, name: 'Vulnerabilities' })).toBeVisible()
+  // Summary | List (owner's decision 2026-11-06), as on Misconfigurations: every number opens the
+  // list that reproduces it.
+  const vulnTabs = page.getByRole('tablist', { name: 'Vulnerabilities views' })
+  await expect(vulnTabs.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
+  const exploit = page.locator('.stat-card').filter({ hasText: 'Public exploit' })
+  await expect(exploit.locator('.stat-value')).toHaveText(/^[\d,]+$/)
+  await expect(page.getByRole('heading', { level: 2, name: 'Fix status' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: 'Top CVEs' })).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'vulnerabilities summary')
+  await shot(page, '74-vulnerabilities-summary')
+  const exploitCount = (await exploit.locator('.stat-value').innerText()).trim()
+  await exploit.getByRole('link', { name: /Show in list$/ }).click()
+  await expect(page).toHaveURL(/tab=list/)
+  await expect(page).toHaveURL(/exploit=1/)
+  await expect(page).toHaveURL(/muted=hide/)
+  await expect(page.locator('.panel-foot .total')).toHaveText(new RegExp(`^${exploitCount} records?$`))
+  // An age column opens the list with the first-seen range that reproduces it.
+  await vulnTabs.getByRole('tab', { name: 'Summary' }).click()
+  const vulnAge = page.getByRole('link', { name: /^Under 30 days: / })
+  const vulnAgeCount = ((await vulnAge.getAttribute('aria-label')) ?? '').match(/^Under 30 days: ([\d,]+) open/)?.[1] ?? 'missing'
+  await vulnAge.click()
+  await expect(page).toHaveURL(/first_seen_from=/)
+  await expect(page.locator('.panel-foot .total')).toHaveText(new RegExp(`^${vulnAgeCount} records?$`))
+  // The list steps below start from a fresh list.
+  await page.goto('/investigate/vulnerabilities?tab=list')
   const cves = page.getByRole('table')
   await expect(cves.locator('tbody tr.row').first()).toContainText(/CVE-\d{4}-\d+|CWE-/)
   await axe(page, 'vulnerabilities')
@@ -618,7 +644,8 @@ test('light theme: every screen passes axe, and the toggle cycles', async ({ pag
     ['/posture/compliance/cis_6.0_aws', 'CIS Amazon Web Services Foundations Benchmark v6.0.0', 'L81-framework'],
     ['/investigate/misconfigurations', 'Misconfigurations', 'L70-misconfigurations'],
     ['/investigate/misconfigurations?tab=list', 'Misconfigurations', 'L71-misconfigurations-list'],
-    ['/investigate/vulnerabilities', 'Vulnerabilities', 'L75-vulnerabilities'],
+    ['/investigate/vulnerabilities', 'Vulnerabilities', 'L74-vulnerabilities-summary'],
+    ['/investigate/vulnerabilities?tab=list', 'Vulnerabilities', 'L75-vulnerabilities'],
     ['/investigate/resources', 'Resources', 'L72-resources'],
     ['/scans/schedules', 'Schedules', 'L30-schedules'],
     ['/scans/runs', 'Runs', 'L40-runs'],

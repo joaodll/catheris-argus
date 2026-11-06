@@ -12,6 +12,8 @@ counts per account, and two days of requirement results per account plus their r
 Vulnerabilities (ADR-0042, in AWS Inspector's shape): 50,000 CVE findings on connection 1's
 instances and functions (15 each, one in five resolved), with their vulnerability facts and
 coverage (one in seven not scanned).
+The Investigate summaries' rows (misconfigurations.*, vulnerabilities.*) for every account and
+the rollup, every day for 180 days: the worst case, as real accounts are counted on scan days.
 """
 
 import math
@@ -178,6 +180,7 @@ def _generate(conn: Connection) -> None:
         {"n": ACCOUNTS, "d": TODAY},
     )
     _generate_misconfiguration_metrics(conn)
+    _generate_vulnerability_metrics(conn)
     _generate_edges(conn)
     _generate_compliance(conn)
     _generate_vulnerabilities(conn)
@@ -211,6 +214,39 @@ def _generate_misconfiguration_metrics(conn: Connection) -> None:
                 FROM unnest(ARRAY['confirmed', 'restricted', 'unknown', 'not_covered']) r,
                      unnest(CAST(:sev AS text[])) s
               UNION ALL SELECT 'misconfigurations.events', e
+                FROM unnest(ARRAY['opened', 'reopened', 'resolved']) e) AS m(metric, dim)
+    """),
+        {"n": ACCOUNTS, "d": TODAY, "sev": list(SEVERITIES)},
+    )
+
+
+def _generate_vulnerability_metrics(conn: Connection) -> None:
+    """The Vulnerabilities summary's rows (metrics.summary), like the Misconfigurations ones:
+    about 170 rows per account and day: 3 resource types, 10 regions, 12 first-seen days, the
+    fix and exploit buckets, the suppressed ones and the day's events."""
+    conn.execute(
+        text("""
+        INSERT INTO metric_daily (snapshot_date, connection_id, metric, dimension, value)
+        SELECT :d - day, c, m.metric, m.dim, floor(random() * 500)
+        FROM generate_series(0, 179) day, generate_series(0, :n) c,
+             (SELECT 'vulnerabilities.open_by_severity', s FROM unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'vulnerabilities.suppressed_by_severity', s
+                FROM unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'vulnerabilities.open_by_resource_type', t || '|' || s
+                FROM unnest(ARRAY['AwsEc2Instance', 'AwsLambdaFunction', 'AwsEcrContainerImage']) t,
+                     unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'vulnerabilities.open_by_region', 'region-' || g || '|' || s
+                FROM generate_series(1, 10) g, unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'vulnerabilities.open_by_first_seen',
+                               to_char(CAST(:d AS date) - g * 30, 'YYYY-MM-DD') || '|' || s
+                FROM generate_series(0, 11) g, unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'vulnerabilities.open_by_fix', f || '|' || s
+                FROM unnest(ARRAY['available', 'none', 'unknown']) f,
+                     unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'vulnerabilities.open_exploitable_by_fix', f || '|' || s
+                FROM unnest(ARRAY['available', 'none', 'unknown']) f,
+                     unnest(CAST(:sev AS text[])) s
+              UNION ALL SELECT 'vulnerabilities.events', e
                 FROM unnest(ARRAY['opened', 'reopened', 'resolved']) e) AS m(metric, dim)
     """),
         {"n": ACCOUNTS, "d": TODAY, "sev": list(SEVERITIES)},
@@ -445,6 +481,8 @@ MISCONFIGURATIONS = ("prowler", "cloudfox")
 
 # What every summary number counts (metrics.summary): open, FAIL, not muted, both tools.
 SUMMARY_FILTERS = findings.FindingFilters(tools=MISCONFIGURATIONS, statuses=("FAIL",), muted="hide")
+# What every Vulnerabilities summary number counts: open, not suppressed.
+VULNERABILITY_SUMMARY_FILTERS = findings.FindingFilters(tools=("vulnerabilities",), muted="hide")
 
 QUERIES: dict[str, Callable[[Connection], Any]] = {
     "overview, all accounts": lambda c: metrics.build_overview(c, connection_id=0, as_of=TODAY),
@@ -671,6 +709,30 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         filters=findings.FindingFilters(tools=("vulnerabilities",), fix="none"),
     ),
     "vulnerabilities: facets": lambda c: findings.finding_facets(c, tools=("vulnerabilities",)),
+    "vulnerabilities: summary, all accounts": lambda c: metrics.vulnerability_summary(
+        c, connection_id=0, today=TODAY
+    ),
+    "vulnerabilities: summary, one account": lambda c: metrics.vulnerability_summary(
+        c, connection_id=1, today=TODAY
+    ),
+    # The summary's Top CVEs: the list by CVE with the summary's filters.
+    "vulnerabilities: summary, top CVEs": lambda c: findings.finding_groups(
+        c, limit=10, offset=0, filters=VULNERABILITY_SUMMARY_FILTERS
+    ),
+    # An age column's link, and the Fix available tile's.
+    "vulnerabilities: first seen 30 to 90 days ago": lambda c: findings.list_findings(
+        c,
+        limit=20,
+        offset=0,
+        filters=replace(
+            VULNERABILITY_SUMMARY_FILTERS,
+            first_seen_from=TODAY - timedelta(days=89),
+            first_seen_to=TODAY - timedelta(days=30),
+        ),
+    ),
+    "vulnerabilities: summary, fix available": lambda c: findings.list_findings(
+        c, limit=20, offset=0, filters=replace(VULNERABILITY_SUMMARY_FILTERS, fix="available")
+    ),
 }
 
 
@@ -790,4 +852,18 @@ def test_the_summary_counts_of_one_account_stay_cheap_to_write(estate: Engine) -
         finally:
             transaction.rollback()
     print(f"misconfigurations: one account's counts and the rollup: {elapsed:.1f} ms")
+    assert elapsed < WRITER_BOUND_MS
+
+
+def test_the_vulnerability_counts_of_one_account_stay_cheap_to_write(estate: Engine) -> None:
+    """Connection 1 holds the 50,000 CVE findings."""
+    with estate.connect() as conn:
+        transaction = conn.begin()
+        try:
+            start = time.perf_counter()
+            findings.put_vulnerability_metrics(conn, connection_id=1, day=TODAY)
+            elapsed = (time.perf_counter() - start) * 1000
+        finally:
+            transaction.rollback()
+    print(f"vulnerabilities: one account's counts and the rollup: {elapsed:.1f} ms")
     assert elapsed < WRITER_BOUND_MS
