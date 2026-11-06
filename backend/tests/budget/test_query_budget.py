@@ -71,12 +71,15 @@ def _generate(conn: Connection) -> None:
     conn.execute(
         text("""
         INSERT INTO resource (resource_uid, connection_id, region, type, native_id, name,
-                              first_seen, last_seen)
+                              first_seen, last_seen, deleted_on)
         SELECT 'arn:aws:ec2:us-east-1:' || (200000000000 + 1 + g % :n) || ':' || 'instance/i-' || g,
                1 + g % :n, 'us-east-1',
                (ARRAY['aws_ec2_instance','aws_lambda_function','aws_s3_bucket','aws_iam_role',
                       'aws_vpc_security_group'])[1 + g % 5],
-               'i-' || g, 'r' || g, :d, :d
+               'i-' || g, 'r' || g,
+               -- First seen over the history kept; one in 100 removed in the last 30 days.
+               CAST(:d AS date) - g % 180, :d,
+               CASE WHEN g % 100 = 7 THEN CAST(:d AS date) - g % 30 END
         FROM generate_series(1, 300000) g
     """),
         {"n": ACCOUNTS, "d": TODAY},
@@ -111,7 +114,8 @@ def _generate(conn: Connection) -> None:
         text("""
         INSERT INTO finding (finding_uid, tool, check_id, connection_id, region, resource_uid,
                              severity, status, muted, title, service, resource_type, categories,
-                             state, first_seen, last_seen, resolved_on, reach, reach_reason)
+                             state, first_seen, last_seen, resolved_on, reach, reach_reason,
+                             resource_id)
         SELECT 'f-' || g, CASE WHEN g % 10 = 0 THEN 'cloudfox' ELSE 'prowler' END,
                -- One in 50 is a Prowler exposure check, with Argus's reach (ADR-0035, sixth
                -- amendment).
@@ -133,8 +137,13 @@ def _generate(conn: Connection) -> None:
                CASE WHEN g % 50 = 1
                     THEN (ARRAY['confirmed','restricted','unknown','not_covered'])[1 + g / 50 % 4]
                END,
-               CASE WHEN g % 50 = 1 AND g / 50 % 4 = 1 THEN 'nacl_blocks' END
+               CASE WHEN g % 50 = 1 AND g / 50 % 4 = 1 THEN 'nacl_blocks' END,
+               -- Three in four are on an inventoried resource (the Resources list's
+               -- Misconfigurations and Internet reachable filters).
+               r.id
         FROM generate_series(1, 400000) g
+        LEFT JOIN resource r ON r.native_id = 'i-' || g AND r.connection_id = 1 + g % :n
+        ORDER BY g
     """),
         {"n": ACCOUNTS, "d": TODAY},
     )
@@ -643,13 +652,16 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         c,
         limit=20,
         offset=0,
-        filters=inventory.ResourceFilters(connection_id=7, resource_type="aws_s3_bucket"),
+        filters=inventory.ResourceFilters(connection_ids=(7,), resource_types=("aws_s3_bucket",)),
     ),
     "resources, one type, all accounts": lambda c: inventory.list_resources(
-        c, limit=20, offset=0, filters=inventory.ResourceFilters(resource_type="aws_s3_bucket")
+        c, limit=20, offset=0, filters=inventory.ResourceFilters(resource_types=("aws_s3_bucket",))
     ),
     "resources, one type, all accounts, a later page": lambda c: inventory.list_resources(
-        c, limit=20, offset=2000, filters=inventory.ResourceFilters(resource_type="aws_s3_bucket")
+        c,
+        limit=20,
+        offset=2000,
+        filters=inventory.ResourceFilters(resource_types=("aws_s3_bucket",)),
     ),
     "resources, search": lambda c: inventory.list_resources(
         c, limit=20, offset=0, filters=inventory.ResourceFilters(q="i-4242")
@@ -664,7 +676,7 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         order="last_seen_desc",
         filters=inventory.ResourceFilters(include_deleted=True),
     ),
-    "resources, facets": lambda c: inventory.resource_facets(c, connection_id=None),
+    "resources, facets": inventory.resource_facets,
     "resources, names for a page": lambda c: inventory.resource_names(c, list(range(1000, 1020))),
     "resource as of a day": lambda c: inventory.resource_at(c, resource_id=1234, day=TODAY),
     # Resource 35 belongs to STALE (connection 1 + 35 % 36): its latest scan is 90 days old.
@@ -680,14 +692,82 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         limit=20,
         offset=0,
         filters=inventory.ResourceFilters(
-            connection_id=1, within=findings.VULNERABLE_RESOURCES_SQL["exploitable"]
+            connection_ids=(1,), within=(findings.VULNERABLE_RESOURCES_SQL["exploitable"],)
         ),
     ),
     "resources: with a critical or high CVE, all accounts": lambda c: inventory.list_resources(
         c,
         limit=20,
         offset=0,
-        filters=inventory.ResourceFilters(within=findings.VULNERABLE_RESOURCES_SQL["high"]),
+        filters=inventory.ResourceFilters(within=(findings.VULNERABLE_RESOURCES_SQL["high"],)),
+    ),
+    # The Resources filters behind the Resources summary's numbers (2026-11-06).
+    "resources: with a critical or high misconfiguration, all accounts": lambda c: (
+        inventory.list_resources(
+            c,
+            limit=20,
+            offset=0,
+            filters=inventory.ResourceFilters(
+                assets=True, within=(findings.MISCONFIGURED_RESOURCES_SQL["high"],)
+            ),
+        )
+    ),
+    "resources: with a critical or high misconfiguration, one account": lambda c: (
+        inventory.list_resources(
+            c,
+            limit=20,
+            offset=0,
+            filters=inventory.ResourceFilters(
+                connection_ids=(7,),
+                assets=True,
+                within=(findings.MISCONFIGURED_RESOURCES_SQL["high"],),
+            ),
+        )
+    ),
+    "resources: reachable from the internet, all accounts": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(
+            assets=True, within=(findings.INTERNET_REACHABLE_RESOURCES_SQL,)
+        ),
+    ),
+    "resources: assets only, all accounts": lambda c: inventory.list_resources(
+        c, limit=20, offset=0, filters=inventory.ResourceFilters(assets=True)
+    ),
+    "resources: first seen in a week, all accounts": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(
+            assets=True,
+            include_deleted=True,
+            first_seen_from=TODAY - timedelta(days=13),
+            first_seen_to=TODAY - timedelta(days=7),
+        ),
+    ),
+    "resources: removed in a week, all accounts": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(
+            assets=True,
+            deleted_from=TODAY - timedelta(days=13),
+            deleted_to=TODAY - timedelta(days=7),
+        ),
+    ),
+    "resources: a service's types, all accounts": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(
+            assets=True,
+            resource_types=(
+                "aws_ec2_instance",
+                "aws_vpc_security_group",
+                *(f"aws_ec2_type_{n}" for n in range(60)),
+            ),
+        ),
     ),
     "resource: its Vulnerabilities section": lambda c: (
         findings.resource_vulnerabilities(c, VULNERABLE_PAGE[0]),

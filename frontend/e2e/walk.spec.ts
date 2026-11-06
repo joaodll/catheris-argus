@@ -464,10 +464,21 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await axe(page, 'resource sheet commands')
   await shot(page, '73b-resource-sheet-commands')
   await page.keyboard.press('Escape')
+  // The filters live in the URL (2026-11-06): a filter is a history entry, and Back restores
+  // the list before it. Internet reachable keeps the resource facing the internet.
+  await page.goto('/investigate/resources')
+  await page.getByRole('button', { name: /^More filters/ }).click()
+  await page.getByLabel('Internet reachable').check()
+  await expect(page).toHaveURL(/internet=1/)
+  await expect(resources.locator('tbody tr', { hasText: 'prod-edge-alb' }).first()).toBeVisible()
+  await axe(page, 'resources reachable from the internet')
+  await page.goBack()
+  await expect(page).not.toHaveURL(/internet=/)
   // CVEs (ADR-0042): the Vulnerabilities filter, then a resource's Vulnerabilities block, which
   // names the provider's scanner (AWS Inspector on the Demo estate).
   await page.goto('/investigate/resources')
   await page.getByLabel('Vulnerabilities').selectOption('exploitable')
+  await expect(page).toHaveURL(/vulnerabilities=exploitable/)
   await expect(resources.locator('tbody tr').first().getByText('Exploit')).toBeVisible()
   await axe(page, 'resources with an exploitable CVE')
   await shot(page, '73c-resources-vulnerabilities')

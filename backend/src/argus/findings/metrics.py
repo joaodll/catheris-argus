@@ -13,7 +13,12 @@ from sqlalchemy import Connection, text
 
 from argus import metrics
 from argus.findings.lifecycle import CHECK_METRICS
-from argus.findings.model import SEVERITIES, VULNERABILITY_TOOL
+from argus.findings.model import (
+    MISCONFIGURATION_TOOLS,
+    OPEN_MISCONFIGURATION,
+    SEVERITIES,
+    VULNERABILITY_TOOL,
+)
 from argus.metrics import summary
 
 THREATSCORE_FRAMEWORK = "prowler_threatscore_aws"
@@ -144,7 +149,6 @@ def put_findings_metrics(conn: Connection, *, connection_id: int, day: date) -> 
 # changes nothing there, needs nothing carried forward. The Overview keeps findings.* (Prowler
 # only, from the day's snapshot). The names and the "<value>|<severity>" dimensions are defined
 # once by their reader, metrics.summary.
-MISCONFIGURATION_TOOLS = ("prowler", "cloudfox")
 MISCONFIGURATION_METRICS = summary.MISCONFIGURATIONS.metrics
 VULNERABILITY_METRICS = summary.VULNERABILITIES.metrics
 
@@ -175,14 +179,13 @@ def _misconfiguration_values(
         values[(metric, dimension)] = values.get((metric, dimension), 0) + n
 
     for severity, tool, service, region, categories, first_seen, reach, n in conn.execute(
-        text("""
+        text(f"""
             SELECT f.severity, f.tool, coalesce(f.service, ''), f.region, f.categories,
                    f.first_seen, f.reach, count(*)
             FROM finding f
-            WHERE f.connection_id = :c AND f.tool = ANY(CAST(:tools AS text[]))
-              AND f.state IN ('open', 'reopened') AND f.status = 'FAIL' AND NOT f.muted
-            GROUP BY 1, 2, 3, 4, 5, 6, 7"""),
-        {"c": connection_id, "tools": list(MISCONFIGURATION_TOOLS)},
+            WHERE f.connection_id = :c AND {OPEN_MISCONFIGURATION}
+            GROUP BY 1, 2, 3, 4, 5, 6, 7"""),  # noqa: S608 - a constant only
+        {"c": connection_id},
     ):
         add(summary.MISCONFIGURATIONS.open_by_severity, severity, n)
         add(summary.OPEN_BY_TOOL, dim(tool, severity), n)

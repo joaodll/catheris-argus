@@ -456,7 +456,8 @@ export interface paths {
         };
         /**
          * Resource Facets
-         * @description The options of the Resources filters that come from the data.
+         * @description The options of the Resources filters that come from the data, for these connections (all
+         *     when none is given).
          */
         get: operations["resource_facets_api_v1_resources_facets_get"];
         put?: never;
@@ -3424,13 +3425,20 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
-                connection_id?: number | null;
-                type?: string | null;
-                region?: string | null;
+                connection_id?: number[];
+                type?: string[];
+                region?: string[];
                 q?: string | null;
                 include_deleted?: boolean;
+                assets?: boolean;
+                first_seen_from?: string | null;
+                first_seen_to?: string | null;
+                deleted_from?: string | null;
+                deleted_to?: string | null;
                 order?: "name_asc" | "name_desc" | "last_seen_desc" | "last_seen_asc";
                 vulnerabilities?: ("any" | "high" | "exploitable") | null;
+                misconfigurations?: ("any" | "high") | null;
+                internet?: boolean;
             };
             header?: {
                 "X-Argus-CSRF"?: string | null;
@@ -3466,7 +3474,7 @@ export interface operations {
     resource_facets_api_v1_resources_facets_get: {
         parameters: {
             query?: {
-                connection_id?: number | null;
+                connection_id?: number[];
             };
             header?: {
                 "X-Argus-CSRF"?: string | null;

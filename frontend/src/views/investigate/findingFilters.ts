@@ -49,9 +49,9 @@ const STATES: FindingState[] = ['open', 'reopened', 'resolved', 'accepted_risk']
 const ORDERS: Order[] = ['severity', 'severity_asc', 'last_seen_desc', 'last_seen_asc']
 const LIST_MAX = 50 // as the API: at most 50 values per filter
 
-function strings(value: LocationQuery[string] | undefined): string[] {
+function strings(value: LocationQuery[string] | undefined, max = LIST_MAX): string[] {
   const all = Array.isArray(value) ? value : value == null ? [] : [value]
-  return [...new Set(all.filter((v): v is string => typeof v === 'string' && v !== ''))].slice(0, LIST_MAX)
+  return [...new Set(all.filter((v): v is string => typeof v === 'string' && v !== ''))].slice(0, max)
 }
 
 function oneOf<T extends string>(value: LocationQuery[string] | undefined, allowed: readonly T[], fallback: T): T {

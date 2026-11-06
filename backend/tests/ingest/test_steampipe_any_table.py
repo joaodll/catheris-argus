@@ -3,9 +3,12 @@ run is complete for every table it did not list as incomplete."""
 
 from pathlib import Path
 
+from sqlalchemy import Engine, text
 from tests.ingest.test_steampipe_json_text import ACCOUNT, _run
 
+from argus.collection.tables import steampipe_tables
 from argus.inventory import is_asset, parse_steampipe
+from argus.inventory.steampipe import NON_ASSET_TYPES
 
 KEY_ARN = f"arn:aws:kms:us-east-1:{ACCOUNT}:key/0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b"
 TOPIC_ARN = f"arn:aws:sns:us-east-1:{ACCOUNT}:alerts"
@@ -105,3 +108,32 @@ def test_parts_settings_and_links_are_not_assets() -> None:
         "aws_vpc_security_group_vpc_association",
     ):
         assert not is_asset(part), part
+
+
+def test_the_stored_asset_column_is_is_asset(owner: Engine) -> None:
+    """resource.asset (migration 0045), which the Resources list's Assets only filter reads, and
+    is_asset(), which the Overview's asset counts use, agree on every table Argus collects and
+    every non-asset name. A change to the Python rule fails here until a migration changes the
+    column's expression."""
+    names = sorted({*steampipe_tables(), *NON_ASSET_TYPES, "aws_lambda_version", "aws_x_member"})
+    with owner.connect() as conn:
+        conn.execute(
+            text(
+                "CREATE TEMP TABLE asset_check "
+                "(LIKE resource INCLUDING GENERATED INCLUDING DEFAULTS)"
+            )
+        )
+        conn.execute(
+            text("""
+                INSERT INTO asset_check (id, resource_uid, connection_id, provider, region, type,
+                                         native_id, first_seen, last_seen)
+                SELECT row_number() OVER (), t, 1, 'aws', 'global', t, t, current_date,
+                       current_date
+                FROM unnest(CAST(:n AS text[])) AS u(t)
+            """),
+            {"n": names},
+        )
+        kept = set(conn.execute(text("SELECT type FROM asset_check WHERE asset")).scalars())
+        conn.rollback()
+    assert kept == {n for n in names if is_asset(n)}
+    assert kept and len(kept) < len(names)

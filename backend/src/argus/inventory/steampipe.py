@@ -26,7 +26,10 @@ class UnsupportedVersionError(ValueError):
 
 SUPPORTED_VERSIONS = frozenset({"1.34.0", "1.34.1"})
 # Parts of another resource, settings and links: stored and searchable, not counted as
-# assets. Named ones, plus every table whose name ends in one of the suffixes below.
+# assets. Named ones, plus every table whose name ends in one of the suffixes below. The
+# database stores the same rule as resource.asset (migration 0045): a change here needs a
+# migration that changes that column's expression (the test of the Assets only filter fails
+# until then).
 NON_ASSET_TYPES = frozenset(
     {
         "aws_vpc_security_group_rule",

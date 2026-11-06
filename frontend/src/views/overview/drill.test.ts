@@ -12,8 +12,8 @@ describe('Overview drill-downs', () => {
   })
 
   it('opens Resources and the ThreatScore framework for the same connection', () => {
-    expect(resources(2, 'aws_s3_bucket')).toEqual({ name: 'resources', query: { connection: '2', type: 'aws_s3_bucket' } })
-    expect(resources(0)).toEqual({ name: 'resources', query: { connection: undefined, type: undefined } })
+    expect(resources(2, 'aws_s3_bucket')).toMatchObject({ name: 'resources', query: { connection: ['2'], type: ['aws_s3_bucket'], assets: '1', tab: 'list' } })
+    expect(resources(0)).toMatchObject({ name: 'resources', query: { connection: undefined, type: undefined, assets: '1', tab: 'list' } })
     expect(threatScore(0)).toMatchObject({ name: 'framework', params: { framework: 'prowler_threatscore_aws' } })
     expect(framework(4, 'cis_6.0_aws')).toEqual({ name: 'framework', params: { framework: 'cis_6.0_aws' }, query: { connection: '4' } })
   })

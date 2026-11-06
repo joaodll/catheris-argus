@@ -6,6 +6,7 @@
  */
 import type { RouteLocationRaw } from 'vue-router'
 import { emptyFilters, filtersToQuery } from '@/views/investigate/findingFilters'
+import { resourcesLink } from '@/views/investigate/resourceFilters'
 import type { Severity } from './severity'
 
 // The Overview's failed-findings counts: Prowler, failed, not muted, still open (metric_daily
@@ -22,8 +23,10 @@ export function failedFindings(connectionId: number, severity: Severity): RouteL
   return { name: 'misconfigurations', query }
 }
 
+// The Overview's asset counts (assets.total, assets.by_type) count asset types only, so the list
+// they open does too (assets=1).
 export function resources(connectionId: number, type?: string): RouteLocationRaw {
-  return { name: 'resources', query: { connection: connectionId ? String(connectionId) : undefined, type } }
+  return resourcesLink({ assets: true, connection: connectionId ? [connectionId] : [], type: type ? [type] : [] })
 }
 
 export const THREATSCORE_FRAMEWORK = 'prowler_threatscore_aws' // findings/metrics.py

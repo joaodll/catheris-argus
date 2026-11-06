@@ -10,7 +10,7 @@ from sqlalchemy import Connection, text
 
 from argus.connections import DIRECTORY_SQL
 from argus.core.db import count_sql, like_contains
-from argus.findings.model import VULNERABILITY_TOOL
+from argus.findings.model import OPEN_MISCONFIGURATION
 
 FindingState = Literal["open", "reopened", "resolved", "accepted_risk"]
 FindingOrder = Literal["severity", "severity_asc", "last_seen_desc", "last_seen_asc"]
@@ -289,9 +289,10 @@ def finding_facets(
 
 
 def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, tuple[int, str]]:
-    """For each of these resources with open or reopened Prowler or CloudFox findings: how many,
-    and the worst severity among them. CVEs are counted apart (vulnerabilities, ADR-0042).
-    Called with one page of resources, so the input is bounded."""
+    """For each of these resources with open misconfigurations (OPEN_MISCONFIGURATION: open or
+    reopened, FAIL, not muted, Prowler or CloudFox): how many, and the worst severity among
+    them. CVEs are counted apart (vulnerabilities, ADR-0042). Called with one page of
+    resources, so the input is bounded."""
     if not resource_ids:
         return {}
     rows = conn.execute(
@@ -300,10 +301,26 @@ def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, 
                (ARRAY['critical','high','medium','low','informational'])[min({_SEVERITY_RANK})]
                  AS worst
         FROM finding f
-        WHERE f.resource_id = ANY(CAST(:ids AS bigint[])) AND f.state IN ('open', 'reopened')
-          AND f.tool <> '{VULNERABILITY_TOOL}'
+        WHERE f.resource_id = ANY(CAST(:ids AS bigint[])) AND {OPEN_MISCONFIGURATION}
         GROUP BY f.resource_id
-    """),  # noqa: S608 - fixed fragment
+    """),  # noqa: S608 - fixed fragments
         {"ids": resource_ids},
     )
     return {r.resource_id: (int(r.n), r.worst) for r in rows}
+
+
+# Exported SQL: the ids of resources with open misconfigurations (OPEN_MISCONFIGURATION), for
+# the Resources list's Misconfigurations and Internet reachable filters and the Resources
+# summary's counts. Parameter-free, so the inventory can embed them.
+MisconfigurationLevel = Literal["any", "high"]
+_MISCONFIGURED = (
+    f"SELECT f.resource_id FROM finding f WHERE {OPEN_MISCONFIGURATION} "  # noqa: S608 - constant
+    "AND f.resource_id IS NOT NULL"
+)
+MISCONFIGURED_RESOURCES_SQL: dict[MisconfigurationLevel, str] = {
+    "any": _MISCONFIGURED,
+    "high": f"{_MISCONFIGURED} AND f.severity IN ('critical', 'high')",
+}
+# Reachable from the internet, as Argus's rules judged it (ADR-0035): an open misconfiguration
+# whose reach is confirmed.
+INTERNET_REACHABLE_RESOURCES_SQL = f"{_MISCONFIGURED} AND f.reach = 'confirmed'"

@@ -8136,15 +8136,12 @@
             "name": "connection_id",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Connection Id"
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
             }
           },
           {
@@ -8152,16 +8149,14 @@
             "name": "type",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "maxLength": 128,
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Type"
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 200,
+              "title": "Type",
+              "type": "array"
             }
           },
           {
@@ -8169,16 +8164,14 @@
             "name": "region",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "maxLength": 64,
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Region"
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Region",
+              "type": "array"
             }
           },
           {
@@ -8206,6 +8199,84 @@
               "default": false,
               "title": "Include Deleted",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "assets",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Assets",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "first_seen_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "first_seen_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "First Seen To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deleted_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Deleted From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deleted_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Deleted To"
             }
           },
           {
@@ -8243,6 +8314,36 @@
                 }
               ],
               "title": "Vulnerabilities"
+            }
+          },
+          {
+            "in": "query",
+            "name": "misconfigurations",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "any",
+                    "high"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Misconfigurations"
+            }
+          },
+          {
+            "in": "query",
+            "name": "internet",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Internet",
+              "type": "boolean"
             }
           },
           {
@@ -8324,7 +8425,7 @@
     },
     "/api/v1/resources/facets": {
       "get": {
-        "description": "The options of the Resources filters that come from the data.",
+        "description": "The options of the Resources filters that come from the data, for these connections (all\nwhen none is given).",
         "operationId": "resource_facets_api_v1_resources_facets_get",
         "parameters": [
           {
@@ -8332,15 +8433,13 @@
             "name": "connection_id",
             "required": false,
             "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Connection Id"
+              "default": [],
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
             }
           },
           {

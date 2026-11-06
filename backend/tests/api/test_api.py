@@ -10,6 +10,7 @@ from sqlalchemy import Engine, create_engine, text
 from tests.api.conftest import PASSWORD, csrf
 from tests.ingest.conftest import make_demo, run_tool
 
+from argus import inventory
 from argus.api import deps
 from argus.auth import sessions
 from argus.auth.sessions import SignInError, TooManyAttemptsError, sign_in
@@ -940,11 +941,14 @@ def test_resources_filter_search_sort_and_count(
     found = get(q=one["native_id"].upper())
     assert one["id"] in {r["id"] for r in found["items"]}
 
-    # Open findings on a resource: the count and the worst severity.
-    findings = signed_in.get("/api/v1/findings", params={"limit": 200}).json()["items"]
+    # Open misconfigurations on a resource (open, FAIL, not muted): the count and the worst
+    # severity.
+    open_misconfigurations = {"limit": 200, "status": "FAIL", "muted": "hide"}
+    findings = signed_in.get("/api/v1/findings", params=open_misconfigurations).json()["items"]
     linked = next(f for f in findings if f["resource_id"] is not None)
     on_it = signed_in.get(
-        "/api/v1/findings", params={"limit": 200, "resource_id": linked["resource_id"]}
+        "/api/v1/findings",
+        params={**open_misconfigurations, "resource_id": linked["resource_id"]},
     ).json()["items"]
     row = next(
         r for r in get(q=linked["resource_uid"])["items"] if r["id"] == linked["resource_id"]
@@ -962,6 +966,89 @@ def test_resources_filter_search_sort_and_count(
     assert get(include_deleted=True)["total"] == total
     detail = signed_in.get(f"/api/v1/resources/{one['id']}").json()
     assert detail["deleted_on"] == today.isoformat()
+
+
+def test_resources_filter_on_several_values_assets_days_and_findings(
+    signed_in: TestClient, owner: Engine, worker: Engine, store: FilesystemRawStore
+) -> None:
+    """The Resources filters the Resources summary links to (2026-11-06): several types,
+    regions and connections; assets only; first seen and removed days; open misconfigurations
+    and the internet reachable ones."""
+    target = make_demo(owner)
+    today = datetime.now(UTC).date()
+    for tool in TOOL_ORDER:
+        run_tool(worker, store, target, tool, today)
+
+    def every_page(path: str, **params: object) -> list[dict]:
+        items: list[dict] = []
+        while True:
+            response = signed_in.get(path, params={"limit": 200, "offset": len(items), **params})
+            assert response.status_code == 200, response.text
+            body = response.json()
+            items += body["items"]
+            if len(items) >= body["total"] or not body["items"]:
+                return items
+
+    def ids(**params: object) -> set[int]:
+        return {r["id"] for r in every_page("/api/v1/resources", **params)}
+
+    every = every_page("/api/v1/resources")
+    types = sorted({r["type"] for r in every})[:2]
+    assert ids(type=types) == {r["id"] for r in every if r["type"] in types}
+    regions = sorted({r["region"] for r in every})[:2]
+    assert ids(region=regions) == {r["id"] for r in every if r["region"] in regions}
+    assert ids(connection_id=[target.connection_id, 999999]) == {r["id"] for r in every}
+    facets = signed_in.get(
+        "/api/v1/resources/facets", params={"connection_id": [target.connection_id]}
+    ).json()
+    assert set(types) <= set(facets["types"])
+
+    # Assets only: what the Overview counts (inventory.is_asset).
+    assert ids(assets=True) == {r["id"] for r in every if inventory.is_asset(r["type"])}
+
+    # First seen and removed: both ends inclusive; a removed bound lists removed ones only.
+    one = every[0]
+    earlier = today - timedelta(days=3)
+    with owner.begin() as conn:
+        conn.execute(
+            text("UPDATE resource SET first_seen = :e, deleted_on = :d WHERE id = :i"),
+            {"e": earlier, "d": today, "i": one["id"]},
+        )
+    assert ids(first_seen_from=earlier, first_seen_to=earlier, include_deleted=True) == {one["id"]}
+    assert ids(deleted_from=today, deleted_to=today) == {one["id"]}
+    assert ids(deleted_from=today + timedelta(days=1)) == set()
+    assert one["id"] not in ids()
+
+    # Open misconfigurations, the critical or high ones, and those reachable from the internet:
+    # the same resources the Findings list holds with the same definition.
+    def misconfigured(**params: object) -> set[int]:
+        found = every_page("/api/v1/findings", status="FAIL", muted="hide", **params)
+        return {
+            f["resource_id"]
+            for f in found
+            if f["resource_id"] is not None and f["resource_id"] != one["id"]
+        }
+
+    assert ids(misconfigurations="any") == misconfigured()
+    assert ids(misconfigurations="high") == misconfigured(severity=["critical", "high"])
+    with owner.begin() as conn:
+        reached = conn.execute(
+            text("""
+                UPDATE finding SET reach = 'confirmed'
+                WHERE id = (SELECT min(id) FROM finding
+                            WHERE resource_id IS NOT NULL AND resource_id <> :i
+                              AND status = 'FAIL' AND NOT muted
+                              AND state IN ('open', 'reopened'))
+                RETURNING resource_id
+            """),
+            {"i": one["id"]},
+        ).scalar_one()
+    assert reached in ids(internet=True)
+    assert ids(internet=True) == misconfigured(reach="confirmed")
+    # Filters combine: every one of them applies.
+    assert ids(internet=True, misconfigurations="high", vulnerabilities="any") <= ids(internet=True)
+    for bad in ({"misconfigurations": "x"}, {"type": [f"t{n}" for n in range(201)]}):
+        assert signed_in.get("/api/v1/resources", params=bad).status_code == 422
 
 
 # --------------------------------------------------------------- history reads

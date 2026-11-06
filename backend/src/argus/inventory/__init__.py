@@ -10,7 +10,7 @@ Owns resource, resource_config, resource_snapshot and resource_load. Public inte
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
                        (the Resources page, and a resource as of a day)
     is_asset()         whether a resource type counts as an asset (parts, settings and links
-                       are stored and searchable, not counted)
+                       are stored and searchable, not counted); stored as resource.asset
 """
 
 from argus.inventory.load import delete_orphan_configs, load_inventory
