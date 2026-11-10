@@ -3,11 +3,12 @@ administrator's authority are checked against the environment (422 naming the bo
 
 from typing import Literal
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, ConfigDict, SecretStr
 
 from argus import settings as platform_settings
 from argus.api.deps import Admin, Db, Operator, Viewer, client_ip
+from argus.collection import prowler_checks, prowler_services
 from argus.core import audit
 from argus.core.config import get_settings
 from argus.settings import CollectionSettings, RawStorageSettings, RetentionSettings
@@ -66,10 +67,37 @@ def read_collection(conn: Db, _user: Viewer) -> CollectionSettings:
     return platform_settings.read_collection(conn)
 
 
+class ProwlerOptions(BaseModel):
+    """What Collection settings may skip: the pinned Prowler's AWS services and checks. A
+    check's service is the first word of its id."""
+
+    services: list[str]
+    checks: list[str]
+
+
+@router.get("/collection/prowler-options")
+def prowler_options(_user: Viewer) -> ProwlerOptions:
+    return ProwlerOptions(services=list(prowler_services()), checks=list(prowler_checks()))
+
+
+def _unknown_skips(body: CollectionSettings) -> list[str]:
+    services, checks = set(prowler_services()), set(prowler_checks())
+    return sorted(
+        {s for s in body.prowler_skip_services if s not in services}
+        | {c for c in body.prowler_skip_checks if c not in checks}
+    )
+
+
 @router.put("/collection")
 def write_collection(
     body: CollectionSettings, conn: Db, user: Operator, request: Request
 ) -> CollectionSettings:
+    # Only names of the pinned Prowler: settings checks their shape, collection knows them.
+    if unknown := _unknown_skips(body):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            f"Prowler has no such service or check: {', '.join(unknown[:10])}",
+        )
     platform_settings.write_topic(conn, topic="collection", values=body.model_dump(), actor=user)
     audit.record(
         conn,

@@ -187,6 +187,9 @@ def _collect_and_ingest(
             aws_regions=tuple(settings.aws_regions),
             cloudfox_max_goroutines=settings.cloudfox_max_goroutines,
             steampipe_parallel_tables=settings.steampipe_parallel_tables,
+            prowler_retry_attempts=settings.prowler_retry_attempts,
+            prowler_skip_services=tuple(settings.prowler_skip_services),
+            prowler_skip_checks=tuple(settings.prowler_skip_checks),
             cancel=attempt.cancel,
         ),
     )

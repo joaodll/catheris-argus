@@ -111,6 +111,20 @@ RUN cd /opt/prowler-project \
  && UV_PROJECT_ENVIRONMENT=/opt/prowler uv sync --frozen --no-dev --no-install-project \
  && rm -rf /tmp/uv-cache \
  && /opt/prowler/bin/prowler --version | grep -q "5.47.0"
+# Collection settings may skip only the checks Argus ships in its lists, and a run that skips
+# anything passes every listed framework (owner, 2026-11-10). They must be this Prowler's: the
+# build stops on any difference, so an upgrade refreshes both lists with the pin. Both lists are
+# read from the installed package, offline.
+COPY src/argus/collection/prowler_checks_aws.txt src/argus/collection/prowler_frameworks_aws.txt /tmp/lists/
+RUN set -eu; cd /tmp; \
+    /opt/prowler/bin/prowler aws --list-checks-json --no-banner \
+      | /opt/prowler/bin/python -c 'import json, sys; print("\n".join(sorted(json.load(sys.stdin)["aws"])))' \
+      > /tmp/installed-checks; \
+    grep -v '^#' /tmp/lists/prowler_checks_aws.txt | grep . | diff -u - /tmp/installed-checks; \
+    /opt/prowler/bin/prowler aws --list-compliance --no-banner \
+      | sed -n 's/^- \([a-z0-9_.]*_aws\)$/\1/p' | sort > /tmp/installed-frameworks; \
+    grep -v '^#' /tmp/lists/prowler_frameworks_aws.txt | grep . | diff -u - /tmp/installed-frameworks; \
+    rm -rf /tmp/lists /tmp/installed-checks /tmp/installed-frameworks
 
 FROM runtime AS worker
 # CloudFox and Steampipe look up the user's home in the passwd entry, not $HOME, and write

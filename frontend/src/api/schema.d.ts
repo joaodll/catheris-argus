@@ -659,6 +659,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/settings/collection/prowler-options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Prowler Options */
+        get: operations["prowler_options_api_v1_settings_collection_prowler_options_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/settings/identity": {
         parameters: {
             query?: never;
@@ -1056,6 +1073,15 @@ export interface components {
              * @default 2
              */
             max_parallel_runs: number;
+            /**
+             * Prowler Retry Attempts
+             * @default 10
+             */
+            prowler_retry_attempts: number;
+            /** Prowler Skip Checks */
+            prowler_skip_checks?: string[];
+            /** Prowler Skip Services */
+            prowler_skip_services?: string[];
             /** Retry Delays Minutes */
             retry_delays_minutes?: number[];
             /**
@@ -1760,6 +1786,17 @@ export interface components {
             pillar: string;
             /** Score */
             score: number | null;
+        };
+        /**
+         * ProwlerOptions
+         * @description What Collection settings may skip: the pinned Prowler's AWS services and checks. A
+         *     check's service is the first word of its id.
+         */
+        ProwlerOptions: {
+            /** Checks */
+            checks: string[];
+            /** Services */
+            services: string[];
         };
         /** Queue */
         Queue: {
@@ -4191,6 +4228,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectionSettings"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    prowler_options_api_v1_settings_collection_prowler_options_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProwlerOptions"];
                 };
             };
             /** @description Validation Error */

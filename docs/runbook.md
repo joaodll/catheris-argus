@@ -364,6 +364,12 @@ storage first (above). Then:
    "argus: the run ended before it was recorded:", followed by the error. Like any failed run, it is
    retried up to twice.
 
+**Prowler runs Partial from throttling.** Lighten Prowler in **Settings → Collection**, in this
+order: scan fewer regions (**AWS regions to scan**), raise **Retry attempts per AWS call**, then
+skip the services that keep throttling (**Services to skip**). Read what a skip costs in
+[configuration.md](configuration.md) first. Lowering **Max parallel runs** spreads runs over
+time across accounts, but one account's tools already run one at a time.
+
 **Missing permissions.** The tools carry on when a call is denied (HTTP 403) and leave that
 data out. Argus reads the denied actions from each tool's output and shows them on the run
 ("2 permissions missing"; the list is in the run's details, and the Runs filter **Missing

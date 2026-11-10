@@ -23,8 +23,10 @@ const props = withDefaults(
     options: MultiOption[]
     modelValue: string[]
     status?: 'ready' | 'loading' | 'error'
+    // What the trigger says with nothing chosen: "All" for a filter; a skip list says "None".
+    emptyLabel?: string
   }>(),
-  { status: 'ready' },
+  { status: 'ready', emptyLabel: 'All' },
 )
 const emit = defineEmits<{ 'update:modelValue': [string[]] }>()
 
@@ -51,7 +53,7 @@ const summary = computed(() => {
   if (props.status === 'loading') return 'Loading…'
   if (props.status === 'error') return 'Unavailable'
   if (props.options.length === 0) return 'None in the data'
-  return labels.value[0] ?? 'All'
+  return labels.value[0] ?? props.emptyLabel
 })
 const extra = computed(() => Math.max(0, labels.value.length - 1))
 const optionId = (index: number): string => `${props.id}-opt-${index}`
@@ -266,6 +268,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
 .ms-more {
   background: var(--surface-raised);
   color: var(--text-2);
+}
+
+.ms-trigger {
+  background-image: none; /* .select's own arrow: the chevron below replaces it */
 }
 
 .ms-chev {
