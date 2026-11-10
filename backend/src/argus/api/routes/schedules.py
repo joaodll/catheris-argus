@@ -78,6 +78,8 @@ class PendingRequest(BaseModel):
     not_before: datetime
     claimed_at: datetime | None
     heartbeat_at: datetime | None
+    # A running request that was asked to stop and has not stopped yet.
+    cancel_requested: bool = False
 
 
 class BackfillLeft(BaseModel):
@@ -197,13 +199,23 @@ def run_now(
     return RunNowOut.model_validate(result, from_attributes=True)
 
 
-@router.post("/run-requests/{request_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)
-def cancel(request_id: int, conn: Db, user: Operator, request: Request) -> None:
-    """Cancels a queued run request (a waiting retry, a staggered scheduled run, a Run now). A
-    cancelled request is never retried. 404 when it is not queued: running runs are not
-    stopped from here."""
-    scheduling.cancel_request(conn, request_id=request_id, actor=user, client_ip=client_ip(request))
+class CancelOut(BaseModel):
+    # cancelled: it was waiting and is gone. stopping: it was running and was asked to stop.
+    state: Literal["cancelled", "stopping"]
+
+
+@router.post("/run-requests/{request_id}/cancel")
+def cancel(request_id: int, conn: Db, user: Operator, request: Request) -> CancelOut:
+    """Cancels a run request, never to be retried. A queued one (a waiting retry, a staggered
+    scheduled run, a Run now) is cancelled at once. A running one is asked to stop: its tool is
+    killed within about half a minute and the run is recorded as cancelled; if its results are
+    already loading, it finishes instead. 404 when the request is neither queued nor running, or
+    was already asked to stop."""
+    state = scheduling.cancel_request(
+        conn, request_id=request_id, actor=user, client_ip=client_ip(request)
+    )
     conn.commit()
+    return CancelOut(state=state)
 
 
 @router.get("/run-requests")

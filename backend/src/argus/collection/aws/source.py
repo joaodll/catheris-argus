@@ -50,14 +50,20 @@ class AwsSource:
         _refuse_another_account(credentials, target.account_id)
         with tool_profile(credentials, regions[0] if regions else "us-east-1") as env:
             if tool == "steampipe":
-                result = run_steampipe(out_dir, env, regions, options.steampipe_parallel_tables)
+                result = run_steampipe(
+                    out_dir, env, regions, options.steampipe_parallel_tables, options.cancel
+                )
             elif tool == "prowler":
-                result = run_prowler(out_dir, env, regions)
+                result = run_prowler(out_dir, env, regions, options.cancel)
             elif tool == "vulnerabilities":  # on AWS, Inspector is the scanner
-                result = run_inspector(out_dir, env, regions, target.account_id)
+                result = run_inspector(out_dir, env, regions, target.account_id, options.cancel)
             else:
                 result = run_cloudfox(
-                    out_dir, env, target.account_id, options.cloudfox_max_goroutines
+                    out_dir,
+                    env,
+                    target.account_id,
+                    options.cloudfox_max_goroutines,
+                    options.cancel,
                 )
         return Outcome(
             status=result.status,  # type: ignore[arg-type]

@@ -9,6 +9,11 @@ and still records a failed run, so the Runs tab says why instead of showing noth
 A claim the reaper released (its heartbeat stopped long enough) is no longer this worker's: the
 run stops before registering anything, or its result is discarded at the finish, and another
 worker runs the request again (ADR-0039). A request lost MAX_LOST times ends as a failed run.
+
+A claim asked to stop (owner, 2026-11-09) is stopped while it collects: the heartbeat thread
+reads the ask and sets the collection's cancel event, the source kills its tool, and the request
+ends cancelled with a failed run that names who asked. It resolves nothing and is never retried.
+Once collection has ended the ask comes too late: the run loads and finishes as usual.
 """
 
 import logging
@@ -25,6 +30,7 @@ from sqlalchemy.exc import StatementError
 from argus import connections
 from argus.collection import (
     AwsAccess,
+    Cancelled,
     CollectOptions,
     CollectTarget,
     access_for,
@@ -61,6 +67,9 @@ class _Attempt:
     scan_run_id: int | None = None
     # Set by the heartbeat when the claim is no longer this worker's.
     lost: threading.Event = field(default_factory=threading.Event)
+    # Set by the heartbeat when the run was asked to stop, with who asked.
+    cancel: threading.Event = field(default_factory=threading.Event)
+    cancelled_by: str | None = None
 
 
 class _ClaimLost(Exception):
@@ -80,7 +89,7 @@ def execute(
     today: date,
 ) -> str:
     """Runs one claimed request to the end. Returns the run status, "lost" when the claim
-    was released meanwhile, or "error"."""
+    was released meanwhile, "cancelled" when it was stopped as asked, or "error"."""
     stop_heartbeat = threading.Event()
     attempt = _Attempt(request=request, day=request.snapshot_date or today, store=store)
 
@@ -89,6 +98,7 @@ def execute(
             try:
                 with engine.begin() as conn:
                     alive = claims.heartbeat(conn, request)
+                    asked_by = claims.cancel_requested(conn, request) if alive else None
             except Exception:  # one failed beat must not end them all; the next one retries
                 log.exception("heartbeat failed", extra={"request_id": request.id})
                 continue
@@ -96,6 +106,10 @@ def execute(
                 log.warning("claim lost while running", extra={"request_id": request.id})
                 attempt.lost.set()
                 return
+            if asked_by is not None and not attempt.cancel.is_set():
+                log.info("asked to stop", extra={"request_id": request.id, "by": asked_by})
+                attempt.cancelled_by = asked_by
+                attempt.cancel.set()  # and keep beating: the claim is this worker's to end
 
     beater = threading.Thread(target=beat, name=f"heartbeat-{request.id}", daemon=True)
     beater.start()
@@ -104,6 +118,8 @@ def execute(
     except _ClaimLost:
         log.warning("claim lost; result discarded", extra={"request_id": request.id})
         status = "lost"
+    except Cancelled:
+        status = _end_cancelled(engine, attempt, rules_dir=rules_dir)
     except _LostTooOften as exc:
         status = _end_with_error(engine, attempt, rules_dir=rules_dir, error=str(exc), retry=False)
     except Exception as exc:  # the request must end, whatever went wrong
@@ -171,6 +187,7 @@ def _collect_and_ingest(
             aws_regions=tuple(settings.aws_regions),
             cloudfox_max_goroutines=settings.cloudfox_max_goroutines,
             steampipe_parallel_tables=settings.steampipe_parallel_tables,
+            cancel=attempt.cancel,
         ),
     )
     if attempt.lost.is_set():
@@ -187,7 +204,9 @@ def _collect_and_ingest(
             raise _ClaimLost
         # A partial run is not retried: its usual cause, actions the scanner role denies by
         # design, would make the retry partial again (decided 2026-10-08, argus_v8).
-        if outcome.status == "failed":
+        # Nor is a run that was asked to stop too late to be stopped: asked not to run, it is
+        # not run again.
+        if outcome.status == "failed" and not attempt.cancel.is_set():
             claims.retry(conn, request, settings=settings)
     return outcome.status
 
@@ -211,9 +230,31 @@ def _end_with_error(
         finished = claims.finish(
             conn, attempt.request, scan_run_id=attempt.scan_run_id, error=error
         )
-        if finished and retry and recorded and attempt.settings is not None:
+        asked_to_stop = attempt.cancel.is_set()
+        if finished and retry and recorded and attempt.settings is not None and not asked_to_stop:
             claims.retry(conn, attempt.request, settings=attempt.settings)
     return "failed" if recorded else "error"
+
+
+def _end_cancelled(engine: Engine, attempt: _Attempt, *, rules_dir: Path) -> str:
+    """Ends a request whose collection was stopped as asked. A failed run records it, naming
+    who asked, so the Runs tab shows it and the tool's metrics carry forward as after any failed
+    run. Nothing was archived, nothing is resolved, and it is not retried."""
+    if attempt.lost.is_set():
+        log.warning("claim lost; cancel discarded", extra={"request_id": attempt.request.id})
+        return "lost"
+    if attempt.connection is not None:
+        attempt.scan_run_id = _record_failure(
+            engine,
+            attempt,
+            attempt.connection,
+            rules_dir=rules_dir,
+            error=f"Cancelled by {attempt.cancelled_by or 'an operator'} while it was running.",
+        )
+    with engine.begin() as conn:
+        if not claims.finish_cancelled(conn, attempt.request, scan_run_id=attempt.scan_run_id):
+            return "lost"
+    return "cancelled"
 
 
 def describe_error(exc: BaseException) -> str:

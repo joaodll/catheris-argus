@@ -25,6 +25,9 @@ class RunTrigger(BaseModel):
     schedule: str | None
     requested_by: str
     attempt: int
+    # Who stopped the run while it collected. Such a run has the status "failed": it loaded
+    # nothing and resolves nothing.
+    cancelled_by: str | None = None
 
 
 class TableError(BaseModel):

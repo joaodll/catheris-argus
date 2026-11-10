@@ -14,6 +14,8 @@ const LOOK: Record<string, { icon: IconName; text: string; tone: string }> = {
   running: { icon: 'spinner', text: 'Running', tone: 'live' },
   claimed: { icon: 'spinner', text: 'Running', tone: 'live' },
   queued: { icon: 'clock', text: 'Queued', tone: 'idle' },
+  // A run an operator stopped while it was running: not a failure of the tool.
+  cancelled: { icon: 'blocked', text: 'Cancelled', tone: 'idle' },
   disabled: { icon: 'blocked', text: 'Disabled', tone: 'idle' },
   warning: { icon: 'warning', text: 'Warning', tone: 'warn' },
   neutral: { icon: 'info', text: '', tone: 'idle' },

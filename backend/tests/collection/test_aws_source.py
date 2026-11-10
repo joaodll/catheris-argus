@@ -6,6 +6,8 @@ and that a tool never sees Argus's own secrets."""
 import os
 import re
 import stat
+import threading
+import time
 from collections.abc import Iterator
 from datetime import date
 from pathlib import Path
@@ -13,7 +15,13 @@ from uuid import uuid4
 
 import pytest
 
-from argus.collection import CollectOptions, CollectTarget, FilesystemRawStore, collect
+from argus.collection import (
+    Cancelled,
+    CollectOptions,
+    CollectTarget,
+    FilesystemRawStore,
+    collect,
+)
 from argus.collection.aws import AwsAccess, AwsSource
 from argus.collection.aws import tools as aws_tools
 from argus.connections import AwsAuth
@@ -909,3 +917,69 @@ def test_inspector_exports_this_accounts_open_findings_and_its_coverage(fakes: P
     _, failing = _run(fakes, "vulnerabilities")
     assert failing.status == "partial"
     assert failing.incomplete_tables == ["aws_inspector2_finding"]
+
+
+def test_a_run_asked_to_stop_kills_its_tool_and_archives_nothing(
+    fakes: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tool would run for a minute; the ask stops it at the next check."""
+    pid_file = fakes / "prowler.pid"
+    slow = f'echo $$ > "{pid_file}"\nexec sleep 60\n'
+    monkeypatch.setattr(aws_tools, "PROWLER", _script(fakes / "bin" / "slow-prowler", slow))
+    monkeypatch.setattr(aws_tools, "CANCEL_POLL_SECONDS", 0.05)
+    cancel = threading.Event()
+    timer = threading.Timer(0.5, cancel.set)
+    timer.start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(Cancelled):
+            collect(
+                AwsSource(),
+                FilesystemRawStore(fakes / "raw"),
+                target=TARGET,
+                tool="prowler",
+                day=DAY,
+                run_uid=uuid4(),
+                options=CollectOptions(aws_access=ACCESS, cancel=cancel),
+            )
+    finally:
+        timer.cancel()
+    assert time.monotonic() - started < 10
+    with pytest.raises(ProcessLookupError):  # killed and reaped
+        os.killpg(int(pid_file.read_text()), 0)
+    assert not list((fakes / "raw").rglob("manifest.json"))  # no run to read back
+
+
+def test_a_steampipe_run_asked_to_stop_kills_its_exports_and_starts_no_other(
+    fakes: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Tables export in parallel: those running are killed, those waiting never start."""
+    started = fakes / "started.txt"
+    slow = (
+        'if [ "$1" = "--version" ]; then echo "steampipe_export_aws v1.34.1"; exit 0; fi\n'
+        f'echo "$1" >> "{started}"\nexec sleep 60\n'
+    )
+    monkeypatch.setattr(aws_tools, "STEAMPIPE", _script(fakes / "bin" / "slow-steampipe", slow))
+    monkeypatch.setattr(aws_tools, "CANCEL_POLL_SECONDS", 0.05)
+    cancel = threading.Event()
+    timer = threading.Timer(0.5, cancel.set)
+    timer.start()
+    began = time.monotonic()
+    try:
+        with pytest.raises(Cancelled):
+            collect(
+                AwsSource(),
+                FilesystemRawStore(fakes / "raw"),
+                target=TARGET,
+                tool="steampipe",
+                day=DAY,
+                run_uid=uuid4(),
+                options=CollectOptions(
+                    aws_access=ACCESS, steampipe_parallel_tables=2, cancel=cancel
+                ),
+            )
+    finally:
+        timer.cancel()
+    assert time.monotonic() - began < 10
+    assert len(started.read_text().split()) == 2  # only the two that were running
+    assert not list((fakes / "raw").rglob("manifest.json"))

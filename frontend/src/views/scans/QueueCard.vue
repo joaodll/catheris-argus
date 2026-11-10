@@ -8,7 +8,7 @@ import { useResource } from '@/composables/useResource'
 import { toast } from '@/composables/useToasts'
 import { relative, utc } from '@/format'
 
-const TOOL_LABEL: Record<string, string> = { steampipe: 'Steampipe', prowler: 'Prowler', cloudfox: 'CloudFox' }
+const TOOL_LABEL: Record<string, string> = { steampipe: 'Steampipe', prowler: 'Prowler', cloudfox: 'CloudFox', vulnerabilities: 'Vulnerabilities' }
 
 const queue = useResource(() => unwrap(api.GET('/api/v1/run-requests')), { refreshMs: 10_000 })
 const updated = ref<string>('')
@@ -43,16 +43,21 @@ function notBefore(iso: string): string {
 }
 /** The line under a row's status: a running run's heartbeat, a waiting one's start time. */
 function statusLine(r: Schemas['PendingRequest']): string | null {
+  if (r.status === 'claimed' && r.cancel_requested) return 'stopping its tool'
   if (r.status === 'claimed') return r.heartbeat_at ? `heartbeat ${relative(r.heartbeat_at)}` : null
   const at = notBefore(r.not_before)
   return at === 'now' ? 'now' : `not before ${at}`
 }
 
-// A waiting request can be cancelled; a running one cannot (it ends on its own). The browser's
-// confirm() asks first, as in CatherIs Platform (ADR-0028, fifth amendment).
+// A waiting request is cancelled at once. A running one is asked to stop: its worker kills the
+// tool within a heartbeat (about 30 seconds) and the row then leaves the queue (2026-11-09). The
+// browser's confirm() asks first, as in CatherIs Platform (ADR-0028, fifth amendment).
 const cancelling = ref<number | null>(null)
 
 function cancelText(r: Schemas['PendingRequest']): string {
+  if (r.status === 'claimed') {
+    return 'It is running: its tool is stopped within about 30 seconds, nothing from this run is kept, and it is not retried. If its results are already loading, it finishes instead.'
+  }
   if (r.reason === 'retry' || r.attempt > 1) return 'This retry will not run, and no further retry follows. Run now can start the tool again.'
   if (r.reason === 'schedule') return 'This run will not start. Its schedule still runs at its next time.'
   if (r.reason === 'backfill') return 'This day of history will not be built.'
@@ -63,11 +68,12 @@ async function cancel(r: Schemas['PendingRequest']): Promise<void> {
   if (!window.confirm(`Cancel ${TOOL_LABEL[r.tool] ?? r.tool} on ${r.connection}? ${cancelText(r)}`)) return
   cancelling.value = r.id
   try {
-    await unwrap(api.POST('/api/v1/run-requests/{request_id}/cancel', { params: { path: { request_id: r.id } } }))
-    toast(`${TOOL_LABEL[r.tool] ?? r.tool} on ${r.connection} cancelled.`)
+    const { state } = await unwrap(api.POST('/api/v1/run-requests/{request_id}/cancel', { params: { path: { request_id: r.id } } }))
+    const what = `${TOOL_LABEL[r.tool] ?? r.tool} on ${r.connection}`
+    toast(state === 'stopping' ? `${what} is stopping. It leaves the queue within about 30 seconds.` : `${what} cancelled.`)
   } catch (err) {
-    // 404: it started or finished meanwhile; the reload shows where it is now.
-    toast(err instanceof ApiError && err.status === 404 ? 'It is no longer waiting: it started or finished meanwhile.' : 'The run was not cancelled.', 'error')
+    // 404: it finished meanwhile, or was already asked to stop; the reload shows where it is now.
+    toast(err instanceof ApiError && err.status === 404 ? 'It is no longer in the queue, or is already stopping.' : 'The run was not cancelled.', 'error')
   } finally {
     cancelling.value = null
     await queue.reload()
@@ -107,12 +113,12 @@ defineExpose({ reload: queue.reload })
             </td>
             <td data-label="Reason" class="reason"><span :class="{ mono: r.reason === 'backfill' }">{{ reason(r) }}</span></td>
             <td data-label="Status">
-              <StatusBadge :status="r.status" />
+              <StatusBadge :status="r.status" :label="r.cancel_requested ? 'Cancelling' : undefined" />
               <span v-if="statusLine(r)" class="sub mono">{{ statusLine(r) }}</span>
             </td>
             <td v-if="props.canCancel" class="actions">
               <button
-                v-if="r.status === 'queued'"
+                v-if="!r.cancel_requested"
                 type="button"
                 class="btn btn-secondary btn-sm"
                 :aria-label="`Cancel ${TOOL_LABEL[r.tool] ?? r.tool} on ${r.connection}`"

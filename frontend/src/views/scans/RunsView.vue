@@ -175,7 +175,7 @@ function fromSelect(value: string): string | null {
     <ul class="running-list">
       <li v-for="r in running" :key="r.id">
         <span class="who">
-          <StatusBadge status="running" />
+          <StatusBadge status="running" :label="r.cancel_requested ? 'Cancelling' : undefined" />
           <ToolChip :tool="r.tool" />
           <span class="conn" :title="r.connection">{{ r.connection }}</span>
           <span v-if="r.attempt > 1" class="cap">retry {{ r.attempt }} of 3</span>
@@ -270,7 +270,7 @@ function fromSelect(value: string): string | null {
               <td data-label="Scan date"><span class="tool"><span class="mono">{{ r.snapshot_date }}</span><span v-if="r.source === 'synthetic'" class="chip">Synthetic</span></span></td>
               <td data-label="Status">
                 <span class="status">
-                  <StatusBadge :status="r.status" />
+                  <StatusBadge :status="r.trigger?.cancelled_by ? 'cancelled' : r.status" />
                   <StatusBadge
                     v-if="r.denied_actions.length"
                     status="warning"
@@ -279,7 +279,7 @@ function fromSelect(value: string): string | null {
                   <StatusBadge v-if="r.blocked_actions.length" status="warning" :label="`${r.blocked_actions.length} blocked`" />
                   <StatusBadge v-if="storedWithoutKms(r)" status="warning" label="No KMS" />
                 </span>
-                <span v-if="r.exit_code != null && r.exit_code !== 0" class="sub mono bad">Exit {{ r.exit_code }}</span>
+                <span v-if="r.exit_code != null && r.exit_code !== 0 && !r.trigger?.cancelled_by" class="sub mono bad">Exit {{ r.exit_code }}</span>
               </td>
               <td data-label="Duration" class="right">
                 <span class="mono">{{ duration(r.duration_seconds) }}</span>
@@ -307,6 +307,10 @@ function fromSelect(value: string): string | null {
                   <AlertBanner v-else-if="r.status === 'partial'" kind="warn">
                     Partial: {{ partialReason(r) }}. Partial runs never resolve
                     findings, and are not retried.
+                  </AlertBanner>
+                  <AlertBanner v-else-if="r.trigger?.cancelled_by" kind="info">
+                    Cancelled by {{ r.trigger.cancelled_by }} while it was running. Nothing from this run was kept or changes findings, and it
+                    is not retried. It counts as a failed run in the Status filter.
                   </AlertBanner>
                   <AlertBanner v-else-if="r.status === 'failed'" kind="fail">Failed: nothing from this run changes findings.</AlertBanner>
                   <AlertBanner v-if="r.denied_actions.length" kind="warn">

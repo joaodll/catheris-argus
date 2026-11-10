@@ -11,6 +11,10 @@
 - Each claim has its own token in claimed_by, and heartbeat() and finish() match it (ADR-0039).
   A worker whose claim was released and claimed again elsewhere cannot finish or retry the
   other worker's run: its own result is discarded. A run lost MAX_LOST times is not run again.
+- A claimed request can be asked to stop (request_cancel). Only the worker that holds the claim
+  ends it: it reads the ask beside its heartbeat (cancel_requested) and ends the request as
+  cancelled (finish_cancelled). If that worker is gone, the reaper ends it instead of queueing
+  it again.
 """
 
 import random
@@ -167,6 +171,35 @@ def heartbeat(conn: Connection, request: ClaimedRequest) -> bool:
     )
 
 
+def cancel_requested(conn: Connection, request: ClaimedRequest) -> str | None:
+    """Who asked this claim's run to stop, or None: nobody did, or the claim is no longer this
+    worker's."""
+    who: str | None = conn.execute(
+        text("""
+        SELECT cancel_requested_by FROM run_request
+        WHERE id = :i AND status = 'claimed' AND claimed_by = :t
+    """),
+        {"i": request.id, "t": request.token},
+    ).scalar_one_or_none()
+    return who
+
+
+def finish_cancelled(conn: Connection, request: ClaimedRequest, *, scan_run_id: int | None) -> bool:
+    """Ends a claim whose run was stopped as asked: cancelled, never retried. `scan_run_id` is
+    the failed run that records it. False when the claim is no longer this worker's."""
+    return bool(
+        conn.execute(
+            text("""
+        UPDATE run_request SET status = 'cancelled', finished_at = now(), scan_run_id = :r,
+          error = 'cancelled by ' || cancel_requested_by
+        WHERE id = :i AND status = 'claimed' AND claimed_by = :t
+          AND cancel_requested_at IS NOT NULL
+    """),
+            {"i": request.id, "t": request.token, "r": scan_run_id},
+        ).rowcount
+    )
+
+
 def finish(
     conn: Connection,
     request: ClaimedRequest,
@@ -195,7 +228,20 @@ def finish(
 
 
 def release_stale(conn: Connection, *, older_than: timedelta) -> int:
-    """Returns claims whose worker stopped heart-beating to the queue, counting the loss."""
+    """Returns claims whose worker stopped heart-beating to the queue, counting the loss. A
+    claim that was asked to stop is ended as cancelled instead: its worker died before it could,
+    and running it again is what the ask was against. Returns how many claims it released."""
+    age = {"age": f"{int(older_than.total_seconds())} seconds"}
+    cancelled: int = conn.execute(
+        text("""
+        UPDATE run_request SET status = 'cancelled', finished_at = now(),
+          error = right(coalesce(error || E'\\n', '') || 'worker lost; cancelled by '
+                        || cancel_requested_by, 2000)
+        WHERE status = 'claimed' AND heartbeat_at < now() - CAST(:age AS interval)
+          AND cancel_requested_at IS NOT NULL
+    """),
+        age,
+    ).rowcount
     released: int = conn.execute(
         text("""
         UPDATE run_request SET status = 'queued', claimed_by = NULL, claimed_at = NULL,
@@ -204,9 +250,9 @@ def release_stale(conn: Connection, *, older_than: timedelta) -> int:
                         || now()::text, 2000)
         WHERE status = 'claimed' AND heartbeat_at < now() - CAST(:age AS interval)
     """),
-        {"age": f"{int(older_than.total_seconds())} seconds"},
+        age,
     ).rowcount
-    return released
+    return cancelled + released
 
 
 def retry(conn: Connection, request: ClaimedRequest, *, settings: CollectionSettings) -> int | None:
@@ -279,7 +325,7 @@ def cancel_queued(
 
 def cancel(conn: Connection, request_id: int) -> bool:
     """Cancels one queued request. False when it is not queued (claimed, finished, gone): a
-    running request is not stopped from here."""
+    running request is asked to stop with request_cancel()."""
     return bool(
         conn.execute(
             text("""
@@ -287,6 +333,21 @@ def cancel(conn: Connection, request_id: int) -> bool:
         WHERE id = :i AND status = 'queued'
     """),
             {"i": request_id},
+        ).rowcount
+    )
+
+
+def request_cancel(conn: Connection, request_id: int, *, actor: str) -> bool:
+    """Asks a running request to stop: its worker sees the ask within a heartbeat, kills the
+    tool and ends the request as cancelled. False when it is not running, or was already
+    asked."""
+    return bool(
+        conn.execute(
+            text("""
+        UPDATE run_request SET cancel_requested_at = now(), cancel_requested_by = :a
+        WHERE id = :i AND status = 'claimed' AND cancel_requested_at IS NULL
+    """),
+            {"i": request_id, "a": actor},
         ).rowcount
     )
 

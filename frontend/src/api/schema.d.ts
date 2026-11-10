@@ -535,9 +535,11 @@ export interface paths {
         put?: never;
         /**
          * Cancel
-         * @description Cancels a queued run request (a waiting retry, a staggered scheduled run, a Run now). A
-         *     cancelled request is never retried. 404 when it is not queued: running runs are not
-         *     stopped from here.
+         * @description Cancels a run request, never to be retried. A queued one (a waiting retry, a staggered
+         *     scheduled run, a Run now) is cancelled at once. A running one is asked to stop: its tool is
+         *     killed within about half a minute and the run is recorded as cancelled; if its results are
+         *     already loading, it finishes instead. 404 when the request is neither queued nor running, or
+         *     was already asked to stop.
          */
         post: operations["cancel_api_v1_run_requests__request_id__cancel_post"];
         delete?: never;
@@ -1006,6 +1008,14 @@ export interface components {
         Bounds: {
             /** Max History Days */
             max_history_days: number;
+        };
+        /** CancelOut */
+        CancelOut: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "cancelled" | "stopping";
         };
         /** CheckFacet */
         CheckFacet: {
@@ -1715,6 +1725,11 @@ export interface components {
         PendingRequest: {
             /** Attempt */
             attempt: number;
+            /**
+             * Cancel Requested
+             * @default false
+             */
+            cancel_requested: boolean;
             /** Claimed At */
             claimed_at: string | null;
             /** Connection */
@@ -2132,6 +2147,8 @@ export interface components {
         RunTrigger: {
             /** Attempt */
             attempt: number;
+            /** Cancelled By */
+            cancelled_by?: string | null;
             /**
              * Origin
              * @enum {string}
@@ -3832,11 +3849,13 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            204: {
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["CancelOut"];
+                };
             };
             /** @description Validation Error */
             422: {

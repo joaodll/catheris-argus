@@ -324,7 +324,9 @@ failed migrate or rederive Job stays: read its logs, delete it, and upgrade agai
 ## Operating
 
 Settings, Test connection, raw output storage and the Cancel button work as on Compose:
-[runbook.md, Operating](runbook.md#operating).
+[runbook.md, Operating](runbook.md#operating). Cancelling a running scan deletes no Job: the
+scan Job stops its own tool, records the run as cancelled and exits, and Kubernetes removes it
+after `scanJobs.ttlSecondsAfterFinished` like any finished Job.
 
 **Logs.** Every pod logs JSON lines, redacted, never raw tool output.
 

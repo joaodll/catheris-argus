@@ -21,6 +21,8 @@ import shutil
 import signal
 import subprocess
 import tempfile
+import threading
+import time
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -29,6 +31,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import IO
 
+from argus.collection.collect import Cancelled
 from argus.collection.tables import (
     INSPECTOR_TABLES,
     inspector_table_options,
@@ -50,6 +53,8 @@ TOOL_TIMEOUT = timedelta(hours=4)
 TABLE_TIMEOUT = timedelta(minutes=30)
 VERSION_TIMEOUT = 60
 LOG_TAIL_LINES = 200
+# How often a waiting tool is checked for a request to stop.
+CANCEL_POLL_SECONDS = 1.0
 # Attempts per AWS call, retries included, for every tool. The SDKs read it from the profile's
 # environment; Prowler builds its own botocore Config (standard mode, 3 attempts in 5.47.0),
 # which wins over the environment, so it gets the same number as a flag.
@@ -303,8 +308,38 @@ def tool_profile(credentials: SessionCredentials, region: str) -> Iterator[dict[
         shutil.rmtree(home, ignore_errors=True)
 
 
-def _run(cmd: list[str], *, env: dict[str, str], log: Path, timeout: timedelta) -> int:
-    """Runs a tool in its own process group, output to `log`. Kills the group on timeout."""
+def _wait(
+    process: subprocess.Popen[bytes], timeout: timedelta, cancel: threading.Event | None
+) -> int | None:
+    """Waits for a tool that runs in its own process group. Returns its exit code, or None
+    after killing the group at the timeout. Kills the group and raises Cancelled as soon as the
+    run is asked to stop."""
+    deadline = time.monotonic() + timeout.total_seconds()
+    while True:
+        if cancel is not None and cancel.is_set():
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            raise Cancelled
+        left = deadline - time.monotonic()
+        try:
+            return process.wait(timeout=max(0.0, min(CANCEL_POLL_SECONDS, left)))
+        except subprocess.TimeoutExpired:
+            if left <= 0:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+                return None
+
+
+def _run(
+    cmd: list[str],
+    *,
+    env: dict[str, str],
+    log: Path,
+    timeout: timedelta,
+    cancel: threading.Event | None = None,
+) -> int:
+    """Runs a tool in its own process group, output to `log`. Kills the group on timeout, or
+    when the run is asked to stop (Cancelled)."""
     with log.open("ab") as out:
         process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             cmd,
@@ -315,13 +350,11 @@ def _run(cmd: list[str], *, env: dict[str, str], log: Path, timeout: timedelta) 
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
-        try:
-            return process.wait(timeout=timeout.total_seconds())
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
+        rc = _wait(process, timeout, cancel)
+        if rc is None:
             out.write(f"\nargus: killed after {timeout}\n".encode())
             return -9
+        return rc
 
 
 def _version(cmd: list[str], env: dict[str, str]) -> str:
@@ -512,7 +545,11 @@ def _judge_tables(runs: list[_TableRun], out_dir: Path, log: Path) -> _Tables:
 
 
 def run_steampipe(
-    out_dir: Path, env: dict[str, str], regions: list[str], parallel_tables: int = 4
+    out_dir: Path,
+    env: dict[str, str],
+    regions: list[str],
+    parallel_tables: int = 4,
+    cancel: threading.Event | None = None,
 ) -> ToolResult:
     """Every column of each table in the versioned list (some narrowed, collection/tables.py),
     one JSONL file per table, `parallel_tables` exports at a time.
@@ -520,11 +557,17 @@ def run_steampipe(
     Completeness is per table (decided 2026-10-08, argus_v8): a table that failed, or whose
     export logged a denied call or throttling, is listed in `incomplete_tables` and resolves
     nothing; the run is partial, and every other table is complete."""
-    return _export_tables(out_dir, env, regions, steampipe_tables(), table_options, parallel_tables)
+    return _export_tables(
+        out_dir, env, regions, steampipe_tables(), table_options, parallel_tables, cancel=cancel
+    )
 
 
 def run_inspector(
-    out_dir: Path, env: dict[str, str], regions: list[str], account_id: str
+    out_dir: Path,
+    env: dict[str, str],
+    regions: list[str],
+    account_id: str,
+    cancel: threading.Event | None = None,
 ) -> ToolResult:
     """The vulnerabilities tool on AWS: Inspector's open findings and its coverage for this
     account (ADR-0042), by the same export binary, one JSONL file per table. Judged as
@@ -536,6 +579,7 @@ def run_inspector(
         INSPECTOR_TABLES,
         lambda table: inspector_table_options(table, account_id),
         len(INSPECTOR_TABLES),
+        cancel=cancel,
     )
 
 
@@ -546,6 +590,8 @@ def _export_tables(
     tables: Sequence[str],
     options: Callable[[str], tuple[str, ...]],
     parallel_tables: int,
+    *,
+    cancel: threading.Event | None = None,
 ) -> ToolResult:
     home = Path(env["HOME"])
     config_dir = home / "steampipe" / "config"
@@ -557,10 +603,12 @@ def _export_tables(
     )
 
     def export(table: str) -> _TableRun:
+        if cancel is not None and cancel.is_set():
+            raise Cancelled  # a table still waiting its turn never starts
         out, err = out_dir / f"{table}.jsonl", home / f"{table}.err"
         command = _table_command(table, config_dir, options(table))
         with out.open("wb") as rows:
-            rc = _run_table(command, env, rows, err)
+            rc = _run_table(command, env, rows, err, cancel)
         return _TableRun(table, rc, err.read_text(errors="replace") if err.exists() else "")
 
     with ThreadPoolExecutor(max_workers=max(1, parallel_tables)) as pool:
@@ -623,7 +671,13 @@ def _table_command(table: str, config_dir: Path, options: tuple[str, ...]) -> li
     ]
 
 
-def _run_table(command: list[str], env: dict[str, str], rows: IO[bytes], err: Path) -> int:
+def _run_table(
+    command: list[str],
+    env: dict[str, str],
+    rows: IO[bytes],
+    err: Path,
+    cancel: threading.Event | None = None,
+) -> int:
     with err.open("wb") as errors:
         process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             command,
@@ -634,15 +688,13 @@ def _run_table(command: list[str], env: dict[str, str], rows: IO[bytes], err: Pa
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
-        try:
-            return process.wait(timeout=TABLE_TIMEOUT.total_seconds())
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.wait()
-            return -9
+        rc = _wait(process, TABLE_TIMEOUT, cancel)
+        return -9 if rc is None else rc
 
 
-def run_prowler(out_dir: Path, env: dict[str, str], regions: list[str]) -> ToolResult:
+def run_prowler(
+    out_dir: Path, env: dict[str, str], regions: list[str], cancel: threading.Event | None = None
+) -> ToolResult:
     log = Path(env["HOME"]) / "prowler.log"
     cmd = [
         PROWLER,
@@ -665,7 +717,7 @@ def run_prowler(out_dir: Path, env: dict[str, str], regions: list[str]) -> ToolR
     ]
     if regions:
         cmd += ["--region", *regions]
-    rc = _run(cmd, env=env, log=log, timeout=TOOL_TIMEOUT)
+    rc = _run(cmd, env=env, log=log, timeout=TOOL_TIMEOUT, cancel=cancel)
     lines, throttled = _read_log(log)
     # A check whose calls were denied has no result, so it resolves nothing: the run stays
     # complete, and the denied actions are reported.
@@ -689,7 +741,11 @@ def run_prowler(out_dir: Path, env: dict[str, str], regions: list[str]) -> ToolR
 
 
 def run_cloudfox(
-    out_dir: Path, env: dict[str, str], account_id: str, max_goroutines: int
+    out_dir: Path,
+    env: dict[str, str],
+    account_id: str,
+    max_goroutines: int,
+    cancel: threading.Event | None = None,
 ) -> ToolResult:
     """All checks, including env-vars (decided 2026-10-02). --verbosity 1 prints control
     messages only: higher levels print module output, which includes secret values."""
@@ -710,7 +766,7 @@ def run_cloudfox(
     ]
     errors_from = _size(CLOUDFOX_ERROR_LOG)
     try:
-        rc = _run(cmd, env=env, log=log, timeout=TOOL_TIMEOUT)
+        rc = _run(cmd, env=env, log=log, timeout=TOOL_TIMEOUT, cancel=cancel)
     finally:
         # CloudFox 2.0.5 also caches what it read (env-var values included) next to its
         # output: it is not output, so it is never archived.
