@@ -12,7 +12,13 @@ from argus.collection import TOOL_ORDER
 from argus.connections import DIRECTORY_SQL
 from argus.core import audit
 from argus.core.db import like_contains
-from argus.scheduling.claims import ORIGIN_SQL, cancel, cancel_queued, recently_completed
+from argus.scheduling.claims import (
+    ORIGIN_SQL,
+    cancel,
+    cancel_queued,
+    recently_completed,
+    request_cancel,
+)
 from argus.scheduling.schedules import check_cron
 from argus.settings import read_collection
 
@@ -208,13 +214,23 @@ def delete_schedule(
     )
 
 
+CancelState = Literal["cancelled", "stopping"]
+
+
 def cancel_request(
     conn: Connection, *, request_id: int, actor: str, client_ip: str | None = None
-) -> None:
-    """Cancels one queued run request (a waiting retry, a staggered scheduled run, a Run now).
-    A cancelled request is never retried. Raises LookupError when it is not queued: a running
-    request is not stopped from here."""
-    if not cancel(conn, request_id):
+) -> CancelState:
+    """Cancels one run request, never to be retried. A queued one (a waiting retry, a staggered
+    scheduled run, a Run now) is cancelled at once: "cancelled". A running one is asked to stop:
+    "stopping", until its worker has killed the tool, within a heartbeat; a run already loading
+    its results finishes instead. Raises LookupError when the request is neither queued nor
+    running, or was already asked to stop."""
+    state: CancelState
+    if cancel(conn, request_id):
+        state = "cancelled"
+    elif request_cancel(conn, request_id, actor=actor):
+        state = "stopping"
+    else:
         raise LookupError(request_id)
     audit.record(
         conn,
@@ -223,7 +239,9 @@ def cancel_request(
         target_type="run_request",
         target_id=str(request_id),
         client_ip=client_ip,
+        detail={"running": state == "stopping"},
     )
+    return state
 
 
 def run_now(
@@ -278,7 +296,8 @@ def pending_requests(conn: Connection, *, limit: int) -> list[dict[str, object]]
     rows = conn.execute(
         text(f"""
         SELECT rr.id, rr.connection_id, c.name AS connection, rr.tool, rr.reason, rr.status,
-               rr.attempt, rr.snapshot_date, rr.not_before, rr.claimed_at, rr.heartbeat_at
+               rr.attempt, rr.snapshot_date, rr.not_before, rr.claimed_at, rr.heartbeat_at,
+               rr.cancel_requested_at IS NOT NULL AS cancel_requested
         FROM run_request rr JOIN ({DIRECTORY_SQL}) c ON c.id = rr.connection_id
         WHERE rr.status IN ('queued', 'claimed')
         -- Running first, so the first page always shows them; then claim order.
@@ -320,6 +339,8 @@ class RunTrigger:
     schedule: str | None
     requested_by: str
     attempt: int
+    # Who stopped the run while it collected; None for a run nobody cancelled.
+    cancelled_by: str | None = None
 
 
 def run_triggers(conn: Connection, scan_run_ids: list[int]) -> dict[int, RunTrigger]:
@@ -330,13 +351,16 @@ def run_triggers(conn: Connection, scan_run_ids: list[int]) -> dict[int, RunTrig
     rows = conn.execute(
         text(f"""
         SELECT rr.scan_run_id, rr.reason, rr.requested_by, rr.attempt, s.name AS schedule,
-               {ORIGIN_SQL} AS origin
+               {ORIGIN_SQL} AS origin,
+               CASE WHEN rr.status = 'cancelled' THEN rr.cancel_requested_by END AS cancelled_by
         FROM run_request rr LEFT JOIN schedule s ON s.id = rr.schedule_id
         WHERE rr.scan_run_id = ANY (:ids)
     """),  # noqa: S608 - constant SQL only
         {"ids": scan_run_ids},
     ).all()
     return {
-        r.scan_run_id: RunTrigger(r.reason, r.origin, r.schedule, r.requested_by, r.attempt)
+        r.scan_run_id: RunTrigger(
+            r.reason, r.origin, r.schedule, r.requested_by, r.attempt, r.cancelled_by
+        )
         for r in rows
     }

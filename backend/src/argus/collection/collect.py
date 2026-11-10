@@ -6,9 +6,13 @@ last. A source that raises still produces a committed manifest with status "fail
 broken run is visible in run status instead of silently missing. A run the archive refuses
 (an S3 upload that fails) is returned as failed too. Anything else that raises after staging
 deletes the staged output first. The archive's encryption is reported, not enforced (ADR-0031).
+
+A run asked to stop (CollectOptions.cancel) raises Cancelled: its tool is killed, nothing is
+archived, and its staged output is deleted like any other run that raises.
 """
 
 import logging
+import threading
 import traceback
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -33,6 +37,10 @@ MAX_COMMAND_CHARS = 1000
 log = logging.getLogger("argus.collection")
 
 
+class Cancelled(Exception):
+    """The run was asked to stop while it collected. Nothing of it is archived."""
+
+
 @dataclass(frozen=True)
 class CollectTarget:
     connection_id: int
@@ -53,6 +61,9 @@ class CollectOptions:
     aws_regions: tuple[str, ...] = ()
     cloudfox_max_goroutines: int = 5
     steampipe_parallel_tables: int = 4
+    # Set by whoever runs the collection when the run is asked to stop: the source kills its
+    # tool and raises Cancelled.
+    cancel: threading.Event | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -146,6 +157,13 @@ def _collect_staged(
             out_dir=run_dir,
             options=options,
         )
+        # Asked to stop while a source that cannot be interrupted ran (the synthetic one), or
+        # just as the tool ended: still nothing is archived.
+        if options.cancel is not None and options.cancel.is_set():
+            raise Cancelled
+    except Cancelled:
+        log.info("collection cancelled", extra=context)
+        raise
     except Exception as exc:  # the run fails; the manifest still records why
         log.exception("collection raised", extra=context)
         outcome = Outcome(

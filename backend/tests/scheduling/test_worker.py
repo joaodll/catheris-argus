@@ -26,6 +26,7 @@ from argus.scheduling import (
     claims,
     maintenance,
     recently_completed,
+    run_triggers,
     runner,
     schedules,
 )
@@ -288,6 +289,60 @@ def test_a_run_whose_claim_was_lost_registers_nothing(
             text("SELECT status, claimed_by FROM run_request WHERE id = :i"), {"i": rid}
         ).one()
     assert (row.status, row.claimed_by) == ("claimed", "other:000000000000")  # left to its owner
+
+
+def test_a_run_asked_to_stop_ends_cancelled_with_a_failed_run_and_no_retry(
+    owner: Engine, worker: Engine, store: FilesystemRawStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    target = make_demo(owner)
+    rid = _request(owner, target.connection_id, "prowler", reason="schedule", day=date(2026, 10, 2))
+
+    def ask() -> None:  # an operator's Cancel, while the tool runs
+        with owner.begin() as conn:
+            assert claims.request_cancel(conn, rid, actor="olivia")
+
+    monkeypatch.setattr(runner, "HEARTBEAT_EVERY", timedelta(milliseconds=50))
+    monkeypatch.setattr(runner, "source_for", lambda kind: _Delayed(ask))
+    assert runner.run_once(worker, store=store, rules_dir=RULES_DIR, worker_id="t") == "cancelled"
+    with owner.connect() as conn:
+        row = conn.execute(
+            text("SELECT status, scan_run_id, error, finished_at FROM run_request WHERE id = :i"),
+            {"i": rid},
+        ).one()
+        run = conn.execute(text("SELECT id, status, log_tail, raw_path FROM scan_run")).one()
+        retries = conn.execute(
+            text("SELECT count(*) FROM run_request WHERE retry_of = :i"), {"i": rid}
+        ).scalar_one()
+    assert (row.status, row.scan_run_id, row.error) == ("cancelled", run.id, "cancelled by olivia")
+    assert row.finished_at is not None
+    # A failed run records it: it resolves nothing, and says who stopped it.
+    assert run.status == "failed" and "Cancelled by olivia" in run.log_tail
+    assert retries == 0
+    with owner.connect() as conn:  # the Runs tab reads who stopped it from the run's trigger
+        assert run_triggers(conn, [run.id])[run.id].cancelled_by == "olivia"
+    # Nothing of the run was archived: without a manifest there is no run to read back.
+    assert run.raw_path == "" and not list(store.root.rglob("manifest.json"))
+
+
+def test_an_ask_to_stop_after_collection_comes_too_late(
+    owner: Engine, worker: Engine, store: FilesystemRawStore
+) -> None:
+    target = make_demo(owner)
+    rid = _request(owner, target.connection_id, "steampipe", day=date(2026, 10, 2))
+    claimed = _claim(worker)
+    assert claimed is not None
+    with worker.begin() as conn:
+        assert claims.cancel_requested(conn, claimed) is None
+    with owner.begin() as conn:
+        assert claims.request_cancel(conn, rid, actor="olivia")
+        assert not claims.request_cancel(conn, rid, actor="olivia")  # asked once
+    with worker.begin() as conn:
+        assert claims.cancel_requested(conn, claimed) == "olivia"
+        # Its worker never saw the ask before the run ended: it finishes as any run.
+        assert claims.finish(conn, claimed, scan_run_id=None)
+        assert not claims.finish_cancelled(conn, claimed, scan_run_id=None)
+    with owner.connect() as conn:
+        assert conn.execute(text("SELECT status FROM run_request")).scalar_one() == "finished"
 
 
 def test_one_heartbeat_error_does_not_stop_the_heartbeats(

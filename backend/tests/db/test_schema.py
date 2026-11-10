@@ -210,6 +210,17 @@ def test_api_can_only_cancel_requests(conn: Connection) -> None:
     assert "permission denied" in _fails(
         conn, "UPDATE run_request SET claimed_by = 'api' WHERE id = :r", {"r": rid}
     )
+    # A running request: the API records the ask to stop (0046), and who made it, together.
+    conn.execute(
+        text(
+            "UPDATE run_request SET cancel_requested_at = now(), cancel_requested_by = 'admin' "
+            "WHERE id = :r"
+        ),
+        {"r": rid},
+    )
+    assert "run_request_cancel_requested" in _fails(
+        conn, "UPDATE run_request SET cancel_requested_by = NULL WHERE id = :r", {"r": rid}
+    )
 
 
 # --------------------------------------------------------------- history and roles

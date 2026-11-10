@@ -2,6 +2,7 @@
 
 - A disabled, narrowed or deleted schedule leaves nothing queued behind it, and its retries stop.
 - A queued request can be cancelled from the UI, which frees Run now for that tool and account.
+- A running request can be asked to stop: its worker ends it as cancelled (2026-11-09).
 - Every run says what started it and what it ran.
 
 The API runs as argus_api and the worker as argus_worker, so both roles' grants are proven."""
@@ -127,9 +128,10 @@ def test_a_cancelled_retry_frees_run_now(
 
     assert signed_in.post(f"/api/v1/run-requests/{waiting}/cancel").status_code == 403  # CSRF
     cancelled = signed_in.post(f"/api/v1/run-requests/{waiting}/cancel", headers=csrf(signed_in))
-    assert cancelled.status_code == 204, cancelled.text
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json() == {"state": "cancelled"}
     again = signed_in.post(f"/api/v1/run-requests/{waiting}/cancel", headers=csrf(signed_in))
-    assert again.status_code == 404  # only a queued request can be cancelled
+    assert again.status_code == 404  # a cancelled request is neither queued nor running
 
     queued = signed_in.post("/api/v1/run-requests", headers=csrf(signed_in), json=body)
     assert queued.status_code == 202, queued.text
@@ -140,22 +142,64 @@ def test_a_cancelled_retry_frees_run_now(
     assert audit.actor == "admin" and audit.target_id == str(waiting)
 
 
-def test_a_running_request_cannot_be_cancelled(
+def _running(owner: Engine, connection_id: int) -> int:
+    with owner.begin() as conn:
+        return int(
+            conn.execute(
+                text(
+                    "INSERT INTO run_request (connection_id, tool, reason, status, claimed_at, "
+                    "heartbeat_at, requested_by) VALUES (:c, 'prowler', 'manual', 'claimed', "
+                    "now(), now(), 'admin') RETURNING id"
+                ),
+                {"c": connection_id},
+            ).scalar_one()
+        )
+
+
+def test_a_running_request_is_asked_to_stop_and_stays_its_workers(
     signed_in: TestClient, owner: Engine, worker: Engine
 ) -> None:
     target = make_demo(owner)
-    with owner.begin() as conn:
-        running = conn.execute(
-            text(
-                "INSERT INTO run_request (connection_id, tool, reason, status, claimed_at, "
-                "heartbeat_at, requested_by) VALUES (:c, 'prowler', 'manual', 'claimed', now(), "
-                "now(), 'admin') RETURNING id"
-            ),
-            {"c": target.connection_id},
-        ).scalar_one()
+    running = _running(owner, target.connection_id)
     response = signed_in.post(f"/api/v1/run-requests/{running}/cancel", headers=csrf(signed_in))
-    assert response.status_code == 404
-    assert _statuses(owner) == {"prowler": "claimed"}
+    assert response.status_code == 200, response.text
+    assert response.json() == {"state": "stopping"}
+    # Only its worker ends it: the API recorded the ask and who made it.
+    with owner.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT status, cancel_requested_by, cancel_requested_at IS NOT NULL AS asked "
+                "FROM run_request WHERE id = :i"
+            ),
+            {"i": running},
+        ).one()
+        audit = conn.execute(
+            text("SELECT actor, target_id, detail FROM audit_log WHERE action = 'run.cancel'")
+        ).one()
+    assert (row.status, row.cancel_requested_by, row.asked) == ("claimed", "admin", True)
+    assert (audit.actor, audit.target_id) == ("admin", str(running))
+    assert audit.detail == {"running": True}
+
+    (item,) = signed_in.get("/api/v1/run-requests").json()["items"]
+    assert item["status"] == "claimed" and item["cancel_requested"] is True
+    again = signed_in.post(f"/api/v1/run-requests/{running}/cancel", headers=csrf(signed_in))
+    assert again.status_code == 404  # already asked
+
+
+def test_a_lost_claim_that_was_asked_to_stop_is_cancelled_not_queued_again(
+    signed_in: TestClient, owner: Engine, worker: Engine
+) -> None:
+    target = make_demo(owner)
+    running = _running(owner, target.connection_id)
+    signed_in.post(f"/api/v1/run-requests/{running}/cancel", headers=csrf(signed_in))
+    with owner.begin() as conn:
+        conn.execute(text("UPDATE run_request SET heartbeat_at = now() - interval '11 minutes'"))
+    with worker.begin() as conn:
+        assert claims.release_stale(conn, older_than=maintenance.STALE_AFTER) == 1
+    with owner.connect() as conn:
+        row = conn.execute(text("SELECT status, lost, error FROM run_request")).one()
+    assert (row.status, row.lost) == ("cancelled", 0)
+    assert row.error == "worker lost; cancelled by admin"
 
 
 def test_a_scheduled_run_is_not_retried_once_its_schedule_is_disabled(
@@ -260,5 +304,6 @@ def test_each_run_says_what_started_it_and_what_it_ran(
         "schedule": None,
         "requested_by": "admin",
         "attempt": 1,
+        "cancelled_by": None,
     }
     assert run["command"] == ""  # the synthetic source runs no tool

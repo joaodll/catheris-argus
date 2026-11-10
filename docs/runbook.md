@@ -194,10 +194,25 @@ error. Restarting the worker (`docker compose restart worker`) lets runs in prog
 
 **A run waiting that you want gone.** In **Schedules → Queue**, **Cancel** removes a queued
 run: a retry waiting for its turn ("Retry 3 of 3"), a scheduled run waiting for its stagger, a
-Run now. A cancelled retry is not retried again, and **Run now** can then start the tool. A run
-already running is not stopped from the UI. Disabling or deleting a schedule, or taking a tool
-or a connection out of it, cancels the runs it had queued (since 2026-10-07). Every run says
-in its details what started it and the command the worker ran.
+Run now. A cancelled retry is not retried again, and **Run now** can then start the tool.
+Disabling or deleting a schedule, or taking a tool or a connection out of it, cancels the runs
+it had queued (since 2026-10-07). Every run says in its details what started it and the command
+the worker ran.
+
+**A run in progress that you want stopped.** **Cancel** on a running row of the same queue asks
+the run to stop (since 2026-11-09; Operator or Admin). The row says "Cancelling" until the
+worker has killed the tool, which takes up to about 30 seconds: the worker reads the request
+with its next heartbeat. Then:
+
+- Nothing from the run is kept: no raw output is archived, and no finding or resource changes.
+- **Runs** lists it as **Cancelled**, with who cancelled it. In the Status filter it counts as
+  a failed run.
+- It is not retried. **Run now** can start the tool again at once.
+
+A run whose tool had already ended when the request arrived is loading its results: it finishes
+as usual, and nothing is cancelled. If the worker dies before it stops the run, the run is
+cancelled after 10 silent minutes instead of being queued again. The cancel is in the audit log
+as `run.cancel`.
 
 **Testing a connection or the platform identity.** **Test connection**, in an AWS connection's
 edit sheet and under **Settings → Platform identity**, asks the worker to sign in the way a scan

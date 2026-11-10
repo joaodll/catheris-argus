@@ -352,6 +352,23 @@
         "title": "Bounds",
         "type": "object"
       },
+      "CancelOut": {
+        "properties": {
+          "state": {
+            "enum": [
+              "cancelled",
+              "stopping"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "title": "CancelOut",
+        "type": "object"
+      },
       "CheckFacet": {
         "properties": {
           "check_id": {
@@ -2685,6 +2702,11 @@
             "title": "Attempt",
             "type": "integer"
           },
+          "cancel_requested": {
+            "default": false,
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
           "claimed_at": {
             "anyOf": [
               {
@@ -3964,6 +3986,17 @@
           "attempt": {
             "title": "Attempt",
             "type": "integer"
+          },
+          "cancelled_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancelled By"
           },
           "origin": {
             "enum": [
@@ -9306,7 +9339,7 @@
     },
     "/api/v1/run-requests/{request_id}/cancel": {
       "post": {
-        "description": "Cancels a queued run request (a waiting retry, a staggered scheduled run, a Run now). A\ncancelled request is never retried. 404 when it is not queued: running runs are not\nstopped from here.",
+        "description": "Cancels a run request, never to be retried. A queued one (a waiting retry, a staggered\nscheduled run, a Run now) is cancelled at once. A running one is asked to stop: its tool is\nkilled within about half a minute and the run is recorded as cancelled; if its results are\nalready loading, it finishes instead. 404 when the request is neither queued nor running, or\nwas already asked to stop.",
         "operationId": "cancel_api_v1_run_requests__request_id__cancel_post",
         "parameters": [
           {
@@ -9368,7 +9401,14 @@
           }
         ],
         "responses": {
-          "204": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CancelOut"
+                }
+              }
+            },
             "description": "Successful Response"
           },
           "422": {
