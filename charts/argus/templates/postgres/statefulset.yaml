@@ -23,6 +23,7 @@ startupProbe:
   exec:
     command: [pg_isready, -h, 127.0.0.1, -U, {{ .Values.database.ownerUser | quote }}, -d, {{ .Values.database.name | quote }}]
   periodSeconds: 5
+  timeoutSeconds: 3
   failureThreshold: 60
 readinessProbe:
   exec:

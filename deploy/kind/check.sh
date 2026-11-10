@@ -177,6 +177,15 @@ expect_env CronJob retention ARGUS_MAX_HISTORY_DAYS 500
 expect_env Deployment api ARGUS_SESSION_IDLE_MINUTES 45
 expect_env Deployment api ARGUS_LOGIN_MAX_FAILURES_PER_IP 33
 
+step "no exec probe runs on Kubernetes' one-second default"
+# A command probe on a node busy with scans can take over a second to start (2026-11-09: the
+# scheduler was restarted while healthy), so each sets its own timeout and starts no interpreter.
+probes=$(printf '%s\n' "$limits" | yq -o=json -I=0 '.. | select(has("exec") and has("periodSeconds"))')
+[ -n "$probes" ] || fail "found no exec probe to check"
+slow=$(jq -c 'select((.timeoutSeconds // 1) < 3 or (.exec.command[0] | test("python")))' <<< "$probes")
+[ -z "$slow" ] || fail "an exec probe has no timeout of its own, or starts Python: $slow"
+echo "exec probes checked: $(jq -s length <<< "$probes")"
+
 step "an external database with only a host"
 host_only="$OUT/external-db-host-only.yaml"
 db_env() { # <rendered file> <variable>

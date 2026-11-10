@@ -9,15 +9,18 @@ identity, no Service. The only pod with a Kubernetes token: it creates Jobs (rba
   value: /etc/argus/jobs
 {{- end }}
 {{- define "argus.scheduler.probes" -}}
-# It touches this file on every pass; a wedged loop stops touching it.
+# It touches this file on every pass; a wedged loop stops touching it. No interpreter and a real
+# timeout: on a node busy with scans, starting Python took over a second, Kubernetes' default
+# for an exec probe, and the scheduler was restarted while healthy (2026-11-09).
 livenessProbe:
   exec:
     command:
-      - python
+      - sh
       - -c
-      - "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/argus-scheduler.alive') > 120)"
+      - test -n "$(find /tmp/argus-scheduler.alive -mmin -2)"
   initialDelaySeconds: 30
   periodSeconds: 30
+  timeoutSeconds: 10
   failureThreshold: 3
 {{- end }}
 {{- $db := dict "root" . "user" "argus_scheduler" "key" "ARGUS_SCHEDULER_DB_PASSWORD" "pool" "scheduler" }}
