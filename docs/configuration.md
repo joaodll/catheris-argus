@@ -34,6 +34,9 @@ written to the audit log.
 | CloudFox concurrency | 5 | 1–30 |
 | Minimum schedule interval (minutes) | 60 | 15–1440 |
 | Synthetic throttling share: Demo runs that report throttling (%) | 5 | 0–100 |
+| Prowler: services to skip | none | the pinned Prowler's 89 AWS services |
+| Prowler: checks to skip | none | the pinned Prowler's 668 AWS checks |
+| Prowler: retry attempts per AWS call | 10 | 1–20 |
 
 Removing a region from **AWS regions to scan** does not mean its resources are gone or its findings
 fixed. A run says nothing about a region it did not scan, so its resources and findings stay as
@@ -41,6 +44,25 @@ last scanned, with their last-seen dates, until a run scans that region again. *
 are different:** they come from the latest Prowler run, so they cover only the regions it scanned,
 and removing a region can change a score. Read a score change next to a change of this setting,
 which the audit log records.
+
+**Prowler: skipping services or checks** (since 2026-11-10). Skip a service or a check to make
+Prowler lighter on an account's API limits, for example a service that keeps throttling.
+Prowler gets the names as `--excluded-service` and `--excluded-check`; the Runs page shows them
+in the run's command. Know what a skip costs:
+
+- **A skipped service or check keeps its last results** until a run checks it again. Skipping
+  does not resolve a finding, and its findings still count on every screen.
+- **While anything is skipped, Prowler's 43 checks that belong to no compliance framework don't
+  run either**, several "no secrets in ..." checks among them, and they keep their last results
+  too. Prowler 5.47.0 stops writing compliance results when a run skips anything unless every
+  framework is named, and naming the frameworks limits it to the checks mapped to one; its
+  command line cannot ask for both. Argus names all 44 AWS frameworks, so **compliance stays
+  complete**, minus whatever you skipped.
+- With both lists empty, Prowler runs every check, as before.
+
+**Retry attempts per AWS call** is Prowler's only: the other tools keep 10. More attempts make a
+throttled run more patient and longer; a call that still fails after its last attempt is logged,
+and its run is **Partial**.
 
 **Retention**
 

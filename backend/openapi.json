@@ -490,6 +490,31 @@
             "title": "Max Parallel Runs",
             "type": "integer"
           },
+          "prowler_retry_attempts": {
+            "default": 10,
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Prowler Retry Attempts",
+            "type": "integer"
+          },
+          "prowler_skip_checks": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9_]{1,119}$",
+              "type": "string"
+            },
+            "maxItems": 700,
+            "title": "Prowler Skip Checks",
+            "type": "array"
+          },
+          "prowler_skip_services": {
+            "items": {
+              "pattern": "^[a-z][a-z0-9]{1,39}$",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Prowler Skip Services",
+            "type": "array"
+          },
           "retry_delays_minutes": {
             "items": {
               "maximum": 1440.0,
@@ -2812,6 +2837,31 @@
           "score"
         ],
         "title": "Pillar",
+        "type": "object"
+      },
+      "ProwlerOptions": {
+        "description": "What Collection settings may skip: the pinned Prowler's AWS services and checks. A\ncheck's service is the first word of its id.",
+        "properties": {
+          "checks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "services": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Services",
+            "type": "array"
+          }
+        },
+        "required": [
+          "services",
+          "checks"
+        ],
+        "title": "ProwlerOptions",
         "type": "object"
       },
       "Queue": {
@@ -10346,6 +10396,87 @@
           }
         },
         "summary": "Write Collection",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/collection/prowler-options": {
+      "get": {
+        "operationId": "prowler_options_api_v1_settings_collection_prowler_options_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProwlerOptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Prowler Options",
         "tags": [
           "settings"
         ]

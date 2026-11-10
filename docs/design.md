@@ -222,6 +222,8 @@ The adapter contract:
 3. Version: each adapter declares the tool versions it supports and refuses others.
 4. Tests: fixtures cut from real outputs of the pinned version; a tool upgrade starts by refreshing the fixtures.
 
+A Prowler upgrade also refreshes `collection/prowler_checks_aws.txt` and `collection/prowler_frameworks_aws.txt` (`prowler aws --list-checks-json`, `--list-compliance`): Collection settings may skip only those checks, and a run that skips anything names those frameworks. The worker image's build stops when either list differs from the installed Prowler.
+
 **CloudFox can print secret values** (for example environment variables of functions and containers). Its adapter keeps only the fact that a secret is present and where, never the value.
 
 **CloudFox attacker-view findings** (2026-10-07). The adapter turns the files it already parses for edges into four checks. Each finding carries Prowler's service, resource type and category names, so the Findings filters match both tools:

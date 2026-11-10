@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import IO
 
 from argus.collection.collect import Cancelled
+from argus.collection.prowler_lists import prowler_checks, prowler_frameworks, prowler_services
 from argus.collection.tables import (
     INSPECTOR_TABLES,
     inspector_table_options,
@@ -692,9 +693,42 @@ def _run_table(
         return -9 if rc is None else rc
 
 
+def _prowler_skips(
+    skip_services: Sequence[str], skip_checks: Sequence[str]
+) -> tuple[list[str], list[str], list[str]]:
+    """The skips Prowler gets: names of the installed Prowler only, each once, in order. A name
+    it doesn't know (stored before an upgrade removed it) is dropped, never passed, and said in
+    the run's log: dropping one means more is checked, never less."""
+    known_services, known_checks = set(prowler_services()), set(prowler_checks())
+    services = sorted({s for s in skip_services if s in known_services})
+    checks = sorted({c for c in skip_checks if c in known_checks})
+    dropped = sorted(
+        {s for s in skip_services if s not in known_services}
+        | {c for c in skip_checks if c not in known_checks}
+    )
+    notes = (
+        [f"argus: not skipped, unknown to this Prowler: {', '.join(dropped)}"] if dropped else []
+    )
+    return services, checks, notes
+
+
 def run_prowler(
-    out_dir: Path, env: dict[str, str], regions: list[str], cancel: threading.Event | None = None
+    out_dir: Path,
+    env: dict[str, str],
+    regions: list[str],
+    cancel: threading.Event | None = None,
+    *,
+    retry_attempts: int = AWS_MAX_ATTEMPTS,
+    skip_services: Sequence[str] = (),
+    skip_checks: Sequence[str] = (),
 ) -> ToolResult:
+    """Every check in the regions set, unless Collection settings skip services or checks.
+
+    A skip changes how Prowler 5.47.0 chooses what to write: with --excluded-* it writes no
+    compliance results unless --compliance names the frameworks, and --compliance runs only
+    the checks mapped to a framework. So a run that skips anything passes every framework, and
+    the 43 checks in no framework don't run while a skip is set (owner, 2026-11-10). Checks
+    that don't run resolve nothing: their findings keep their last results."""
     log = Path(env["HOME"]) / "prowler.log"
     cmd = [
         PROWLER,
@@ -709,16 +743,29 @@ def run_prowler(
         "--no-banner",
         "--log-level",
         "ERROR",
-        # At ERROR, a throttled call is logged only once its retries ran out (AWS_MAX_ATTEMPTS).
+        # At ERROR, a throttled call is logged only once its retries ran out.
         "--aws-retries-max-attempts",
-        str(AWS_MAX_ATTEMPTS),
+        str(retry_attempts),
         # Exit code 3 means "some checks failed", the expected result of a scan.
         "--ignore-exit-code-3",
     ]
     if regions:
         cmd += ["--region", *regions]
+    services, checks, notes = _prowler_skips(skip_services, skip_checks)
+    if services:
+        cmd += ["--excluded-service", *services]
+    if checks:
+        cmd += ["--excluded-check", *checks]
+    if services or checks:
+        cmd += ["--compliance", *prowler_frameworks()]
+    # The Runs page keeps 1,000 characters of the command: the 44 framework names would push
+    # out what matters, so the shown command names them by count.
+    shown = command_line(cmd, out_dir).replace(
+        " ".join(prowler_frameworks()), f"<every AWS framework: {len(prowler_frameworks())}>"
+    )
     rc = _run(cmd, env=env, log=log, timeout=TOOL_TIMEOUT, cancel=cancel)
     lines, throttled = _read_log(log)
+    lines = [*notes, *lines]
     # A check whose calls were denied has no result, so it resolves nothing: the run stays
     # complete, and the denied actions are reported.
     denials = read_denials(log.read_text(errors="replace")) if log.exists() else Denials()
@@ -734,7 +781,7 @@ def run_prowler(
         _with_denied(lines, refused, blocked),
         throttled,
         refused,
-        command_line(cmd, out_dir),
+        shown,
         refused_actions=_denied_list(denials.refused),
         blocked_actions=blocked,
     )

@@ -7,6 +7,8 @@ Public interface:
     Manifest           the one definition of manifest.json
     TOOL_ORDER         the order tools run against one account (throttling layer 1)
     steampipe_tables() the versioned Steampipe table list
+    prowler_checks(), prowler_services(), prowler_frameworks()
+                       the pinned Prowler's AWS checks, their services and its frameworks
     source_for()       the source a connection kind collects with
     access_for()       how an AWS run reaches its account (credentials are made in collect())
     store_for()        the raw store a connection kind writes to (local volume or S3)
@@ -22,6 +24,7 @@ from argus.collection.collect import (
     CollectTarget,
     collect,
 )
+from argus.collection.prowler_lists import prowler_checks, prowler_frameworks, prowler_services
 from argus.collection.sources import source_for
 from argus.collection.stores import RawStorageNotConfiguredError, store_for
 from argus.collection.tables import steampipe_tables
@@ -42,6 +45,9 @@ __all__ = [
     "RawStore",
     "access_for",
     "collect",
+    "prowler_checks",
+    "prowler_frameworks",
+    "prowler_services",
     "read_run",
     "source_for",
     "steampipe_tables",

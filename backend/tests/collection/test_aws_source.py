@@ -24,6 +24,7 @@ from argus.collection import (
 )
 from argus.collection.aws import AwsAccess, AwsSource
 from argus.collection.aws import tools as aws_tools
+from argus.collection.prowler_lists import prowler_frameworks
 from argus.connections import AwsAuth
 from argus.core.aws import SessionCredentials
 from argus.core.config import get_settings
@@ -33,6 +34,7 @@ from argus.core.manifest import (
     TABLE_ERROR_PATTERN,
     Manifest,
 )
+from argus.settings import CollectionSettings
 
 DAY = date(2026, 10, 2)
 TARGET = CollectTarget(7, "aws", "210987654321")
@@ -167,7 +169,9 @@ def _control(fakes: Path, name: str, content: str) -> None:
     (fakes / name).write_text(content)
 
 
-def _run(fakes: Path, tool: str, regions: tuple[str, ...] = ()) -> tuple[str, Manifest]:
+def _run(
+    fakes: Path, tool: str, regions: tuple[str, ...] = (), **options: object
+) -> tuple[str, Manifest]:
     store = FilesystemRawStore(fakes / "raw")
     path, manifest = collect(
         AwsSource(),
@@ -176,7 +180,7 @@ def _run(fakes: Path, tool: str, regions: tuple[str, ...] = ()) -> tuple[str, Ma
         tool=tool,  # type: ignore[arg-type]
         day=DAY,
         run_uid=uuid4(),
-        options=CollectOptions(aws_access=ACCESS, aws_regions=regions),
+        options=CollectOptions(aws_access=ACCESS, aws_regions=regions, **options),  # type: ignore[arg-type]
     )
     return path, manifest
 
@@ -198,13 +202,59 @@ def test_prowler_runs_read_only_in_the_regions_set(fakes: Path) -> None:
     assert SECRET not in manifest.command
 
 
-def test_prowler_retries_as_often_as_the_other_tools(fakes: Path) -> None:
-    # Prowler's own botocore Config wins over AWS_MAX_ATTEMPTS, so it needs the flag.
+def test_prowler_retries_as_often_as_collection_settings_say(fakes: Path) -> None:
+    # Prowler's own botocore Config wins over AWS_MAX_ATTEMPTS, so it needs the flag; its count
+    # is a Collection setting (owner, 2026-11-10), 10 by default as for the other tools.
     _run(fakes, "prowler")
     argv = (fakes / "homes" / "argv.txt").read_text()
-    env = (fakes / "homes" / "env-prowler.txt").read_text()
     assert f"--aws-retries-max-attempts {aws_tools.AWS_MAX_ATTEMPTS} " in argv
-    assert f"AWS_MAX_ATTEMPTS={aws_tools.AWS_MAX_ATTEMPTS}\n" in env
+    assert CollectionSettings().prowler_retry_attempts == aws_tools.AWS_MAX_ATTEMPTS
+    (fakes / "homes" / "argv.txt").unlink()
+    _run(fakes, "prowler", prowler_retry_attempts=4)
+    argv = (fakes / "homes" / "argv.txt").read_text()
+    env = (fakes / "homes" / "env-prowler.txt").read_text()
+    assert "--aws-retries-max-attempts 4 " in argv
+    assert f"AWS_MAX_ATTEMPTS={aws_tools.AWS_MAX_ATTEMPTS}\n" in env  # the profile's, unchanged
+
+
+def test_without_skips_prowler_runs_its_default_execution(fakes: Path) -> None:
+    """No --excluded-* and no --compliance: Prowler runs every check and writes every
+    framework, as before skips existed."""
+    _run(fakes, "prowler")
+    argv = (fakes / "homes" / "argv.txt").read_text()
+    assert "--excluded" not in argv and "--compliance" not in argv
+
+
+def test_a_skip_keeps_every_framework_and_shows_what_was_skipped(fakes: Path) -> None:
+    """Prowler 5.47.0 writes no compliance results for a run with an exclusion unless
+    --compliance names the frameworks, so a run that skips anything names all of them."""
+    _, manifest = _run(
+        fakes,
+        "prowler",
+        prowler_skip_services=("ec2", "ec2"),
+        prowler_skip_checks=("iam_root_mfa_enabled",),
+    )
+    argv = (fakes / "homes" / "argv.txt").read_text().split()
+    assert argv[argv.index("--excluded-service") + 1 : argv.index("--excluded-check")] == ["ec2"]
+    after_checks = argv[argv.index("--excluded-check") + 1 : argv.index("--compliance")]
+    assert after_checks == ["iam_root_mfa_enabled"]
+    assert argv[argv.index("--compliance") + 1 :] == list(prowler_frameworks())
+    assert len(prowler_frameworks()) == 44
+    # The Runs page keeps 1,000 characters: the frameworks are named by count there.
+    assert "--excluded-service ec2 --excluded-check iam_root_mfa_enabled" in manifest.command
+    assert manifest.command.endswith("--compliance <every AWS framework: 44>")
+
+
+def test_a_skip_this_prowler_does_not_know_is_dropped_and_said(fakes: Path) -> None:
+    """A name stored before an upgrade removed it: never passed, and the run says so. Dropping
+    it checks more, never less, so the run goes on."""
+    _, manifest = _run(
+        fakes, "prowler", prowler_skip_services=("gone",), prowler_skip_checks=("old_check_x",)
+    )
+    argv = (fakes / "homes" / "argv.txt").read_text()
+    assert "gone" not in argv and "old_check_x" not in argv and "--compliance" not in argv
+    assert "not skipped, unknown to this Prowler: gone, old_check_x" in manifest.log_tail
+    assert manifest.status == "complete"
 
 
 def test_a_tool_sees_its_profile_and_nothing_of_argus(fakes: Path) -> None:

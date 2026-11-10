@@ -61,6 +61,10 @@ class CollectOptions:
     aws_regions: tuple[str, ...] = ()
     cloudfox_max_goroutines: int = 5
     steampipe_parallel_tables: int = 4
+    # Prowler's attempts per AWS call, and what it skips (Collection settings).
+    prowler_retry_attempts: int = 10
+    prowler_skip_services: tuple[str, ...] = ()
+    prowler_skip_checks: tuple[str, ...] = ()
     # Set by whoever runs the collection when the run is asked to stop: the source kills its
     # tool and raises Cancelled.
     cancel: threading.Event | None = field(default=None, repr=False, compare=False)

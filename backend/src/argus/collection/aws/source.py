@@ -54,7 +54,15 @@ class AwsSource:
                     out_dir, env, regions, options.steampipe_parallel_tables, options.cancel
                 )
             elif tool == "prowler":
-                result = run_prowler(out_dir, env, regions, options.cancel)
+                result = run_prowler(
+                    out_dir,
+                    env,
+                    regions,
+                    options.cancel,
+                    retry_attempts=options.prowler_retry_attempts,
+                    skip_services=options.prowler_skip_services,
+                    skip_checks=options.prowler_skip_checks,
+                )
             elif tool == "vulnerabilities":  # on AWS, Inspector is the scanner
                 result = run_inspector(out_dir, env, regions, target.account_id, options.cancel)
             else:

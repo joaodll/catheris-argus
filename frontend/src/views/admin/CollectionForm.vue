@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
+import MultiSelect, { type MultiOption } from '@/components/MultiSelect.vue'
 import { useDirtyGuard } from '@/composables/useDirtyGuard'
+import { useResource } from '@/composables/useResource'
 import { toast } from '@/composables/useToasts'
 import NumberField from './NumberField.vue'
 import SettingsCard from './SettingsCard.vue'
@@ -20,6 +22,9 @@ interface Form {
   steampipeParallel: number
   throttlePercent: number
   regions: string
+  prowlerRetries: number
+  skipServices: string[]
+  skipChecks: string[]
 }
 
 /** "eu-west-1, us-east-1" or one per line -> ["eu-west-1", "us-east-1"]. */
@@ -39,8 +44,27 @@ function fromSettings(s: Schemas['CollectionSettings']): Form {
     steampipeParallel: s.steampipe_parallel_tables,
     throttlePercent: Math.round(s.synthetic_throttle_share * 1000) / 10,
     regions: (s.aws_regions ?? []).join(', '),
+    prowlerRetries: s.prowler_retry_attempts ?? 10,
+    skipServices: [...(s.prowler_skip_services ?? [])],
+    skipChecks: [...(s.prowler_skip_checks ?? [])],
   }
 }
+
+// What the pinned Prowler can skip: its services, and its checks (a check's service is the
+// first word of its id, shown before it so the list reads by service).
+const prowler = useResource(() => unwrap(api.GET('/api/v1/settings/collection/prowler-options')))
+const prowlerStatus = computed(() => (prowler.error.value ? 'error' : prowler.data.value ? 'ready' : 'loading'))
+const serviceOptions = computed<MultiOption[]>(() => (prowler.data.value?.services ?? []).map((s) => ({ value: s, label: s, mono: true })))
+const checkOptions = computed<MultiOption[]>(() => (prowler.data.value?.checks ?? []).map((c) => ({ value: c, label: c, mono: true })))
+// A skip stored before a Prowler upgrade removed its name can't be shown in the picker, and the
+// API refuses a save that holds it: such names are left out of the save (the worker already
+// ignores them). Without the lists, the values go as they are.
+function known(values: string[], names: string[] | undefined): string[] {
+  if (!names) return values
+  const current = new Set(names)
+  return values.filter((v) => current.has(v))
+}
+const skipping = computed(() => form.value.skipServices.length + form.value.skipChecks.length > 0)
 
 const saved = ref<Form>(fromSettings(props.collection))
 const form = ref<Form>({ ...saved.value })
@@ -72,6 +96,9 @@ async function save(): Promise<void> {
           steampipe_parallel_tables: f.steampipeParallel,
           synthetic_throttle_share: f.throttlePercent / 100,
           aws_regions: regionList(f.regions),
+          prowler_retry_attempts: f.prowlerRetries,
+          prowler_skip_services: known(f.skipServices, prowler.data.value?.services),
+          prowler_skip_checks: known(f.skipChecks, prowler.data.value?.checks),
         },
       }),
     )
@@ -118,11 +145,58 @@ async function save(): Promise<void> {
         <input id="aws-regions" v-model="form.regions" class="input mono" autocomplete="off" spellcheck="false" placeholder="All enabled regions" aria-describedby="aws-regions-help">
         <span id="aws-regions-help" class="cap">Prowler, Steampipe and the vulnerability scanner read only these, comma-separated. Empty scans every enabled region. CloudFox always scans every region. What a removed region held stays as last scanned, with its last-seen date, until it is scanned again.</span>
       </div>
+      <fieldset class="group">
+        <legend class="lbl">Prowler</legend>
+        <MultiSelect id="prowler-skip-services" v-model="form.skipServices" label="Services to skip" :options="serviceOptions" :status="prowlerStatus" empty-label="None" />
+        <MultiSelect id="prowler-skip-checks" v-model="form.skipChecks" label="Checks to skip" :options="checkOptions" :status="prowlerStatus" empty-label="None" />
+        <NumberField v-model="form.prowlerRetries" label="Retry attempts per AWS call" :min="1" :max="20" help="How often Prowler tries a throttled call before it gives up on it. Higher is more patient; the run takes longer when AWS throttles." />
+        <p class="cap note" :class="{ on: skipping }">
+          A skipped service or check keeps its last results until it runs again: nothing is resolved because it was skipped.
+          While anything is skipped, compliance stays complete, but Prowler's 43 checks that belong to no framework don't run either.
+        </p>
+      </fieldset>
     </div>
   </SettingsCard>
 </template>
 
 <style scoped>
+/* The Prowler settings: a group of their own, across the whole grid. */
+.group {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px var(--s-20); /* as .form-grid, which it continues */
+  margin: 0;
+  padding: var(--s-12) 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 700px) {
+  .group {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A skip list is a form field here, not a filter: as wide as the other inputs. */
+.group :deep(.ms-trigger) {
+  width: 100%;
+  max-width: none;
+}
+
+.group > legend {
+  padding: 0 0 var(--s-8);
+}
+
+.group .note {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.group .note.on {
+  color: var(--status-warn);
+}
+
 .pair {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

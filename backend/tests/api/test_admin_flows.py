@@ -255,6 +255,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
         "/api/v1/schedules",
         "/api/v1/settings",
         "/api/v1/settings/collection",
+        "/api/v1/settings/collection/prowler-options",
         "/api/v1/users",
         "/api/v1/vulnerabilities?limit=200&state=resolved",
         "/api/v1/vulnerabilities/facets",
@@ -307,3 +308,38 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     assert leaked == set()
     logs = "\n".join(JsonFormatter().format(r) for r in caplog.records)  # with extra= fields
     assert logs and not MARKERS.search(logs)
+
+
+def test_prowler_skips_are_names_of_the_pinned_prowler(signed_in: TestClient) -> None:
+    options = signed_in.get("/api/v1/settings/collection/prowler-options").json()
+    assert len(options["checks"]) == 668 and "ec2" in options["services"]
+    assert all(c.split("_", 1)[0] in options["services"] for c in options["checks"])
+
+    current = signed_in.get("/api/v1/settings/collection").json()
+    assert (current["prowler_retry_attempts"], current["prowler_skip_services"]) == (10, [])
+    for values in (
+        {"prowler_skip_services": ["nosuchservice"]},
+        {"prowler_skip_checks": ["iam_no_such_check"]},
+    ):
+        refused = signed_in.put(
+            "/api/v1/settings/collection", headers=csrf(signed_in), json={**current, **values}
+        )
+        assert refused.status_code == 422, refused.text
+    # Something that could read as a flag never passes the settings' own shape.
+    flag = signed_in.put(
+        "/api/v1/settings/collection",
+        headers=csrf(signed_in),
+        json={**current, "prowler_skip_checks": ["--fixer"]},
+    )
+    assert flag.status_code == 422
+
+    _put_collection(
+        signed_in,
+        prowler_retry_attempts=6,
+        prowler_skip_services=["cloudtrail"],
+        prowler_skip_checks=["iam_root_mfa_enabled"],
+    )
+    saved = signed_in.get("/api/v1/settings/collection").json()
+    assert saved["prowler_retry_attempts"] == 6
+    assert saved["prowler_skip_services"] == ["cloudtrail"]
+    assert saved["prowler_skip_checks"] == ["iam_root_mfa_enabled"]
