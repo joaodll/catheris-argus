@@ -148,6 +148,12 @@ Also review:
   `tasks`, to place them on your node groups (`tasks` is the pods that run once and exit:
   migrate, rederive, retention and `helm test`'s probe). `scanJobs` takes `nodeSelector` and
   `tolerations`. Set every block: a component left out can land on any node.
+- Give scan Jobs their own nodes (`scanJobs.nodeSelector` and `tolerations`, with a taint on
+  those nodes). A scan Job has no CPU limit by default and may use up to 6 Gi of memory, and up
+  to `scheduler.maxRunJobs` run at once, so on shared nodes they take CPU and memory from the
+  API, the scheduler and Postgres. Where scans must share nodes, set
+  `scanJobs.resources.limits.cpu`, and raise `scanJobs.resources.requests` towards what a scan
+  really uses, so Kubernetes stops placing more on a node than it holds.
 
 Start from `charts/argus/ci/minimal-values.yaml`; `ci/external-db-values.yaml` sets every
 optional piece.
@@ -428,6 +434,7 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 | A pod logs `exec /opt/venv/bin/python: exec format error` | The pod is on a node with another CPU type than its image | Set `nodeSelector` and `tolerations` on every block, including `tasks`, so it lands on nodes matching the image: `kubectl get nodes -L kubernetes.io/arch` |
 | One person's bad sign-ins lock out everyone, or web's log shows one address for all users | Something adds a second proxy in front of the ingress, or the ingress doesn't set `X-Forwarded-For` | Read the last field of web's log lines: the chain it received. The ingress must add the client last |
 | `helm test` fails: "accepted a connection" | NetworkPolicy is not enforced | Turn on the VPC CNI's network policy, then test again |
+| The scheduler restarts while scans run; its events say `Liveness probe failed: command timed out` | Up to 0.2.0 its probe started Python with a one-second timeout, too little on a node busy with scans | Upgrade the chart. If pods still slow down during scans, give scan Jobs their own nodes or a CPU limit (Values) |
 | Runs stay queued; the scheduler logs `kubernetes refused` | A denial by the policy or the quota | The `detail` names the rule; reinstall with Helm rather than editing templates by hand |
 | Runs stay queued; the scheduler logs a reconcile error with a connection timeout | `networkPolicy.kubeApi.cidrs` no longer holds the API's addresses | Read them again (Values) and upgrade |
 | Test connection fails: "Unable to locate credentials" | No identity reached the `test` pod | Check `identity.roleArn`, the role's trust (`sub` names the namespace and `<release>-run`) |
