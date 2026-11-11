@@ -1,4 +1,4 @@
-# Every AWS check of the pinned Prowler (5.47.0), one id per line: `prowler aws --list-checks-json`.
+# Every AWS check of the pinned Prowler (5.48.0), one id per line: `prowler aws --list-checks-json`.
 # A check's service is the first word of its id. The worker image's build fails when this list
 # differs from the installed Prowler, so an upgrade refreshes it (backend/Dockerfile).
 accessanalyzer_enabled
@@ -79,6 +79,9 @@ bedrock_model_invocation_logs_encryption_enabled
 bedrock_prompt_encrypted_with_cmk
 bedrock_prompt_management_exists
 bedrock_vpc_endpoints_configured
+bedrockagentcore_full_access_policy_attached
+bedrockagentcore_payments_process_payment_role_separation
+bedrockagentcore_runtime_vpc_configured
 cloudformation_stack_cdktoolkit_bootstrap_version
 cloudformation_stack_outputs_find_secrets
 cloudformation_stacks_termination_protection_enabled
@@ -96,6 +99,7 @@ cloudfront_distributions_s3_origin_access_control
 cloudfront_distributions_s3_origin_non_existent_bucket
 cloudfront_distributions_using_deprecated_ssl_protocols
 cloudfront_distributions_using_waf
+cloudtrail_agentcore_data_events_enabled
 cloudtrail_bedrock_logging_enabled
 cloudtrail_bucket_requires_mfa_delete
 cloudtrail_cloudwatch_logging_enabled

@@ -6,8 +6,9 @@ Description: >-
 
 # Permission sources, pinned to the tool versions in the worker image (backend/Dockerfile):
 #   - arn:aws:iam::aws:policy/SecurityAudit and job-function/ViewOnlyAccess (AWS managed)
-#   - Prowler permissions/prowler-additions-policy.json (5.44.0; identical in 5.45.0 and 5.47.0, so
-#     the Description below keeps 5.44.0: changing it would replace the policy), WITHOUT
+#   - Prowler permissions/prowler-additions-policy.json (5.48.0: 5.44.0's, unchanged until 5.47.0,
+#     plus 5.48.0's bedrock-agentcore reads; the Description below keeps 5.44.0, since changing
+#     it would replace the policy), WITHOUT
 #     securityhub:BatchImportFindings (a write; Argus never sends findings to Security Hub) and
 #     WITHOUT ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, lambda:GetLayerVersion,
 #     logs:FilterLogEvents (bulk reads of
@@ -86,6 +87,20 @@ Resources:
               - appstream:List*
               - backup:List*
               - backup:Get*
+              - bedrock-agentcore:GetAgentRuntime
+              - bedrock-agentcore:GetBrowser
+              - bedrock-agentcore:GetCodeInterpreter
+              - bedrock-agentcore:GetGateway
+              - bedrock-agentcore:GetGatewayTarget
+              - bedrock-agentcore:GetMemory
+              - bedrock-agentcore:GetTokenVault
+              - bedrock-agentcore:ListAgentRuntimes
+              - bedrock-agentcore:ListBrowsers
+              - bedrock-agentcore:ListCodeInterpreters
+              - bedrock-agentcore:ListGatewayTargets
+              - bedrock-agentcore:ListGateways
+              - bedrock-agentcore:ListMemories
+              - bedrock-agentcore:ListTagsForResource
               - bedrock:List*
               - bedrock:Get*
               - cloudtrail:GetInsightSelectors

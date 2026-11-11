@@ -312,7 +312,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
 
 def test_prowler_skips_are_names_of_the_pinned_prowler(signed_in: TestClient) -> None:
     options = signed_in.get("/api/v1/settings/collection/prowler-options").json()
-    assert len(options["checks"]) == 668 and "ec2" in options["services"]
+    assert len(options["checks"]) == 672 and "ec2" in options["services"]
     assert all(c.split("_", 1)[0] in options["services"] for c in options["checks"])
 
     current = signed_in.get("/api/v1/settings/collection").json()

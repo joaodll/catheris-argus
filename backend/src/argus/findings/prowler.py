@@ -27,13 +27,13 @@ from argus.core.rawstore import RawRun
 from argus.core.redaction import redact_text
 from argus.findings.model import SEVERITIES, CheckText, FindingResult
 
-SUPPORTED_VERSIONS = frozenset({"5.44.0", "5.45.0", "5.47.0"})
+SUPPORTED_VERSIONS = frozenset({"5.44.0", "5.45.0", "5.47.0", "5.48.0"})
 # From 5.45.0 Prowler's CSV writers quote a cell a spreadsheet would read as a formula
 # (prowler/lib/outputs/utils.py sanitize_csv_value), and the adapter reads the value Prowler
 # meant. Listed: the versions that never quoted, so a later version unquotes by default.
 CSV_UNQUOTED_VERSIONS = frozenset({"5.44.0"})
 # Prowler's checks that call a resource exposed to the internet, read from the pinned Prowler in
-# the worker image (the same list from 5.44.0 to 5.47.0). Each judges an instance, an RDS
+# the worker image (the same list from 5.44.0 to 5.48.0). Each judges an instance, an RDS
 # instance or a load balancer, every one a type Argus's internet rules judge too, so each
 # finding carries Argus's own verdict (ADR-0035, sixth amendment). The security-group checks
 # judge a group, not a door, and are not here.

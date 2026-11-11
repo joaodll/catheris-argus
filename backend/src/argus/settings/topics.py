@@ -45,7 +45,7 @@ class CollectionSettings(BaseModel):
     prowler_retry_attempts: int = Field(10, ge=1, le=20)
     # Services and checks Prowler skips. Only names of the pinned Prowler are accepted (the API
     # and the worker check them against collection's lists; settings sits below collection, so
-    # here only their shape: nothing that could read as a flag). Any skip costs the 43 checks
+    # here only their shape: nothing that could read as a flag). Any skip costs the 45 checks
     # mapped to no compliance framework (decisions, 2026-11-10).
     prowler_skip_services: list[Annotated[str, Field(pattern=r"^[a-z][a-z0-9]{1,39}$")]] = Field(
         default_factory=list, max_length=100

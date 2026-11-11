@@ -116,7 +116,7 @@ COPY tools/prowler/pyproject.toml tools/prowler/uv.lock /opt/prowler-project/
 RUN cd /opt/prowler-project \
  && UV_PROJECT_ENVIRONMENT=/opt/prowler uv sync --frozen --no-dev --no-install-project \
  && rm -rf /tmp/uv-cache \
- && /opt/prowler/bin/prowler --version | grep -q "5.47.0"
+ && /opt/prowler/bin/prowler --version | grep -q "5.48.0"
 # Collection settings may skip only the checks Argus ships in its lists, and a run that skips
 # anything passes every listed framework (owner, 2026-11-10). They must be this Prowler's: the
 # build stops on any difference, so an upgrade refreshes both lists with the pin. Both lists are

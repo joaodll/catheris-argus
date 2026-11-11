@@ -22,7 +22,7 @@ def prowler_checks() -> tuple[str, ...]:
 
 @cache
 def prowler_services() -> tuple[str, ...]:
-    """A check's service is the first word of its id (true of every check in 5.47.0)."""
+    """A check's service is the first word of its id (true of every check in 5.48.0)."""
     return tuple(sorted({check.split("_", 1)[0] for check in prowler_checks()}))
 
 
