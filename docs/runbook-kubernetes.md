@@ -48,8 +48,10 @@ Each of these is a control the chart relies on but cannot set itself.
 - **The five images in a registry the nodes can pull from**, each known by its digest:
   `argus-backend:runtime`, `argus-backend:worker-steampipe`, `argus-backend:worker-prowler`,
   `argus-backend:worker-cloudfox` and `argus-web:runtime`
-  (`docker compose build migrate web worker-steampipe worker-prowler worker-cloudfox`). The chart
-  refuses tags. `argus-backend:worker`, with every tool, is Compose's only.
+  (`docker compose build --pull --no-cache migrate web worker-steampipe worker-prowler worker-cloudfox`).
+  Build without the cache: the images take Debian's security fixes at build time, and a cached
+  build keeps the packages of the last one. The chart refuses tags. `argus-backend:worker`, with
+  every tool, is Compose's only.
 - **amd64 nodes.** The images are built for amd64 only. On a cluster that also has arm64 nodes,
   add `kubernetes.io/arch: amd64` to `nodeSelector` in every block under Values, including `tasks`.
 - **`kubectl` and `helm`** (3.18 or newer, or 4) on the machine you install from.
@@ -422,7 +424,7 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 
   ```bash
   docker compose run --rm chart-check                    # offline: lint, render, schemas, refusals
-  docker compose build migrate worker web
+  docker compose build migrate web worker-steampipe worker-prowler worker-cloudfox
   docker compose run --rm kind up                        # a throwaway kind cluster with the chart
   docker compose run --rm kind test                      # rights, policy, NetworkPolicies, runs, upgrade, helm test
   docker compose run --rm kind down
