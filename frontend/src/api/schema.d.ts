@@ -1683,7 +1683,12 @@ export interface components {
             /** Weeks */
             weeks: components["schemas"]["SummaryWeek"][];
         };
-        /** MonthRow */
+        /**
+         * MonthRow
+         * @description One month of a month-over-month table (metrics.series.month_table): each severity's open
+         *     count at the month's end, the total, and the change from the column before. Null values: no
+         *     data that month, never 0. Null changes: no column before to compare with.
+         */
         MonthRow: {
             /** Change */
             change: {
@@ -1692,7 +1697,9 @@ export interface components {
             /** Month */
             month: string;
             /** Total */
-            total: number;
+            total: number | null;
+            /** Total Change */
+            total_change: number | null;
             /** Values */
             values: {
                 [key: string]: number | null;
@@ -1734,6 +1741,7 @@ export interface components {
             kpis: components["schemas"]["Kpis"];
             severity_over_time: components["schemas"]["SeverityOverTime"];
             threatscore: components["schemas"]["ThreatScore"];
+            vulnerabilities: components["schemas"]["VulnerabilityMonths"] | null;
         };
         /** PasswordChange */
         PasswordChange: {
@@ -2666,10 +2674,8 @@ export interface components {
             by_resource_type: components["schemas"]["SummaryBreakdown"] | null;
             /** Data Through */
             data_through: string | null;
-            last_30_days: components["schemas"]["SummaryRecent"] | null;
+            months: components["schemas"]["VulnerabilityMonths"] | null;
             open: components["schemas"]["VulnerabilitiesSummaryOpen"] | null;
-            /** Weeks */
-            weeks: components["schemas"]["SummaryWeek"][];
         };
         /**
          * VulnerabilitiesSummaryOpen
@@ -2708,6 +2714,23 @@ export interface components {
              * @enum {string}
              */
             value: "available" | "none" | "unknown";
+        };
+        /**
+         * VulnerabilityMonths
+         * @description Open vulnerabilities (not suppressed in the scanner) at each of the last six calendar
+         *     months' ends, oldest first: each account's latest count on or before the month end, however
+         *     old. `data_through`: the newest count shown.
+         */
+        VulnerabilityMonths: {
+            /** All */
+            all: components["schemas"]["MonthRow"][];
+            /** By Type */
+            by_type: components["schemas"]["VulnerabilityTypeMonths"][] | null;
+            /**
+             * Data Through
+             * Format: date
+             */
+            data_through: string;
         };
         /**
          * VulnerabilityOut
@@ -2780,6 +2803,13 @@ export interface components {
             scanned: boolean;
             /** Worst */
             worst: string | null;
+        };
+        /** VulnerabilityTypeMonths */
+        VulnerabilityTypeMonths: {
+            /** Months */
+            months: components["schemas"]["MonthRow"][];
+            /** Type */
+            type: string;
         };
     };
     responses: never;

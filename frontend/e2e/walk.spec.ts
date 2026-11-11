@@ -86,11 +86,16 @@ test('overview: every block, current state only', async ({ page }) => {
     'Check results and failed findings',
     'Findings severity over time',
     'Month over month',
+    'Open vulnerabilities, month over month',
     'Inventory',
     'Assets by category, per provider',
   ]
   for (const text of blocks) await expect(page.getByText(text, { exact: true }).first()).toBeVisible()
-  await expect(page.getByText('No data')).toHaveCount(0)
+  // Vulnerabilities month over month says "no data" for months before its first count (the counts
+  // started with v0.2.0, no backfill; owner, 2026-11-10). Every other block has full history here.
+  const vulnCard = page.getByRole('region', { name: 'Open vulnerabilities, month over month' })
+  await expect(page.getByText('No data').and(page.locator(':not(section[aria-labelledby="vm-h"] *)'))).toHaveCount(0)
+  await expect(vulnCard.locator('tr.total td').last()).toHaveText(/^[\d,]+/)
   await axe(page, 'overview')
   await expect(page.getByText('Showing data as of')).toBeVisible()
   await expect(page.getByLabel('Point in time')).toHaveCount(0)
@@ -548,6 +553,15 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await expect(exploit.locator('.stat-value')).toHaveText(/^[\d,]+$/)
   await expect(page.getByRole('heading', { level: 2, name: 'Fix status' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 2, name: 'Top CVEs' })).toBeVisible()
+  // Month over month (owner, 2026-11-09) replaced the weekly flow: all types, or one type.
+  const months = page.getByRole('region', { name: 'Month over month' })
+  await expect(months.locator('caption')).toHaveText(/all types$/)
+  await expect(months.locator('tbody tr')).toHaveCount(6)
+  await expect(page.getByRole('heading', { level: 2, name: /Opened vs resolved/ })).toHaveCount(0)
+  const typeOption = months.getByLabel('Resource type').locator('option').nth(1)
+  const typeName = (await typeOption.innerText()).trim()
+  await months.getByLabel('Resource type').selectOption({ index: 1 })
+  await expect(months.locator('caption')).toHaveText(`Open vulnerabilities by severity at each month end, ${typeName}`)
   await page.waitForLoadState('networkidle')
   await axe(page, 'vulnerabilities summary')
   await shot(page, '74-vulnerabilities-summary')
@@ -684,6 +698,20 @@ test('phone width: overview and connections', async ({ page }) => {
   const frameworkWidth = await page.evaluate(() => document.documentElement.scrollWidth)
   expect(frameworkWidth, 'no horizontal page scroll on a framework').toBeLessThanOrEqual(390)
   await shot(page, '63-phone-framework')
+  // Vulnerabilities month over month fits with its longest type picked: no sideways scroll on
+  // the page or inside the panel (round 6, spec frontend/3ddb7553).
+  await page.goto('/investigate/vulnerabilities')
+  const months = page.getByRole('region', { name: 'Month over month' })
+  await expect(months.locator('tbody tr')).toHaveCount(6)
+  const names = await months.getByLabel('Resource type').locator('option').allInnerTexts()
+  const longest = names.reduce((a, b) => (b.length > a.length ? b : a))
+  await months.getByLabel('Resource type').selectOption({ label: longest })
+  await months.scrollIntoViewIfNeeded()
+  const pageWidth = await page.evaluate(() => document.documentElement.scrollWidth)
+  expect(pageWidth, 'no horizontal page scroll on the Vulnerabilities summary').toBeLessThanOrEqual(390)
+  const inner = await months.evaluate((el) => el.scrollWidth - el.clientWidth)
+  expect(inner, 'Month over month fits its panel').toBeLessThanOrEqual(0)
+  await shot(page, '64-phone-vulnerability-months')
 })
 
 test('light theme: every screen passes axe, and the toggle cycles', async ({ page }) => {

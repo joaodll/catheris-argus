@@ -269,6 +269,12 @@ def test_overview_and_context_from_real_data(
     assert "delta" not in data["kpis"]["assets"]  # current state only (2026-10-03)
     assert "compared_with" not in data and "daily" not in data["inventory"]
     assert data["coverage"]["gcp"] == "not covered"
+    # The vulnerabilities card: all types, this month ending on the summary's open count.
+    vulnerabilities = data["vulnerabilities"]
+    assert vulnerabilities["by_type"] is None
+    summary = signed_in.get("/api/v1/vulnerabilities/summary").json()
+    assert vulnerabilities["all"] == summary["months"]["all"]
+    assert vulnerabilities["all"][-1]["total"] == summary["open"]["total"] > 0
     context = signed_in.get("/api/v1/context").json()
     assert {r["tool"] for r in context["last_runs"]} == set(TOOL_ORDER)
 
@@ -278,6 +284,7 @@ def test_overview_without_data_is_null_not_zero(signed_in: TestClient) -> None:
     assert data["data_through"] is None
     assert data["kpis"]["assets"]["value"] is None
     assert data["check_results"]["pass_rate"] is None
+    assert data["vulnerabilities"] is None
 
 
 # --------------------------------------------------------------- connections

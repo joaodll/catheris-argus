@@ -7,8 +7,8 @@ None, never 0: the UI says "no data" or "not covered" instead of drawing a false
 Point-in-time values are each tool's latest scan on or before `as_of` (today by default): a
 block shows its own tool's data whatever ran first or on which day, and a tool that has not run
 leaves only its own blocks empty. The UI shows the current state only; history is in the
-month-end strip, the pass-rate months and the severity series, never as a delta against an
-earlier day.
+month-end strip, the pass-rate months, the severity series and the month tables, never as a
+delta against an earlier day.
 """
 
 from collections import defaultdict
@@ -18,6 +18,7 @@ from typing import Any
 
 from sqlalchemy import Connection, text
 
+from argus.metrics import series, summary
 from argus.metrics.series import HISTORY_DAYS, Range, latest_on_or_before, month_ends, range_days
 
 SEVERITIES = ("critical", "high", "medium", "low", "informational")
@@ -127,26 +128,13 @@ def build(
             {"month": month, "pass_rate": 100 * d.get("PASS", 0) / assessed if assessed else None}
         )
 
-    month_table = []
-    sev_months = _month_ends(data, "findings.open_by_severity", as_of)
-    for i, (month, day) in enumerate(sev_months):
-        values = {s: data.at("findings.open_by_severity", day, s) for s in SEVERITIES}
-        month_total = sum(v or 0 for v in values.values())
-        prior_month: dict[str, float | None] = (
-            {s: data.at("findings.open_by_severity", sev_months[i - 1][1], s) for s in SEVERITIES}
-            if i
-            else {}
-        )
-        month_table.append(
-            {
-                "month": month,
-                "values": values,
-                "total": month_total,
-                "change": {s: _delta(values[s], prior_month.get(s)) for s in SEVERITIES}
-                if i
-                else None,
-            }
-        )
+    month_table = series.month_table(
+        [
+            (month, {s: data.at("findings.open_by_severity", day, s) for s in SEVERITIES})
+            for month, day in _month_ends(data, "findings.open_by_severity", as_of)
+        ],
+        SEVERITIES,
+    )
 
     return {
         "as_of": as_of,
@@ -183,6 +171,10 @@ def build(
             "points": _severity_points(data, as_of, severity_range),
             "month_table": month_table,
         },
+        # Every calendar month, each account's latest count however old (owner, 2026-11-10).
+        "vulnerabilities": summary.vulnerability_months(
+            conn, connection_id=connection_id, today=as_of, by_type=False
+        ),
         "inventory": {
             "by_type": [
                 {"type": t, "count": n}

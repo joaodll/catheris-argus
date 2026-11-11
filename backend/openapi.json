@@ -2505,6 +2505,7 @@
         "type": "object"
       },
       "MonthRow": {
+        "description": "One month of a month-over-month table (metrics.series.month_table): each severity's open\ncount at the month's end, the total, and the change from the column before. Null values: no\ndata that month, never 0. Null changes: no column before to compare with.",
         "properties": {
           "change": {
             "anyOf": [
@@ -2532,8 +2533,26 @@
             "type": "string"
           },
           "total": {
-            "title": "Total",
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "total_change": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Change"
           },
           "values": {
             "additionalProperties": {
@@ -2554,7 +2573,8 @@
           "month",
           "values",
           "total",
-          "change"
+          "change",
+          "total_change"
         ],
         "title": "MonthRow",
         "type": "object"
@@ -2668,6 +2688,16 @@
           },
           "threatscore": {
             "$ref": "#/components/schemas/ThreatScore"
+          },
+          "vulnerabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VulnerabilityMonths"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2678,6 +2708,7 @@
           "check_results",
           "failed_by_severity",
           "severity_over_time",
+          "vulnerabilities",
           "inventory",
           "coverage"
         ],
@@ -5454,10 +5485,10 @@
             ],
             "title": "Data Through"
           },
-          "last_30_days": {
+          "months": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/SummaryRecent"
+                "$ref": "#/components/schemas/VulnerabilityMonths"
               },
               {
                 "type": "null"
@@ -5473,13 +5504,6 @@
                 "type": "null"
               }
             ]
-          },
-          "weeks": {
-            "items": {
-              "$ref": "#/components/schemas/SummaryWeek"
-            },
-            "title": "Weeks",
-            "type": "array"
           }
         },
         "required": [
@@ -5490,8 +5514,7 @@
           "by_region",
           "by_age",
           "by_fix",
-          "weeks",
-          "last_30_days"
+          "months"
         ],
         "title": "VulnerabilitiesSummary",
         "type": "object"
@@ -5579,6 +5602,44 @@
           "severities"
         ],
         "title": "VulnerabilityFixItem",
+        "type": "object"
+      },
+      "VulnerabilityMonths": {
+        "description": "Open vulnerabilities (not suppressed in the scanner) at each of the last six calendar\nmonths' ends, oldest first: each account's latest count on or before the month end, however\nold. `data_through`: the newest count shown.",
+        "properties": {
+          "all": {
+            "items": {
+              "$ref": "#/components/schemas/MonthRow"
+            },
+            "title": "All",
+            "type": "array"
+          },
+          "by_type": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/VulnerabilityTypeMonths"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Type"
+          },
+          "data_through": {
+            "format": "date",
+            "title": "Data Through",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_through",
+          "all",
+          "by_type"
+        ],
+        "title": "VulnerabilityMonths",
         "type": "object"
       },
       "VulnerabilityOut": {
@@ -5831,6 +5892,27 @@
           "scanned"
         ],
         "title": "VulnerabilitySummary",
+        "type": "object"
+      },
+      "VulnerabilityTypeMonths": {
+        "properties": {
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/MonthRow"
+            },
+            "title": "Months",
+            "type": "array"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "months"
+        ],
+        "title": "VulnerabilityTypeMonths",
         "type": "object"
       }
     }

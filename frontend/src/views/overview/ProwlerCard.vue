@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import type { Schemas } from '@/api/client'
+import MonthTable from '@/components/charts/MonthTable.vue'
 import ToolChip from '@/components/ToolChip.vue'
 import { longDate } from '@/format'
 import CheckResults from './CheckResults.vue'
 import FailedBySeverity from './FailedBySeverity.vue'
-import MonthTable from './MonthTable.vue'
 import SeverityTrend from './SeverityTrend.vue'
 
 defineProps<{ data: Schemas['Overview'] | null; range: '6M' | '3M' | '1M'; connectionId: number }>()
@@ -25,7 +25,12 @@ const emit = defineEmits<{ selectRange: [range: '6M' | '3M' | '1M'] }>()
     </div>
     <div class="divided">
       <SeverityTrend :data="data" :range="range" @select-range="(r) => emit('selectRange', r)" />
-      <MonthTable :data="data" />
+      <MonthTable
+        :rows="data?.severity_over_time.month_table ?? []"
+        caption="Open failed findings by severity at each month end"
+        noun="findings"
+        what="Open failed findings at month end, and change from the month before"
+      />
     </div>
   </section>
 </template>

@@ -35,6 +35,7 @@ from argus import (
     relationships,
     scheduling,
 )
+from argus.metrics.series import calendar_months
 
 pytestmark = [pytest.mark.db, pytest.mark.budget]
 BUDGET_MS = 300.0
@@ -823,6 +824,13 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "vulnerabilities: summary, one account": lambda c: metrics.vulnerability_summary(
         c, connection_id=1, today=TODAY
     ),
+    # Month over month alone (owner, 2026-11-10): also read by the Overview, all types only.
+    "vulnerabilities: month over month, all accounts": lambda c: metrics.vulnerability_months(
+        c, connection_id=0, today=TODAY
+    ),
+    "vulnerabilities: month over month, the stale account": lambda c: metrics.vulnerability_months(
+        c, connection_id=STALE, today=TODAY
+    ),
     # The summary's Top CVEs: the list by CVE with the summary's filters.
     "vulnerabilities: summary, top CVEs": lambda c: findings.finding_groups(
         c, limit=10, offset=0, filters=VULNERABILITY_SUMMARY_FILTERS
@@ -943,6 +951,63 @@ def test_the_misconfigurations_summary_reads_one_day_of_one_scope(estate: Engine
         ).scalar_one()
     scanned = {n for n in _relations(plan) if n.startswith("metric_daily")}
     assert scanned == {f"metric_daily_{TODAY:%Y%m}"}, scanned
+
+
+def _month_end_days() -> list[date]:
+    return [end for _, end in calendar_months(TODAY)]
+
+
+def test_the_month_ends_are_index_probes(estate: Engine) -> None:
+    """vulnerability_months finds each month end's latest count with one probe on the marker
+    per month (metric_daily_by_connection), never a scan of a partition's rows."""
+    with estate.connect() as conn:
+        plan = conn.execute(
+            text("""
+            EXPLAIN (FORMAT JSON)
+            SELECT e.day, (SELECT max(m.snapshot_date) FROM metric_daily m
+                           WHERE m.connection_id = 0 AND m.metric = :mm
+                             AND m.dimension = 'critical' AND m.snapshot_date <= e.day)
+            FROM unnest(CAST(:ends AS date[])) AS e(day)
+        """),
+            {"mm": "vulnerabilities.open_by_severity", "ends": _month_end_days()},
+        ).scalar_one()
+    scans = {
+        n["Node Type"]
+        for n in _nodes(plan)
+        if str(n.get("Relation Name", "")).startswith("metric_daily")
+    }
+    assert scans and scans <= {"Index Only Scan", "Index Scan"}, scans
+
+
+def test_the_month_end_rows_read_only_their_days_partitions(estate: Engine) -> None:
+    """The month ends' rows are read by equality on their days: one partition per month."""
+    days = _month_end_days()
+    with estate.connect() as conn:
+        plan = conn.execute(
+            text("""
+            EXPLAIN (FORMAT JSON) SELECT snapshot_date, metric, dimension, value
+            FROM metric_daily
+            WHERE connection_id = 0 AND snapshot_date = ANY(CAST(:days AS date[]))
+              AND metric = ANY(CAST(:m AS text[]))
+        """),
+            {
+                "days": days,
+                "m": ["vulnerabilities.open_by_severity", "vulnerabilities.open_by_resource_type"],
+            },
+        ).scalar_one()
+    scanned = {n for n in _relations(plan) if n.startswith("metric_daily")}
+    assert scanned == {f"metric_daily_{d:%Y%m}" for d in days}, scanned
+
+
+def _nodes(node: Any) -> Iterator[dict[str, Any]]:
+    if isinstance(node, dict):
+        if "Node Type" in node:
+            yield node
+        for value in node.values():
+            yield from _nodes(value)
+    elif isinstance(node, list):
+        for item in node:
+            yield from _nodes(item)
 
 
 # Ingest, not the API: no 300 ms budget, but a bound that catches a full scan of finding or of
