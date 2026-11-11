@@ -15,13 +15,21 @@ fullnameOverride: ""
 images:
   registry: ""
   pullPolicy: IfNotPresent
-  # argus-backend:runtime: api, scheduler, migrate, rederive, retention, Demo scans and
-  # connection tests.
+  # argus-backend:runtime: api, scheduler, migrate, rederive, retention and the scan Jobs that
+  # answer Test connection.
   runtime:
     repository: argus-backend
     digest: ""  # required
-  # argus-backend:worker: the runtime plus Prowler, CloudFox and Steampipe; AWS scans only.
-  worker:
+  # One image per tool for the scan Jobs (ADR-0046): the runtime plus that tool only, so a Job
+  # pulls only what it runs. Build targets worker-steampipe, worker-prowler, worker-cloudfox.
+  # Steampipe's also runs Vulnerabilities (the same export binary).
+  workerSteampipe:
+    repository: argus-backend
+    digest: ""  # required
+  workerProwler:
+    repository: argus-backend
+    digest: ""  # required
+  workerCloudfox:
     repository: argus-backend
     digest: ""  # required
   web:
@@ -206,22 +214,40 @@ scheduler:
   tolerations: []
   affinity: {}
 
-# Scan Jobs (ADR-0039): on Kubernetes there is no long-running worker. The scheduler starts a
-# short-lived Job for each piece of work; the Job does it and exits, and its credentials and
-# temporary files go with it. These are the three kinds, not environments. Each is a fixed
-# template the admission policy pins (ADR-0040).
-# A scan Job does one unit of work and exits: a queued connection test (the "Test connection"
-# button) when there is one, otherwise one AWS scan (Prowler, CloudFox or Steampipe on one
-# account, then ingest). Only AWS connections are scanned here: Demo connections are for Docker
-# Compose. The scheduler starts them from one fixed template (ADR-0039), with the AWS identity.
+# Scan Jobs (ADR-0039, ADR-0046): on Kubernetes there is no long-running worker. The scheduler
+# starts a short-lived Job for each piece of work; the Job does it and exits, and its credentials
+# and temporary files go with it. There are four works, each a fixed template the admission
+# policy pins (ADR-0040): `test` answers one queued connection test (the "Test connection"
+# button) on the runtime image; `steampipe` (also Vulnerabilities), `prowler` and `cloudfox` each
+# run one AWS scan of their tool on one account, then ingest, on that tool's image. A connection's
+# tools still run in order. Only AWS connections are scanned here: Demo connections are for
+# Docker Compose. Every scan Job has the AWS identity.
 scanJobs:
   # Finished Jobs (and their logs) are deleted after this many seconds.
   ttlSecondsAfterFinished: 600
   # Steampipe has no overall time limit of its own: this is it. A scan past it counts as lost.
   activeDeadlineSeconds: 21600
-  resources:
-    requests: {cpu: 500m, memory: 2Gi}
-    limits: {memory: 6Gi}
+  # One template per work, each with its own image and pod size (ADR-0046). The admission
+  # policy pins each template whole, these resources included.
+  work:
+    # Test connection: STS and one marker object per tool folder, no tool.
+    test:
+      resources:
+        requests: {cpu: 100m, memory: 256Mi}
+        limits: {memory: 512Mi}
+    # Steampipe and Vulnerabilities.
+    steampipe:
+      resources:
+        requests: {cpu: 500m, memory: 2Gi}
+        limits: {memory: 6Gi}
+    prowler:
+      resources:
+        requests: {cpu: 500m, memory: 2Gi}
+        limits: {memory: 6Gi}
+    cloudfox:
+      resources:
+        requests: {cpu: 500m, memory: 2Gi}
+        limits: {memory: 6Gi}
   # /tmp holds each scan's AWS profile and CloudFox's cache: memory-backed, as in Compose.
   tmpSize: 2Gi
   # The scan's raw output, on the node's disk until it is uploaded to S3, then deleted with the

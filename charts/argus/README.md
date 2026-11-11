@@ -13,7 +13,7 @@ says what the chart creates and which values matter.
 | `api` | Deployment (2 replicas, or an HPA) | The HTTP API, behind `web` |
 | `web` | Deployment (2 replicas, or an HPA) | The UI on nginx; proxies `/api` to `api`. ClusterIP only |
 | `scheduler` | Deployment (1 replica) | Queues the scans schedules call for and starts a **scan Job** for each. It never scans itself |
-| scan Jobs | Jobs the scheduler creates, from one template | Each answers one connection test (the Test connection button) or runs one AWS scan, then exits. Values under `scanJobs` |
+| scan Jobs | Jobs the scheduler creates, from four templates, one per work | `test` answers one connection test (the Test connection button) on the runtime image; `steampipe`, `prowler` and `cloudfox` each run one AWS scan of their tool, on that tool's image, then exit. Values under `scanJobs` |
 | `postgres` | StatefulSet (optional) | PostgreSQL 18, the same image as Compose; or an external database |
 | `migrate`, `rederive` | Jobs, one per image | Schema migrations; deriving again after a rule change |
 | `retention` | CronJob | Daily: drops history older than the UI's **History** setting, unused configurations and old rule loads |
@@ -42,7 +42,7 @@ go in `serviceAccounts.run.annotations` and `serviceAccounts.scheduler.annotatio
 
 | Value | What |
 | --- | --- |
-| `images.registry`, `images.{runtime,worker,web}.digest` | Where the images are, by `sha256:` digest |
+| `images.registry`, `images.{runtime,workerSteampipe,workerProwler,workerCloudfox,web}.digest` | Where the images are, by `sha256:` digest |
 | `secrets.existingSecret` | The Secret holding every secret value ([its keys](../../docs/runbook-kubernetes.md#the-secret)) |
 | `api.trustedProxies` | The address ranges web's pods use |
 | `networkPolicy.kubeApi.cidrs` | The Kubernetes API's endpoint addresses, for the scheduler |

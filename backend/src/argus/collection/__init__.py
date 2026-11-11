@@ -11,12 +11,13 @@ Public interface:
                        the pinned Prowler's AWS checks, their services and its frameworks
     source_for()       the source a connection kind collects with
     access_for()       how an AWS run reaches its account (credentials are made in collect())
+    missing_tools()    the tools whose binary this image does not carry (ADR-0046)
     store_for()        the raw store a connection kind writes to (local volume or S3)
 
 Everything downstream (ingest) reads raw files through read_run() only, whatever the source.
 """
 
-from argus.collection.aws import AwsAccess, access_for
+from argus.collection.aws import AwsAccess, access_for, missing_tools
 from argus.collection.collect import (
     TOOL_ORDER,
     Cancelled,
@@ -45,6 +46,7 @@ __all__ = [
     "RawStore",
     "access_for",
     "collect",
+    "missing_tools",
     "prowler_checks",
     "prowler_frameworks",
     "prowler_services",

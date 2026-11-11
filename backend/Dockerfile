@@ -7,7 +7,11 @@
 #   builder      resolves runtime dependencies and the project into /opt/venv.
 #   runtime      /opt/venv only: no uv, no compilers, no dev tools, non-root. api, migrate.
 #   worker       runtime + the three collectors, unmodified and pinned (ADR-0001, ADR-0030).
-#                Only the worker runs tools, so only its image carries them.
+#                Compose's worker runs every tool, so its image carries them all.
+#   worker-steampipe, worker-prowler, worker-cloudfox
+#                runtime + one collector each, for Kubernetes scan Jobs (ADR-0046): a Job pulls
+#                only its own tool. Built from the same stages as worker. Test connection Jobs
+#                run on runtime, which carries no tool.
 
 ARG PYTHON_IMAGE=python:3.13-slim-trixie@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.22@sha256:f513a91fc62fe7c17567eee97230dd198e43edb8a9fbecca843714a4358fe1bc
@@ -126,14 +130,34 @@ RUN set -eu; cd /tmp; \
     grep -v '^#' /tmp/lists/prowler_frameworks_aws.txt | grep . | diff -u - /tmp/installed-frameworks; \
     rm -rf /tmp/lists /tmp/installed-checks /tmp/installed-frameworks
 
-FROM runtime AS worker
+# What every image that runs a tool needs (ADR-0046).
+FROM runtime AS tool-base
 # CloudFox and Steampipe look up the user's home in the passwd entry, not $HOME, and write
 # there; on a read-only root it must be the /tmp tmpfs.
 USER root
 RUN usermod --home /tmp argus
 USER 10001:10001
-COPY --from=tools-fetch /usr/local/bin/cloudfox /usr/local/bin/steampipe_export_aws /usr/local/bin/
-COPY --from=prowler /opt/prowler /opt/prowler
 # Tools get credentials only from the per-run profile the worker writes. Instance metadata is
 # disabled, so a host's or node's own role is never picked up in its place.
 ENV AWS_EC2_METADATA_DISABLED=true
+
+# Each tool image runs its tool's version probe as the runtime user, the call a run starts with
+# (collection/aws/tools.py), and leaves nothing behind in /tmp: Compose's worker cannot prove a
+# one-tool image works.
+FROM tool-base AS worker-steampipe
+COPY --from=tools-fetch /usr/local/bin/steampipe_export_aws /usr/local/bin/
+RUN steampipe_export_aws --version && rm -rf /tmp/* /tmp/.[!.]*
+
+FROM tool-base AS worker-prowler
+COPY --from=prowler /opt/prowler /opt/prowler
+RUN /opt/prowler/bin/python -c "import importlib.metadata as m; print(m.version('prowler'))" \
+ && rm -rf /tmp/* /tmp/.[!.]*
+
+FROM tool-base AS worker-cloudfox
+COPY --from=tools-fetch /usr/local/bin/cloudfox /usr/local/bin/
+RUN cloudfox --version && rm -rf /tmp/* /tmp/.[!.]*
+
+# Compose's worker: every tool (ADR-0030).
+FROM tool-base AS worker
+COPY --from=tools-fetch /usr/local/bin/cloudfox /usr/local/bin/steampipe_export_aws /usr/local/bin/
+COPY --from=prowler /opt/prowler /opt/prowler

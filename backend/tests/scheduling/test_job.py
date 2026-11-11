@@ -1,7 +1,8 @@
-"""Kubernetes scan Jobs and the scheduler's role (ADR-0039): a scan Job answers a queued
-connection test before it takes a scan, takes one AWS scan within the cap and never Demo work,
-and ends at once with nothing to do; the scheduler's role can keep the queue but cannot read
-secrets or scanned data."""
+"""Kubernetes scan Jobs and the scheduler's role (ADR-0039, ADR-0046): a test Job answers a queued
+connection test and never scans; a tool Job takes one AWS scan of its tools within the cap, only a
+connection's next request, never Demo work and never a test; an unknown work or a missing tool
+stops a Job before it claims; the scheduler's role can keep the queue but cannot read secrets or
+scanned data."""
 
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
@@ -11,9 +12,11 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import ProgrammingError
 from tests.ingest.conftest import make_aws, make_demo
 
+from argus.collection import TOOL_ORDER
+from argus.collection.aws.tools import TOOL_BINARIES
 from argus.core.rawstore import FilesystemRawStore
 from argus.scheduling import claims, connection_checks, maintenance
-from argus.scheduling.job import run_job
+from argus.scheduling.job import WorkError, check_work, run_job, work_of
 from argus.settings import CollectionSettings
 
 pytestmark = pytest.mark.db
@@ -45,9 +48,10 @@ def _status(owner: Engine, request_id: int) -> str:
         )
 
 
-def _job(worker: Engine, tmp_path: Path, max_runs: int = 4) -> str:
+def _job(worker: Engine, tmp_path: Path, work: str = "prowler", max_runs: int = 4) -> str:
     return run_job(
         worker,
+        work=work,
         store=FilesystemRawStore(tmp_path),
         rules_dir=RULES_DIR,
         worker_id="pod-1",
@@ -63,17 +67,51 @@ def test_claimable_work_counts_connections_not_requests(owner: Engine, worker: E
             _queue(owner, demo.connection_id, tool, day)
     _queue(owner, aws, "prowler")
     with worker.begin() as conn:
-        assert claims.claimable_connections(conn) == {"demo": 1, "aws": 1}
+        assert sorted((r.kind, r.tool) for r in claims.next_requests(conn)) == [
+            ("aws", "prowler"),
+            ("demo", "steampipe"),  # the oldest day's first tool
+        ]
         assert claims.claimed_count(conn) == 0
         got = claims.claim(conn, worker_id="t", settings=CAP, kinds=("aws",))
         assert got is not None and got.connection_id == aws
         assert claims.claim(conn, worker_id="t", settings=CAP, kinds=("aws",)) is None
         # The aws connection is busy now: only the Demo one has claimable work.
-        assert claims.claimable_connections(conn) == {"demo": 1}
+        assert [r.kind for r in claims.next_requests(conn)] == ["demo"]
         assert claims.claimed_count(conn) == 1
+        assert claims.claimed_tools(conn) == {("aws", "prowler"): 1}
 
 
-def test_a_scan_job_answers_a_test_before_it_takes_a_scan(
+def test_a_tool_job_takes_only_a_connections_next_request(owner: Engine, worker: Engine) -> None:
+    first = make_aws(owner, "first", "111111111111")
+    second = make_aws(owner, "second", "222222222222")
+    steampipe = _queue(owner, first, "steampipe")
+    cloudfox = _queue(owner, first, "cloudfox")
+    _queue(owner, second, "vulnerabilities")
+    later = _queue(owner, second, "prowler")
+    with worker.begin() as conn:
+        # The first connection's next request is Steampipe's: a CloudFox Job does not run ahead
+        # of it, and the second connection's next is Prowler's.
+        assert claims.claim(conn, worker_id="t", settings=CAP, tools=("cloudfox",)) is None
+        got = claims.claim(conn, worker_id="t", settings=CAP, tools=("prowler",))
+        assert got is not None and got.id == later
+        got = claims.claim(
+            conn, worker_id="t", settings=CAP, tools=("steampipe", "vulnerabilities")
+        )
+        assert got is not None and got.id == steampipe
+    for request in (steampipe, later):
+        with owner.begin() as conn:
+            conn.execute(
+                text("UPDATE run_request SET status = 'finished' WHERE id = :i"), {"i": request}
+            )
+    with worker.begin() as conn:
+        got = claims.claim(conn, worker_id="t", settings=CAP, tools=("cloudfox",))
+        assert got is not None and got.id == cloudfox  # now it is the first connection's next
+        # Without tools, as the Compose worker claims: the next request, in claim order.
+        got = claims.claim(conn, worker_id="t", settings=CAP)
+        assert got is not None and got.tool == "vulnerabilities"
+
+
+def test_a_test_job_answers_a_test_and_never_scans(
     owner: Engine, worker: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def caller_identity(_credentials: object) -> tuple[str, str]:
@@ -88,14 +126,31 @@ def test_a_scan_job_answers_a_test_before_it_takes_a_scan(
                 "VALUES ('identity', 'admin', now())"
             )
         )
-    assert _job(worker, tmp_path) == "test"
-    assert _status(owner, scan) == "queued"  # the scan waits for the next Job
+    assert _job(worker, tmp_path, "prowler") == "scan"  # a tool Job never answers a test
+    with owner.connect() as conn:
+        assert conn.execute(text("SELECT status FROM connection_test")).scalar_one() == "queued"
+    assert _job(worker, tmp_path, "test") == "test"
     with owner.connect() as conn:
         assert conn.execute(text("SELECT status FROM connection_test")).scalar_one() == "passed"
-    # The next Job finds no test and takes the scan. No raw storage is set: the run fails, and
-    # the Job still did its one scan.
-    assert _job(worker, tmp_path) == "scan"
+    other = _queue(owner, make_aws(owner, "other", "333333333333"), "prowler")
+    assert _job(worker, tmp_path, "test") == "nothing"  # no test left, and it never scans
+    assert _status(owner, other) == "queued"
     assert _status(owner, scan) != "queued"
+
+
+@pytest.mark.parametrize(
+    ("work", "match"),
+    [("", "must be one of"), ("all", "must be one of"), ("prowler", "does not carry prowler")],
+    ids=["missing", "unknown", "no-binary"],
+)
+def test_a_job_refuses_work_it_cannot_do(work: str, match: str) -> None:
+    # The test image carries no tool: Prowler's work is refused before any claim.
+    with pytest.raises(WorkError, match=match):
+        check_work(work)
+
+
+def test_the_test_work_needs_no_tool() -> None:
+    check_work("test")
 
 
 def test_a_scan_job_never_takes_demo_work_and_respects_the_cap(
@@ -142,7 +197,7 @@ def test_the_scheduler_role_keeps_the_queue(owner: Engine, scheduler: Engine) ->
         )
     maintenance.maintain(scheduler, now=NOW)
     with scheduler.connect() as conn:
-        assert claims.claimable_connections(conn) == {"demo": 1}
+        assert [r.kind for r in claims.next_requests(conn)] == ["demo"]
         assert claims.claimed_count(conn) == 0  # the lost claim went back to the queue
     with owner.connect() as conn:
         tests = conn.execute(text("SELECT status FROM connection_test")).scalar_one()
@@ -168,3 +223,9 @@ def test_the_scheduler_role_keeps_the_queue(owner: Engine, scheduler: Engine) ->
 def test_the_scheduler_role_reads_no_secret_and_no_data(scheduler: Engine, query: str) -> None:
     with scheduler.connect() as conn, pytest.raises(ProgrammingError, match="permission denied"):
         conn.execute(text(query))
+
+
+def test_every_tool_has_a_scan_job_and_an_image_binary() -> None:
+    # A tool no Job runs would stop the scheduler on every pass (launcher.read_work).
+    assert {work_of(tool) for tool in TOOL_ORDER} == {"steampipe", "prowler", "cloudfox"}
+    assert set(TOOL_BINARIES) == set(TOOL_ORDER)

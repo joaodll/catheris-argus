@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# kind: the chart on a throwaway kind cluster, and the checks that prove ADR-0039 and ADR-0040 on
-# it. Local only: it drives the host's Docker. Every value it makes is random and stays in the
+# kind: the chart on a throwaway kind cluster, and the checks that prove ADR-0039, ADR-0040 and
+# ADR-0046 on it. Local only: it drives the host's Docker. Every value it makes is random and stays in the
 # cluster.
-#   docker compose build migrate worker web     the three images, first
+#   docker compose build migrate web worker-steampipe worker-prowler worker-cloudfox
+#                                               the five images, first
 #   docker compose run --rm kind up             registry, cluster, images, the Secret, helm install
 #   docker compose run --rm kind test           the checks; stops at the first failure
 #   docker compose run --rm kind down           deletes the cluster and the registry
@@ -64,7 +65,7 @@ make_secret() {
 }
 
 install() {
-  local runtime=$1 worker=$2 web=$3 api_ip api_port
+  local runtime=$1 steampipe=$2 prowler=$3 cloudfox=$4 web=$5 api_ip api_port
   api_ip=$(kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes \
     -o jsonpath='{.items[0].endpoints[0].addresses[0]}')
   api_port=$(kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes \
@@ -72,7 +73,9 @@ install() {
   helm upgrade --install "$RELEASE" "$CHART" -n "$NAMESPACE" -f "$HERE/values-kind.yaml" \
     --set "images.registry=localhost:$REGISTRY_PORT" \
     --set "images.runtime.digest=$runtime" \
-    --set "images.worker.digest=$worker" \
+    --set "images.workerSteampipe.digest=$steampipe" \
+    --set "images.workerProwler.digest=$prowler" \
+    --set "images.workerCloudfox.digest=$cloudfox" \
     --set "images.web.digest=$web" \
     --set "networkPolicy.kubeApi.cidrs={$api_ip/32}" \
     --set "networkPolicy.kubeApi.port=$api_port" \
@@ -81,9 +84,10 @@ install() {
 
 up() {
   local image
-  for image in argus-backend:runtime argus-backend:worker argus-web:runtime; do
+  for image in argus-backend:runtime argus-backend:worker-steampipe argus-backend:worker-prowler \
+               argus-backend:worker-cloudfox argus-web:runtime; do
     docker image inspect "$image" > /dev/null 2>&1 \
-      || fail "no $image: docker compose build migrate worker web"
+      || fail "no $image: docker compose build migrate web worker-steampipe worker-prowler worker-cloudfox"
   done
 
   step "local registry on 127.0.0.1:$REGISTRY_PORT"
@@ -110,14 +114,19 @@ up() {
   ok "nodes pull localhost:$REGISTRY_PORT from $REGISTRY_NAME"
 
   step "images, by digest"
-  local runtime worker web
+  local runtime steampipe prowler cloudfox web
   runtime=$(push_image argus-backend:runtime)
-  worker=$(push_image argus-backend:worker)
+  steampipe=$(push_image argus-backend:worker-steampipe)
+  prowler=$(push_image argus-backend:worker-prowler)
+  cloudfox=$(push_image argus-backend:worker-cloudfox)
   web=$(push_image argus-web:runtime)
-  [ -n "$runtime" ] && [ -n "$worker" ] && [ -n "$web" ] || fail "a push gave no digest"
-  ok "runtime $runtime"
-  ok "worker  $worker"
-  ok "web     $web"
+  [ -n "$runtime" ] && [ -n "$steampipe" ] && [ -n "$prowler" ] && [ -n "$cloudfox" ] && [ -n "$web" ] \
+    || fail "a push gave no digest"
+  ok "runtime   $runtime"
+  ok "steampipe $steampipe"
+  ok "prowler   $prowler"
+  ok "cloudfox  $cloudfox"
+  ok "web       $web"
 
   step "namespace $NAMESPACE (Pod Security restricted) and the Secret"
   kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - > /dev/null
@@ -127,7 +136,7 @@ up() {
   make_secret
 
   step "helm install"
-  install "$runtime" "$worker" "$web"
+  install "$runtime" "$steampipe" "$prowler" "$cloudfox" "$web"
   ok "installed; next: docker compose run --rm kind test"
 }
 
@@ -296,16 +305,47 @@ test_rights() {
   ok "only the scheduler mounts a Kubernetes token"
 }
 
+# One template's Job made into another's, field by field (ADR-0046): each must match none of the
+# four. name | template | jq change, where $other is another template's Job.
+CROSS_JOBS=(
+  "Steampipe's work on Prowler's image|steampipe|.spec.template.spec.containers[0].image = \$other.spec.template.spec.containers[0].image"
+  "Prowler's image and work on Steampipe's name|steampipe|.spec.template.spec.containers[0] = \$other.spec.template.spec.containers[0]"
+  "another work in the environment|prowler|(.spec.template.spec.containers[0].env[] | select(.name == \"ARGUS_JOB_WORK\") | .value) = \"steampipe\""
+  "another work's label|cloudfox|.spec.template.metadata.labels[\"argus/work\"] = \"prowler\""
+  "a tool Job's size on the test Job|test|.spec.template.spec.containers[0].resources = \$other.spec.template.spec.containers[0].resources"
+  "no memory limit|prowler|del(.spec.template.spec.containers[0].resources.limits)"
+  "the test Job on a tool's image|test|.spec.template.spec.containers[0].image = \$other.spec.template.spec.containers[0].image"
+  "metadata reachable|test|.spec.template.spec.containers[0].env |= map(select(.name != \"AWS_EC2_METADATA_DISABLED\"))"
+  "a name prefix of no template|prowler|.metadata.generateName = \"$FULL-scan-other-\""
+)
+
 test_admission() {
-  step "the admission policy: the template passes, every change is denied"
-  local tmp out entry name change
+  step "the admission policy: each template passes, every change is denied"
+  local tmp out entry name change work other
   tmp=$(mktemp -d)
-  k get configmap "$FULL-job-templates" -o json | jq -r '.data["scan.json"]' > "$tmp/scan.json"
-  out=$(create_as_scheduler < "$tmp/scan.json") || fail "the scan template is denied: $out"
-  ok "the scan template is allowed"
+  for work in test steampipe prowler cloudfox; do
+    k get configmap "$FULL-job-templates" -o json | jq -r --arg f "$work.json" '.data[$f]' > "$tmp/$work.json"
+    out=$(create_as_scheduler < "$tmp/$work.json") || fail "the $work template is denied: $out"
+    ok "the $work template is allowed"
+  done
+  # The same size written another way is the same size: the API server may hand the policy 2Gi
+  # for 2048Mi, so it compares quantities by value.
+  out=$(jq '.spec.template.spec.containers[0].resources.limits.memory = "2048Mi"
+            | .spec.template.spec.containers[0].resources.requests.cpu = "0.1"' "$tmp/prowler.json" \
+        | create_as_scheduler) || fail "an equal size written another way is denied: $out"
+  ok "an equal size written another way is allowed (2048Mi for 2Gi, 0.1 for 100m)"
   for entry in "${BAD_JOBS[@]}"; do
     IFS='|' read -r name change <<< "$entry"
-    if out=$(jq "$change" "$tmp/scan.json" | create_as_scheduler); then
+    if out=$(jq "$change" "$tmp/prowler.json" | create_as_scheduler); then
+      fail "allowed, but must be denied: $name"
+    fi
+    grep -q 'ValidatingAdmissionPolicy' <<< "$out" || fail "$name: denied, but not by the policy: $out"
+    ok "denied: $name ($(sed -n 's/.*denied request: //p' <<< "$out"))"
+  done
+  for entry in "${CROSS_JOBS[@]}"; do
+    IFS='|' read -r name work change <<< "$entry"
+    other=prowler; [ "$work" = prowler ] && other=steampipe
+    if out=$(jq --slurpfile o "$tmp/$other.json" "\$o[0] as \$other | $change" "$tmp/$work.json" | create_as_scheduler); then
       fail "allowed, but must be denied: $name"
     fi
     grep -q 'ValidatingAdmissionPolicy' <<< "$out" || fail "$name: denied, but not by the policy: $out"
@@ -341,7 +381,7 @@ test_demo_refused() {
 }
 
 test_web() {
-  step "the UI through web: AWS connections only, and a connection test in a scan Job"
+  step "the UI through web: AWS connections only, and a connection test in a test Job"
   local base=http://127.0.0.1:18080 pf tmp
   k port-forward "svc/$FULL-web" 18080:8080 > /dev/null 2>&1 &
   pf=$!
@@ -383,13 +423,23 @@ test_web() {
     sleep 2
   done
   message=$(jq -r .message "$tmp/t")
-  # No identity on kind: the scan Job answers the test, finds no credentials and says so.
+  # No identity on kind: the test Job answers the test, finds no credentials and says so.
   if [ "$status" != failed ] || ! grep -qi 'credentials' <<< "$message"; then
     fail "identity test: $status, $message"
   fi
   ok "identity test answered: $message"
-  [ "$(k get jobs -l app.kubernetes.io/component=run -o name | wc -l)" -ge 1 ] || fail "no scan Job"
-  ok "a scan Job answered it"
+  # On the runtime image, with instance metadata off (ADR-0046, gate review S1), and no tool Job
+  # started for it.
+  local runtime_image
+  runtime_image=$(k get "deploy/$FULL-api" -o jsonpath='{.spec.template.spec.containers[0].image}')
+  k get jobs -l argus/work=test -o json > "$tmp/jobs"
+  jq -e --arg img "$runtime_image" '.items | length >= 1 and all(.[];
+      .spec.template.spec.containers[0].image == $img
+      and ([.spec.template.spec.containers[0].env[] | select(.name == "AWS_EC2_METADATA_DISABLED") | .value] == ["true"]))' \
+    "$tmp/jobs" > /dev/null || fail "no test Job, or one not on the runtime image with metadata off"
+  [ "$(k get jobs -l 'app.kubernetes.io/component=run,argus/work!=test' -o name | wc -l)" -eq 0 ] \
+    || fail "a tool Job started for a connection test"
+  ok "a test Job on the runtime image answered it; no tool Job started"
 }
 
 # web's readiness is nginx's own (/healthz): with no API at all, web stays in its Service and

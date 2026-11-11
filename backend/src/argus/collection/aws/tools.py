@@ -50,6 +50,14 @@ PROWLER = "/opt/prowler/bin/prowler"
 PROWLER_PYTHON = "/opt/prowler/bin/python"
 STEAMPIPE = "/usr/local/bin/steampipe_export_aws"
 CLOUDFOX = "/usr/local/bin/cloudfox"
+# What each tool runs. On Kubernetes each tool has its own image (ADR-0046), which carries
+# only its own binary: a scan Job checks for it before it claims a run.
+TOOL_BINARIES: dict[str, str] = {
+    "steampipe": STEAMPIPE,
+    "vulnerabilities": STEAMPIPE,
+    "prowler": PROWLER,
+    "cloudfox": CLOUDFOX,
+}
 TOOL_TIMEOUT = timedelta(hours=4)
 TABLE_TIMEOUT = timedelta(minutes=30)
 VERSION_TIMEOUT = 60
@@ -907,3 +915,12 @@ def _forget_cloudfox_cache(account_id: str) -> None:
             shutil.rmtree(path, ignore_errors=True)
         elif path.exists():
             path.unlink(missing_ok=True)
+
+
+def missing_tools(tools: Sequence[str]) -> list[str]:
+    """The tools among `tools` whose binary this image does not carry, or cannot run."""
+    return [
+        tool
+        for tool in tools
+        if tool not in TOOL_BINARIES or not os.access(TOOL_BINARIES[tool], os.X_OK)
+    ]

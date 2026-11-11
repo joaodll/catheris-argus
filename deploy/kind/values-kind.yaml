@@ -22,9 +22,13 @@ postgres:
 scheduler:
   maxRunJobs: 2
 scanJobs:
-  resources:
-    requests: {cpu: 100m, memory: 256Mi}
-    limits: {memory: 2Gi}
+  # Small, and not the same for the test Job: run.sh checks one template's size on another's
+  # Job is denied.
+  work:
+    test: {resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 512Mi}}}
+    steampipe: {resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}}
+    prowler: {resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}}
+    cloudfox: {resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}}
   tmpSize: 512Mi
   scratch: {size: 2Gi}
   # No node has these taints, so they change nothing here. They make the admission policy compile

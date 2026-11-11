@@ -43,6 +43,7 @@ class JobState:
     finished: bool  # a Complete or Failed condition is true
     ready: int = 0  # pods running and ready
     started_at: datetime | None = None  # when the Job controller started it
+    failed: bool = False  # a Failed condition is true
 
 
 class _Response(Protocol):
@@ -139,17 +140,18 @@ class KubeClient:
             for item in page.get("items", []):
                 meta = item.get("metadata", {})
                 conditions = item.get("status", {}).get("conditions") or []
-                finished = any(
-                    c.get("type") in ("Complete", "Failed") and c.get("status") == "True"
-                    for c in conditions
-                )
+                done = {c.get("type") for c in conditions if c.get("status") == "True"} & {
+                    "Complete",
+                    "Failed",
+                }
                 status = item.get("status", {})
                 jobs.append(
                     JobState(
                         str(meta.get("name", "")),
-                        finished,
+                        bool(done),
                         int(status.get("ready") or 0),
                         _timestamp(status.get("startTime")),
+                        "Failed" in done,
                     )
                 )
             token = str(page.get("metadata", {}).get("continue") or "")

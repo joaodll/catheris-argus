@@ -136,7 +136,11 @@ def test_list_jobs_reads_every_page_and_which_are_finished(
     )
     client = _client(sa_dir, fake, monkeypatch)
     jobs = client.list_jobs("app.kubernetes.io/component=run")
-    assert [(j.name, j.finished) for j in jobs] == [("a", False), ("b", True), ("c", True)]
+    assert [(j.name, j.finished, j.failed) for j in jobs] == [
+        ("a", False, False),
+        ("b", True, False),
+        ("c", True, True),
+    ]
     assert jobs[0].ready == 1
     assert jobs[0].started_at == datetime(2026, 10, 24, 18, tzinfo=UTC)
     assert "labelSelector=app.kubernetes.io/component%3Drun" in fake.requests[0][1]

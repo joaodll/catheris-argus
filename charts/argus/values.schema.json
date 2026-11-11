@@ -58,7 +58,7 @@
             "digest"
           ]
         },
-        "worker": {
+        "workerSteampipe": {
           "type": "object",
           "properties": {
             "repository": {
@@ -77,7 +77,52 @@
           "required": [
             "repository",
             "digest"
-          ]
+          ],
+          "description": "Kubernetes scan Jobs of Steampipe and Vulnerabilities (ADR-0046)"
+        },
+        "workerProwler": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^@:]+(:[0-9]+)?(/[^@:]+)*$",
+              "description": "Without a tag: the image is pulled by digest only."
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "description": "required: sha256:<64 hex>"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "digest"
+          ],
+          "description": "Kubernetes scan Jobs of Prowler (ADR-0046)"
+        },
+        "workerCloudfox": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^@:]+(:[0-9]+)?(/[^@:]+)*$",
+              "description": "Without a tag: the image is pulled by digest only."
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "description": "required: sha256:<64 hex>"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "digest"
+          ],
+          "description": "Kubernetes scan Jobs of CloudFox (ADR-0046)"
         },
         "web": {
           "type": "object",
@@ -125,7 +170,9 @@
       "additionalProperties": false,
       "required": [
         "runtime",
-        "worker",
+        "workerSteampipe",
+        "workerProwler",
+        "workerCloudfox",
         "web",
         "postgres"
       ]
@@ -719,20 +766,117 @@
           "type": "integer",
           "minimum": 60
         },
-        "resources": {
+        "work": {
           "type": "object",
+          "description": "Each scan Job template's own pod size (ADR-0046): test answers Test connection, the others run one tool.",
           "properties": {
-            "requests": {
-              "type": "object"
+            "test": {
+              "type": "object",
+              "properties": {
+                "resources": {
+                  "type": "object",
+                  "properties": {
+                    "requests": {
+                      "type": "object"
+                    },
+                    "limits": {
+                      "type": "object"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "requests",
+                    "limits"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "resources"
+              ]
             },
-            "limits": {
-              "type": "object"
+            "steampipe": {
+              "type": "object",
+              "properties": {
+                "resources": {
+                  "type": "object",
+                  "properties": {
+                    "requests": {
+                      "type": "object"
+                    },
+                    "limits": {
+                      "type": "object"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "requests",
+                    "limits"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "resources"
+              ]
+            },
+            "prowler": {
+              "type": "object",
+              "properties": {
+                "resources": {
+                  "type": "object",
+                  "properties": {
+                    "requests": {
+                      "type": "object"
+                    },
+                    "limits": {
+                      "type": "object"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "requests",
+                    "limits"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "resources"
+              ]
+            },
+            "cloudfox": {
+              "type": "object",
+              "properties": {
+                "resources": {
+                  "type": "object",
+                  "properties": {
+                    "requests": {
+                      "type": "object"
+                    },
+                    "limits": {
+                      "type": "object"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "requests",
+                    "limits"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "resources"
+              ]
             }
           },
           "additionalProperties": false,
           "required": [
-            "requests",
-            "limits"
+            "test",
+            "steampipe",
+            "prowler",
+            "cloudfox"
           ]
         },
         "tmpSize": {

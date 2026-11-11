@@ -3,8 +3,8 @@
 #   docker compose run --rm chart-check
 #
 # For the ci/ values and the kind values: helm lint --strict, helm template, kubeconform (strict,
-# offline schemas) on every resource and on the scan Job template inside the ConfigMap, every
-# image by digest. Then the renders that must be refused, and the Postgres image the same as
+# offline schemas) on every resource and on each scan Job template inside the ConfigMap (one per
+# work, ADR-0046), every image by digest. Then the renders that must be refused, and the Postgres image the same as
 # compose.yaml's.
 set -euo pipefail
 
@@ -19,7 +19,9 @@ trap 'rm -rf "$OUT"' EXIT
 # Placeholders for what run.sh learns at install time.
 KIND_SET=(
   --set "images.runtime.digest=sha256:$(printf '1%.0s' {1..64})"
-  --set "images.worker.digest=sha256:$(printf '2%.0s' {1..64})"
+  --set "images.workerSteampipe.digest=sha256:$(printf '2%.0s' {1..64})"
+  --set "images.workerProwler.digest=sha256:$(printf '4%.0s' {1..64})"
+  --set "images.workerCloudfox.digest=sha256:$(printf '5%.0s' {1..64})"
   --set "images.web.digest=sha256:$(printf '3%.0s' {1..64})"
   --set "images.registry=localhost:${REGISTRY_PORT}"
   --set "networkPolicy.kubeApi.cidrs={172.18.0.2/32}"
@@ -47,14 +49,29 @@ check_render() {
   tagged=$(yq -N '.. | select(has("image")) | .image' "$OUT/$name.yaml" | grep -v '@sha256:[0-9a-f]\{64\}$' || true)
   [ -z "$tagged" ] || fail "images without a digest: $tagged"
 
-  step "$name: the scan Job template"
-  [ "$(yq -N 'select(.kind == "ConfigMap" and .metadata.name == "argus-job-templates") | .data | keys | join(",")' \
-    "$OUT/$name.yaml")" = scan.json ] || fail "the ConfigMap holds another template than scan.json"
-  yq -N 'select(.kind == "ConfigMap" and .metadata.name == "argus-job-templates") | .data["scan.json"]' \
-    "$OUT/$name.yaml" > "$OUT/$name-scan.json"
-  jq -e '.metadata.generateName and (.metadata.labels | length > 0) and (.metadata.name | not)' \
-    "$OUT/$name-scan.json" > /dev/null || fail "scan template: no generateName, no labels, or a fixed name"
-  conform "$OUT/$name-scan.json"
+  step "$name: the scan Job templates, one per work"
+  local works=cloudfox,prowler,steampipe,test work
+  [ "$(yq -N 'select(.kind == "ConfigMap" and .metadata.name == "argus-job-templates") | .data | keys | sort | join(",")' \
+    "$OUT/$name.yaml")" = cloudfox.json,prowler.json,steampipe.json,test.json ] \
+    || fail "the ConfigMap does not hold exactly one template per work ($works)"
+  for work in ${works//,/ }; do
+    yq -N "select(.kind == \"ConfigMap\" and .metadata.name == \"argus-job-templates\") | .data[\"$work.json\"]" \
+      "$OUT/$name.yaml" > "$OUT/$name-$work.json"
+    jq -e --arg w "$work" '.metadata.generateName and (.metadata.name | not)
+        and .metadata.labels["argus/work"] == $w
+        and .spec.template.metadata.labels["argus/work"] == $w
+        and ([.spec.template.spec.containers[0].env[] | select(.name == "ARGUS_JOB_WORK") | .value] == [$w])
+        and ([.spec.template.spec.containers[0].env[] | select(.name == "AWS_EC2_METADATA_DISABLED") | .value] == ["true"])' \
+      "$OUT/$name-$work.json" > /dev/null \
+      || fail "$work template: no generateName, a fixed name, or not its own work label, ARGUS_JOB_WORK or AWS_EC2_METADATA_DISABLED"
+    conform "$OUT/$name-$work.json"
+  done
+  # Each work on its own image: the test Job on runtime, no two tools on one.
+  [ "$(jq -r '.spec.template.spec.containers[0].image' "$OUT/$name-test.json")" \
+    = "$(yq -N 'select(.kind == "Deployment" and .metadata.name == "argus-api") | .spec.template.spec.containers[0].image' "$OUT/$name.yaml")" ] \
+    || fail "the test template does not run the runtime image"
+  [ "$(for work in ${works//,/ }; do jq -r '.spec.template.spec.containers[0].image' "$OUT/$name-$work.json"; done | sort -u | wc -l)" = 4 ] \
+    || fail "two works share one image"
 }
 
 check_render minimal -f "$CHART/ci/minimal-values.yaml"
@@ -74,6 +91,9 @@ refused() {
 }
 refused "no trusted proxy range" --set api.trustedProxies=
 refused "an image by tag" --set images.runtime.digest=latest
+refused "the one worker image of before ADR-0046" --set images.worker.digest=sha256:$(printf '2%.0s' {1..64})
+refused "a tool image without a digest" --set images.workerProwler.digest=
+refused "one pod size for every scan Job, as before ADR-0046" --set scanJobs.resources.limits.memory=6Gi
 refused "no Secret name" --set secrets.existingSecret=
 refused "the admission policy off, unacknowledged" --set admissionPolicy.enabled=false
 refused "an external database without a host" --set postgres.enabled=false --set "postgres.external.cidrs={10.0.0.0/24}"
@@ -134,7 +154,7 @@ for block in web scheduler postgres scanJobs; do
 done
 helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" "${placement[@]}" \
   | yq -o=json -I=0 'select(.kind)' > "$OUT/placement.json"
-# jq: name, then whether the pod carries both; the scan template is checked from inside its ConfigMap.
+# jq: name, then whether the pod carries both; the scan templates are checked from inside their ConfigMap.
 jq -r 'def pod: if .kind == "CronJob" then .spec.jobTemplate.spec.template.spec
          elif .kind == "Pod" then .spec else .spec.template.spec? // empty end;
        def report: "\(.metadata.name // .metadata.generateName) " +
@@ -142,10 +162,10 @@ jq -r 'def pod: if .kind == "CronJob" then .spec.jobTemplate.spec.template.spec
           then "placed" else "MISSING" end);
        (select(pod) | report),
        (select(.kind == "ConfigMap" and .metadata.name == "argus-job-templates")
-          | .data["scan.json"] | fromjson | report)' "$OUT/placement.json" | sort > "$OUT/placement.txt"
+          | .data[] | fromjson | report)' "$OUT/placement.json" | sort > "$OUT/placement.txt"
 cat "$OUT/placement.txt"
 if grep -q MISSING "$OUT/placement.txt"; then fail "a pod ignores its placement values"; fi
-for needed in argus-api argus-web argus-scheduler argus-postgres argus-retention argus-netpol-probe argus-scan- argus-migrate- argus-rederive-; do
+for needed in argus-api argus-web argus-scheduler argus-postgres argus-retention argus-netpol-probe argus-scan-test- argus-scan-steampipe- argus-scan-prowler- argus-scan-cloudfox- argus-migrate- argus-rederive-; do
   grep -q "^$needed" "$OUT/placement.txt" || fail "$needed is not in the render, so its placement wasn't checked"
 done
 

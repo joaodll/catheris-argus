@@ -6,9 +6,11 @@ newer. Verified end to end on kind (Kubernetes 1.34 and 1.36) with Helm 4.3.1, n
 ([gates/kubernetes-exit.md](gates/kubernetes-exit.md)). Compose is in the [runbook](runbook.md).
 
 On Kubernetes, Argus runs as an `api` Deployment, a `web` Deployment, one `scheduler` replica that
-starts scan Jobs from one fixed template, a migrate Job and a rederive Job per release, a daily
+starts scan Jobs from four fixed templates, a migrate Job and a rederive Job per release, a daily
 retention CronJob, and Postgres in the chart or outside it. A scan Job answers one connection test
-or runs one AWS scan, then exits. Kubernetes offers AWS connections only: Demo connections, the
+or runs one AWS scan of one tool, then exits. Each tool's Jobs run on that tool's own image, and
+connection tests on the runtime image ([ADR-0046](adr/0046-one-image-per-tool.md)), so a Job pulls
+only what it runs. Kubernetes offers AWS connections only: Demo connections, the
 synthetic estate, are for Docker Compose ([runbook.md](runbook.md)). Why it is shaped this way:
 [ADR-0039](adr/0039-kubernetes-scheduler-and-run-jobs.md). The trust boundaries the chart holds:
 [ADR-0040](adr/0040-helm-chart-trust-boundaries.md).
@@ -43,9 +45,11 @@ Each of these is a control the chart relies on but cannot set itself.
 - **Encrypted node volumes** (EBS encryption by default). An AWS scan keeps its raw output,
   secret values included, in an `emptyDir` on the node until it is uploaded, never in a volume
   claim ([ADR-0032](adr/0032-raw-staging-on-disk.md), amended by ADR-0040).
-- **The three images in a registry the nodes can pull from**, each known by its digest:
-  `argus-backend:runtime`, `argus-backend:worker` and `argus-web:runtime`
-  (`docker compose build migrate worker web`). The chart refuses tags.
+- **The five images in a registry the nodes can pull from**, each known by its digest:
+  `argus-backend:runtime`, `argus-backend:worker-steampipe`, `argus-backend:worker-prowler`,
+  `argus-backend:worker-cloudfox` and `argus-web:runtime`
+  (`docker compose build migrate web worker-steampipe worker-prowler worker-cloudfox`). The chart
+  refuses tags. `argus-backend:worker`, with every tool, is Compose's only.
 - **amd64 nodes.** The images are built for amd64 only. On a cluster that also has arm64 nodes,
   add `kubernetes.io/arch: amd64` to `nodeSelector` in every block under Values, including `tasks`.
 - **`kubectl` and `helm`** (3.18 or newer, or 4) on the machine you install from.
@@ -128,10 +132,12 @@ Also review:
   the pod subnets only if no VPC interface endpoint for STS or S3 lives in them.
 - `networkPolicy.dns`: who the pods may ask for names, kube-dns by default. With NodeLocal
   DNSCache, lookups go to a link-local address on the node instead: allow it here.
-- `scanJobs`: the one scan Job, which answers a connection test or runs an AWS scan.
+- `scanJobs`: the scan Jobs, one template per work: `test` answers a connection test, and
+  `steampipe` (also Vulnerabilities), `prowler` and `cloudfox` each run one AWS scan of their tool.
   `scanJobs.activeDeadlineSeconds` (6 hours): a scan past it is lost and counted.
   `scanJobs.scratch.size` (20 Gi): the node disk a scan's raw output may use.
-  `scanJobs.resources`: sized for a scan; a connection test uses the same pod size.
+  `scanJobs.work.<work>.resources`: each template's pod size. A connection test needs far less
+  than a scan. The admission policy pins these sizes, so change them here, never on a Job.
 - `scheduler.maxRunJobs`: how many AWS scans run at once, a bound below the UI's **Max parallel
   runs**. `scheduler.maxTestJobs`: how many more Jobs may start while connection tests wait, so
   a test never waits behind a long scan.
@@ -314,6 +320,11 @@ fail.
    the new digests.
 3. `helm test argus -n argus`.
 
+**From a chart before ADR-0046** (one `images.worker`): the schema refuses `images.worker` and
+`scanJobs.resources`. Replace them with `images.workerSteampipe`, `images.workerProwler` and
+`images.workerCloudfox` (one digest each), and `scanJobs.work.<work>.resources`. Scan Jobs still
+running from the old template finish as they are; the new scheduler starts only the new ones.
+
 The migrate Job is named by a hash of its pod, so it runs once per new image. `api` and the
 scheduler wait until the schema reaches their image's revision, and only a scheduler that has
 waited starts scan Jobs; the old scheduler stops before the new one starts. Migrations only add,
@@ -344,7 +355,8 @@ logs are in your log pipeline or gone. The run itself stays on **Scans → Runs*
 | Line | Meaning |
 | --- | --- |
 | `job created` | A scan Job started: its name, the AWS connections with claimable scans and the queued connection tests |
-| `job not running` | A Job has had no running pod for 5 minutes: an image it cannot pull, no node that fits. It waits until its deadline |
+| `job not running` | A Job has had no running pod for 5 minutes: an image it cannot pull, no node that fits. The log names its `work`. It waits until its deadline, and while it does no other Job of that work starts, so one missing image holds one slot and the other tools keep running. Mirror that work's image and fix its digest |
+| `job failed` | A scan Job failed. `job refused its work` in its own log means its image does not carry its tool: a digest under the wrong `images.worker*` key. No other Job of that work starts until Kubernetes deletes the failed one (`scanJobs.ttlSecondsAfterFinished`, 10 minutes); its requests stay queued. Fix the digest and upgrade |
 | `kubernetes refused` | The API refused a Job: the admission policy (a template edited outside Helm), the quota, or RBAC. It retries every 30 seconds and runs wait in **Schedules → Queue** |
 
 **A run that was killed.** An evicted, out-of-memory or timed-out pod stops its heartbeat; the

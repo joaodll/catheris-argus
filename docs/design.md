@@ -99,13 +99,13 @@ Assumptions, each with what changes if it is wrong:
 
 This section describes Argus on Kubernetes, as the chart in `charts/argus/` deploys it (ADR-0039, ADR-0040; built 2026-10-25). Compose runs the same code as one worker ([How the MVP runs](#how-the-mvp-runs)). Data moves one way: clouds → collectors → S3 (and the run's staged copy) → ingest → Postgres → API → UI. Schedules saved in the UI go through the API to Postgres; the scheduler queues the runs they call for and starts a Job for claimable work, and each Job claims its run from the queue.
 
-**Shape: a modular monolith.** Our code is one Python package and one image, plus a worker variant of the image that adds the three tools (ADR-0030). It runs as processes that differ only in command and service account, so each gets only the permissions its job needs without splitting the code into services.
+**Shape: a modular monolith.** Our code is one Python package and one image, plus a worker variant of the image that adds the three tools (ADR-0030); on Kubernetes, one variant per tool (ADR-0046). It runs as processes that differ only in command and service account, so each gets only the permissions its job needs without splitting the code into services.
 
 | Process | Runs as | Can reach |
 | --- | --- | --- |
 | api | Deployment, 2 replicas | Postgres: read on data, write on schedules, manual edges, sessions and audit log; no Kubernetes or cloud access |
 | scheduler | Deployment, 1 replica | Postgres as `argus_scheduler` (no secrets); the Kubernetes API: create, get and list Jobs in its namespace |
-| scan Jobs | A Job per unit of work, from one fixed template: a queued Test connection first, otherwise one AWS run (collect and ingest), then exit. No Demo connections on Kubernetes | Postgres as `argus_worker`; the cloud identity and port 443 outside the cluster |
+| scan Jobs | A Job per unit of work, from four fixed templates, one per work: a `test` Job answers one queued Test connection on the runtime image; a `steampipe`, `prowler` or `cloudfox` Job runs one AWS run of its tool (collect and ingest) on that tool's image, then exits (ADR-0046). No Demo connections on Kubernetes | Postgres as `argus_worker`; the cloud identity and port 443 outside the cluster |
 | migrate, rederive | One Job per image | Postgres (the schema owner; `argus_worker`) |
 | retention | Daily CronJob | Postgres partition maintenance |
 
@@ -130,7 +130,7 @@ A module becomes its own service only when it needs a different scaling profile,
 
 | Component | Owns | Built with |
 | --- | --- | --- |
-| Collectors | Run each tool unmodified; write raw output and a manifest to S3 | Prowler, CloudFox and Steampipe export CLIs in the worker image (ADR-0030); a scan Job on Kubernetes |
+| Collectors | Run each tool unmodified; write raw output and a manifest to S3 | Prowler, CloudFox and Steampipe export CLIs in the worker image (ADR-0030); on Kubernetes a scan Job on that tool's own image (ADR-0046) |
 | S3 raw archive | Unchanged record of every run, replayable | S3; SSE-KMS recommended, encryption recorded per run (ADR-0031) |
 | Ingest | Adapters, relationship rules, lifecycle rules, daily snapshots, daily metrics | Python, in the process that collected the run (the run Job on Kubernetes) |
 | Postgres | Canonical models, daily snapshots, schedules, manual edges, users, audit log | PostgreSQL |
@@ -392,7 +392,7 @@ How a schedule becomes a run in Compose: the worker reads due schedules every mi
 
 - The API only writes schedule and run\_request rows to Postgres; it holds no Kubernetes permissions.
 - The scheduler, a single-replica Deployment with no Service, queues due schedules every minute and, every 2 seconds, starts the Jobs that claimable work needs, up to the UI's **Max parallel runs** and an environment bound. It never claims or runs work itself. A schedule is not a CronJob: one run per account, the global cap and staggered starts are the queue's (ADR-0022).
-- Every Job comes from the chart's one fixed scan Job template (image digest, command, service account, environment, volumes). A ValidatingAdmissionPolicy denies any Job from the scheduler that differs from it, so a schedule chooses only the tools, the accounts and the time (ADR-0040).
+- Every Job comes from one of the chart's four fixed scan Job templates, one per work (image digest, command, service account, environment, resources, volumes; ADR-0046). A ValidatingAdmissionPolicy denies any Job from the scheduler that differs from it, so a schedule chooses only the tools, the accounts and the time (ADR-0040).
 - Only the scheduler's service account can create Jobs, and only in the platform's namespace; it cannot delete or change them, or touch pods, CronJobs or Secrets.
 - Users sign in with local passwords (ADR-0041): no second factor until SSO, so the UI stays reachable only inside the cluster network (port-forward, or an internal load balancer behind the VPN) until SSO arrives.
 
@@ -441,7 +441,7 @@ The platform holds a complete map of how to attack the organization, so it is tr
 | Area | Control |
 | --- | --- |
 | Cloud access | One read-only scanner role per account (SecurityAudit, ViewOnlyAccess, Prowler's additions policy without its one write, `securityhub:BatchImportFindings`, and CloudFox's documented custom policy, plus an explicit Deny on secret and data-plane reads and on bulk reads of code, images and log content (ADR-0018); see `deploy/aws/scanner-role.yaml`), assumed by the platform identity, with an ExternalId when the trust asks for one (optional since 2026-11-05): IRSA on the run service account on Kubernetes, the instance role or an access key on Compose; or an access key per connection, the administrator's choice (ADR-0024, amended 2026-10-24); GCP and OCI through identity federation (see Keyless multi-account access) |
-| Scheduling | The API writes schedules but holds no Kubernetes permissions; only the scheduler creates Jobs, from one fixed template that a ValidatingAdmissionPolicy enforces field by field, and a ResourceQuota bounds how many; so neither the UI nor a compromised scheduler can choose an image, a command, a Secret or a service account (ADR-0040) |
+| Scheduling | The API writes schedules but holds no Kubernetes permissions; only the scheduler creates Jobs, from four fixed templates (one per work, ADR-0046) that a ValidatingAdmissionPolicy enforces field by field, and a ResourceQuota bounds how many; so neither the UI nor a compromised scheduler can choose an image, a command, a Secret or a service account (ADR-0040) |
 | Cluster | A namespace for Argus alone under Pod Security `restricted`; default-deny NetworkPolicies (Postgres from its clients only, the API from web only, no route out except scan Jobs to port 443 outside the cluster and never link-local), proven by `helm test`; only the scheduler mounts a Kubernetes token; only scan Jobs have a cloud identity (ADR-0040) |
 | Secrets in scan output | Adapters drop secret values; only "secret present at X" is stored. Run logs and error messages are redacted before they reach Postgres: tool table rows are dropped whole, credential shapes and secret-bearing assignments masked |
 | Raw data in S3 | KMS encryption, Block Public Access, versioning, bucket policy limited to the collector and ingest roles |
@@ -463,7 +463,7 @@ One set of container images ships two ways: a Helm chart for Kubernetes (primary
 | API (FastAPI) | Deployment, 2 replicas, disruption budget | One service |
 | UI (Vue, served by nginx) | Deployment, 2 replicas; ClusterIP, no Ingress by default (`kubectl port-forward`; an ingress is the operator's choice) | One service, on the loopback interface |
 | Scheduler | Deployment, 1 replica, `Recreate`, no Service; RBAC: create, get and list Jobs in the namespace | The worker service; no Docker socket |
-| Collection and ingest | Scan Jobs from one fixed template (worker image): one Test connection or one AWS run per pod; AWS connections only (ADR-0039, amended 2026-10-26) | The worker service (ADR-0019), Demo connections included |
+| Collection and ingest | Scan Jobs from four fixed templates, one image per tool and the runtime image for Test connection: one Test connection or one AWS run of one tool per pod; AWS connections only (ADR-0039 amended 2026-10-26, ADR-0046) | The worker service (ADR-0019), Demo connections included |
 | Migrations, rederive, retention | A Job per image for migrate and rederive; a daily CronJob for retention | The `migrate` one-shot; the worker |
 | Postgres | StatefulSet with a volume (the same image as Compose), or an external Postgres 18 over TLS (`verify-full` when a CA bundle is set, `require` otherwise, with a warning at install); monthly partitions; no backup yet (a nightly `pg_dump` to S3 is planned) | One service with a volume |
 | Cloud credentials | IRSA on the run service account (Pod Identity by value), or an access key set in the UI; identity federation for GCP and OCI | The platform identity set in the UI: the instance's IAM role, or an access key (ADR-0024) |
@@ -505,6 +505,7 @@ These decisions shape the platform; each is an ADR in [`adr/`](adr/README.md), w
 | 027 | Charts are SVG components; no global state store | Pixel-exact to the board, small bundle, strict CSP holds | Charts or shared state the components cannot handle |
 | 028 | The second MVP screen is Administration; since 2026-10-06 its pages sit in two sidebar modules, Scans and Administration | Connections and settings moved into the UI | Users and roles arrived before SSO (ADR-0041) |
 | 045 | The Resource map, Attack paths and the Memgraph read model leave the product for v0.1 (2026-11-03) | The owner's decision. Edges, relationship rules and CloudFox stay, because reach verdicts and the resource panel read them | A new study of other technologies, then a new ADR |
+| 046 | On Kubernetes, one image per tool: four scan Job templates (`test` on the runtime image, `steampipe` with Vulnerabilities, `prowler`, `cloudfox`), each pinned whole by the admission policy; a tool Job claims only its connection's next request (2026-11-10) | A Job pulls only what it runs (2.82 GB before), so scans and Test connection start sooner, and each pod carries one tool | Four templates make the admission policy unmanageable |
 
 ## Roadmap and MVP plan
 

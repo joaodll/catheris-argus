@@ -1,10 +1,10 @@
 """The Kubernetes scheduler (ADR-0039): one replica, no cloud identity, never runs work.
 
-Every 2 seconds it starts the scan Jobs that claimable scans and queued tests need
-(scheduling/launcher.py); every 60 seconds it keeps the queue (scheduling/maintenance.py). A
-refused or failed Kubernetes call is logged with the API's message and retried after 30
-seconds. It touches a file on every pass, which the liveness probe checks, and exits on
-SIGTERM: it holds no work of its own.
+Every 2 seconds it starts the scan Jobs that claimable scans and queued tests need, from the
+chart's four templates (scheduling/launcher.py, ADR-0046); every 60 seconds it keeps the
+queue (scheduling/maintenance.py). A refused or failed Kubernetes call is logged with the API's
+message and retried after 30 seconds. It touches a file on every pass, which the liveness probe
+checks, and exits on SIGTERM: it holds no work of its own.
 """
 
 import logging
@@ -21,7 +21,7 @@ from argus.core.db import get_engine
 from argus.core.kube import KubeClient, KubeError
 from argus.core.logging import configure_logging
 from argus.scheduling import maintenance
-from argus.scheduling.launcher import Bounds, load_template, reconcile, selector
+from argus.scheduling.launcher import Bounds, load_templates, reconcile, selector
 
 log = logging.getLogger("argus.scheduler")
 RECONCILE_EVERY_SECONDS = 2.0
@@ -33,7 +33,7 @@ ALIVE_FILE = Path("/tmp/argus-scheduler.alive")  # noqa: S108 - the pod's own /t
 def main() -> int:
     settings = get_settings()
     configure_logging(settings.log_level)
-    template = load_template(settings.job_templates_dir)
+    templates = load_templates(settings.job_templates_dir)
     bounds = Bounds(settings.max_run_jobs, settings.max_test_jobs)
     kube = KubeClient.in_cluster()
     engine = get_engine()
@@ -49,7 +49,7 @@ def main() -> int:
         "scheduler started",
         extra={
             "namespace": kube.namespace,
-            "selector": selector(template),
+            "selectors": {work: selector(t) for work, t in templates.items()},
             "max_run_jobs": bounds.max_run_jobs,
             "max_test_jobs": bounds.max_test_jobs,
         },
@@ -65,7 +65,7 @@ def main() -> int:
                 log.exception("maintenance error")
             next_maintain = time.monotonic() + MAINTAIN_EVERY_SECONDS
         try:
-            reconcile(engine, kube, template, bounds, warned=warned)
+            reconcile(engine, kube, templates, bounds, warned=warned)
         except KubeError as exc:
             log.error(
                 "kubernetes refused",
