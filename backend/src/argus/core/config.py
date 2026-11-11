@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     demo_connections: bool = True
     # The scheduler's fixed Job templates, mounted from the chart's ConfigMap.
     job_templates_dir: Path = Path("/etc/argus/jobs")
+    # A scan Job's work, set by its template (ADR-0046): test, steampipe, prowler or cloudfox.
+    # The Job refuses to start without one.
+    job_work: str = ""
     # Addresses whose X-Forwarded-For the API believes: the reverse proxy in front of it.
     trusted_proxies: str = "127.0.0.1"
     # Deployment layout (operator-owned paths, not administration settings).

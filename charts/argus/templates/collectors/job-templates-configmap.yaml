@@ -1,4 +1,5 @@
-{{- /* The scheduler's one fixed Job template (ADR-0039), submitted byte for byte. */ -}}
+{{- /* The scheduler's fixed Job templates, one per work (ADR-0039, ADR-0046), each submitted
+byte for byte. */ -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,4 +7,6 @@ metadata:
   labels:
     {{- include "argus.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
 data:
-  scan.json: {{ include "argus.scanJob" . | fromYaml | toJson | quote }}
+  {{- range $work, $_ := include "argus.scanWorks" . | fromYaml }}
+  {{ $work }}.json: {{ include "argus.scanJob" (dict "root" $ "work" $work) | fromYaml | toJson | quote }}
+  {{- end }}

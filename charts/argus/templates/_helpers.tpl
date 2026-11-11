@@ -377,19 +377,34 @@ spec:
 {{- end }}
 
 {{/*
-The scan Job template (ADR-0039): the only source of a scan Job. The scheduler's ConfigMap and
-the admission policy both render it, so they cannot drift. A scan Job answers a connection test
-or runs one AWS scan, as the run account (the AWS identity), with the worker image. 10001 is
-the user the image's /etc/passwd lists: CloudFox exits under any other.
+The works a scan Job does (ADR-0046) and the image each runs: `test` answers a connection test
+on the runtime image; each other work runs one AWS scan of its tool, on that tool's image.
+*/}}
+{{- define "argus.scanWorks" -}}
+test: runtime
+steampipe: workerSteampipe
+prowler: workerProwler
+cloudfox: workerCloudfox
+{{- end }}
+
+{{/*
+A scan Job template (ADR-0039, ADR-0046): the only source of a scan Job, one per work, all from
+this one helper. The scheduler's ConfigMap and the admission policy both render it, so they
+cannot drift. Templates differ only in their name prefix, their work label, their image, their
+ARGUS_JOB_WORK and their resources. Every scan Job runs as the run account (the AWS identity).
+10001 is the user the image's /etc/passwd lists: CloudFox exits under any other.
+Called with (dict "root" $ "work" <work>).
 */}}
 {{- define "argus.scanJob" -}}
-{{- $v := .Values }}
+{{- $root := .root }}
+{{- $v := $root.Values }}
 {{- $s := $v.scanJobs }}
-{{- $labels := include "argus.selectorLabels" (dict "root" . "component" "run") }}
+{{- $image := index (include "argus.scanWorks" . | fromYaml) .work }}
+{{- $labels := printf "%s\nargus/work: %s" (include "argus.selectorLabels" (dict "root" $root "component" "run")) .work }}
 apiVersion: batch/v1
 kind: Job
 metadata:
-  generateName: {{ include "argus.fullname" . }}-scan-
+  generateName: {{ include "argus.fullname" $root }}-scan-{{ .work }}-
   labels:
     {{- $labels | nindent 4 }}
 spec:
@@ -407,25 +422,29 @@ spec:
         karpenter.sh/do-not-disrupt: "true"
         cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     spec:
-      {{- include "argus.podSpec" (dict "root" . "component" "run" "restartPolicy" "Never" "grace" 120 "db" true
-        "serviceAccount" (include "argus.serviceAccount" (dict "root" . "name" "run"))
+      {{- include "argus.podSpec" (dict "root" $root "component" "run" "restartPolicy" "Never" "grace" 120 "db" true
+        "serviceAccount" (include "argus.serviceAccount" (dict "root" $root "name" "run"))
         "placement" (dict "nodeSelector" $s.nodeSelector "tolerations" $s.tolerations)
         "tmp" (dict "medium" "Memory" "sizeLimit" $s.tmpSize)
-        "volumes" (include "argus.scanJob.volumes" .)
-        "containers" (include "argus.container" (dict "root" . "name" "run"
-          "image" (include "argus.image" (dict "root" . "image" $v.images.worker "registry" true))
+        "volumes" (include "argus.scanJob.volumes" $root)
+        "containers" (include "argus.container" (dict "root" $root "name" "run"
+          "image" (include "argus.image" (dict "root" $root "image" (index $v.images $image) "registry" true))
           "command" (list "python" "-m" "argus.entrypoints.job")
-          "db" (dict "root" . "user" "argus_worker" "key" "ARGUS_WORKER_DB_PASSWORD" "pool" "scanJob")
-          "env" (include "argus.scanJob.env" .) "resources" $s.resources
+          "db" (dict "root" $root "user" "argus_worker" "key" "ARGUS_WORKER_DB_PASSWORD" "pool" "scanJob")
+          "env" (include "argus.scanJob.env" .) "resources" (index $s.work .work).resources
           "mounts" "- {name: scratch, mountPath: /var/lib/argus-staging}"))) | nindent 6 }}
 {{- end }}
 
 {{- define "argus.scanJob.env" -}}
-{{ include "argus.keyringEnv" . }}
-# The deployment's bound on scans at once: a Job started for a test never exceeds it.
+{{ include "argus.keyringEnv" .root }}
+# The work this Job does (ADR-0046); the Job refuses to start without a known one.
+- name: ARGUS_JOB_WORK
+  value: {{ .work | quote }}
+# The deployment's bound on scans at once.
 - name: ARGUS_MAX_RUN_JOBS
-  value: {{ .Values.scheduler.maxRunJobs | quote }}
-# Only the worker image sets it: no process in a scan Job may use instance metadata.
+  value: {{ .root.Values.scheduler.maxRunJobs | quote }}
+# Every template sets it, the test Job's runtime image included: no process in a scan Job may
+# use instance metadata (ADR-0046, gate review S1).
 - name: AWS_EC2_METADATA_DISABLED
   value: "true"
 {{- end }}

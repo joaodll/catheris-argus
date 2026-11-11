@@ -301,16 +301,20 @@ def run_once(
     worker_id: str,
     today: date | None = None,
     kinds: Collection[str] | None = None,
+    tools: Collection[str] | None = None,
     max_parallel: int | None = None,
 ) -> str | None:
     """Claims and executes one request, if one is due (of a connection of one of `kinds` when
-    given, and while fewer than `max_parallel` run, when it is below the administration
-    setting). Returns its status, or None."""
+    given, a connection's next request only if it is one of `tools` when given, and while fewer
+    than `max_parallel` run, when it is below the administration setting). Returns its status,
+    or None."""
     with engine.begin() as conn:
         settings = read_collection(conn)
         if max_parallel is not None and max_parallel < settings.max_parallel_runs:
             settings = settings.model_copy(update={"max_parallel_runs": max_parallel})
-        request = claims.claim(conn, worker_id=worker_id, settings=settings, kinds=kinds)
+        request = claims.claim(
+            conn, worker_id=worker_id, settings=settings, kinds=kinds, tools=tools
+        )
     if request is None:
         return None
     return execute(

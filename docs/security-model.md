@@ -91,9 +91,13 @@ when their checks need it. Argus never stores such a value:
   them once a pod is running; see Known limits for a new pod's first moments.
 - **What a scan Job can be:** the scheduler is the only pod with a Kubernetes token, and may only
   create Jobs. An admission policy rejects any Job from it whose image, command, service account,
-  environment, volumes and mounts, security context, placement, probes or hooks differ from the
-  chart's one fixed template; resource sizes are not pinned. A quota bounds how many pods and
-  Jobs can exist.
+  environment, resources, volumes and mounts, security context, placement, probes or hooks differ
+  from one of the chart's four fixed templates, one per work. A Job is checked whole against the
+  template its name prefix names, so one tool's work on another tool's image matches none
+  ([ADR-0046](adr/0046-one-image-per-tool.md)). A quota bounds how many pods and Jobs can exist.
+- **What a scan Job carries:** only its own tool. Connection tests run on the runtime image with
+  no tool. This narrows the code beside the credentials; it does not separate them: every scan Job
+  runs as the same `-run` account, with the same database login and keyring.
 - **Who holds the cloud identity:** only the scan Jobs. Every pod the chart creates meets Pod
   Security `restricted` (non-root, read-only root filesystem, no capabilities), and labelling the
   namespace `restricted`, an install prerequisite, enforces it.
@@ -141,8 +145,8 @@ when their checks need it. Argus never stores such a value:
 - Trivy scans the repository and the images, gitleaks scans the working tree and the whole
   history, and both fail the checks every change must pass. Accepted findings are listed with their reason and an expiry
   in `.trivyignore`.
-- The runtime and web images fail on a HIGH or CRITICAL finding that has a fix. The worker image fails on a CRITICAL
-  that has a fix, because most of its findings are inside the upstream tools and wait on their next release.
+- The runtime and web images fail on a HIGH or CRITICAL finding that has a fix. The worker image and the three tool
+  images fail on a CRITICAL that has a fix, because most of its findings are inside the upstream tools and wait on their next release.
 - Findings with no fix are accepted and don't fail the scan. The backend images are built on Debian, which lists many
   vulnerabilities in base packages that it hasn't patched, so a registry scanner such as Amazon ECR or Inspector reports
   them until Debian fixes them. Judge them again whenever the base image digest changes.

@@ -1,9 +1,16 @@
 {{- /*
-The scheduler may create a Job only exactly as the chart rendered it (ADR-0040): this policy
-pins what makes "create jobs" dangerous in a namespace. The expected values are read from the
-same helper that renders the scan Job template (argus.scanJob), so the two cannot drift.
+The scheduler may create a Job only exactly as the chart rendered one of its templates (ADR-0040,
+ADR-0046): this policy pins what makes "create jobs" dangerous in a namespace. The expected
+values are read from the same helper that renders the scan Job templates (argus.scanJob), so the
+two cannot drift.
+- Four templates, one per work. What differs between them (the name prefix, the labels, the
+  image, the environment, the resources) is held per template, keyed by name prefix: a Job is
+  checked whole against the one template its prefix names, so one template's work on another's
+  image, or with another's resources, matches none. An unknown prefix is denied first. The
+  chart refuses to render if the templates differ in anything else, so the shared checks below
+  hold for all four.
 - image, command, service account, environment (so no other Secret key, no other database
-  host), labels, annotations, the Job's limits;
+  host), labels, annotations, resources, the Job's limits;
 - the security contexts, the volumes (by name; emptyDir or the database CA only);
 - no init or ephemeral container, no host namespace or path, no other node (node selector and
   each toleration as rendered);
@@ -11,25 +18,52 @@ same helper that renders the scan Job template (argus.scanJob), so the two canno
   volume mounts as rendered, the cluster's DNS and scheduler.
 CEL cannot list a typed object's fields, so dangerous fields are refused by name: when the
 chart's kubeVersion floor moves, check the PodSpec and Container fields added since (runbook).
+Kubernetes CEL refuses a literal whose values differ in type, so each per-template map holds one
+type. Resource quantities are compared by value (CEL quantity()): the API server may hand the
+policy 2Gi for the 2048Mi the chart rendered.
 */ -}}
 {{- if .Values.admissionPolicy.enabled }}
 {{- $ns := .Release.Namespace }}
 {{- $schedulerSA := include "argus.serviceAccount" (dict "root" . "name" "scheduler") }}
-{{- $job := include "argus.scanJob" . | fromYaml }}
-{{- $pod := $job.spec.template.spec }}
-{{- $c := index $pod.containers 0 }}
+{{- $images := dict }}{{- $labelsBy := dict }}{{- $envBy := dict }}{{- $requestsBy := dict }}{{- $limitsBy := dict }}
+{{- $shared := "" }}
+{{- $job := dict }}
+{{- range $work, $_ := include "argus.scanWorks" . | fromYaml }}
+{{- $j := include "argus.scanJob" (dict "root" $ "work" $work) | fromYaml }}
+{{- $prefix := $j.metadata.generateName }}
+{{- $jc := index $j.spec.template.spec.containers 0 }}
+{{- $_ := set $images $prefix $jc.image }}
+{{- $_ := set $labelsBy $prefix $j.spec.template.metadata.labels }}
 {{- $env := dict }}
-{{- range $c.env }}
+{{- range $jc.env }}
 {{- if .valueFrom }}
 {{- $_ := set $env .name (dict "s" .valueFrom.secretKeyRef.name "k" .valueFrom.secretKeyRef.key) }}
 {{- else }}
 {{- $_ := set $env .name (dict "v" (toString .value)) }}
 {{- end }}
 {{- end }}
+{{- $_ := set $envBy $prefix $env }}
+{{- $q := dict }}{{- range $k, $val := ($jc.resources.requests | default dict) }}{{- $_ := set $q $k (toString $val) }}{{- end }}
+{{- $_ := set $requestsBy $prefix $q }}
+{{- $q = dict }}{{- range $k, $val := ($jc.resources.limits | default dict) }}{{- $_ := set $q $k (toString $val) }}{{- end }}
+{{- $_ := set $limitsBy $prefix $q }}
+{{- /* Everything else must be the same in every template. */ -}}
+{{- $rest := deepCopy $j }}
+{{- $_ := unset $rest.metadata "generateName" }}{{- $_ := unset $rest.metadata "labels" }}
+{{- $_ := unset $rest.spec.template.metadata "labels" }}
+{{- $rc := index $rest.spec.template.spec.containers 0 }}
+{{- $_ := unset $rc "image" }}{{- $_ := unset $rc "env" }}{{- $_ := unset $rc "resources" }}
+{{- if and $shared (ne $shared (toJson $rest)) }}
+{{- fail (printf "scan Job template %q differs from the others beyond its prefix, labels, image, environment and resources" $work) }}
+{{- end }}
+{{- $shared = toJson $rest }}
+{{- $job = $j }}
+{{- end }}
+{{- $pod := $job.spec.template.spec }}
+{{- $c := index $pod.containers 0 }}
 {{- $vols := list }}{{- range $pod.volumes }}{{- $vols = append $vols .name }}{{- end }}
 {{- $mounts := list }}
 {{- range $c.volumeMounts }}{{- $mounts = append $mounts (printf "%s=%s=%s" .name .mountPath (ternary "ro" "rw" (default false .readOnly))) }}{{- end }}
-{{- $labels := $job.spec.template.metadata.labels }}
 {{- $annotations := $job.spec.template.metadata.annotations }}
 {{- $nodeSelector := $pod.nodeSelector | default dict }}
 {{- $tolerations := list }}
@@ -67,13 +101,19 @@ spec:
       expression: object.spec.template.spec.containers[0]
     - name: controllerLabels
       expression: "['batch.kubernetes.io/controller-uid', 'batch.kubernetes.io/job-name', 'controller-uid', 'job-name']"
+    # The template this Job claims to be, by its name prefix (ADR-0046). Each map is keyed by
+    # prefix; an unknown prefix fails the first check below.
+    - name: prefix
+      expression: "has(object.metadata.generateName) ? object.metadata.generateName : ''"
+    - name: labels
+      expression: {{ $labelsBy | toJson | quote }}
+    - name: env
+      expression: {{ $envBy | toJson | quote }}
   validations:
+    - expression: variables.prefix in {{ $images | toJson }}
+      message: the Job's name prefix is not one of its templates'
     - expression: request.operation == 'CREATE'
       message: the scheduler may only create Jobs
-    - expression: >-
-        has(object.metadata.generateName)
-        && object.metadata.generateName == {{ $job.metadata.generateName | toJson }}
-      message: the Job's name prefix is not its template's
     # The Job's own limits.
     - expression: >-
         object.spec.parallelism == 1 && object.spec.completions == 1
@@ -89,9 +129,9 @@ spec:
     # Labels decide which NetworkPolicy applies; annotations can steer other controllers.
     - expression: >-
         has(variables.meta.labels)
-        && {{ toJson $labels }}.all(k, k in variables.meta.labels
-             && variables.meta.labels[k] == {{ toJson $labels }}[k])
-        && variables.meta.labels.all(k, k in {{ toJson $labels }}
+        && variables.labels[variables.prefix].all(k, k in variables.meta.labels
+             && variables.meta.labels[k] == variables.labels[variables.prefix][k])
+        && variables.meta.labels.all(k, k in variables.labels[variables.prefix]
              || k in variables.controllerLabels)
       message: the pod's labels are not its template's
     - expression: >-
@@ -148,7 +188,7 @@ spec:
       message: the pod's security context is not its template's
     # What it runs.
     - expression: >-
-        variables.c.image == {{ $c.image | toJson }}
+        variables.c.image == {{ $images | toJson }}[variables.prefix]
         && variables.c.command == {{ $c.command | toJson }}
         && !has(variables.c.args) && !has(variables.c.envFrom) && !has(variables.c.lifecycle)
         && !has(variables.c.ports) && !has(variables.c.volumeDevices)
@@ -171,22 +211,39 @@ spec:
         && !has(variables.c.securityContext.procMount)
         && !has(variables.c.securityContext.seLinuxOptions)
       message: the container's security context is not its template's
+    # The pod's size as rendered for its template, by value: a quota counts pods, not what each
+    # asks for.
+    - expression: >-
+        has(variables.c.resources) && !has(variables.c.resources.claims)
+        && (has(variables.c.resources.requests) ? variables.c.resources.requests : {})
+             .all(k, k in {{ $requestsBy | toJson }}[variables.prefix]
+                  && quantity(string(variables.c.resources.requests[k]))
+                       .compareTo(quantity({{ $requestsBy | toJson }}[variables.prefix][k])) == 0)
+        && {{ $requestsBy | toJson }}[variables.prefix].all(k, has(variables.c.resources.requests)
+             && k in variables.c.resources.requests)
+        && (has(variables.c.resources.limits) ? variables.c.resources.limits : {})
+             .all(k, k in {{ $limitsBy | toJson }}[variables.prefix]
+                  && quantity(string(variables.c.resources.limits[k]))
+                       .compareTo(quantity({{ $limitsBy | toJson }}[variables.prefix][k])) == 0)
+        && {{ $limitsBy | toJson }}[variables.prefix].all(k, has(variables.c.resources.limits)
+             && k in variables.c.resources.limits)
+      message: the container's resources are not its template's
     # Every variable as rendered: no other Secret key, and no other database host to send a
     # password to.
     - expression: >-
         has(variables.c.env)
-        && size(variables.c.env) == size({{ toJson $env }})
-        && variables.c.env.all(e, e.name in {{ toJson $env }}
+        && size(variables.c.env) == size(variables.env[variables.prefix])
+        && variables.c.env.all(e, e.name in variables.env[variables.prefix]
              && (has(e.value)
-                 ? !has(e.valueFrom) && 'v' in {{ toJson $env }}[e.name]
-                   && e.value == {{ toJson $env }}[e.name]['v']
+                 ? !has(e.valueFrom) && 'v' in variables.env[variables.prefix][e.name]
+                   && e.value == variables.env[variables.prefix][e.name]['v']
                  : has(e.valueFrom) && has(e.valueFrom.secretKeyRef)
                    && !has(e.valueFrom.fieldRef) && !has(e.valueFrom.configMapKeyRef)
                    && !has(e.valueFrom.resourceFieldRef)
-                   && 's' in {{ toJson $env }}[e.name]
-                   && e.valueFrom.secretKeyRef.name == {{ toJson $env }}[e.name]['s']
-                   && e.valueFrom.secretKeyRef.key == {{ toJson $env }}[e.name]['k']))
-        && {{ toJson $env }}.all(n, variables.c.env.exists(e, e.name == n))
+                   && 's' in variables.env[variables.prefix][e.name]
+                   && e.valueFrom.secretKeyRef.name == variables.env[variables.prefix][e.name]['s']
+                   && e.valueFrom.secretKeyRef.key == variables.env[variables.prefix][e.name]['k']))
+        && variables.env[variables.prefix].all(n, variables.c.env.exists(e, e.name == n))
       message: the container's environment is not its template's
     - expression: >-
         has(variables.pod.volumes)

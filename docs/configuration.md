@@ -139,7 +139,8 @@ above it at the next retention. The chart and `compose.yaml` give both the same 
 | `ARGUS_DB_POOL_MAX` | `10` | The most connections this process opens to Postgres, a hard cap (1 to 50). A process refuses to start below its own peak: a scan Job 3; migrate, rederive and retention 2; the Compose worker 3 per run thread plus 3 (`compose.yaml` sets 9 for two threads). The API uses one per request in progress; a request that waits 10 seconds for one gets 503. On Kubernetes the chart sets it per pod from `database.pools` |
 | `ARGUS_MAX_RUN_JOBS` | `4` | Kubernetes: AWS scans at once, below **Max parallel runs**; read by the scheduler and by each scan Job |
 | `ARGUS_MAX_TEST_JOBS` | `1` | Kubernetes: scan Jobs the scheduler may start beyond that while connection tests wait |
-| `ARGUS_JOB_TEMPLATES_DIR` | `/etc/argus/jobs` | Kubernetes: where the scheduler reads its fixed scan Job template, `scan.json` |
+| `ARGUS_JOB_TEMPLATES_DIR` | `/etc/argus/jobs` | Kubernetes: where the scheduler reads its fixed scan Job templates, `test.json`, `steampipe.json`, `prowler.json` and `cloudfox.json` |
+| `ARGUS_JOB_WORK` | (none) | Kubernetes, set by each scan Job template: `test`, `steampipe`, `prowler` or `cloudfox`. A Job without a known one, or on an image without its tool, exits before it claims anything (ADR-0046) |
 | `ARGUS_RAW_ROOT` | `/var/lib/argus` | Where Demo raw output is kept |
 | `ARGUS_RAW_STAGING_ROOT` | `/var/lib/argus-staging` | Where an AWS run is staged before upload |
 | `ARGUS_RULES_DIR` | `/opt/argus/rules` | The relationship rules |

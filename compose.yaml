@@ -7,11 +7,12 @@
 #   docker compose run --rm e2e          browser walk of every screen against the running stack
 #   docker compose --profile dev up frontend-dev   Vite with hot reload on http://localhost:5173
 #   docker compose run --rm lint         gitleaks, read-only policy check, ruff, mypy, import-linter
-#   docker compose run --rm scan         Trivy: repo files, then the backend, web and worker images
+#   docker compose run --rm scan         Trivy: repo files, then the backend, web, worker and tool images
 #   docker compose run --rm scrub-fixtures --run-id ID   spike run -> backend/tests/fixtures
 #   docker compose run --rm lock         re-resolve backend/uv.lock after editing pyproject.toml
 #     ... lock uv lock --directory tools/prowler   re-resolve Prowler's lock after changing its pin
-#   docker compose build migrate worker  build argus-backend:runtime and :worker (needed before `scan`)
+#   docker compose build migrate worker web worker-steampipe worker-prowler worker-cloudfox
+#                                        every image (needed before `scan` and `kind`)
 #
 # On a shared host, add the override that refuses the development defaults:
 #   docker compose -f compose.yaml -f compose.single-instance.yaml up -d
@@ -302,6 +303,30 @@ services:
     restart: unless-stopped
     stop_grace_period: 2m
 
+  # Kubernetes scan Jobs run one tool each, on its own image (ADR-0046), built from the stages
+  # the worker is built from. Built here for `kind` and `scan`, never run:
+  #   docker compose build migrate worker web worker-steampipe worker-prowler worker-cloudfox
+  worker-steampipe: &tool-image
+    image: argus-backend:worker-steampipe
+    build:
+      context: ./backend
+      target: worker-steampipe
+    profiles: [images]
+    network_mode: none
+    entrypoint: ["true"]
+  worker-prowler:
+    <<: *tool-image
+    image: argus-backend:worker-prowler
+    build:
+      context: ./backend
+      target: worker-prowler
+  worker-cloudfox:
+    <<: *tool-image
+    image: argus-backend:worker-cloudfox
+    build:
+      context: ./backend
+      target: worker-cloudfox
+
   # Developer shortcut: three Demo connections with history. Connects as the API role, the
   # same identity the UI's "add connection" uses, so it proves those grants are enough.
   #   docker compose run --rm seed            (180 days)    ... seed --days 30
@@ -498,9 +523,9 @@ services:
     profiles: [tools]
     # emulated/ is skipped: the emulator's git-ignored output, whose keys are moto's placeholders
     # and never a real account's (.gitleaks.toml allowlists it for the same reason).
-    # The runtime and web images fail on a HIGH or CRITICAL that has a fix. The worker fails on a
-    # CRITICAL only, since most of its findings are inside upstream tools that wait on a new
-    # release. Every step runs, so one failure doesn't hide the next one's findings.
+    # The runtime and web images fail on a HIGH or CRITICAL that has a fix. The worker and the
+    # three tool images fail on a CRITICAL only, since most of their findings are inside upstream
+    # tools that wait on a new release. Every step runs, so one failure doesn't hide the next one's findings.
     entrypoint: ["sh", "-c"]
     command:
       - >-
@@ -512,8 +537,9 @@ services:
         --ignorefile /repo/.trivyignore argus-backend:runtime || rc=1;
         trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed
         --ignorefile /repo/.trivyignore argus-web:runtime || rc=1;
+        for image in worker worker-steampipe worker-prowler worker-cloudfox; do
         trivy image --scanners vuln --exit-code 1 --severity CRITICAL --ignore-unfixed
-        --ignorefile /repo/.trivyignore argus-backend:worker || rc=1;
+        --ignorefile /repo/.trivyignore argus-backend:$$image || rc=1; done;
         exit $$rc
 
   # The chart's static checks, offline (deploy/kind/check.sh): lint, render, kubeconform,
@@ -531,9 +557,10 @@ services:
     command: ["/work/kind/check.sh"]
 
   # The chart on a throwaway kind cluster (deploy/kind/run.sh): up, test, down. Build the images
-  # first (docker compose build migrate worker web). It drives the host's Docker, so it holds the
-  # socket (root-equivalent on the host) and the host network (the cluster's API and the local
-  # registry are on 127.0.0.1). Local tooling, never deployed, like `scan`.
+  # first (docker compose build migrate web worker-steampipe worker-prowler worker-cloudfox). It
+  # drives the host's Docker, so it holds the socket (root-equivalent on the host) and the host
+  # network (the cluster's API and the local registry are on 127.0.0.1). Local tooling, never
+  # deployed, like `scan`.
   kind:
     image: argus-kind:local
     # The socket is root's; this tool is local and never deployed.

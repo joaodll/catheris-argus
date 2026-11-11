@@ -5,7 +5,9 @@
 - At most max_parallel_runs claimed requests in total (an administration setting). Claims
   are serialised by a transaction-scoped advisory lock, so the cap is exact across workers.
 - Oldest day first, then Steampipe, Prowler, CloudFox: history is built in date order, and a
-  day's inventory exists before the findings and paths that refer to it.
+  day's inventory exists before the findings and paths that refer to it. On Kubernetes each
+  tool has its own Job (ADR-0046): a Job claims only a connection's next request, and only when
+  that request is one of its tools, so the order holds per connection.
 - Heartbeats prove a claim is alive. release_stale() returns a dead worker's claim to the
   queue; without it, one killed worker would stop that account being collected, forever.
 - Each claim has its own token in claimed_by, and heartbeat() and finish() match it (ADR-0039).
@@ -75,15 +77,42 @@ _CLAIMABLE = f"""run_request rr JOIN ({DIRECTORY_SQL}) c ON c.id = rr.connection
                           WHERE x.connection_id = rr.connection_id AND x.status = 'claimed')"""  # noqa: S608
 
 
+# Claim order: oldest day first, then Steampipe, Prowler, CloudFox and Vulnerabilities, then
+# the oldest due. `a` is the run_request alias the columns are read from.
+def _claim_order(a: str) -> str:
+    return f"""{a}.snapshot_date NULLS LAST,
+                 CASE {a}.tool WHEN 'steampipe' THEN 1 WHEN 'prowler' THEN 2 ELSE 3 END,
+                 {a}.not_before, {a}.id"""
+
+
+# Each connection's next request: its first claimable one in claim order (ADR-0046). A
+# Kubernetes scan Job claims a request only when it is its connection's next, so a Job of one
+# tool never runs ahead of another tool's earlier request on the same connection. claim() and
+# next_requests() both read it: the scheduler starts a Job of a kind only for work a Job of that
+# kind can claim. Postgres refuses FOR UPDATE beside DISTINCT ON, so claim() locks outside it.
+NEXT_REQUESTS_SQL = f"""SELECT DISTINCT ON (rr.connection_id) rr.id, rr.connection_id, rr.tool,
+               c.kind, rr.snapshot_date, rr.not_before
+        FROM {_CLAIMABLE}
+        ORDER BY rr.connection_id, {_claim_order("rr")}"""  # noqa: S608
+
+
+@dataclass(frozen=True)
+class NextRequest:
+    kind: str  # the connection's kind
+    tool: str
+
+
 def claim(
     conn: Connection,
     *,
     worker_id: str,
     settings: CollectionSettings,
     kinds: Collection[str] | None = None,
+    tools: Collection[str] | None = None,
 ) -> ClaimedRequest | None:
     """Claims the next request, of a connection of one of `kinds` when given (a Kubernetes run
-    Job claims only its kind's work, ADR-0039)."""
+    Job claims only its kind's work, ADR-0039), and only a connection's next request that is one
+    of `tools` when given (a Kubernetes scan Job claims only its own tools' work, ADR-0046)."""
     conn.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": CLAIM_LOCK})
     if claimed_count(conn) >= settings.max_parallel_runs:
         return None
@@ -91,15 +120,17 @@ def claim(
         text(f"""
         SELECT rr.id, rr.connection_id, rr.tool, rr.reason, rr.snapshot_date, rr.attempt,
                rr.schedule_id, rr.lost, {ORIGIN_SQL} AS origin
-        FROM {_CLAIMABLE}
-          AND (CAST(:kinds AS text[]) IS NULL OR c.kind = ANY (CAST(:kinds AS text[])))
-        ORDER BY rr.snapshot_date NULLS LAST,
-                 CASE rr.tool WHEN 'steampipe' THEN 1 WHEN 'prowler' THEN 2 ELSE 3 END,
-                 rr.not_before, rr.id
+        FROM run_request rr JOIN ({NEXT_REQUESTS_SQL}) n ON n.id = rr.id
+        WHERE (CAST(:kinds AS text[]) IS NULL OR n.kind = ANY (CAST(:kinds AS text[])))
+          AND (CAST(:tools AS text[]) IS NULL OR n.tool = ANY (CAST(:tools AS text[])))
+        ORDER BY {_claim_order("rr")}
         LIMIT 1
         FOR UPDATE OF rr SKIP LOCKED
     """),  # noqa: S608 - exported SQL constants only
-        {"kinds": sorted(kinds) if kinds is not None else None},
+        {
+            "kinds": sorted(kinds) if kinds is not None else None,
+            "tools": sorted(tools) if tools is not None else None,
+        },
     ).one_or_none()
     if row is None:
         return None
@@ -135,26 +166,29 @@ def claimed_count(conn: Connection) -> int:
     return count
 
 
-def claimed_by_kind(conn: Connection) -> dict[str, int]:
-    """Requests claimed now, per connection kind (the scheduler's in-flight count)."""
+def claimed_tools(conn: Connection) -> dict[tuple[str, str], int]:
+    """Requests claimed now, per (connection kind, tool): the scheduler's in-flight count."""
     rows = conn.execute(
         text(f"""
-        SELECT c.kind, count(*) FROM run_request rr
+        SELECT c.kind, rr.tool, count(*) FROM run_request rr
         JOIN ({DIRECTORY_SQL}) c ON c.id = rr.connection_id
-        WHERE rr.status = 'claimed' GROUP BY c.kind
+        WHERE rr.status = 'claimed' GROUP BY c.kind, rr.tool
     """)  # noqa: S608 - exported SQL constants only
     ).all()
-    return {kind: int(n) for kind, n in rows}
+    return {(kind, tool): int(n) for kind, tool, n in rows}
 
 
-def claimable_connections(conn: Connection) -> dict[str, int]:
-    """Per connection kind, how many connections have a request that may be claimed now. Only
-    one request per connection runs at a time, so this, not the number of requests, is how
-    many runs could start: a backfill of hundreds of rows on one connection is one."""
+def next_requests(conn: Connection) -> list[NextRequest]:
+    """Each connection's next request that may be claimed now, in claim order: one per
+    connection, so a backfill of hundreds of rows on one connection is one run that could
+    start, not hundreds."""
     rows = conn.execute(
-        text(f"SELECT c.kind, count(DISTINCT rr.connection_id) FROM {_CLAIMABLE} GROUP BY c.kind")  # noqa: S608
+        text(f"""
+        SELECT n.kind, n.tool FROM ({NEXT_REQUESTS_SQL}) n
+        ORDER BY {_claim_order("n")}
+    """)  # noqa: S608 - exported SQL constants only
     ).all()
-    return {kind: int(n) for kind, n in rows}
+    return [NextRequest(kind, tool) for kind, tool in rows]
 
 
 def heartbeat(conn: Connection, request: ClaimedRequest) -> bool:
