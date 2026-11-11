@@ -91,4 +91,23 @@ describe('MultiSelect', () => {
       wrapper.unmount()
     }
   })
+
+  it('lists grouped options under a header the keys pass over, and a search hides an empty group', async () => {
+    const types = ['aws_ec2_instance', 'aws_ec2_volume', 'aws_s3_bucket', 'aws_s3_access_point', 'aws_iam_role', 'aws_iam_user', 'aws_iam_policy', 'aws_kms_key', 'aws_kms_alias']
+    const options = types.map((t) => ({ value: t, label: t, mono: true, group: `aws ${t.split('_')[1]}` }))
+    const wrapper = make({ id: 'f-type', label: 'Type', options })
+    await wrapper.get('#f-type').trigger('click')
+    const groups = wrapper.findAll('[role="group"]')
+    expect(groups.map((g) => wrapper.get(`#${g.attributes('aria-labelledby')}`).text())).toEqual(['aws ec2', 'aws s3', 'aws iam', 'aws kms'])
+    expect(groups[1]?.findAll('[role="option"]').map((o) => o.text())).toEqual(['aws_s3_bucket', 'aws_s3_access_point'])
+    // Down twice from the first option lands on the next group's first option, not its header.
+    const search = wrapper.get('input[type="search"]')
+    await search.trigger('keydown', { key: 'ArrowDown' })
+    await search.trigger('keydown', { key: 'ArrowDown' })
+    await search.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([['aws_s3_bucket']])
+    await search.setValue('kms')
+    expect(wrapper.findAll('[role="group"]').map((g) => g.find('.ms-group').text())).toEqual(['aws kms'])
+    wrapper.unmount()
+  })
 })

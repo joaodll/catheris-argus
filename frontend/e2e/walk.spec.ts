@@ -87,7 +87,7 @@ test('overview: every block, current state only', async ({ page }) => {
     'Findings severity over time',
     'Month over month',
     'Inventory',
-    'Assets by type, per provider',
+    'Assets by category, per provider',
   ]
   for (const text of blocks) await expect(page.getByText(text, { exact: true }).first()).toBeVisible()
   await expect(page.getByText('No data')).toHaveCount(0)
@@ -95,7 +95,7 @@ test('overview: every block, current state only', async ({ page }) => {
   await expect(page.getByText('Showing data as of')).toBeVisible()
   await expect(page.getByLabel('Point in time')).toHaveCount(0)
   await expect(page.getByText(/\bvs [A-Z][a-z]{2} \d/)).toHaveCount(0)
-  await expect(page.getByRole('list', { name: 'AWS assets by type' })).toBeVisible()
+  await expect(page.getByRole('list', { name: 'AWS assets by category' })).toBeVisible()
   await expect(page.getByText('not covered')).not.toHaveCount(0)
   await shot(page, '10-overview-now')
   // Before two points of history (a new install's first month), words instead of lone dots, and
@@ -326,6 +326,8 @@ test('settings: saving one card keeps the edits in another; leaving asks once', 
 })
 
 test('investigate: misconfigurations, vulnerabilities and resources, read-only', async ({ page }) => {
+  // Three screens with their summaries, lists, sheets and an axe pass each: past the default 30 s.
+  test.setTimeout(60_000)
   await signIn(page)
   await navLink(page, 'Misconfigurations')
   await expect(page).toHaveURL(/\/investigate\/misconfigurations/)
@@ -433,7 +435,7 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await expect(resTabs.getByRole('tab', { name: 'Summary' })).toHaveAttribute('aria-selected', 'true')
   const resTile = (label: string) => page.locator('.stat-card').filter({ has: page.locator('.stat-label', { hasText: new RegExp(`^${label}$`) }) })
   await expect(resTile('Assets').locator('.stat-value')).toHaveText(/^[\d,]+$/)
-  await expect(page.getByRole('heading', { level: 2, name: 'By type' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 2, name: 'By category' })).toBeVisible()
   await expect(page.getByRole('heading', { level: 2, name: 'Added and removed, last 12 weeks' })).toBeVisible()
   await page.waitForLoadState('networkidle')
   await axe(page, 'resources summary')
@@ -449,11 +451,14 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
     await expect(page).toHaveURL(param)
     await expect(page.locator('.panel-foot .total')).toHaveText(new RegExp(`^${count} records?$`))
   }
-  // A type in the number panel opens the list of that type.
+  // A category opens in place to its types, and a type opens the list of that type.
   await resTabs.getByRole('tab', { name: 'Summary' }).click()
-  const typeCell = page.locator('.cells a.cell').first()
-  const typeCount = ((await typeCell.locator('.cell-count').innerText()).match(/^[\d,]+/) ?? ['missing'])[0]
-  await typeCell.click()
+  const category = page.getByRole('list', { name: 'Assets by category' }).getByRole('button').first()
+  await category.click()
+  await expect(category).toHaveAttribute('aria-expanded', 'true')
+  const typeRow = page.locator(`#${await category.getAttribute('aria-controls')} li.type`).first()
+  const typeCount = (await typeRow.locator('.tcount').innerText()).trim()
+  await typeRow.getByRole('link').click()
   await expect(page).toHaveURL(/type=/)
   await expect(page.locator('.panel-foot .total')).toHaveText(new RegExp(`^${typeCount} records?$`))
   // The list steps below start from a fresh list.
@@ -461,6 +466,12 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   const resources = page.getByRole('table')
   await expect(resources).toBeVisible()
   await axe(page, 'resources')
+  // The Type filter lists types under their service (round 5).
+  await page.locator('#r-type').click()
+  await expect(page.locator('#r-type-list [role="group"]').first()).toBeVisible()
+  await axe(page, 'resources type filter')
+  await page.keyboard.press('Escape')
+  await expect(page.locator('#r-type')).toHaveAttribute('aria-expanded', 'false')
   await shot(page, '72-resources')
   // The sheet opens from the name, lives in the URL, and Escape closes it.
   const first = resources.locator('tbody tr').first().getByRole('link')

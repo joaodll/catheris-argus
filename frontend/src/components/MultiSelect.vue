@@ -2,7 +2,9 @@
 /**
  * A filter that picks several values (design-system.md, Multi-select): a select-like trigger
  * and a panel holding a listbox of checkboxes, searchable when long. Each toggle applies at
- * once; nothing chosen means no filter ("All").
+ * once; nothing chosen means no filter ("All"). Options that name a `group` are listed under its
+ * header, in the order given (the Type filter groups types by service): a header is a label,
+ * never an option, so the arrow keys pass over it.
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -14,6 +16,7 @@ export interface MultiOption {
   mono?: boolean
   tool?: string // a check shows its tool chip
   note?: string // a short aside after the label ("not covered")
+  group?: string // the header it is listed under; options of one group come together
 }
 
 const props = withDefaults(
@@ -58,6 +61,18 @@ const summary = computed(() => {
 const extra = computed(() => Math.max(0, labels.value.length - 1))
 const optionId = (index: number): string => `${props.id}-opt-${index}`
 const activeId = computed(() => (shown.value.length ? optionId(active.value) : undefined))
+// The shown options in runs of one group, each option keeping its index in `shown` (the keys
+// move over that flat order). Options without a group make one run with no header.
+const sections = computed(() => {
+  const runs: { group: string | null; items: { o: MultiOption; i: number }[] }[] = []
+  shown.value.forEach((o, i) => {
+    const group = o.group ?? null
+    const last = runs[runs.length - 1]
+    if (last && last.group === group) last.items.push({ o, i })
+    else runs.push({ group, items: [{ o, i }] })
+  })
+  return runs
+})
 
 function toggleValue(value: string): void {
   const next = chosen.value.has(value) ? props.modelValue.filter((v) => v !== value) : [...props.modelValue, value]
@@ -97,7 +112,8 @@ function onKey(event: KeyboardEvent): void {
     close(true)
     return
   }
-  // The search field and the listbox move and toggle; the footer's Clear is a plain button.
+  // The search field and the listbox move and toggle; the footer's Clear is a plain button. The
+  // listbox is in the Tab order even under a search field: it scrolls, so the keyboard must reach it.
   const inSearch = event.target === searchInput.value
   if (!inSearch && event.target !== listbox.value) return
   switch (event.key) {
@@ -190,25 +206,36 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
         role="listbox"
         aria-multiselectable="true"
         :aria-labelledby="`${id}-lbl`"
-        :aria-activedescendant="searchable ? undefined : activeId"
-        :tabindex="searchable ? -1 : 0"
+        :aria-activedescendant="activeId"
+        tabindex="0"
       >
         <li
-          v-for="(o, i) in shown"
-          :id="optionId(i)"
-          :key="o.value"
-          role="option"
-          class="ms-option"
-          :class="{ active: i === active }"
-          :aria-selected="chosen.has(o.value)"
-          @mousedown.prevent
-          @mousemove="active = i"
-          @click="toggleValue(o.value)"
+          v-for="(sec, n) in sections"
+          :key="`${n}-${sec.group ?? ''}`"
+          class="ms-sec"
+          :role="sec.group ? 'group' : 'none'"
+          :aria-labelledby="sec.group ? `${id}-grp-${n}` : undefined"
         >
-          <span class="ms-box" aria-hidden="true"><AppIcon v-if="chosen.has(o.value)" name="check" :size="14" :stroke="3" /></span>
-          <span class="ms-label" :class="{ mono: o.mono }">{{ o.label }}</span>
-          <ToolChip v-if="o.tool" :tool="o.tool" class="ms-tool" />
-          <span v-if="o.note" class="cap ms-note">{{ o.note }}</span>
+          <div v-if="sec.group" :id="`${id}-grp-${n}`" class="ms-group mono">{{ sec.group }}</div>
+          <ul class="ms-sec-list" role="none">
+            <li
+              v-for="{ o, i } in sec.items"
+              :id="optionId(i)"
+              :key="o.value"
+              role="option"
+              class="ms-option"
+              :class="{ active: i === active }"
+              :aria-selected="chosen.has(o.value)"
+              @mousedown.prevent
+              @mousemove="active = i"
+              @click="toggleValue(o.value)"
+            >
+              <span class="ms-box" aria-hidden="true"><AppIcon v-if="chosen.has(o.value)" name="check" :size="14" :stroke="3" /></span>
+              <span class="ms-label" :class="{ mono: o.mono }">{{ o.label }}</span>
+              <ToolChip v-if="o.tool" :tool="o.tool" class="ms-tool" />
+              <span v-if="o.note" class="cap ms-note">{{ o.note }}</span>
+            </li>
+          </ul>
         </li>
       </ul>
       <p v-if="!shown.length" class="cap ms-none">No match</p>
@@ -335,6 +362,24 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   overflow-y: auto;
   list-style: none;
   border-radius: 6px;
+}
+
+.ms-sec-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ms-sec + .ms-sec .ms-group {
+  margin-top: var(--s-6);
+  border-top: 1px solid var(--border);
+}
+
+.ms-group {
+  padding: var(--s-8) var(--s-8) var(--s-4);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
 }
 
 .ms-option {
