@@ -766,6 +766,7 @@
       },
       "ConnectionPatch": {
         "additionalProperties": false,
+        "description": "What Edit connection changes. `auth_method` other than the connection's own switches its\nsign-in method: it must come with that method's whole set (`access_key`, or `assume_role`\nwith a `role_arn`), and the old method's credentials are deleted. The account never changes.",
         "properties": {
           "access_key": {
             "anyOf": [
@@ -786,6 +787,21 @@
                 "type": "null"
               }
             ]
+          },
+          "auth_method": {
+            "anyOf": [
+              {
+                "enum": [
+                  "assume_role",
+                  "access_key"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth Method"
           },
           "enabled": {
             "anyOf": [

@@ -7,7 +7,7 @@ import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import SecretField from '@/components/SecretField.vue'
 import AppModal from '@/components/AppModal.vue'
-import StatusBadge from '@/components/StatusBadge.vue'
+import SignInMethodCards from './SignInMethodCards.vue'
 
 type Kind = 'demo' | 'assume_role' | 'access_key'
 // demo: whether this deployment offers Demo connections (Docker Compose only).
@@ -100,20 +100,7 @@ async function submit(): Promise<void> {
           <input v-model="kind" type="radio" name="kind" value="demo">
           <span class="rc-text"><b>Demo</b><span class="cap">Synthetic estate. Builds history without touching a cloud.</span></span>
         </label>
-        <label class="radio-card" :class="{ 'is-selected': kind === 'assume_role' }">
-          <input v-model="kind" type="radio" name="kind" value="assume_role">
-          <span class="rc-text">
-            <span class="rc-head"><b>AWS · Assume role</b><StatusBadge status="neutral" label="Recommended" /></span>
-            <span class="cap">Argus assumes a read-only role in the account with an external id.</span>
-          </span>
-        </label>
-        <label class="radio-card" :class="{ 'is-selected': kind === 'access_key' }">
-          <input v-model="kind" type="radio" name="kind" value="access_key">
-          <span class="rc-text">
-            <span class="rc-head"><b>AWS · Access key</b></span>
-            <span class="cap">A long-lived key, or temporary SSO credentials.</span>
-          </span>
-        </label>
+        <SignInMethodCards v-model="kind" name="kind" />
       </fieldset>
 
       <div class="field">
@@ -194,13 +181,6 @@ async function submit(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 2px;
-}
-
-.rc-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--s-8);
 }
 
 .rc-text b {

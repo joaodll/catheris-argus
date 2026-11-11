@@ -77,9 +77,14 @@ class RoleIn(BaseModel):
 
 
 class ConnectionPatch(BaseModel):
+    """What Edit connection changes. `auth_method` other than the connection's own switches its
+    sign-in method: it must come with that method's whole set (`access_key`, or `assume_role`
+    with a `role_arn`), and the old method's credentials are deleted. The account never changes."""
+
     model_config = ConfigDict(extra="forbid")
     name: Name | None = None
     enabled: bool | None = None
+    auth_method: Literal["assume_role", "access_key"] | None = None
     access_key: AccessKeyIn | None = None
     assume_role: RoleIn | None = None
 
@@ -154,6 +159,7 @@ def update_connection(
         actor=user,
         name=body.name,
         enabled=body.enabled,
+        auth_method=body.auth_method,
         access_key=(
             AwsAuth(
                 "access_key",

@@ -1179,10 +1179,17 @@ export interface components {
             /** Updated By */
             updated_by: string;
         };
-        /** ConnectionPatch */
+        /**
+         * ConnectionPatch
+         * @description What Edit connection changes. `auth_method` other than the connection's own switches its
+         *     sign-in method: it must come with that method's whole set (`access_key`, or `assume_role`
+         *     with a `role_arn`), and the old method's credentials are deleted. The account never changes.
+         */
         ConnectionPatch: {
             access_key?: components["schemas"]["AccessKeyIn"] | null;
             assume_role?: components["schemas"]["RoleIn"] | null;
+            /** Auth Method */
+            auth_method?: ("assume_role" | "access_key") | null;
             /** Enabled */
             enabled?: boolean | null;
             /** Name */

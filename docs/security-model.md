@@ -47,6 +47,11 @@ policy change. It observes and recommends; a human applies every fix.
 - **They are write-only.** The API never returns, logs or echoes a stored secret or ExternalId,
   not even in part; the UI shows `********`. The API's database role cannot read the sealed
   columns at all: only the process that runs scans can open them.
+- **A replaced or switched credential leaves the row.** Replacing an access key, or switching a
+  connection between assume role and an access key (since 2026-11-10), overwrites or deletes the
+  old sealed value in the same statement. Postgres still keeps old row versions until vacuum, and
+  write-ahead logs and backups keep them until they expire, still sealed. So deactivate a replaced
+  access key in IAM: deleting it from Argus does not make it useless.
 - **Keys can be rotated:** a new key is added to the keyring and becomes current, and the old one
   stays so existing secrets still open ([runbook](runbook.md#operating)). It takes a restart of
   the API and the worker.
