@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
@@ -48,6 +49,22 @@ def _unprocessable(_: Request, exc: Exception) -> JSONResponse:
     return JSONResponse(status_code=422, content={"detail": str(exc)})
 
 
+def _invalid_request(_: Request, exc: Exception) -> JSONResponse:
+    """A request the contract refuses: where and why, never what was sent. FastAPI's own answer
+    carries each error's "input" (and "ctx"), so a connection body with a missing field echoed
+    its secret access key (reviews/8c306e53, 2026-11-10)."""
+    errors = exc.errors() if isinstance(exc, RequestValidationError) else []
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {"type": e.get("type"), "loc": list(e.get("loc", ())), "msg": e.get("msg")}
+                for e in errors
+            ]
+        },
+    )
+
+
 def _not_found(_: Request, __: Exception) -> JSONResponse:
     return JSONResponse(status_code=404, content={"detail": "not found"})
 
@@ -80,6 +97,7 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeaders)
     for exc in (ConnectionValueError, InvalidScheduleError, SettingsBoundError, ValueError):
         app.add_exception_handler(exc, _unprocessable)
+    app.add_exception_handler(RequestValidationError, _invalid_request)
     app.add_exception_handler(LookupError, _not_found)
     app.add_exception_handler(IntegrityError, _conflict)
     app.add_exception_handler(PoolTimeoutError, _busy)
