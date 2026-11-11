@@ -24,7 +24,7 @@ import StatusBadge from '@/components/StatusBadge.vue'
 import { useResource } from '@/composables/useResource'
 import ExploitMark from './ExploitMark.vue'
 import { parsePage } from './findingFilters'
-import { fromSelect, regionLabel } from './labels'
+import { fromSelect, regionLabel, typesByService } from './labels'
 import {
   type MisconfigurationLevel,
   type ResourceFilters,
@@ -119,7 +119,10 @@ watch(
   },
 )
 const connectionOptions = computed<MultiOption[]>(() => (connections.data.value ?? []).map((c) => ({ value: String(c.id), label: c.name })))
-const typeOptions = computed<MultiOption[]>(() => (facets.data.value?.types ?? []).map((t) => ({ value: t, label: t, mono: true })))
+// Grouped by service ("aws ec2", …), as the Summary's By service panel groups them.
+const typeOptions = computed<MultiOption[]>(() =>
+  typesByService(facets.data.value?.types ?? []).flatMap((g) => g.types.map((t) => ({ value: t, label: t, mono: true, group: g.service }))),
+)
 const regionOptions = computed<MultiOption[]>(() => (facets.data.value?.regions ?? []).map((r) => ({ value: r, label: regionLabel(r), mono: true })))
 
 const more = ref(resourceSecondaryCount(filters.value) > 0)

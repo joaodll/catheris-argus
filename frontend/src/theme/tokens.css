@@ -65,11 +65,6 @@
   --score-fair: #ffd43b;
   --score-weak: #ffb067;
   --score-poor: #ff4d78;
-  --type-compute: #45b6ff;
-  --type-identity: #a98bff;
-  --type-storage: #ff7fd1;
-  --type-network: #b2e35a;
-  --type-other: #6a6f77;
 
   --chart-band: rgb(255 255 255 / 2.5%); /* a chart's month bands */
   --chip-fill: rgb(255 255 255 / 5%); /* the neutral chip */
@@ -225,11 +220,6 @@
   --score-fair: #7d6000;
   --score-weak: #a8520b;
   --score-poor: #b51f43;
-  --type-compute: #1c78ba;
-  --type-identity: #6a4bd0;
-  --type-storage: #b42f86;
-  --type-network: #5a8213;
-  --type-other: #7a828c;
 
   --chart-band: rgb(0 0 0 / 3%);
   --chip-fill: rgb(0 0 0 / 5%);

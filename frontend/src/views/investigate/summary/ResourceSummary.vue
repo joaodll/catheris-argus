@@ -2,7 +2,7 @@
 /**
  * Investigate → Resources → Summary (owner's decisions 2026-11-06; spec in the palace,
  * frontend/1830b32f on round 1's frontend/0064ccbd). The cloud inventory: how many assets, where
- * (types, accounts, regions, services), what changed (added and removed per week), and how many
+ * (categories, accounts, regions, services), what changed (added and removed per week), and how many
  * assets carry a critical or high misconfiguration, a CVE with a public exploit, or a confirmed
  * way in from the internet. Every number comes from stored counts (GET /resources/summary) and
  * links to the List tab with the filters that reproduce it, Assets only. The summary follows
@@ -18,7 +18,8 @@ import SeverityBars, { type SeverityBarItem } from '@/components/charts/Severity
 import WeeklyFlow from '@/components/charts/WeeklyFlow.vue'
 import { useResource } from '@/composables/useResource'
 import { int } from '@/format'
-import { groupTypes } from '@/views/overview/assetTypes'
+import { bySize, groupTypes } from '@/views/overview/assetTypes'
+import CategoryRows from '@/views/overview/CategoryRows.vue'
 import { regionLabel, typesByService } from '../labels'
 import { type ResourceFilters, resourcesLink } from '../resourceFilters'
 import SummaryHeader from './SummaryHeader.vue'
@@ -26,7 +27,6 @@ import SummaryHeader from './SummaryHeader.vue'
 const props = defineProps<{ connectionId: number; connections: Schemas['ConnectionOut'][] | null }>()
 const emit = defineEmits<{ selectConnection: [id: number] }>()
 
-const TYPES_SHOWN = 12
 const TOP = 10
 const RECENT_DAYS = 30
 const STEAMPIPE = 'var(--tool-steampipe)' // the inventory is Steampipe's: its fixed tool colour
@@ -70,14 +70,13 @@ const risks = computed(() =>
   }),
 )
 
-// By type: the number panel. Each cell carries its Overview group's colour (assetTypes.ts).
-const typeColor = computed(() => {
-  const colors = new Map<string, string>()
-  for (const g of groupTypes(data.value?.by_type ?? [])) for (const t of g.types) colors.set(t, g.color)
-  return colors
-})
-const typeCells = computed(() => (data.value?.by_type ?? []).slice(0, TYPES_SHOWN))
-const moreTypes = computed(() => Math.max(0, (data.value?.by_type?.length ?? 0) - TYPES_SHOWN))
+// By category: the Overview's rows (CategoryRows), every provider together; each type opens
+// the list filtered by it.
+const typeCounts = computed(() => new Map((data.value?.by_type ?? []).map((t) => [t.type, t.count])))
+const categories = computed(() => bySize(groupTypes(data.value?.by_type ?? [])))
+const categoryTotal = computed(() => categories.value.reduce((n, g) => n + g.count, 0))
+const categoryMax = computed(() => Math.max(1, ...categories.value.map((g) => g.count)))
+const typeLink = (type: string) => list({ type: [type] })
 
 const accounts = computed<SeverityBarItem[]>(() =>
   (data.value?.by_account?.items ?? []).map((a) => ({
@@ -218,21 +217,22 @@ function total(items: SeverityBarItem[]): number {
       <template v-else>
         <section class="card panel" aria-labelledby="r-s-types">
           <div class="panel-h">
-            <h2 id="r-s-types" class="h2">By type</h2>
+            <h2 id="r-s-types" class="h2">By category</h2>
             <span class="mono count">{{ int(data.by_type?.length ?? 0) }} types</span>
           </div>
           <div class="panel-body">
-            <ul v-if="typeCells.length" class="cells">
-              <li v-for="t in typeCells" :key="t.type">
-                <RouterLink class="cell" :to="list({ type: [t.type] })" :style="{ '--group': typeColor.get(t.type) ?? 'var(--type-other)' }">
-                  <span class="cell-type mono">{{ t.type }}</span>
-                  <span class="cell-count mono">{{ int(t.count) }}<span class="sr-only"> assets. Show in list</span></span>
-                </RouterLink>
-              </li>
-              <li v-if="moreTypes">
-                <RouterLink class="cell more-cell" :to="list()">+{{ int(moreTypes) }} more type{{ moreTypes === 1 ? '' : 's' }}</RouterLink>
-              </li>
-            </ul>
+            <CategoryRows
+              v-if="categories.length"
+              id="r-s-cat"
+              label="Assets by category"
+              :groups="categories"
+              :counts="typeCounts"
+              :max="categoryMax"
+              :total="categoryTotal"
+              :type-link="typeLink"
+              :more-link="list()"
+              more-where="the list"
+            />
             <p v-else class="none-open">No assets in the inventory.</p>
           </div>
         </section>
@@ -297,57 +297,5 @@ function total(items: SeverityBarItem[]): number {
 .flow-value {
   display: inline-flex;
   gap: var(--s-10);
-}
-
-.cells {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
-  gap: var(--s-8);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.cell {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: var(--s-6);
-  min-height: 64px;
-  height: 100%;
-  padding: var(--s-8) var(--s-10);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--group);
-  border-radius: var(--r-control);
-  color: var(--text);
-  text-decoration: none;
-}
-
-.cell:hover {
-  background: var(--surface-raised);
-}
-
-.cell-type {
-  display: -webkit-box;
-  overflow: hidden;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  font-size: 12px;
-  color: var(--text-2);
-  overflow-wrap: anywhere;
-}
-
-.cell-count {
-  font-size: 20px;
-  font-weight: 600;
-}
-
-.more-cell {
-  justify-content: center;
-  border-style: dashed;
-  border-left-width: 1px;
-  font-size: 13px;
-  color: var(--link);
 }
 </style>
