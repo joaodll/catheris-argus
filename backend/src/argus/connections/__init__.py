@@ -230,15 +230,22 @@ def update(
     actor: str,
     name: str | None = None,
     enabled: bool | None = None,
+    auth_method: AuthMethod | None = None,
     access_key: AwsAuth | None = None,
     role: RoleChange | None = None,
     client_ip: str | None = None,
 ) -> ConnectionRow:
-    """Rename, enable or disable, replace an access key, or change an assume-role connection's
-    role and ExternalId. A replacement key is the whole set (key id, secret, session token): a
-    rotated IAM key or a new SSO session changes all three. A role stays in the connection's
-    account: the account is what the connection's history belongs to. Connections are disabled,
-    not deleted: their history references them."""
+    """Rename, enable or disable, replace an access key, change an assume-role connection's
+    role and ExternalId, or switch the sign-in method. A replacement key is the whole set (key
+    id, secret, session token): a rotated IAM key or a new SSO session changes all three. A role
+    stays in the connection's account: the account is what the connection's history belongs to.
+    Connections are disabled, not deleted: their history references them.
+
+    An `auth_method` other than the stored one switches the method (owner, 2026-11-09): the new
+    method's whole set comes with it (`access_key`, or `role` with a role ARN) and is checked as
+    a new connection's would be, and the same UPDATE deletes the old method's credentials, so no
+    unused credential stays stored. It applies from the next run: a run already collecting keeps
+    the credentials it opened. The stored method is a no-op."""
     current = get(conn, connection_id)
     if current is None:
         raise LookupError(connection_id)
@@ -247,33 +254,33 @@ def update(
         changes["name"] = name
     if enabled is not None:
         changes["enabled"] = enabled
-    if access_key is not None:
-        if current.auth_method != "access_key":
-            raise ConnectionError("only access-key connections have an access key to replace")
-        _check_access_key(access_key)
-        changes.update(_seal_access_key(current.account_id, access_key))
-    if role is not None:
-        changes.update(_role_changes(conn, current, role))
+    switch = (
+        _switch(current, access_key, role)
+        if auth_method is not None and auth_method != current.auth_method
+        else None
+    )
+    changes.update(_credential_changes(conn, current, switch, access_key, role))
     if not changes:
         return current
     assignments = ", ".join(f"{column} = :{column}" for column in changes)
-    if "secret_ciphertext" in changes:
+    if changes.get("secret_ciphertext") is not None:  # a new secret: when it was set
         assignments += ", secret_set_at = now()"
+    elif "secret_ciphertext" in changes:  # the secret deleted: no date left behind
+        assignments += ", secret_set_at = NULL"
+    # Only if the method is still the one these changes were checked against: a role edit that
+    # lost a race to a switch must not leave an unused ExternalId behind, nor a key replacement a
+    # secret on a role (owner, 2026-11-09: no unused credential stays stored).
     row = conn.execute(
         text(
             f"UPDATE connection SET {assignments}, updated_by = :actor, updated_at = now() "  # noqa: S608
-            f"WHERE id = :id RETURNING {_COLUMNS}"
+            f"WHERE id = :id AND auth_method = :checked_method RETURNING {_COLUMNS}"
         ),
-        {**changes, "actor": actor, "id": connection_id},
-    ).one()
-    detail: dict[str, object] = {
-        "fields": sorted(
-            {"name", "enabled", "role_arn", "external_id"} & changes.keys()
-            | ({"access_key"} if access_key else set())
+        {**changes, "actor": actor, "id": connection_id, "checked_method": current.auth_method},
+    ).one_or_none()
+    if row is None:
+        raise ConnectionError(
+            "the connection's sign-in method changed while saving: open it again and retry"
         )
-    }
-    if "external_id" in changes:  # whether one is set after the change, never its value
-        detail["external_id"] = changes["external_id"] is not None
     audit.record(
         conn,
         actor=actor,
@@ -281,9 +288,96 @@ def update(
         target_type="connection",
         target_id=str(connection_id),
         client_ip=client_ip,
-        detail=detail,
+        detail=_update_detail(current, changes, switch, replaced_key=access_key is not None),
     )
     return ConnectionRow(*row)
+
+
+def _credential_changes(
+    conn: Connection,
+    current: ConnectionRow,
+    switch: AwsAuth | None,
+    access_key: AwsAuth | None,
+    role: RoleChange | None,
+) -> dict[str, object]:
+    """The credential columns an update writes: a method switch, or a change within the
+    stored method (a replacement key, a role change)."""
+    if switch is not None:
+        return _switch_changes(current, switch)
+    changes: dict[str, object] = {}
+    if access_key is not None:
+        if current.auth_method != "access_key":
+            raise ConnectionError("only access-key connections have an access key to replace")
+        _check_access_key(access_key)
+        changes.update(_seal_access_key(current.account_id, access_key))
+    if role is not None:
+        changes.update(_role_changes(conn, current, role))
+    return changes
+
+
+def _update_detail(
+    current: ConnectionRow,
+    changes: dict[str, object],
+    switch: AwsAuth | None,
+    *,
+    replaced_key: bool,
+) -> dict[str, object]:
+    """The audit row's detail: which fields changed, the methods of a switch, and whether an
+    ExternalId is set after the change. Never a credential."""
+    fields = {"name", "enabled"} & changes.keys()
+    if switch is not None:
+        fields.add("auth_method")
+    else:
+        fields |= {"role_arn", "external_id"} & changes.keys()
+        fields |= {"access_key"} if replaced_key else set()
+    detail: dict[str, object] = {"fields": sorted(fields)}
+    if switch is not None:
+        detail["auth_method_before"] = current.auth_method
+        detail["auth_method_after"] = switch.method
+    assume_role_after = (switch.method if switch else current.auth_method) == "assume_role"
+    if assume_role_after and "external_id" in changes:
+        detail["external_id"] = changes["external_id"] is not None
+    return detail
+
+
+def _switch(current: ConnectionRow, access_key: AwsAuth | None, role: RoleChange | None) -> AwsAuth:
+    """The new sign-in method's whole set, from the request; a half switch is refused."""
+    if current.kind != "aws":
+        raise ConnectionError("only AWS connections have a sign-in method to switch")
+    if current.auth_method == "assume_role":  # to an access key
+        if access_key is None or role is not None:
+            raise ConnectionError("switching to an access key needs the access key, and only it")
+        return access_key
+    if role is None or access_key is not None:
+        raise ConnectionError("switching to assume role needs the role, and only it")
+    if role.role_arn is None or role.clear_external_id:
+        raise ConnectionError(
+            "switching to assume role needs a role_arn; the external_id is optional"
+        )
+    return AwsAuth("assume_role", role_arn=role.role_arn, external_id=role.external_id or None)
+
+
+def _switch_changes(current: ConnectionRow, auth: AwsAuth) -> dict[str, object]:
+    """The columns of a method switch: the new method's, checked as a new connection's would
+    be, and the old method's set to NULL in the same UPDATE (the CHECKs on `connection` hold for
+    the row as written)."""
+    _check_aws(current.account_id, auth)
+    if auth.method == "assume_role":
+        return {
+            "auth_method": "assume_role",
+            "role_arn": auth.role_arn,
+            "external_id": auth.external_id,
+            "access_key_id": None,
+            "secret_ciphertext": None,
+            "secret_key_id": None,
+            "session_token_ciphertext": None,
+        }
+    return {
+        "auth_method": "access_key",
+        "role_arn": None,
+        "external_id": None,
+        **_seal_access_key(current.account_id, auth),
+    }
 
 
 def _role_changes(conn: Connection, current: ConnectionRow, role: RoleChange) -> dict[str, object]:
@@ -315,14 +409,16 @@ def _role_changes(conn: Connection, current: ConnectionRow, role: RoleChange) ->
 def open_auth(conn: Connection, connection: ConnectionRow) -> AwsAuth:
     """How the worker reaches an AWS account, secret and session token included, at the
     moment it collects: the worker's single way to the plaintext."""
+    # The method comes from this same read, not from the caller's row: a switch committed since
+    # that row was fetched must not pair the old method with the new credentials.
     row = conn.execute(
         text(
-            "SELECT role_arn, external_id, access_key_id, secret_ciphertext, secret_key_id, "
-            "session_token_ciphertext FROM connection WHERE id = :i"
+            "SELECT auth_method, role_arn, external_id, access_key_id, secret_ciphertext, "
+            "secret_key_id, session_token_ciphertext FROM connection WHERE id = :i"
         ),
         {"i": connection.id},
     ).one()
-    if connection.auth_method == "assume_role":
+    if row.auth_method == "assume_role":
         return AwsAuth("assume_role", role_arn=row.role_arn, external_id=row.external_id)
     key_id = row.secret_key_id
     return AwsAuth(

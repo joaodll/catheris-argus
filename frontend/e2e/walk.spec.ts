@@ -714,6 +714,79 @@ test('phone width: overview and connections', async ({ page }) => {
   await shot(page, '64-phone-vulnerability-months')
 })
 
+test('edit connection: switch the sign-in method, both ways, both themes, phone width', async ({ page }) => {
+  // Round 7 (owner, 2026-11-09; spec frontend/7dcc40d5). The walk makes no AWS connection in the
+  // database it runs against, so the list gains two AWS rows here and the save is answered here
+  // too: what the dialog sends is checked, and nothing is written.
+  const row = (id: number, name: string, extra: Record<string, unknown>) => ({
+    id,
+    name,
+    kind: 'aws',
+    account_id: '210987654321',
+    role_arn: null,
+    external_id_set: false,
+    access_key_id_hint: null,
+    secret_set_at: null,
+    enabled: false,
+    updated_at: '2026-11-10T00:00:00Z',
+    updated_by: 'walk',
+    ...extra,
+  })
+  const viaRole = row(9001, 'walk-switch-role', { auth_method: 'assume_role', role_arn: 'arn:aws:iam::210987654321:role/HandBuilt', external_id_set: true })
+  const viaKey = row(9002, 'walk-switch-key', { auth_method: 'access_key', access_key_id_hint: '…ZZZZ', secret_set_at: '2026-11-01T00:00:00Z' })
+  await page.route(/\/api\/v1\/connections$/, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const response = await route.fetch()
+    await route.fulfill({ response, json: [...((await response.json()) as unknown[]), viaRole, viaKey] })
+  })
+  const sent: Record<string, unknown>[] = []
+  await page.route(/\/api\/v1\/connections\/900[12]$/, async (route) => {
+    sent.push(route.request().postDataJSON() as Record<string, unknown>)
+    await route.fulfill({ json: route.request().url().endsWith('9001') ? viaRole : viaKey })
+  })
+  await signIn(page)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/admin/connections')
+
+  // A role to an access key.
+  await page.getByRole('button', { name: 'walk-switch-role' }).click()
+  let dialog = page.getByRole('dialog', { name: 'walk-switch-role' })
+  await expect(dialog.getByRole('group', { name: 'Sign-in method' })).toBeVisible()
+  await dialog.getByText('AWS · Access key').click()
+  await expect(dialog.getByText('The stored role and its external ID are deleted')).toBeVisible()
+  await dialog.getByLabel('Access key ID').fill('AKIA' + 'Q'.repeat(16))
+  await dialog.getByLabel('Secret access key').fill('argus-test-only-not-a-real-secret')
+  await axe(page, 'switch to an access key, dark')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await axe(page, 'switch to an access key, light')
+  const inner = await dialog.evaluate((el) => el.scrollWidth - el.clientWidth)
+  expect(inner, 'the dialog fits a phone').toBeLessThanOrEqual(0)
+  await shot(page, '23-switch-to-access-key-phone')
+  await dialog.getByRole('button', { name: 'Switch and save' }).click()
+  await expect(dialog).toBeHidden()
+  expect(sent.at(-1)).toEqual({
+    auth_method: 'access_key',
+    access_key: { access_key_id: 'AKIA' + 'Q'.repeat(16), secret_access_key: 'argus-test-only-not-a-real-secret', session_token: null },
+  })
+
+  // An access key to a role, with no external ID.
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.getByRole('button', { name: 'walk-switch-key' }).click()
+  dialog = page.getByRole('dialog', { name: 'walk-switch-key' })
+  await dialog.getByText('AWS · Assume role').click()
+  await expect(dialog.getByText('Then deactivate the old key in IAM.')).toBeVisible()
+  await dialog.getByLabel('Role ARN').fill('arn:aws:iam::210987654321:role/ArgusScanner')
+  await axe(page, 'switch to assume role')
+  await shot(page, '24-switch-to-assume-role')
+  await dialog.getByRole('button', { name: 'Switch and save' }).click()
+  await expect(dialog).toBeHidden()
+  expect(sent.at(-1)).toEqual({
+    auth_method: 'assume_role',
+    assume_role: { role_arn: 'arn:aws:iam::210987654321:role/ArgusScanner', clear_external_id: false },
+  })
+})
+
 test('light theme: every screen passes axe, and the toggle cycles', async ({ page }) => {
   // The OS prefers light, so System (the default) draws the light theme (2026-10-14).
   await page.emulateMedia({ colorScheme: 'light' })

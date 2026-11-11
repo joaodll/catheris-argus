@@ -153,9 +153,18 @@ other way round ([runbook.md, Troubleshooting](runbook.md#troubleshooting)).
 ID**, for example when you move from a hand-built role to the `ArgusScanner` stack. The new role
 must be in the same account, because the connection's history belongs to that account. Replace,
 set or remove the External ID there; it stays write-only. The connection keeps its history, and
-the next test or scan uses the new values. To change the account, or to switch between assume
-role and an access key, add a new connection and disable the old one. Every change is in the
-audit log, without the External ID's value.
+the next test or scan uses the new values. To change the account, add a new connection and disable
+the old one. Every change is in the audit log, without the External ID's value.
+
+**Switching between assume role and an access key.** Open the connection and choose the other
+**Sign-in method**, then enter that method's whole set, as in Add connection: a Role ARN in the same
+account and, if its trust asks for one, an External ID; or an access key ID with its secret (and
+the session token of a temporary `ASIA…` key). Choose **Switch and save**. Saving deletes the old
+method's credentials from Argus: the stored key and secret, or the role and its External ID. They
+can't be shown or recovered. The connection keeps its account and its history. A run already
+collecting finishes with the old credentials; the next run uses the new method. Run **Test
+connection** after the switch. When you move away from an access key, deactivate that key in IAM
+once the role works. The audit log records the methods before and after, never a credential.
 
 **Test connection** under **Settings → Platform identity** checks the identity on its own: it signs
 in and writes a small marker object to each tool's folder of the bucket, and reports the encryption
