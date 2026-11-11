@@ -1,4 +1,4 @@
-# Every AWS compliance framework of the pinned Prowler (5.47.0): `prowler aws --list-compliance`.
+# Every AWS compliance framework of the pinned Prowler (5.48.0): `prowler aws --list-compliance`.
 # Passed as --compliance when a run skips services or checks, so compliance stays complete
 # (owner, 2026-11-10). The worker image's build fails when this list differs from the installed
 # Prowler (backend/Dockerfile).

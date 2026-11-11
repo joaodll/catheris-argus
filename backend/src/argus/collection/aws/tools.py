@@ -65,7 +65,7 @@ LOG_TAIL_LINES = 200
 # How often a waiting tool is checked for a request to stop.
 CANCEL_POLL_SECONDS = 1.0
 # Attempts per AWS call, retries included, for every tool. The SDKs read it from the profile's
-# environment; Prowler builds its own botocore Config (standard mode, 3 attempts in 5.47.0),
+# environment; Prowler builds its own botocore Config (standard mode, 3 attempts in 5.48.0),
 # which wins over the environment, so it gets the same number as a flag.
 AWS_MAX_ATTEMPTS = 10
 THROTTLING = re.compile(
@@ -732,10 +732,10 @@ def run_prowler(
 ) -> ToolResult:
     """Every check in the regions set, unless Collection settings skip services or checks.
 
-    A skip changes how Prowler 5.47.0 chooses what to write: with --excluded-* it writes no
+    A skip changes how Prowler 5.48.0 chooses what to write: with --excluded-* it writes no
     compliance results unless --compliance names the frameworks, and --compliance runs only
     the checks mapped to a framework. So a run that skips anything passes every framework, and
-    the 43 checks in no framework don't run while a skip is set (owner, 2026-11-10). Checks
+    the 45 checks in no framework don't run while a skip is set (owner, 2026-11-10). Checks
     that don't run resolve nothing: their findings keep their last results."""
     log = Path(env["HOME"]) / "prowler.log"
     cmd = [

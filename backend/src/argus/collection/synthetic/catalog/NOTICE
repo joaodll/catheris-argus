@@ -1,5 +1,5 @@
-prowler_aws_5.47.0.json contains check metadata and compliance framework definitions taken from
-Prowler 5.47.0 (https://github.com/prowler-cloud/prowler), Copyright Prowler / Toni de la
+prowler_aws_5.48.0.json contains check metadata and compliance framework definitions taken from
+Prowler 5.48.0 (https://github.com/prowler-cloud/prowler), Copyright Prowler / Toni de la
 Fuente, licensed under the Apache License, Version 2.0. Fields were trimmed to those the
 synthetic source needs; values are unmodified.
 

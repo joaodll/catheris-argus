@@ -34,8 +34,8 @@ written to the audit log.
 | CloudFox concurrency | 5 | 1–30 |
 | Minimum schedule interval (minutes) | 60 | 15–1440 |
 | Synthetic throttling share: Demo runs that report throttling (%) | 5 | 0–100 |
-| Prowler: services to skip | none | the pinned Prowler's 89 AWS services |
-| Prowler: checks to skip | none | the pinned Prowler's 668 AWS checks |
+| Prowler: services to skip | none | the pinned Prowler's 90 AWS services |
+| Prowler: checks to skip | none | the pinned Prowler's 672 AWS checks |
 | Prowler: retry attempts per AWS call | 10 | 1–20 |
 
 Removing a region from **AWS regions to scan** does not mean its resources are gone or its findings
@@ -52,9 +52,9 @@ in the run's command. Know what a skip costs:
 
 - **A skipped service or check keeps its last results** until a run checks it again. Skipping
   does not resolve a finding, and its findings still count on every screen.
-- **While anything is skipped, Prowler's 43 checks that belong to no compliance framework don't
+- **While anything is skipped, Prowler's 45 checks that belong to no compliance framework don't
   run either**, several "no secrets in ..." checks among them, and they keep their last results
-  too. Prowler 5.47.0 stops writing compliance results when a run skips anything unless every
+  too. Prowler 5.48.0 stops writing compliance results when a run skips anything unless every
   framework is named, and naming the frameworks limits it to the checks mapped to one; its
   command line cannot ask for both. Argus names all 44 AWS frameworks, so **compliance stays
   complete**, minus whatever you skipped.

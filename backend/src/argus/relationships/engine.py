@@ -135,7 +135,7 @@ HOSTS_SQL = f"""
 # `g`: every security group ingress rule (ADR-0035). `anywhere` is a source that lets the whole
 # internet in: 0.0.0.0/0 or ::/0, or blocks that together cover every address of one family on
 # the same group, protocol and ports, as 0.0.0.0/1 plus 128.0.0.0/1 do (seventh amendment, the
-# reading Prowler 5.47.0 also takes). Those are the only sources Argus counts as the internet: an
+# reading Prowler 5.48.0 also takes). Those are the only sources Argus counts as the internet: an
 # address list, another security group or a prefix list restricts who can connect, and a block
 # inside a wider one adds nothing. `family` is the source's address family (ipv4, ipv6; null for
 # a group or prefix list), so an IPv6 rule never opens an IPv4 address (ADR-0035, second
