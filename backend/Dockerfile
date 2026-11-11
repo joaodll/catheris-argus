@@ -13,7 +13,7 @@
 #                only its own tool. Built from the same stages as worker. Test connection Jobs
 #                run on runtime, which carries no tool.
 
-ARG PYTHON_IMAGE=python:3.13-slim-trixie@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
+ARG PYTHON_IMAGE=python:3.13-slim-trixie@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.22@sha256:f513a91fc62fe7c17567eee97230dd198e43edb8a9fbecca843714a4358fe1bc
 
 FROM ${UV_IMAGE} AS uv
@@ -24,6 +24,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     VIRTUAL_ENV=/opt/venv \
     PATH=/opt/venv/bin:$PATH
 # The published base lags Debian's security repository, so take what it has already fixed.
+# Docker caches this layer until the digest above changes, so a rebuild keeps the old packages:
+# build release images with --pull --no-cache.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
  && rm -rf /var/lib/apt/lists/*
