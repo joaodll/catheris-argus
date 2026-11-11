@@ -21,12 +21,10 @@ from argus.api.routes.findings import (
     SummaryAccounts,
     SummaryAge,
     SummaryBreakdown,
-    SummaryRecent,
-    SummaryWeek,
     finding_page,
     group_page,
 )
-from argus.api.types import Provider
+from argus.api.types import Provider, VulnerabilityMonths
 
 router = APIRouter(tags=["vulnerabilities"])
 
@@ -159,8 +157,7 @@ class VulnerabilitiesSummary(BaseModel):
     by_region: SummaryBreakdown | None
     by_age: list[SummaryAge] | None
     by_fix: list[VulnerabilityFixItem] | None  # available, none, unknown
-    weeks: list[SummaryWeek]  # opened, reopened and resolved per week, the last 12 weeks
-    last_30_days: SummaryRecent | None
+    months: VulnerabilityMonths | None  # month over month, all types and each type
 
 
 @router.get("/vulnerabilities/summary")

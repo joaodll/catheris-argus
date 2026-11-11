@@ -38,3 +38,8 @@ export function framework(connectionId: number, key: string): RouteLocationRaw {
 export function threatScore(connectionId: number): RouteLocationRaw {
   return framework(connectionId, THREATSCORE_FRAMEWORK)
 }
+
+// The Overview's vulnerabilities card: the Vulnerabilities summary, same account.
+export function vulnerabilitiesSummary(connectionId: number): RouteLocationRaw {
+  return { name: 'vulnerabilities', query: { tab: 'summary', connection: connectionId ? String(connectionId) : undefined } }
+}

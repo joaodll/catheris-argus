@@ -21,6 +21,7 @@ import KpiCards from './KpiCards.vue'
 import ProwlerCard from './ProwlerCard.vue'
 import { loadStrip, parseStrip, saveStrip } from './stripChoice'
 import ThreatScoreStrip from './ThreatScoreStrip.vue'
+import VulnerabilitiesCard from './VulnerabilitiesCard.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -103,6 +104,7 @@ const noData = computed(() => overview.data.value !== null && overview.data.valu
       <KpiCards :data="overview.data.value" :connection-count="connections.length" :connection-id="connectionId" />
       <ThreatScoreStrip :data="overview.data.value" :connection-id="connectionId" :framework="strip" @choose="chooseStrip" />
       <ProwlerCard :data="overview.data.value" :range="range" :connection-id="connectionId" @select-range="(r) => select({ range: r })" />
+      <VulnerabilitiesCard :data="overview.data.value" :connection-id="connectionId" />
       <InventoryCard :data="overview.data.value" :connection-id="connectionId" />
     </div>
   </AppShell>

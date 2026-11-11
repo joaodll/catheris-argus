@@ -15,6 +15,7 @@ left out, as on the Overview.
 """
 
 from collections import defaultdict
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
@@ -22,7 +23,7 @@ from typing import Any
 from sqlalchemy import Connection, text
 
 from argus import connections
-from argus.metrics.series import HISTORY_DAYS
+from argus.metrics.series import HISTORY_DAYS, calendar_months, month_table
 from argus.metrics.store import ALL_CONNECTIONS
 
 SEVERITIES = ("critical", "high", "medium", "low", "informational")
@@ -409,7 +410,8 @@ def _fixed(items: list[_Item], values: tuple[str, ...]) -> list[dict[str, Any]]:
 
 @dataclass(frozen=True)
 class _Read:
-    """What every family's summary shares: the day it shows, its rows, and the flow."""
+    """What every family's summary shares: the day it shows, its rows, and the weekly flow
+    (empty for a summary that shows none)."""
 
     day: date | None
     rows: dict[str, dict[str, float]]
@@ -418,19 +420,21 @@ class _Read:
     by_age: list[dict[str, Any]] | None
 
 
-def _read(conn: Connection, family: Family, connection_id: int, today: date) -> _Read:
+def _read(
+    conn: Connection, family: Family, connection_id: int, today: date, *, flow: bool = True
+) -> _Read:
     start = today - timedelta(days=HISTORY_DAYS)
     day = _latest_day(conn, family, connection_id, start, today)
-    flow = _flow(conn, family, connection_id, today)
+    weekly = _flow(conn, family, connection_id, today) if flow else {}
     if day is None:
-        return _Read(None, {}, flow, None, None)
+        return _Read(None, {}, weekly, None, None)
     rows = _day_rows(conn, family, connection_id, day)
     if not family.by_severity:  # no severity split and no age (the assets)
-        return _Read(day, rows, flow, None, None)
+        return _Read(day, rows, weekly, None, None)
     return _Read(
         day,
         rows,
-        flow,
+        weekly,
         _by_account(conn, family, start, today) if connection_id == ALL_CONNECTIONS else None,
         _ages(rows.get(family.open_by_first_seen, {}), today),
     )
@@ -474,12 +478,89 @@ def misconfiguration_summary(
     }
 
 
+def _month_end_days(
+    conn: Connection, family: Family, connection_id: int, ends: list[date]
+) -> list[date | None]:
+    """The family's latest counted day on or before each of `ends`, however old (owner,
+    2026-11-10): one probe on the marker per month end (metric_daily_by_connection), as the
+    rollup finds each account's latest day. None: not counted by then."""
+    result = conn.execute(
+        text("""
+            SELECT e.day, (SELECT max(m.snapshot_date) FROM metric_daily m
+                           WHERE m.connection_id = :c AND m.metric = :mm
+                             AND m.dimension = :md AND m.snapshot_date <= e.day)
+            FROM unnest(CAST(:ends AS date[])) AS e(day)
+        """),
+        {"c": connection_id, "mm": family.marker[0], "md": family.marker[1], "ends": ends},
+    )
+    found: dict[date, date | None] = dict(result.tuples().all())
+    return [found.get(end) for end in ends]
+
+
+def vulnerability_months(
+    conn: Connection, *, connection_id: int = ALL_CONNECTIONS, today: date, by_type: bool = True
+) -> dict[str, Any] | None:
+    """Open vulnerabilities at each of the last six calendar months' ends, by severity, for all
+    types together and (by_type) for each resource type the scanner reports: the Vulnerabilities
+    summary's Month over month and the Overview's card (owner, 2026-11-10).
+
+    A month end shows the latest count on or before it, however old, as "All connections"
+    already sums each account's latest count; a month before the first count is None ("no
+    data"), never 0. The days come from the family's marker, written on every count with zeros:
+    a counted day without a type's row has none of it open. None: never counted."""
+    months = calendar_months(today)
+    days = _month_end_days(conn, VULNERABILITIES, connection_id, [end for _, end in months])
+    counted = sorted({d for d in days if d is not None})
+    if not counted:
+        return None
+    wanted = [VULNERABILITIES.open_by_severity, *([OPEN_BY_RESOURCE_TYPE] if by_type else [])]
+    rows: dict[date, dict[str, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
+    for day, metric, dim, value in conn.execute(
+        text("""
+            SELECT snapshot_date, metric, dimension, value FROM metric_daily
+            WHERE connection_id = :c AND snapshot_date = ANY(CAST(:days AS date[]))
+              AND metric = ANY(CAST(:m AS text[]))
+        """),
+        {"c": connection_id, "days": counted, "m": wanted},
+    ):
+        rows[day][metric][dim] = float(value)
+
+    def table(counts: Mapping[date, dict[str, float]]) -> list[dict[str, Any]]:
+        return month_table(
+            [
+                (month, None if day is None else _severities(counts.get(day, {})))
+                for (month, _), day in zip(months, days, strict=True)
+            ],
+            SEVERITIES,
+        )
+
+    out: dict[str, Any] = {
+        "data_through": counted[-1],
+        "all": table({d: rows[d][VULNERABILITIES.open_by_severity] for d in counted}),
+        "by_type": None,
+    }
+    if not by_type:
+        return out
+    by_type_day: dict[str, dict[date, dict[str, float]]] = defaultdict(lambda: defaultdict(dict))
+    for day in counted:
+        for dim, n in rows[day][OPEN_BY_RESOURCE_TYPE].items():
+            resource_type, severity = _split(dim)
+            if n:
+                by_type_day[resource_type][day][severity] = n
+    latest = counted[-1]
+    # Every type open at any month end shown, most open at the latest first, then by name.
+    ordered = sorted(by_type_day, key=lambda t: (-sum(by_type_day[t].get(latest, {}).values()), t))
+    out["by_type"] = [{"type": t, "months": table(by_type_day[t])} for t in ordered]
+    return out
+
+
 def vulnerability_summary(
     conn: Connection, *, connection_id: int = ALL_CONNECTIONS, today: date
 ) -> dict[str, Any]:
     """The Vulnerabilities Summary tab for all connections (0) or one, as of each account's
-    latest count."""
-    read = _read(conn, VULNERABILITIES, connection_id, today)
+    latest count. Its history is the month table (vulnerability_months), which replaced the
+    weekly flow (owner, 2026-11-09)."""
+    read = _read(conn, VULNERABILITIES, connection_id, today, flow=False)
     if read.day is None:
         return {
             "data_through": None,
@@ -489,7 +570,7 @@ def vulnerability_summary(
             "by_region": None,
             "by_age": None,
             "by_fix": None,
-            **read.flow,
+            "months": None,
         }
     rows = read.rows
     severities = _severities(rows.get(VULNERABILITIES.open_by_severity, {}))
@@ -508,7 +589,7 @@ def vulnerability_summary(
         "by_region": _breakdown(rows.get(VULNERABILITIES_BY_REGION, {})),
         "by_age": read.by_age,
         "by_fix": _fixed(_items(rows.get(OPEN_BY_FIX, {})), FIXES),
-        **read.flow,
+        "months": vulnerability_months(conn, connection_id=connection_id, today=today),
     }
 
 

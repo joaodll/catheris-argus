@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from argus import connections, ingest, metrics
 from argus.api.deps import Db, Viewer
+from argus.api.types import MonthRow, VulnerabilityMonths
 
 router = APIRouter(tags=["overview"])
 
@@ -73,13 +74,6 @@ class SeverityPoint(BaseModel):
     informational: float | None
 
 
-class MonthRow(BaseModel):
-    month: str
-    values: dict[str, float | None]
-    total: float
-    change: dict[str, float | None] | None
-
-
 class SeverityOverTime(BaseModel):
     range: str
     points: list[SeverityPoint]
@@ -103,6 +97,7 @@ class Overview(BaseModel):
     check_results: CheckResults
     failed_by_severity: list[SeverityCount]
     severity_over_time: SeverityOverTime
+    vulnerabilities: VulnerabilityMonths | None  # null: no vulnerabilities scan yet
     inventory: Inventory
     coverage: dict[str, str]
 
