@@ -149,6 +149,14 @@ when their checks need it. Argus never stores such a value:
   written as text. Reports export the list's columns only: no configuration and no tags. On Docker
   Compose a report can cover Demo connections only, and the files sit on a local volume the API
   mounts read-only. Once downloaded, a report is outside Argus's control.
+- **The PDF renderer** reads names and tags that came from scanned clouds, so it runs apart from
+  Argus: a separate program in its own venv, started with an environment built from nothing (no
+  database password, no keyring, no cloud credential) and no inherited descriptors. It escapes
+  every value, keeps a link only as http or https, refuses every URL a document names, and runs
+  under limits on memory, CPU time and output size. A self-test proves the escaping and the refusal
+  at every image build. Its image is scanned at the same bar as the API's, and the API image holds
+  no PDF library. A PDF also carries each check's risk and fix text, the tool's words about the
+  check, never about a resource.
 
 ## Supply chain
 
@@ -167,6 +175,12 @@ when their checks need it. Argus never stores such a value:
 ## Known limits
 
 Argus is pre-1.0. These are known and accepted for now:
+
+- **The PDF renderer shares the worker's user on Docker Compose.** It holds no secret and fetches
+  nothing, but a code-execution flaw in its PDF libraries, triggered by a name or tag from a scanned
+  cloud, could read what the worker's user reads on disk (the Demo raw volume and the reports
+  volume) and use the worker's network. On Kubernetes the report Job (round 5) gets its own
+  identity, no keyring and no route but S3.
 
 - **No single sign-on.** Users have their own passwords and a role (viewer, operator or admin),
   stored in Postgres ([ADR-0041](adr/0041-users-and-roles.md)). Keep the UI on loopback or inside the

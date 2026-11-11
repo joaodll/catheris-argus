@@ -7,11 +7,12 @@
 #   docker compose run --rm e2e          browser walk of every screen against the running stack
 #   docker compose --profile dev up frontend-dev   Vite with hot reload on http://localhost:5173
 #   docker compose run --rm lint         gitleaks, read-only policy check, ruff, mypy, import-linter
-#   docker compose run --rm scan         Trivy: repo files, then the backend, web, worker and tool images
+#   docker compose run --rm scan         Trivy: repo files, then the backend, web, reports, worker and tool images
 #   docker compose run --rm scrub-fixtures --run-id ID   spike run -> backend/tests/fixtures
 #   docker compose run --rm lock         re-resolve backend/uv.lock after editing pyproject.toml
 #     ... lock uv lock --directory tools/prowler   re-resolve Prowler's lock after changing its pin
-#   docker compose build migrate worker web worker-steampipe worker-prowler worker-cloudfox
+#     ... lock uv lock --directory tools/report-render   the same for the report renderer's lock
+#   docker compose build migrate worker web worker-steampipe worker-prowler worker-cloudfox reports
 #                                        every image (needed before `scan` and `kind`)
 #
 # On a shared host, add the override that refuses the development defaults:
@@ -314,7 +315,7 @@ services:
 
   # Kubernetes scan Jobs run one tool each, on its own image (ADR-0046), built from the stages
   # the worker is built from. Built here for `kind` and `scan`, never run:
-  #   docker compose build migrate worker web worker-steampipe worker-prowler worker-cloudfox
+  #   docker compose build migrate worker web worker-steampipe worker-prowler worker-cloudfox reports
   worker-steampipe: &tool-image
     image: argus-backend:worker-steampipe
     build:
@@ -335,6 +336,15 @@ services:
     build:
       context: ./backend
       target: worker-cloudfox
+  # The report renderer's image (ADR-0047): runtime + Jinja2, WeasyPrint, their libraries and
+  # fonts, no collector. Kubernetes' report Job runs it from round 5; until then it is built to be
+  # scanned at the API's bar. Its build runs the renderer's self-test.
+  reports:
+    <<: *tool-image
+    image: argus-backend:reports
+    build:
+      context: ./backend
+      target: reports
 
   # Developer shortcut: three Demo connections with history. Connects as the API role, the
   # same identity the UI's "add connection" uses, so it proves those grants are enough.
@@ -532,7 +542,8 @@ services:
     profiles: [tools]
     # emulated/ is skipped: the emulator's git-ignored output, whose keys are moto's placeholders
     # and never a real account's (.gitleaks.toml allowlists it for the same reason).
-    # The runtime and web images fail on a HIGH or CRITICAL that has a fix. The worker and the
+    # The runtime, web and reports images fail on a HIGH or CRITICAL that has a fix (reports: the
+    # renderer reads names and tags from scanned clouds, so it is held to the API's bar). The worker and the
     # three tool images fail on a CRITICAL only, since most of their findings are inside upstream
     # tools that wait on a new release. Every step runs, so one failure doesn't hide the next one's findings.
     entrypoint: ["sh", "-c"]
@@ -546,6 +557,8 @@ services:
         --ignorefile /repo/.trivyignore argus-backend:runtime || rc=1;
         trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed
         --ignorefile /repo/.trivyignore argus-web:runtime || rc=1;
+        trivy image --scanners vuln,secret --exit-code 1 --severity CRITICAL,HIGH --ignore-unfixed
+        --ignorefile /repo/.trivyignore argus-backend:reports || rc=1;
         for image in worker worker-steampipe worker-prowler worker-cloudfox; do
         trivy image --scanners vuln --exit-code 1 --severity CRITICAL --ignore-unfixed
         --ignorefile /repo/.trivyignore argus-backend:$$image || rc=1; done;

@@ -1,0 +1,48 @@
+{#- Pieces both report bodies use. Every value is escaped; the severity is a fixed word, mapped to
+    one of five classes, so no value ever becomes a class name it was not checked against. -#}
+{% macro pill(severity) -%}
+{%- set known = severity if severity in ("critical", "high", "medium", "low", "informational") else "informational" -%}
+<span class="pill sev-{{ known }}">{{ severity }}</span>
+{%- endmacro %}
+
+{% macro link(url) -%}
+{%- set checked = url | web_link -%}
+{%- if checked %}<a href="{{ checked }}">{{ checked }}</a>{% elif url %}{{ url }}{% endif -%}
+{%- endmacro %}
+
+{% macro resources(block, installed=false) -%}
+{% if block.rows %}
+<div class="label">Affected resources</div>
+<table class="list">
+  <thead><tr>
+    <th style="width:22%">Account</th><th style="width:12%">Region</th><th style="width:19%">Type</th>
+    <th>Resource</th>{% if installed %}<th style="width:11%">Installed</th>{% endif %}<th style="width:11%">First seen</th>
+  </tr></thead>
+  <tbody>{% for r in block.rows %}
+    <tr>
+      <td>{{ r.account }}<span class="sub">{{ r.account_id }}</span></td>
+      <td class="mono">{{ r.region or "—" }}</td>
+      <td class="mono">{{ r.type or "—" }}</td>
+      <td>{{ r.name or "—" }}<span class="sub">{{ r.uid }}</span></td>
+      {% if installed %}<td class="mono">{{ r.installed or "—" }}</td>{% endif %}
+      <td class="mono">{{ r.first_seen or "—" }}</td>
+    </tr>
+  {% endfor %}</tbody>
+</table>
+{% endif %}
+{% if block.more %}<div class="caption more">and {{ block.more | num }} more resources in the CSV report</div>{% endif %}
+{%- endmacro %}
+
+{% macro fix(block) -%}
+<div class="label">Fix</div>
+{% if block.fix or block.code or block.fix_link %}
+  {% if block.fix %}<p class="prose">{{ block.fix }}</p>{% endif %}
+  {% if block.fix_link %}<p class="prose">Reference: {{ link(block.fix_link) }}</p>{% endif %}
+  {% for c in block.code %}
+    <div class="label">{{ c.label }}</div>
+    <pre class="code">{{ c.text }}</pre>
+  {% endfor %}
+{% else %}
+  <p class="prose missing">No fix steps from the tool.</p>
+{% endif %}
+{%- endmacro %}

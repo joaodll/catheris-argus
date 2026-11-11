@@ -8,10 +8,11 @@ from pathlib import Path
 from uuid import uuid4
 
 from argus.core.rawstore import FilesystemRawStore, RawRunError
+from argus.reports.model import ReportFormat
 
 FOLDER = "reports"
 # The one shape a key may have; the table's CHECK holds the same pattern.
-_KEY = re.compile(r"^reports/[0-9]+-[0-9a-f]{32}\.csv$")
+_KEY = re.compile(r"^reports/[0-9]+-[0-9a-f]{32}\.(csv|pdf)$")
 
 
 class ReportStoreError(Exception):
@@ -22,8 +23,8 @@ class LocalReportStore:
     def __init__(self, root: Path) -> None:
         self._files = FilesystemRawStore(root)
 
-    def new_key(self, report_id: int) -> str:
-        return f"{FOLDER}/{report_id}-{uuid4().hex}.csv"
+    def new_key(self, report_id: int, fmt: ReportFormat) -> str:
+        return f"{FOLDER}/{report_id}-{uuid4().hex}.{fmt}"
 
     def path(self, key: str) -> Path:
         """The file of a key, checked twice: the key's shape, then that it stays in the root."""

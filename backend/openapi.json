@@ -2604,8 +2604,11 @@
             "$ref": "#/components/schemas/FindingFilterQuery"
           },
           "format": {
-            "const": "csv",
             "default": "csv",
+            "enum": [
+              "csv",
+              "pdf"
+            ],
             "title": "Format",
             "type": "string"
           },
@@ -3332,7 +3335,10 @@
             "title": "Finished At"
           },
           "format": {
-            "const": "csv",
+            "enum": [
+              "csv",
+              "pdf"
+            ],
             "title": "Format",
             "type": "string"
           },
@@ -6440,8 +6446,11 @@
             "$ref": "#/components/schemas/VulnerabilityFilterQuery"
           },
           "format": {
-            "const": "csv",
             "default": "csv",
+            "enum": [
+              "csv",
+              "pdf"
+            ],
             "title": "Format",
             "type": "string"
           },
@@ -9692,9 +9701,10 @@
         "responses": {
           "200": {
             "content": {
+              "application/pdf": {},
               "text/csv": {}
             },
-            "description": "The report's file."
+            "description": "The report's file, as its format says."
           },
           "422": {
             "content": {

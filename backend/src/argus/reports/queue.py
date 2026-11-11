@@ -162,7 +162,7 @@ def claim_report(conn: Connection) -> ClaimedReport | None:
           SELECT id FROM report_request WHERE status = 'queued'
           ORDER BY requested_at, id LIMIT 1 FOR UPDATE SKIP LOCKED
         )
-        RETURNING id, kind, format, filters, connection_ids
+        RETURNING id, kind, format, filters, connection_ids, requested_by
     """)
     ).first()
     return ClaimedReport(**row._mapping) if row else None

@@ -8,6 +8,8 @@
 #   runtime      /opt/venv only: no uv, no compilers, no dev tools, non-root. api, migrate.
 #   worker       runtime + the three collectors, unmodified and pinned (ADR-0001, ADR-0030).
 #                Compose's worker runs every tool, so its image carries them all.
+#   reports      runtime + the report renderer (ADR-0047): Jinja2 and WeasyPrint in their own
+#                venv, the libraries and fonts they need. No collector. Never the API's image.
 #   worker-steampipe, worker-prowler, worker-cloudfox
 #                runtime + one collector each, for Kubernetes scan Jobs (ADR-0046): a Job pulls
 #                only its own tool. Built from the same stages as worker. Test connection Jobs
@@ -15,6 +17,9 @@
 
 ARG PYTHON_IMAGE=python:3.13-slim-trixie@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.22@sha256:f513a91fc62fe7c17567eee97230dd198e43edb8a9fbecca843714a4358fe1bc
+# What the report renderer needs from Debian (WeasyPrint 70: Pango and HarfBuzz's subsetter), and
+# the two fonts of the design, found by family name. One list for every stage that renders.
+ARG RENDER_PACKAGES="libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 fonts-inter fonts-jetbrains-mono"
 
 FROM ${UV_IMAGE} AS uv
 
@@ -134,6 +139,33 @@ RUN set -eu; cd /tmp; \
     grep -v '^#' /tmp/lists/prowler_frameworks_aws.txt | grep . | diff -u - /tmp/installed-frameworks; \
     rm -rf /tmp/lists /tmp/installed-checks /tmp/installed-frameworks
 
+# The report renderer from its own lock (tools/report-render/uv.lock), in a venv apart from Argus's
+# so the API image never holds a PDF library (ADR-0047). The script and templates sit beside it.
+FROM uv-base AS report-render
+COPY tools/report-render/pyproject.toml tools/report-render/uv.lock /opt/report-render-project/
+RUN cd /opt/report-render-project \
+ && UV_PROJECT_ENVIRONMENT=/opt/report-render uv sync --frozen --no-dev --no-install-project \
+ && rm -rf /tmp/uv-cache
+COPY tools/report-render/render.py /opt/report-render/render.py
+COPY tools/report-render/templates /opt/report-render/templates
+
+# Kubernetes' report Job (round 5) and the scan of the renderer at the API's bar (HIGH). The build
+# proves the fonts resolve by name (DejaVu is there as a fallback, so a wrong name would pass
+# silently) and runs the renderer's self-test as the runtime user.
+FROM runtime AS reports
+ARG RENDER_PACKAGES
+USER root
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${RENDER_PACKAGES} \
+ && rm -rf /var/lib/apt/lists/*
+USER 10001:10001
+COPY --from=report-render /opt/report-render /opt/report-render
+RUN set -eu; export HOME=/tmp XDG_CACHE_HOME=/tmp; \
+    fc-match Inter | grep -q '"Inter"'; \
+    fc-match "JetBrains Mono" | grep -q '"JetBrains Mono"'; \
+    /opt/report-render/bin/python -I -B /opt/report-render/render.py --self-test; \
+    rm -rf /tmp/* /tmp/.[!.]*
+
 # What every image that runs a tool needs (ADR-0046).
 FROM runtime AS tool-base
 # CloudFox and Steampipe look up the user's home in the passwd entry, not $HOME, and write
@@ -161,7 +193,20 @@ FROM tool-base AS worker-cloudfox
 COPY --from=tools-fetch /usr/local/bin/cloudfox /usr/local/bin/
 RUN cloudfox --version && rm -rf /tmp/* /tmp/.[!.]*
 
-# Compose's worker: every tool (ADR-0030).
+# Compose's worker: every tool (ADR-0030), and the report renderer (ADR-0047), proved the same way
+# as in the reports image.
 FROM tool-base AS worker
+ARG RENDER_PACKAGES
+USER root
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ${RENDER_PACKAGES} \
+ && rm -rf /var/lib/apt/lists/*
+USER 10001:10001
 COPY --from=tools-fetch /usr/local/bin/cloudfox /usr/local/bin/steampipe_export_aws /usr/local/bin/
 COPY --from=prowler /opt/prowler /opt/prowler
+COPY --from=report-render /opt/report-render /opt/report-render
+RUN set -eu; export HOME=/tmp XDG_CACHE_HOME=/tmp; \
+    fc-match Inter | grep -q '"Inter"'; \
+    fc-match "JetBrains Mono" | grep -q '"JetBrains Mono"'; \
+    /opt/report-render/bin/python -I -B /opt/report-render/render.py --self-test; \
+    rm -rf /tmp/* /tmp/.[!.]*

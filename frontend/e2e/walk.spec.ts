@@ -790,7 +790,7 @@ test('edit connection: switch the sign-in method, both ways, both themes, phone 
 /** Operate -> Reports (ADR-0047): Export carries a list's filters; a report is requested, built by
  * the worker and downloaded. It writes one report (Demo accounts only), which expires in 7 days. */
 test('reports: export from a list, request, build, download; both themes, phone width', async ({ page }) => {
-  test.setTimeout(120_000)
+  test.setTimeout(240_000)
   await signIn(page)
   await page.goto('/investigate/misconfigurations?tab=list&severity=critical')
   await expect(page.getByRole('heading', { level: 1, name: 'Misconfigurations' })).toBeVisible()
@@ -828,6 +828,24 @@ test('reports: export from a list, request, build, download; both themes, phone 
   const download = page.waitForEvent('download')
   await link.click()
   expect((await download).suggestedFilename()).toBe(`argus-vulnerabilities-${id}.csv`)
+
+  // The PDF, drawn by the real renderer in the worker image (ADR-0047, round 2).
+  await page.getByRole('button', { name: 'New report' }).first().click()
+  const asking = page.getByRole('dialog', { name: 'New report' })
+  await asking.getByText('PDF: an audit hand-off to send').click()
+  await axe(page, 'new report modal, pdf')
+  await asking.getByRole('button', { name: 'Request report' }).click()
+  const pdfToast = page.getByRole('status').filter({ hasText: /Report #\d+ requested/ }).last()
+  await expect(pdfToast).toBeVisible()
+  const pdfId = (await pdfToast.textContent())?.match(/#(\d+)/)?.[1] ?? ''
+  const pdfLink = page.getByRole('link', { name: `Download report #${pdfId}` })
+  await expect(pdfLink).toBeVisible({ timeout: 90_000 })
+  const pdf = await page.request.get((await pdfLink.getAttribute('href')) ?? '')
+  expect(pdf.status()).toBe(200)
+  expect(pdf.headers()['content-type']).toBe('application/pdf')
+  expect(pdf.headers()['content-disposition']).toMatch(new RegExp(`filename="argus-misconfigurations-${pdfId}\\.pdf"`))
+  expect((await pdf.body()).subarray(0, 5).toString()).toBe('%PDF-')
+  await shot(page, '47-reports-pdf')
 
   await page.emulateMedia({ colorScheme: 'light' })
   await page.reload()

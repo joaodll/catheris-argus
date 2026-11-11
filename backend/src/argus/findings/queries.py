@@ -282,6 +282,30 @@ def get_finding(conn: Connection, finding_id: int) -> dict[str, Any] | None:
     return dict(row._mapping) if row else None
 
 
+def check_texts(
+    conn: Connection, keys: list[tuple[str, str]]
+) -> dict[tuple[str, str], dict[str, Any]]:
+    """What each tool says about each of these checks (description, risk, links and fix code), by
+    (tool, check_id). A report reads it once for the checks it lists, bounded by them. A check
+    the tool gave no text for (every CloudFox check) is absent."""
+    if not keys:
+        return {}
+    rows = conn.execute(
+        text("""
+        SELECT fc.tool, fc.check_id, fc.description, fc.risk, fc.links, fc.code_cli,
+               fc.code_native_iac, fc.code_terraform, fc.code_other
+        FROM finding_check_text fc
+        JOIN unnest(CAST(:t AS text[]), CAST(:c AS text[])) AS k(tool, check_id)
+          ON fc.tool = k.tool AND fc.check_id = k.check_id
+    """),
+        {"t": [t for t, _ in keys], "c": [c for _, c in keys]},
+    )
+    return {
+        (r.tool, r.check_id): {k: v for k, v in r._mapping.items() if k not in ("tool", "check_id")}
+        for r in rows
+    }
+
+
 @dataclass(frozen=True)
 class FindingFacets:
     regions: list[str]
