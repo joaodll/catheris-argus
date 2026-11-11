@@ -352,6 +352,14 @@ kubectl -n argus logs job/<name>
 A scan Job is deleted 10 minutes after it ends (`scanJobs.ttlSecondsAfterFinished`); after that, its
 logs are in your log pipeline or gone. The run itself stays on **Scans → Runs**.
 
+**The audit trail in the logs.** Every audit row is also a line with `"audit": true`: sign-ins and
+every change from the API, plus the bootstrap admin from migrate. Keep these lines in a log
+store the database's owner can't change; that copy is how a direct edit of the table is noticed.
+
+```bash
+kubectl -n argus logs deploy/argus-api --all-containers | grep '"audit": true'
+```
+
 **What the scheduler logs:**
 
 | Line | Meaning |

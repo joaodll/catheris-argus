@@ -187,6 +187,13 @@ docker compose logs -f worker
 docker compose logs --since 1h api
 ```
 
+Every audit row is also a line with `"audit": true`: who did what, from which address. The API
+writes most of them:
+
+```bash
+docker compose logs --no-log-prefix api | grep '"audit": true'
+```
+
 **A run that seems stuck.** A claimed run sends a heartbeat every 30 seconds. If the worker dies,
 its claims are requeued once they have been silent for 10 minutes, with a note in the request's
 error. Restarting the worker (`docker compose restart worker`) lets runs in progress finish first

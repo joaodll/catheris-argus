@@ -19,7 +19,9 @@ import getpass
 import sys
 
 from argus.auth import check_password, hash_password, reset_password
+from argus.core.config import get_settings
 from argus.core.db import get_engine
+from argus.core.logging import configure_logging
 from argus.core.secrets import new_key
 
 
@@ -54,6 +56,7 @@ def reset(username: str) -> int:
     password = _ask(username)
     if password is None:
         return 2
+    configure_logging(get_settings().log_level)  # the reset's audit line, like every other
     try:
         with get_engine().begin() as conn:
             reset_password(conn, username=username, password=password)
