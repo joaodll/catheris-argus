@@ -5,7 +5,7 @@ from datetime import date, timedelta
 
 from sqlalchemy import Engine, text
 
-from argus import auth, ingest, inventory, relationships
+from argus import auth, ingest, inventory, relationships, reports
 from argus.core.rawstore import FilesystemRawStore
 
 log = logging.getLogger("argus.retention")
@@ -17,6 +17,7 @@ class RetentionResult:
     configs_deleted: int
     demo_runs_pruned: int
     sign_in_rows_purged: int
+    report_files_deleted: int = 0
 
 
 def run_retention(
@@ -26,6 +27,7 @@ def run_retention(
     today: date,
     retention_days: int,
     demo_raw_days: int,
+    reports_store: reports.LocalReportStore | None = None,
 ) -> RetentionResult:
     cutoff = today - timedelta(days=retention_days)
     with engine.begin() as conn:
@@ -44,6 +46,9 @@ def run_retention(
         demo_paths = ingest.synthetic_raw_paths_before(
             conn, day=today - timedelta(days=demo_raw_days)
         )
+        # Reports past their expiry: the API already refuses them; only their files remain.
+        # Without a store (Kubernetes until reports go to S3) there are none to delete.
+        report_keys = reports.expired_files(conn) if reports_store is not None else []
     pruned = 0
     # No store: demo runs keep nothing on disk (a Kubernetes demo Job deletes its own).
     if store is not None:
@@ -52,7 +57,15 @@ def run_retention(
             if run_dir.exists():
                 shutil.rmtree(run_dir)  # synthetic output is regenerable from its seed
                 pruned += 1
-    result = RetentionResult(dropped, configs, pruned, sign_in_rows)
+    report_files = 0
+    if reports_store is not None:
+        for key in report_keys:
+            try:
+                report_files += reports_store.delete(key)
+            except (OSError, reports.ReportStoreError):
+                # Marked deleted already; the API refuses it by its expiry whatever stays.
+                log.warning("report file not deleted", extra={"storage_key": key})
+    result = RetentionResult(dropped, configs, pruned, sign_in_rows, report_files)
     log.info(
         "retention",
         extra={
@@ -60,6 +73,7 @@ def run_retention(
             "configs_deleted": configs,
             "demo_runs_pruned": pruned,
             "sign_in_rows_purged": sign_in_rows,
+            "report_files_deleted": report_files,
         },
     )
     return result

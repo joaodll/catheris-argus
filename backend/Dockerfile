@@ -65,12 +65,14 @@ COPY alembic.ini /opt/argus/alembic.ini
 COPY migrations /opt/argus/migrations
 # Relationship rules: versioned files the engines load at run time.
 COPY rules /opt/argus/rules
-# The raw archive in Compose (S3 later), and the worker's staging for AWS runs (ADR-0032).
+# The raw archive in Compose (S3 later), the worker's staging for AWS runs (ADR-0032), and
+# reports on Compose (ADR-0047: the worker writes them, the API reads them).
 # Created here so a fresh named volume inherits the runtime user's ownership instead of root's;
-# staging is owner-only, since it holds raw output until the upload ends.
-RUN mkdir -p /var/lib/argus /var/lib/argus-staging \
- && chown 10001:10001 /var/lib/argus /var/lib/argus-staging \
- && chmod 0700 /var/lib/argus-staging
+# staging and reports are owner-only: staging holds raw output until the upload ends, and a
+# report is a copy of the estate's weak points.
+RUN mkdir -p /var/lib/argus /var/lib/argus-staging /var/lib/argus-reports \
+ && chown 10001:10001 /var/lib/argus /var/lib/argus-staging /var/lib/argus-reports \
+ && chmod 0700 /var/lib/argus-staging /var/lib/argus-reports
 USER 10001:10001
 WORKDIR /home/argus
 # No CMD: each process (api, ingest, scheduler, retention) sets its own command.

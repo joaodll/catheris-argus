@@ -40,6 +40,10 @@ const LOOK: Record<string, { icon: IconName; text: string; tone: string }> = {
   user_inactive: { icon: 'blocked', text: 'Inactive', tone: 'idle' },
   user_locked: { icon: 'warning', text: 'Locked', tone: 'warn' },
   door_cloudfox_only: { icon: 'info', text: 'CloudFox only', tone: 'idle' },
+  // A report (Operate -> Reports, ADR-0047). Expired: the file is refused, never "deleted".
+  building: { icon: 'spinner', text: 'Building', tone: 'live' },
+  ready: { icon: 'check', text: 'Ready', tone: 'ok' },
+  expired: { icon: 'blocked', text: 'Expired', tone: 'idle' },
 }
 
 const look = computed(() => LOOK[props.status] ?? { icon: 'info' as IconName, text: props.status, tone: 'idle' })

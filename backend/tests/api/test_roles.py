@@ -35,6 +35,10 @@ OPERATOR = {
     ("POST", "/api/v1/run-requests"),
     ("POST", "/api/v1/run-requests/{request_id}/cancel"),
     ("PUT", "/api/v1/settings/collection"),
+    ("GET", "/api/v1/reports"),
+    ("POST", "/api/v1/reports"),
+    ("GET", "/api/v1/reports/{report_id}"),
+    ("GET", "/api/v1/reports/{report_id}/download"),
 }
 ADMIN = {
     ("GET", "/api/v1/settings"),

@@ -14,6 +14,7 @@ from sqlalchemy import Engine, text
 
 from argus.connections import checks
 from argus.core.rawstore import FilesystemRawStore
+from argus.reports import LocalReportStore
 from argus.retention import run_retention
 from argus.scheduling import claims, schedules
 from argus.settings import read_collection, read_retention
@@ -44,11 +45,17 @@ def maintain(engine: Engine, *, now: datetime) -> None:
 
 
 def daily_retention(
-    engine: Engine, *, store: FilesystemRawStore | None, today: date, done_on: date | None
+    engine: Engine,
+    *,
+    store: FilesystemRawStore | None,
+    today: date,
+    done_on: date | None,
+    reports_store: LocalReportStore | None = None,
 ) -> date | None:
     """Runs retention unless it already ran today in this process, or another process is
     running it now. Returns the day it last ran here. `store` is the Demo volume to prune;
-    None where demo runs keep nothing (a Kubernetes demo Job)."""
+    None where demo runs keep nothing (a Kubernetes demo Job). `reports_store` is where the
+    Compose worker keeps reports; None where this install keeps none."""
     if done_on == today:
         return done_on
     with engine.connect() as conn:
@@ -62,6 +69,7 @@ def daily_retention(
             run_retention(
                 engine,
                 store=store,
+                reports_store=reports_store,
                 today=today,
                 retention_days=retention.history_days,
                 demo_raw_days=retention.demo_raw_days,

@@ -58,6 +58,7 @@ export const router = createRouter({
       children: [
         { path: 'schedules', name: 'schedules', component: () => import('@/views/scans/SchedulesView.vue'), meta: { title: 'Schedules · Operate' } },
         { path: 'runs', name: 'runs', component: () => import('@/views/scans/RunsView.vue'), meta: { title: 'Runs · Operate' } },
+        { path: 'reports', name: 'reports', component: () => import('@/views/scans/ReportsView.vue'), meta: { title: 'Reports · Operate', role: 'operator' } },
       ],
     },
     {

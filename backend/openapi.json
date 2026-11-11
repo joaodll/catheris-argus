@@ -1483,6 +1483,210 @@
         "title": "FindingFacets",
         "type": "object"
       },
+      "FindingFilterQuery": {
+        "description": "The Findings list's filters: its query parameters, and a report's. A list parameter\nrepeats (`severity=high&severity=critical`) and matches any of its values; absent, it does\nnot filter.",
+        "properties": {
+          "category": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Category",
+            "type": "array"
+          },
+          "check_id": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Check Id",
+            "type": "array"
+          },
+          "connection_id": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "title": "Connection Id",
+            "type": "array"
+          },
+          "first_seen_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen From"
+          },
+          "first_seen_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen To"
+          },
+          "muted": {
+            "default": "any",
+            "enum": [
+              "any",
+              "hide",
+              "only"
+            ],
+            "title": "Muted",
+            "type": "string"
+          },
+          "new": {
+            "default": false,
+            "title": "New",
+            "type": "boolean"
+          },
+          "provider": {
+            "items": {
+              "enum": [
+                "aws",
+                "gcp",
+                "oci"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Provider",
+            "type": "array"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "reach": {
+            "items": {
+              "enum": [
+                "confirmed",
+                "restricted",
+                "unknown",
+                "not_covered"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Reach",
+            "type": "array"
+          },
+          "region": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Region",
+            "type": "array"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          },
+          "resource_type": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Resource Type",
+            "type": "array"
+          },
+          "service": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Service",
+            "type": "array"
+          },
+          "severity": {
+            "items": {
+              "enum": [
+                "critical",
+                "high",
+                "medium",
+                "low",
+                "informational"
+              ],
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Severity",
+            "type": "array"
+          },
+          "state": {
+            "default": "open",
+            "enum": [
+              "open",
+              "reopened",
+              "resolved",
+              "accepted_risk"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "status": {
+            "items": {
+              "enum": [
+                "FAIL",
+                "MANUAL"
+              ],
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Status",
+            "type": "array"
+          },
+          "tool": {
+            "items": {
+              "enum": [
+                "prowler",
+                "cloudfox"
+              ],
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Tool",
+            "type": "array"
+          }
+        },
+        "title": "FindingFilterQuery",
+        "type": "object"
+      },
       "FindingGroupOut": {
         "description": "One check of the findings matching the filters (the Findings list by check).",
         "properties": {
@@ -2394,6 +2598,29 @@
         "title": "LastRun",
         "type": "object"
       },
+      "MisconfigurationReportIn": {
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/FindingFilterQuery"
+          },
+          "format": {
+            "const": "csv",
+            "default": "csv",
+            "title": "Format",
+            "type": "string"
+          },
+          "kind": {
+            "const": "misconfigurations",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "MisconfigurationReportIn",
+        "type": "object"
+      },
       "MisconfigurationSummary": {
         "description": "Investigate → Misconfigurations → Summary, from stored counts only. Each account counts\nas of its latest scan, however old; disabled accounts are left out, as on the Overview.\nNull: no Prowler or CloudFox scan yet, never 0.",
         "properties": {
@@ -3030,6 +3257,221 @@
           "other"
         ],
         "title": "RemediationCode",
+        "type": "object"
+      },
+      "ReportOut": {
+        "properties": {
+          "connection_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Connection Ids",
+            "type": "array"
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "format": "date",
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "downloadable": {
+            "title": "Downloadable",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "expired": {
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "filters": {
+            "additionalProperties": true,
+            "title": "Filters",
+            "type": "object"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "format": {
+            "const": "csv",
+            "title": "Format",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "misconfigurations",
+              "vulnerabilities"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "requested_by": {
+            "title": "Requested By",
+            "type": "string"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "status": {
+            "enum": [
+              "queued",
+              "building",
+              "ready",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "format",
+          "filters",
+          "connection_ids",
+          "requested_by",
+          "status",
+          "requested_at",
+          "finished_at",
+          "expires_at",
+          "expired",
+          "downloadable",
+          "size_bytes",
+          "row_count",
+          "truncated",
+          "data_through",
+          "error"
+        ],
+        "title": "ReportOut",
+        "type": "object"
+      },
+      "ReportPage": {
+        "properties": {
+          "expiry_days": {
+            "title": "Expiry Days",
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReportOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "max_open": {
+            "title": "Max Open",
+            "type": "integer"
+          },
+          "row_cap": {
+            "title": "Row Cap",
+            "type": "integer"
+          },
+          "storage": {
+            "enum": [
+              "local",
+              "off"
+            ],
+            "title": "Storage",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "storage",
+          "row_cap",
+          "expiry_days",
+          "max_open"
+        ],
+        "title": "ReportPage",
+        "type": "object"
+      },
+      "ReportQueued": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "ReportQueued",
         "type": "object"
       },
       "RequirementCounts": {
@@ -5592,6 +6034,167 @@
         "title": "VulnerabilityFacets",
         "type": "object"
       },
+      "VulnerabilityFilterQuery": {
+        "description": "The Vulnerabilities list's filters: its query parameters, and a report's. A list\nparameter repeats and matches any of its values; absent, it does not filter.",
+        "properties": {
+          "check_id": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Check Id",
+            "type": "array"
+          },
+          "connection_id": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "title": "Connection Id",
+            "type": "array"
+          },
+          "exploitable": {
+            "default": false,
+            "title": "Exploitable",
+            "type": "boolean"
+          },
+          "first_seen_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen From"
+          },
+          "first_seen_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen To"
+          },
+          "fix": {
+            "default": "any",
+            "enum": [
+              "any",
+              "available",
+              "none"
+            ],
+            "title": "Fix",
+            "type": "string"
+          },
+          "muted": {
+            "default": "any",
+            "enum": [
+              "any",
+              "hide",
+              "only"
+            ],
+            "title": "Muted",
+            "type": "string"
+          },
+          "new": {
+            "default": false,
+            "title": "New",
+            "type": "boolean"
+          },
+          "provider": {
+            "items": {
+              "enum": [
+                "aws",
+                "gcp",
+                "oci"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Provider",
+            "type": "array"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "region": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Region",
+            "type": "array"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          },
+          "resource_type": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Resource Type",
+            "type": "array"
+          },
+          "severity": {
+            "items": {
+              "enum": [
+                "critical",
+                "high",
+                "medium",
+                "low",
+                "informational"
+              ],
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Severity",
+            "type": "array"
+          },
+          "state": {
+            "default": "open",
+            "enum": [
+              "open",
+              "reopened",
+              "resolved",
+              "accepted_risk"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "title": "VulnerabilityFilterQuery",
+        "type": "object"
+      },
       "VulnerabilityFixItem": {
         "description": "Open vulnerabilities by whether a fix exists: `available` and `none` are the list's fix\nfilter; `unknown` (the scanner does not say) has none.",
         "properties": {
@@ -5829,6 +6432,29 @@
           "reference_url"
         ],
         "title": "VulnerabilityOut",
+        "type": "object"
+      },
+      "VulnerabilityReportIn": {
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/VulnerabilityFilterQuery"
+          },
+          "format": {
+            "const": "csv",
+            "default": "csv",
+            "title": "Format",
+            "type": "string"
+          },
+          "kind": {
+            "const": "vulnerabilities",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "VulnerabilityReportIn",
         "type": "object"
       },
       "VulnerabilitySection": {
@@ -7443,29 +8069,6 @@
         "parameters": [
           {
             "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
             "name": "connection_id",
             "required": false,
             "schema": {
@@ -7749,6 +8352,29 @@
                 }
               ],
               "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
             }
           },
           {
@@ -7947,29 +8573,6 @@
         "parameters": [
           {
             "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
             "name": "connection_id",
             "required": false,
             "schema": {
@@ -8253,6 +8856,29 @@
                 }
               ],
               "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
             }
           },
           {
@@ -8697,6 +9323,393 @@
         "summary": "Ready",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/reports": {
+      "get": {
+        "description": "Newest first: the user's own reports, or everyone's for an Admin.",
+        "operationId": "list_reports_api_v1_reports_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Reports",
+        "tags": [
+          "reports"
+        ]
+      },
+      "post": {
+        "description": "Queues a report over the list's filters. Refused (422, with a sentence) where this\ninstall keeps no reports, when no account matches, when an account is a real AWS\nconnection on a local store, or when the user has too many reports being built.",
+        "operationId": "request_report_api_v1_reports_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "discriminator": {
+                  "mapping": {
+                    "misconfigurations": "#/components/schemas/MisconfigurationReportIn",
+                    "vulnerabilities": "#/components/schemas/VulnerabilityReportIn"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/MisconfigurationReportIn"
+                  },
+                  {
+                    "$ref": "#/components/schemas/VulnerabilityReportIn"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportQueued"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Request Report",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/v1/reports/{report_id}": {
+      "get": {
+        "operationId": "get_report_api_v1_reports__report_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Report",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/v1/reports/{report_id}/download": {
+      "get": {
+        "description": "The report's file, as an attachment. The key comes from the row only, and resolves\ninside the reports folder or is refused. The database connection is released before the\nfile streams, so a slow download never holds a slot of the API's capped pool.",
+        "operationId": "download_report_api_v1_reports__report_id__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "report_id",
+            "required": true,
+            "schema": {
+              "title": "Report Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "The report's file."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Report",
+        "tags": [
+          "reports"
         ]
       }
     },
@@ -11493,29 +12506,6 @@
         "parameters": [
           {
             "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
             "name": "connection_id",
             "required": false,
             "schema": {
@@ -11741,6 +12731,29 @@
                 }
               ],
               "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
             }
           },
           {
@@ -11939,29 +12952,6 @@
         "parameters": [
           {
             "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
             "name": "connection_id",
             "required": false,
             "schema": {
@@ -12187,6 +13177,29 @@
                 }
               ],
               "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
             }
           },
           {

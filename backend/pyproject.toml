@@ -97,7 +97,7 @@ layers = [
     "(argus.entrypoints)",
     "(argus.api)",
     "(argus.scheduling)",
-    "(argus.collection) : (argus.ingest) : (argus.retention)",
+    "(argus.collection) : (argus.ingest) : (argus.retention) : (argus.reports)",
     "(argus.cloudfox) : (argus.auth)",
     "(argus.findings) : (argus.relationships)",
     "(argus.inventory) : (argus.connections) : (argus.metrics) : (argus.settings)",

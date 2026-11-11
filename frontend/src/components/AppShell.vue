@@ -17,10 +17,11 @@ import type { IconName } from './icons'
 const route = useRoute()
 const router = useRouter()
 
-// `role`: shown only to that role and above (ADR-0041); the router refuses the page anyway.
+// `role` (a module's child or an item): shown only to that role and above (ADR-0041); the router
+// refuses the page anyway.
 type Child = { name: string; label: string; icon: IconName; role?: Role }
 type Entry =
-  | { kind: 'item'; name: string; label: string; icon: IconName }
+  | { kind: 'item'; name: string; label: string; icon: IconName; role?: Role }
   | { kind: 'section'; label: string }
   | { kind: 'module'; id: string; label: string; icon: IconName; children: Child[] }
 
@@ -35,6 +36,7 @@ const NAV: Entry[] = [
   { kind: 'section', label: 'Operate' },
   { kind: 'item', name: 'schedules', label: 'Schedules', icon: 'calendar' },
   { kind: 'item', name: 'runs', label: 'Runs', icon: 'scans' },
+  { kind: 'item', name: 'reports', label: 'Reports', icon: 'report', role: 'operator' },
   { kind: 'section', label: 'Administration' },
   {
     kind: 'module',
@@ -49,7 +51,9 @@ const NAV: Entry[] = [
   },
 ]
 const nav = computed(() =>
-  NAV.map((e) => (e.kind === 'module' ? { ...e, children: e.children.filter((c) => !c.role || can(c.role)) } : e)),
+  NAV.filter((e) => e.kind !== 'item' || !e.role || can(e.role)).map((e) =>
+    e.kind === 'module' ? { ...e, children: e.children.filter((c) => !c.role || can(c.role)) } : e,
+  ),
 )
 const roleLabel = computed(() => (session.value ? ROLE_LABEL[session.value.role] : ''))
 const displayName = computed(() => session.value?.display_name || username.value)

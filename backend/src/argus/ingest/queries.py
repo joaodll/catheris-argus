@@ -98,6 +98,26 @@ def data_through(
     return found
 
 
+def data_through_by_connection(
+    conn: Connection, *, connection_ids: Sequence[int], tools: Sequence[str]
+) -> dict[int, date]:
+    """data_through() per connection: the newest day an ingested run of these tools covers, for
+    each of these connections that has one. A report records it per account."""
+    if not connection_ids:
+        return {}
+    rows = conn.execute(
+        text("""
+        SELECT connection_id, max(snapshot_date) AS day FROM scan_run
+        WHERE connection_id = ANY(CAST(:c AS bigint[]))
+          AND tool = ANY(CAST(:t AS text[]))
+          AND status IN ('complete', 'partial') AND ingested_at IS NOT NULL
+        GROUP BY connection_id
+    """),
+        {"c": list(connection_ids), "t": list(tools)},
+    )
+    return {r.connection_id: r.day for r in rows}
+
+
 def synthetic_raw_paths_before(conn: Connection, *, day: date) -> list[str]:
     """Raw paths of ingested synthetic runs older than `day`: regenerable from their seed, so
     retention may prune them sooner than real output."""

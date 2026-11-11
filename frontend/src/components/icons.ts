@@ -34,6 +34,9 @@ export type IconName =
   | 'key'
   | 'users'
   | 'external'
+  // Operate -> Reports, and a file to save.
+  | 'report'
+  | 'download'
   // The theme button (Light, Dark, System).
   | 'sun'
   | 'moon'

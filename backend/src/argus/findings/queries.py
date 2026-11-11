@@ -2,6 +2,7 @@
 resource. Filters are plain columns (most take several values, any of which matches); the search
 is a contains match on three text columns."""
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
@@ -79,6 +80,8 @@ _SELECT = f"""
                f.state, f.first_seen, f.last_seen, f.resolved_on, f.reach, f.reach_reason,
                f.resource_name AS reported_resource_name, f.detail
         FROM finding f JOIN ({DIRECTORY_SQL}) c ON c.id = f.connection_id"""  # noqa: S608
+# The same columns plus the connection's account id: what an export names each row by.
+_SELECT_WITH_ACCOUNT = _SELECT.replace("c.provider,", "c.provider, c.account_id,", 1)
 
 
 @dataclass(frozen=True)
@@ -167,6 +170,37 @@ def list_findings(
         params,
     ).scalar_one()
     return [dict(r._mapping) for r in rows], int(total)
+
+
+def iter_findings(
+    conn: Connection, filters: FindingFilters, *, batch: int = 1000
+) -> Iterator[list[dict[str, Any]]]:
+    """Every finding matching the filters, in batches of at most `batch`, ordered by id (a
+    keyset, so each batch is one index range whatever the total). Each row is a list row plus
+    the connection's account id. A report reads it inside one REPEATABLE READ transaction, so
+    the batches together are one state of the table."""
+    params = _params(filters)
+    after = 0
+    while True:
+        rows = [
+            dict(r._mapping)
+            for r in conn.execute(
+                text(f"""
+                {_SELECT_WITH_ACCOUNT}
+                {_FILTERS}
+                  AND f.id > :after
+                ORDER BY f.id
+                LIMIT :l
+            """),
+                {**params, "after": after, "l": batch},
+            )
+        ]
+        if not rows:
+            return
+        yield rows
+        if len(rows) < batch:
+            return
+        after = rows[-1]["id"]
 
 
 # Findings by check: worst first, then the checks with the most findings. Over `per`, the

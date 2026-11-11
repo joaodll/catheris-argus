@@ -17,10 +17,12 @@ the rollup, every day for 180 days: the worst case, as real accounts are counted
 """
 
 import math
+import resource
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -33,6 +35,7 @@ from argus import (
     inventory,
     metrics,
     relationships,
+    reports,
     scheduling,
 )
 from argus.metrics.series import calendar_months
@@ -485,16 +488,44 @@ def estate(migrated: Engine) -> Engine:
             text(
                 "TRUNCATE connection, scan_run, resource, resource_config, edge, "
                 "audit_log, metric_daily, compliance_requirement, schedule, "
-                "platform_setting RESTART IDENTITY CASCADE"
+                "platform_setting, report_request RESTART IDENTITY CASCADE"
             )
         )
         _generate(conn)
+        _reports(conn)
     # A steady-state database: the first reads of freshly inserted rows would otherwise pay
     # for setting their hint bits and flushing the load, and time that instead of the query.
     with migrated.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         conn.execute(text("VACUUM (ANALYZE)"))
         conn.execute(text("CHECKPOINT"))
     return migrated
+
+
+def _reports(conn: Connection) -> int:
+    """Reports (ADR-0047): 20,000 requests over the estate's life, 2,000 of them one Operator's
+    (the rest from users since deleted). Returns that Operator's id."""
+    operator: int = conn.execute(
+        text("""
+        INSERT INTO app_user (username, password_hash, role, created_by, updated_by)
+        VALUES ('budget-operator', 'x', 'operator', 'b', 'b')
+        ON CONFLICT (username) DO UPDATE SET role = 'operator'
+        RETURNING id
+    """)
+    ).scalar_one()
+    conn.execute(
+        text("""
+        INSERT INTO report_request (kind, format, filters, connection_ids, requested_by_id,
+                                    requested_by, status, requested_at, started_at,
+                                    finished_at, error)
+        SELECT (ARRAY['misconfigurations','vulnerabilities'])[1 + g % 2], 'csv', '{}',
+               ARRAY[1 + g % :n], CASE WHEN g % 10 = 0 THEN CAST(:u AS bigint) END,
+               'someone', 'failed', ts, ts, ts, 'old'
+        FROM generate_series(1, 20000) g,
+             LATERAL (SELECT now() - make_interval(mins => g * 13) AS ts) t
+    """),
+        {"n": ACCOUNTS, "u": operator},
+    )
+    return operator
 
 
 def _p95_ms(engine: Engine, query: Callable[[Connection], Any]) -> float:
@@ -849,7 +880,21 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "vulnerabilities: summary, fix available": lambda c: findings.list_findings(
         c, limit=20, offset=0, filters=replace(VULNERABILITY_SUMMARY_FILTERS, fix="available")
     ),
+    # Operate -> Reports (ADR-0047): an Admin's list of everyone's, and an Operator's own.
+    "reports, an admin's list": lambda c: reports.list_reports(
+        c, user_id=0, all_users=True, limit=20, offset=0
+    ),
+    "reports, an operator's own, a later page": lambda c: reports.list_reports(
+        c, user_id=_operator(c), all_users=False, limit=20, offset=100
+    ),
 }
+
+
+def _operator(conn: Connection) -> int:
+    found: int = conn.execute(
+        text("SELECT id FROM app_user WHERE username = 'budget-operator'")
+    ).scalar_one()
+    return found
 
 
 @pytest.mark.parametrize("name", list(QUERIES))
@@ -1055,3 +1100,41 @@ def test_the_vulnerability_counts_of_one_account_stay_cheap_to_write(estate: Eng
             transaction.rollback()
     print(f"vulnerabilities: one account's counts and the rollup: {elapsed:.1f} ms")
     assert elapsed < WRITER_BOUND_MS
+
+
+@pytest.mark.parametrize(
+    ("label", "connection_ids"), [("one account", [2]), ("every account", list(range(1, 37)))]
+)
+def test_an_export_is_measured(
+    estate: Engine, tmp_path: Path, label: str, connection_ids: list[int]
+) -> None:
+    """A report of every open misconfiguration (ADR-0047), built as the worker builds it: not a
+    300 ms query, so it is measured and recorded rather than held to the budget. The bound only
+    catches a regression by an order of magnitude."""
+    with estate.begin() as conn:
+        conn.execute(text("DELETE FROM report_request WHERE status <> 'failed'"))
+        conn.execute(
+            text(
+                "INSERT INTO report_request (kind, format, filters, connection_ids, requested_by) "
+                "VALUES ('misconfigurations', 'csv', '{}', CAST(:c AS bigint[]), 'budget')"
+            ),
+            {"c": connection_ids},
+        )
+    before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    start = time.perf_counter()
+    assert reports.build_pending(estate, store=reports.LocalReportStore(tmp_path))
+    seconds = time.perf_counter() - start
+    after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    with estate.connect() as conn:
+        status, rows, size = conn.execute(
+            text(
+                "SELECT status, row_count, size_bytes FROM report_request "
+                "WHERE status <> 'failed' OR requested_by = 'budget'"
+            )
+        ).one()
+    print(
+        f"export, {label}: {rows} rows, {size / 1e6:.1f} MB in {seconds:.1f} s; "
+        f"peak RSS {after / 1024:.0f} MiB (before {before / 1024:.0f} MiB)"
+    )
+    assert status == "ready" and rows > 0
+    assert seconds < 600

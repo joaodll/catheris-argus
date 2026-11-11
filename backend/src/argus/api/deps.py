@@ -97,8 +97,20 @@ class RoleCheck:
         return user.username
 
 
+class RoleUser(RoleCheck):
+    """RoleCheck for a route that also needs who the user is (their id and role), not only the
+    name it records: reports keep ownership by user id (ADR-0047)."""
+
+    def __call__(  # type: ignore[override]
+        self, request: Request, conn: Db, user: CurrentUser
+    ) -> SessionUser:
+        super().__call__(request, conn, user)
+        return user
+
+
 # Every route but health, readiness and sign-in declares one of these, or CurrentUser
 # (tests/api/test_roles.py fails on a route that declares none).
 Viewer = Annotated[str, Depends(RoleCheck("viewer"))]
 Operator = Annotated[str, Depends(RoleCheck("operator"))]
 Admin = Annotated[str, Depends(RoleCheck("admin"))]
+OperatorUser = Annotated[SessionUser, Depends(RoleUser("operator"))]

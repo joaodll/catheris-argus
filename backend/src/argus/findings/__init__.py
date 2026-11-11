@@ -7,6 +7,7 @@ Public interface:
     parse_prowler()     the Prowler adapter: one run's raw files -> ProwlerBatch (pure)
     load_prowler()      lifecycle + day snapshots for one connection and day
     list_findings(), finding_facets(), open_finding_counts()   the read side (Findings page)
+    iter_findings()     every finding matching the list's filters, in id batches (reports)
     finding_groups()    the Findings list by check
     framework_catalog(), list_requirements()                   the read side (Compliance page)
     carry_forward_compliance(), rederive_scores()              a failed Prowler run (ingest)
@@ -74,6 +75,7 @@ from argus.findings.queries import (
     finding_facets,
     finding_groups,
     get_finding,
+    iter_findings,
     list_findings,
     open_finding_counts,
 )
@@ -135,6 +137,7 @@ __all__ = [
     "finding_groups",
     "framework_catalog",
     "get_finding",
+    "iter_findings",
     "list_findings",
     "list_requirements",
     "load_commands",

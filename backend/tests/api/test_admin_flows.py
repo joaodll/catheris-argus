@@ -17,6 +17,7 @@ from sqlalchemy import Engine, text
 from tests.api.conftest import csrf
 from tests.ingest.conftest import RULES_DIR, make_demo, run_tool
 
+from argus import reports
 from argus.collection import TOOL_ORDER
 from argus.core.config import get_settings
 from argus.core.logging import JsonFormatter
@@ -212,12 +213,39 @@ def test_a_temporary_identity_key_needs_its_session_token(
 
 
 # --------------------------------------------------------------- gate check 11
+@pytest.fixture
+def reports_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Where this install keeps reports (ADR-0047)."""
+    root = tmp_path / "reports-root"
+    root.mkdir()
+    monkeypatch.setenv("ARGUS_REPORTS_ROOT", str(root))
+    get_settings.cache_clear()
+    return root
+
+
+def _sweep_reports(client: TestClient, worker: Engine, root: Path, bodies: dict[str, str]) -> None:
+    """Every open finding and CVE as a report: the list, each report, and each file."""
+    for kind in ("misconfigurations", "vulnerabilities"):
+        asked = client.post("/api/v1/reports", headers=csrf(client), json={"kind": kind})
+        assert asked.status_code == 202, asked.text
+        assert reports.build_pending(worker, store=reports.LocalReportStore(root))
+        for path in (
+            f"/api/v1/reports/{asked.json()['id']}",
+            f"/api/v1/reports/{asked.json()['id']}/download",
+        ):
+            response = client.get(path)
+            assert response.status_code == 200, (path, response.text)
+            bodies[path] = response.text
+    bodies["/api/v1/reports"] = client.get("/api/v1/reports").text
+
+
 def test_no_planted_secret_reaches_any_api_response_or_log(
     signed_in: TestClient,
     owner: Engine,
     worker: Engine,
     store: FilesystemRawStore,
     caplog: pytest.LogCaptureFixture,
+    reports_root: Path,
 ) -> None:
     caplog.set_level(logging.DEBUG)
     target = make_demo(owner)
@@ -287,6 +315,8 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
                 bodies[path] = signed_in.get(path).text
             offset, total = offset + 200, page["total"]
 
+    _sweep_reports(signed_in, worker, reports_root, bodies)
+
     tested = signed_in.post("/api/v1/settings/identity/test", headers=csrf(signed_in)).json()
     path = f"/api/v1/connection-tests/{tested['id']}"
     bodies[path] = signed_in.get(path).text
@@ -301,6 +331,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     swept = {re.sub(r"/resources/\d+$", "/resources/{resource_id}", p) for p in swept}
     swept = {re.sub(r"/findings/\d+$", "/findings/{finding_id}", p) for p in swept}
     swept = {re.sub(r"/connection-tests/\d+$", "/connection-tests/{test_id}", p) for p in swept}
+    swept = {re.sub(r"/reports/\d+", "/reports/{report_id}", p) for p in swept}
     swept = {re.sub(r"/compliance/cis_6\.0_aws", "/compliance/{framework}", p) for p in swept}
     assert routes == swept
 

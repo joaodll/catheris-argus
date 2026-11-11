@@ -15,6 +15,7 @@ reason, instead of being skipped silently.
 from argus.ingest.pipeline import IngestOutcome, ingest_run, register_failed_run, register_run
 from argus.ingest.queries import (
     data_through,
+    data_through_by_connection,
     last_runs,
     list_runs,
     synthetic_raw_paths_before,
@@ -25,6 +26,7 @@ __all__ = [
     "REDERIVE_CONNECTIONS",
     "IngestOutcome",
     "data_through",
+    "data_through_by_connection",
     "ingest_run",
     "last_runs",
     "list_runs",

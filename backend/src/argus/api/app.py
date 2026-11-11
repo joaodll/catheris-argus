@@ -13,6 +13,7 @@ from argus.api.routes import (
     findings,
     health,
     overview,
+    reports,
     resources,
     runs,
     schedules,
@@ -116,6 +117,7 @@ def create_app() -> FastAPI:
         vulnerabilities.router,
         compliance.router,
         resources.router,
+        reports.router,
         users.router,
     ):
         app.include_router(router, prefix=API_PREFIX)
