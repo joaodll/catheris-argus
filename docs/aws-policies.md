@@ -50,7 +50,10 @@ Only the service account `<release>-run` has a cloud identity, `argus-run` for a
 ### Permissions
 
 This policy is the only control on where raw output goes, because the bucket is a setting in the UI,
-so don't make it broader.
+so don't make it broader. Argus doesn't ask S3 to confirm who owns the bucket. To have AWS refuse a
+bucket outside your control, add a condition to `ArgusRawOutput`: `s3:ResourceAccount` set to the
+account that owns the bucket, or `aws:ResourceOrgID` set to your organization's id when the bucket
+may sit in any of its accounts.
 
 ```json
 {

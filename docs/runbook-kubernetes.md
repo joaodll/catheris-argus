@@ -441,6 +441,25 @@ refused sign-in means.
   release notes for fields added to PodSpec, Container and JobSpec. Refuse any new one in
   `templates/collectors/admission-policy.yaml`, and add a case to `BAD_JOBS` in
   `deploy/kind/run.sh`.
+- **Limit what DNS looks up outside the cluster.** `networkPolicy.dns` lets every pod query the
+  cluster's DNS, and it forwards outside names to the VPC's resolver. So even a pod with no route
+  out, such as the API, could leak data in the names it asks for
+  ([security model](security-model.md#known-limits)). The chart can't stop this: the pods need
+  that DNS for cluster names, AWS endpoints and an external database. Close it in one of two
+  places:
+  - **Route 53 Resolver DNS Firewall** on the cluster's VPC: a rule group that allows the domains
+    you trust and blocks the rest. Argus needs `amazonaws.com`, which covers STS, S3, VPC endpoint
+    names and an RDS hostname. Names inside the cluster are answered by its own DNS and never
+    reach the firewall. The firewall applies to everything in the VPC, nodes and other workloads
+    included, so list what they need too: image registries, for example. Start with the Alert
+    action, read the resolver's query log across a full scan cycle, then switch to Block.
+  - **The cluster's CoreDNS:** forward only the zones you trust, each in its own server block, and
+    answer every other name locally instead of forwarding it. This also applies to the whole
+    cluster.
+
+  Either way, the list needs upkeep: a new AWS service, registry or tool that needs another domain
+  fails until it is added. This advice is reasoned from the AWS and CoreDNS documentation, not
+  tested with Argus.
 - **Before changing the chart**, run the checks:
 
   ```bash
