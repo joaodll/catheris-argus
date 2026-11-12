@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block body %}
+{% if ctx.blocks %}<h2 class="section" style="page-break-before: always">Checks to fix</h2>{% endif %}
+{% for b in ctx.blocks %}
+<section class="block">
+  <div class="block-head">
+    <table class="block-title"><tr>
+      <td style="width:1%">{{ m.pill(b.severity) }}</td>
+      <td class="t">{{ b.title }}</td>
+      <td class="id">{{ b.tool }} · {{ b.check_id }}</td>
+    </tr></table>
+    <div class="caption">{{ b.count | num }} findings · {{ b.accounts | num }} accounts · {{ b.rows | length | num }} listed</div>
+    <div class="label">Risk</div>
+    {% if b.risk %}<p class="prose">{{ b.risk }}</p>
+    {% elif b.description %}<p class="prose">{{ b.description }}</p>
+    {% elif b.tool == "cloudfox" %}<p class="prose missing">CloudFox gives no risk text: see the check's title.</p>
+    {% else %}<p class="prose missing">The tool gives no risk text for this check.</p>{% endif %}
+  </div>
+  {{ m.fix(b) }}
+  {{ m.resources(b) }}
+</section>
+{% endfor %}
+{% endblock %}

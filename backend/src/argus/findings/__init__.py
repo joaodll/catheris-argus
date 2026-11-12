@@ -8,6 +8,7 @@ Public interface:
     load_prowler()      lifecycle + day snapshots for one connection and day
     list_findings(), finding_facets(), open_finding_counts()   the read side (Findings page)
     iter_findings()     every finding matching the list's filters, in id batches (reports)
+    check_texts()       each listed check's risk, description and fix code (reports)
     finding_groups()    the Findings list by check
     framework_catalog(), list_requirements()                   the read side (Compliance page)
     carry_forward_compliance(), rederive_scores()              a failed Prowler run (ingest)
@@ -72,6 +73,7 @@ from argus.findings.queries import (
     FixFilter,
     MisconfigurationLevel,
     MutedFilter,
+    check_texts,
     finding_facets,
     finding_groups,
     get_finding,
@@ -132,6 +134,7 @@ __all__ = [
     "VulnerabilityFacts",
     "VulnerabilityLevel",
     "carry_forward_compliance",
+    "check_texts",
     "commands_for_resource",
     "finding_facets",
     "finding_groups",

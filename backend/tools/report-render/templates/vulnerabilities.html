@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{% block body %}
+{% if ctx.blocks %}<h2 class="section" style="page-break-before: always">Vulnerabilities to fix</h2>{% endif %}
+{% for b in ctx.blocks %}
+{% set f = b.facts %}
+<section class="block">
+  <div class="block-head">
+    <table class="block-title"><tr>
+      <td style="width:1%">{{ m.pill(b.severity) }}</td>
+      <td class="t mono">{{ f.cve or b.check_id }}</td>
+      <td class="id">{{ b.title }}</td>
+    </tr></table>
+    <div class="caption">{{ b.count | num }} resources · {{ b.accounts | num }} accounts · {{ b.rows | length | num }} listed</div>
+    <table class="facts"><tr>
+      <td><span class="label">CVSS</span><span class="value">{{ f.cvss if f.cvss is not none else "—" }}</span></td>
+      <td><span class="label">EPSS</span><span class="value">{% if f.epss is not none %}{{ "%.1f" | format(f.epss * 100) }}%{% else %}—{% endif %}</span></td>
+      <td><span class="label">Public exploit</span><span class="value">{% if f.exploit %}<span class="sev-critical">Yes</span>{% else %}No{% endif %}</span></td>
+      <td><span class="label">Package</span><span class="value">{{ f.package or "—" }}</span></td>
+      <td><span class="label">Installed</span><span class="value">{{ f.installed or "—" }}</span></td>
+      <td><span class="label">Fixed in</span><span class="value">{% if f.fixed %}{{ f.fixed }}{% else %}<span class="missing">no fix yet</span>{% endif %}</span></td>
+    </tr></table>
+    <div class="label">Description</div>
+    {% if b.description %}<p class="prose">{{ b.description }}</p>
+    {% else %}<p class="prose missing">The scanner gives no description.</p>{% endif %}
+  </div>
+  {{ m.fix(b) }}
+  {{ m.resources(b, installed=true) }}
+</section>
+{% endfor %}
+{% endblock %}

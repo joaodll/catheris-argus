@@ -8,6 +8,7 @@ the worker picks it up because it re-reads Postgres on every tick and every clai
 import json
 import logging
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from argus.core.config import get_settings
 from argus.core.logging import JsonFormatter
 from argus.core.rawstore import FilesystemRawStore
 from argus.entrypoints import seed
+from argus.reports import pdf as report_pdf
 from argus.scheduling import maintenance, runner
 
 pytestmark = pytest.mark.db
@@ -213,22 +215,46 @@ def test_a_temporary_identity_key_needs_its_session_token(
 
 
 # --------------------------------------------------------------- gate check 11
+@dataclass
+class _Reports:
+    root: Path
+    contexts: list[str]  # each PDF context, as the JSON that crosses into the renderer
+
+
 @pytest.fixture
-def reports_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Where this install keeps reports (ADR-0047)."""
+def reports_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Reports:
+    """Where this install keeps reports (ADR-0047), and the PDF renderer stubbed: it lives in the
+    reports image, and what it is given is what could carry a secret into a PDF."""
     root = tmp_path / "reports-root"
     root.mkdir()
     monkeypatch.setenv("ARGUS_REPORTS_ROOT", str(root))
     get_settings.cache_clear()
-    return root
+    contexts: list[str] = []
+
+    def render(context: dict[str, object]) -> bytes:
+        contexts.append(json.dumps(context))
+        return b"%PDF-1.7\n"
+
+    monkeypatch.setattr(report_pdf, "render", render)
+    return _Reports(root, contexts)
 
 
-def _sweep_reports(client: TestClient, worker: Engine, root: Path, bodies: dict[str, str]) -> None:
-    """Every open finding and CVE as a report: the list, each report, and each file."""
-    for kind in ("misconfigurations", "vulnerabilities"):
-        asked = client.post("/api/v1/reports", headers=csrf(client), json={"kind": kind})
+def _sweep_reports(
+    client: TestClient, worker: Engine, setup: _Reports, bodies: dict[str, str]
+) -> None:
+    """Every open finding and CVE as a report, CSV and PDF: the list, each report, each file, and
+    each PDF's context."""
+    for kind, fmt in (
+        ("misconfigurations", "csv"),
+        ("vulnerabilities", "csv"),
+        ("misconfigurations", "pdf"),
+        ("vulnerabilities", "pdf"),
+    ):
+        asked = client.post(
+            "/api/v1/reports", headers=csrf(client), json={"kind": kind, "format": fmt}
+        )
         assert asked.status_code == 202, asked.text
-        assert reports.build_pending(worker, store=reports.LocalReportStore(root))
+        assert reports.build_pending(worker, store=reports.LocalReportStore(setup.root))
         for path in (
             f"/api/v1/reports/{asked.json()['id']}",
             f"/api/v1/reports/{asked.json()['id']}/download",
@@ -237,6 +263,8 @@ def _sweep_reports(client: TestClient, worker: Engine, root: Path, bodies: dict[
             assert response.status_code == 200, (path, response.text)
             bodies[path] = response.text
     bodies["/api/v1/reports"] = client.get("/api/v1/reports").text
+    assert len(setup.contexts) == 2
+    assert not any(MARKERS.search(context) for context in setup.contexts)
 
 
 def test_no_planted_secret_reaches_any_api_response_or_log(
@@ -245,7 +273,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     worker: Engine,
     store: FilesystemRawStore,
     caplog: pytest.LogCaptureFixture,
-    reports_root: Path,
+    reports_root: _Reports,
 ) -> None:
     caplog.set_level(logging.DEBUG)
     target = make_demo(owner)

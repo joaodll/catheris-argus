@@ -16,12 +16,13 @@ The Investigate summaries' rows (misconfigurations.*, vulnerabilities.*) for eve
 the rollup, every day for 180 days: the worst case, as real accounts are counted on scan days.
 """
 
+import json
 import math
 import resource
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +40,7 @@ from argus import (
     scheduling,
 )
 from argus.metrics.series import calendar_months
+from argus.reports import pdf as report_pdf
 
 pytestmark = [pytest.mark.db, pytest.mark.budget]
 BUDGET_MS = 300.0
@@ -1138,3 +1140,39 @@ def test_an_export_is_measured(
     )
     assert status == "ready" and rows > 0
     assert seconds < 600
+
+
+@pytest.mark.parametrize(
+    ("label", "connection_ids"), [("one account", [2]), ("every account", list(range(1, 37)))]
+)
+def test_a_pdf_context_is_measured(estate: Engine, label: str, connection_ids: list[int]) -> None:
+    """The data side of a PDF report (ADR-0047, round 2): read every matching finding, keep the
+    capped list, read the check texts, build the context. The render side is bounded by the caps,
+    not the estate, and is measured in the reports image (render.py --measure)."""
+    filters = findings.FindingFilters(
+        connection_ids=tuple(connection_ids), tools=("prowler", "cloudfox")
+    )
+    before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    start = time.perf_counter()
+    with estate.connect() as conn:
+        collected = report_pdf.collect(conn, "misconfigurations", filters)
+        context = report_pdf.build_context(
+            collected,
+            report_id=1,
+            kind="misconfigurations",
+            requested_by="budget",
+            generated_at=datetime(2026, 10, 3, tzinfo=UTC),
+            scope_words=label,
+            severities_in_scope=list(report_pdf.SEVERITIES),
+            data_through={},
+        )
+    seconds = time.perf_counter() - start
+    size = len(json.dumps(context))
+    after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print(
+        f"pdf context, {label}: {collected.total} findings, {collected.listed} listed, "
+        f"{len(context['blocks'])} blocks + {len(context['others'])} named, {size / 1e6:.2f} MB "
+        f"in {seconds:.1f} s; peak RSS {after / 1024:.0f} MiB (before {before / 1024:.0f} MiB)"
+    )
+    assert collected.total > 0 and collected.listed <= report_pdf.PDF_RESOURCE_CAP
+    assert seconds < 300

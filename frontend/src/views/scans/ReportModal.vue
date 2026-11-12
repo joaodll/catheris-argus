@@ -27,6 +27,7 @@ const KINDS: { id: Kind; label: string; text: string }[] = [
 ]
 const fromList = props.kind !== undefined
 const kind = ref<Kind>(props.kind ?? 'misconfigurations')
+const format = ref<'csv' | 'pdf'>('csv')
 // From a list, its filters; "Clear filters" drops them (the report then covers all open).
 const listFilters = ref<ReportFilters | null>(props.filters ?? null)
 const allAccounts = ref(true)
@@ -46,7 +47,9 @@ const title = computed(() =>
 const filterWords = computed(() =>
   listFilters.value ? describe(listFilters.value, (id) => props.connections.find((c) => c.id === id)?.name ?? `#${id}`) : '',
 )
-const dirty = computed(() => !fromList && (kind.value !== 'misconfigurations' || !allAccounts.value))
+const dirty = computed(
+  () => format.value !== 'csv' || (!fromList && (kind.value !== 'misconfigurations' || !allAccounts.value)),
+)
 const canSend = computed(
   () => !sending.value && storage.value === 'local' && (fromList || allAccounts.value || chosen.value.length > 0),
 )
@@ -62,7 +65,7 @@ async function send(): Promise<void> {
   sending.value = true
   error.value = null
   try {
-    const body = { kind: kind.value, format: 'csv', filters: filtersToSend() } as Schemas['MisconfigurationReportIn']
+    const body = { kind: kind.value, format: format.value, filters: filtersToSend() } as Schemas['MisconfigurationReportIn']
     const queued = await unwrap(api.POST('/api/v1/reports', { body }))
     emit('requested', queued.id)
   } catch (err) {
@@ -93,8 +96,9 @@ async function send(): Promise<void> {
       </fieldset>
       <fieldset class="choices">
         <legend class="lbl">Format</legend>
-        <label class="check"><input type="radio" name="report-format" value="csv" checked>CSV</label>
-        <span class="cap">PDF comes in the next release.</span>
+        <label class="check"><input v-model="format" type="radio" name="report-format" value="csv">CSV: every row, for a spreadsheet</label>
+        <label class="check"><input v-model="format" type="radio" name="report-format" value="pdf">PDF: an audit hand-off to send</label>
+        <span class="cap">A PDF gives each check's risk and fix, with at most 25 resources per check and 5,000 in all. The CSV has every row.</span>
       </fieldset>
       <div v-if="fromList" class="field">
         <span class="lbl">Filters from the list</span>

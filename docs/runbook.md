@@ -228,7 +228,11 @@ from one address, 100 for a username from anywhere. Wait, or ask an admin to ope
 **Administration → Users** and choose **Unlock**.
 
 **Reports.** **Operate → Reports**, or **Export** on Misconfigurations or Vulnerabilities, queues a
-CSV of that list with its filters ([ADR-0047](adr/0047-reports.md)). Operators and Admins only. The
+CSV or a PDF of that list with its filters ([ADR-0047](adr/0047-reports.md)). The CSV has every row
+(up to 500,000). The PDF is a hand-off to send: each check's risk and fix, at most 25 resources per
+check and 5,000 in all, 300 checks in full, up to 1,000 more named in one table, and the rest counted. A large PDF takes
+a minute or more to draw. "The PDF could not be drawn" means the renderer failed or ran out of
+time or memory: request the CSV, or narrow the filters. Operators and Admins only. The
 worker builds it on its own thread within seconds to minutes and keeps it on the `reports` volume,
 which only the worker writes and the API reads. On Docker Compose a report can cover **Demo
 connections only**: a scope with a real AWS account is refused, because real tool output never stays

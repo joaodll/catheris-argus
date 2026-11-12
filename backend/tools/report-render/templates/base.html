@@ -1,0 +1,188 @@
+<!doctype html>
+{#- Argus's report, printed (ADR-0047; spec palace frontend/2a007f9d). Every value is escaped by
+    the renderer; none is ever written into a style, CSS, or an attribute other than a checked
+    link's href. -#}
+{% import "_macros.html" as m %}
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Argus report #{{ ctx.report_id }}</title>
+<style>
+:root {
+  --cover-bg: #08090a; --cover-surface: #141518; --cover-border: #24272b;
+  --cover-text: #f6f7f8; --cover-text-2: #b4b9c1; --cover-text-3: #9297a0; --accent: #5ce1e6;
+  --surface: #ffffff; --sunken: #f6f7f9; --tile: #eef1f4; --border: #e2e6ea; --border-strong: #cfd5db;
+  --text: #14171a; --text-2: #434a53; --text-3: #5b636d; --link: #08676d;
+  --sev-critical: #b51f43; --sev-high: #9e4a06; --sev-medium: #7d6000; --sev-low: #6b5d27;
+  --sev-informational: #2157bb;
+}
+@page {
+  size: A4;
+  margin: 18mm 16mm 20mm 16mm;
+  @top-right { content: string(kind); font: 6.5pt Inter; color: #5b636d; letter-spacing: .06em; }
+  @bottom-left { content: string(footer); font: 6.5pt Inter; color: #5b636d; letter-spacing: .04em; }
+  @bottom-right { content: "page " counter(page) " of " counter(pages); font: 6.5pt "JetBrains Mono"; color: #5b636d; }
+}
+@page :first {
+  margin: 0;
+  background: #08090a;
+  @top-right { content: none; }
+  @bottom-left { content: none; }
+  @bottom-right { content: none; }
+}
+html { font-family: Inter, sans-serif; font-size: 8.5pt; line-height: 1.45; color: var(--text); }
+body { margin: 0; }
+.mono, code, pre, td.mono { font-family: "JetBrains Mono", monospace; }
+/* Running strings for the page margins. Hidden by visibility, not display: WeasyPrint sets no
+   string from an element that is not laid out. */
+.running-kind { string-set: kind content(); }
+.running-footer { string-set: footer content(); }
+.running-kind, .running-footer { visibility: hidden; display: block; height: 0; margin: 0; overflow: hidden; }
+a { color: var(--link); text-decoration: none; overflow-wrap: anywhere; }
+
+/* ---- cover ---- */
+.cover { height: 297mm; padding: 22mm 20mm; box-sizing: border-box; color: var(--cover-text);
+  background: var(--cover-bg); position: relative; page-break-after: always; }
+.brand { font-size: 9pt; font-weight: 600; }
+.brand svg { vertical-align: -3pt; margin-right: 6pt; }
+.eyebrow-rule { width: 24mm; height: 2pt; background: var(--accent); margin: 52mm 0 6pt; }
+.eyebrow { font-size: 8pt; letter-spacing: .14em; color: var(--cover-text-2); text-transform: uppercase; }
+.cover h1 { font-size: 26pt; font-weight: 700; margin: 6pt 0 4pt; }
+.cover .scope { font-size: 10pt; color: var(--cover-text-2); overflow-wrap: anywhere; }
+.hero { margin: 18mm 0 4pt; font-family: "JetBrains Mono", monospace; font-size: 40pt; font-weight: 700; }
+.hero-caption { color: var(--cover-text-3); font-size: 8pt; }
+.meta { width: 100%; border-collapse: collapse; margin-top: 14mm; table-layout: fixed; }
+.meta td { vertical-align: top; padding: 0 10pt 12pt 0; border-top: 1px solid var(--cover-border); padding-top: 6pt; }
+.meta .label { display: block; font-size: 6.5pt; letter-spacing: .1em; text-transform: uppercase; color: var(--cover-text-3); }
+.meta .value { display: block; font-family: "JetBrains Mono", monospace; font-size: 8.5pt; overflow-wrap: anywhere; }
+.confidential { position: absolute; left: 20mm; right: 20mm; bottom: 20mm; font-size: 7pt; color: var(--cover-text-3);
+  border-top: 1px solid var(--cover-border); padding-top: 6pt; }
+
+/* ---- pages ---- */
+h2.section { font-size: 15pt; font-weight: 700; margin: 0 0 8pt; }
+.caption { font-size: 7pt; color: var(--text-3); }
+.label { font-size: 6.5pt; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); margin: 8pt 0 2pt; }
+.pill { display: inline-block; border: 1px solid; border-radius: 3pt; padding: 0 4pt; font-size: 7pt; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; line-height: 1.6; white-space: nowrap; }
+.sev-critical { color: var(--sev-critical); } .sev-high { color: var(--sev-high); }
+.sev-medium { color: var(--sev-medium); } .sev-low { color: var(--sev-low); }
+.sev-informational { color: var(--sev-informational); }
+.strip { width: 100%; border-collapse: separate; border-spacing: 4pt 0; margin: 0 -4pt 12pt; table-layout: fixed; }
+.strip td { background: var(--tile); border-radius: 4pt; padding: 6pt 8pt; vertical-align: top; }
+.strip .count { display: block; font-family: "JetBrains Mono", monospace; font-size: 16pt; font-weight: 700; margin-top: 3pt; }
+.halves { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.halves > tbody > tr > td { vertical-align: top; padding-right: 10pt; }
+table.list { width: 100%; border-collapse: collapse; font-size: 7.5pt; table-layout: fixed; }
+table.list th { text-align: left; font-size: 6.5pt; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3);
+  font-weight: 600; border-bottom: 1px solid var(--border-strong); padding: 3pt 4pt; }
+table.list td { padding: 3pt 4pt; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+table.list tbody tr:nth-child(even) td { background: var(--sunken); }
+table.list td.num, table.list th.num { text-align: right; }
+.sub { display: block; font-family: "JetBrains Mono", monospace; font-size: 6.5pt; color: var(--text-3); overflow-wrap: anywhere; }
+.read { margin-top: 12pt; }
+.read p { margin: 0 0 2pt; }
+
+/* ---- blocks ---- */
+.block { border-top: 1px solid var(--border-strong); padding-top: 9pt; margin-top: 10pt; }
+.block-head { page-break-inside: avoid; break-inside: avoid; }
+.block-title { width: 100%; border-collapse: collapse; }
+.block-title td { vertical-align: top; padding: 0; }
+.block-title .t { font-size: 10.5pt; font-weight: 600; padding: 0 8pt; overflow-wrap: anywhere; }
+.block-title .id { text-align: right; font-family: "JetBrains Mono", monospace; font-size: 7pt; color: var(--text-3);
+  white-space: nowrap; width: 35%; overflow-wrap: anywhere; }
+.prose { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
+.missing { color: var(--text-3); font-style: italic; }
+pre.code { background: var(--sunken); border: 1px solid var(--border); border-radius: 3pt; padding: 6pt;
+  font-size: 7.5pt; white-space: pre-wrap; overflow-wrap: anywhere; margin: 2pt 0 4pt; }
+.facts { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 6pt 0 2pt; }
+.facts td { padding: 4pt 6pt 4pt 0; vertical-align: top; }
+.facts .value { display: block; font-family: "JetBrains Mono", monospace; font-size: 8.5pt; overflow-wrap: anywhere; }
+.more { margin-top: 3pt; }
+.empty { margin-top: 14pt; font-size: 10pt; }
+</style>
+</head>
+<body>
+<span class="running-kind">{{ "Misconfigurations report" if ctx.kind == "misconfigurations" else "Vulnerabilities report" }}</span>
+<span class="running-footer">CONFIDENTIAL · Argus report #{{ ctx.report_id }} · generated {{ ctx.generated_at }} UTC</span>
+
+<section class="cover">
+  <div class="brand"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5ce1e6" stroke-width="2"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>CatherIs Argus</div>
+  <div class="eyebrow-rule"></div>
+  <div class="eyebrow">{{ "Misconfigurations report" if ctx.kind == "misconfigurations" else "Vulnerabilities report" }}</div>
+  <h1>{{ "Findings to fix" if ctx.kind == "misconfigurations" else "Vulnerabilities to fix" }}</h1>
+  <div class="scope">{{ ctx.scope or "All open findings" }}</div>
+  <div class="hero">{{ ctx.total | num }}</div>
+  <div class="hero-caption">{{ "open findings in scope" if ctx.kind == "misconfigurations" else "vulnerabilities in scope" }}</div>
+  <table class="meta">
+    <tr>
+      <td><span class="label">Accounts</span><span class="value">{{ ctx.account_names | length }}{% if ctx.account_names %}: {{ ctx.account_names[:6] | join(", ") }}{% if ctx.account_names | length > 6 %} +{{ (ctx.account_names | length) - 6 }} more{% endif %}{% endif %}</span></td>
+      <td><span class="label">Generated</span><span class="value">{{ ctx.generated_at }} UTC</span></td>
+      <td><span class="label">Requested by</span><span class="value">{{ ctx.requested_by }}</span></td>
+    </tr>
+    <tr>
+      <td><span class="label">Report</span><span class="value">#{{ ctx.report_id }} · PDF</span></td>
+      <td><span class="label">Data through</span><span class="value">{% if ctx.data_through %}{{ ctx.data_through }}{% if ctx.data_through_differs %} (accounts differ: see the summary){% endif %}{% else %}no scan yet{% endif %}</span></td>
+      <td><span class="label">Listed</span><span class="value">{% if ctx.truncated %}{{ ctx.listed | num }} of {{ ctx.total | num }} resources: the full list is in the CSV{% else %}every affected resource{% endif %}</span></td>
+    </tr>
+  </table>
+  <div class="confidential">CONFIDENTIAL. This report names the security weaknesses of the accounts above. Share it only with the people who fix them.</div>
+</section>
+
+<section>
+  <h2 class="section">Summary</h2>
+  <table class="strip"><tr>
+    {% for s in ctx.severities %}
+    <td><span class="pill sev-{{ s.severity }}">{{ s.severity }}</span>
+      <span class="count">{% if s.in_scope %}{{ s.count | num }}{% else %}—{% endif %}</span>
+      {% if not s.in_scope %}<span class="caption">not in this report</span>{% endif %}</td>
+    {% endfor %}
+  </tr></table>
+  {% if ctx.total == 0 %}
+  <p class="empty">Nothing matched this report's filters{% if ctx.data_through %} on {{ ctx.data_through }}{% endif %}.</p>
+  {% else %}
+  <table class="halves"><tr>
+    <td>
+      <div class="label">By account</div>
+      <table class="list">
+        <thead><tr><th>Account</th><th class="num">Findings</th><th>Data through</th></tr></thead>
+        <tbody>{% for a in ctx.by_account %}
+          <tr><td>{{ a.name }}<span class="sub">{{ a.account_id }}</span></td><td class="num mono">{{ a.findings | num }}</td><td class="mono">{{ a.data_through or "no scan yet" }}</td></tr>
+        {% endfor %}</tbody>
+      </table>
+      {% if ctx.more_accounts %}<div class="caption more">and {{ ctx.more_accounts | num }} more accounts</div>{% endif %}
+    </td>
+    <td>
+      <div class="label">By resource type</div>
+      <table class="list">
+        <thead><tr><th>Resource type</th><th class="num">Findings</th></tr></thead>
+        <tbody>{% for t in ctx.by_type %}
+          <tr><td class="mono">{{ t.type }}</td><td class="num mono">{{ t.findings | num }}</td></tr>
+        {% endfor %}</tbody>
+      </table>
+      {% if ctx.more_types %}<div class="caption more">and {{ ctx.more_types | num }} more types</div>{% endif %}
+    </td>
+  </tr></table>
+  <div class="read caption">
+    <p>Worst first: each block is one {{ "check, with its risk" if ctx.kind == "misconfigurations" else "vulnerability, with its description" }}, the fix, and the resources it affects.</p>
+    <p>A block lists at most {{ ctx.caps.per_block }} resources, and this report at most {{ ctx.caps.total | num }}. The CSV report has every row.</p>
+  </div>
+  {% endif %}
+</section>
+
+{% block body %}{% endblock %}
+
+{% if ctx.others %}
+<section class="block">
+  <h2 class="section">Also in this report</h2>
+  <p class="caption">These {{ ctx.others | length | num }} {{ "checks" if ctx.kind == "misconfigurations" else "vulnerabilities" }} are counted above but not detailed here. The CSV report lists their resources.</p>
+  <table class="list">
+    <thead><tr><th style="width:16%">Severity</th><th>{{ "Check" if ctx.kind == "misconfigurations" else "Vulnerability" }}</th><th class="num" style="width:12%">Findings</th></tr></thead>
+    <tbody>{% for o in ctx.others %}
+      <tr><td>{{ m.pill(o.severity) }}</td><td>{{ o.title }}<span class="sub">{{ o.tool }} · {{ o.check_id }}</span></td><td class="num mono">{{ o.count | num }}</td></tr>
+    {% endfor %}</tbody>
+  </table>
+  {% if ctx.more_others %}<div class="caption more">and {{ ctx.more_others | num }} more {{ "checks" if ctx.kind == "misconfigurations" else "vulnerabilities" }}: the CSV report has them all</div>{% endif %}
+</section>
+{% endif %}
+</body>
+</html>

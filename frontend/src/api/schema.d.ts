@@ -1794,9 +1794,9 @@ export interface components {
             /**
              * Format
              * @default csv
-             * @constant
+             * @enum {string}
              */
-            format: "csv";
+            format: "csv" | "pdf";
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2009,9 +2009,9 @@ export interface components {
             finished_at: string | null;
             /**
              * Format
-             * @constant
+             * @enum {string}
              */
-            format: "csv";
+            format: "csv" | "pdf";
             /** Id */
             id: number;
             /**
@@ -3051,9 +3051,9 @@ export interface components {
             /**
              * Format
              * @default csv
-             * @constant
+             * @enum {string}
              */
-            format: "csv";
+            format: "csv" | "pdf";
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -4081,12 +4081,13 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The report's file. */
+            /** @description The report's file, as its format says. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/pdf": unknown;
                     "text/csv": unknown;
                 };
             };

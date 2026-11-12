@@ -23,17 +23,18 @@ from argus.core.config import get_settings
 router = APIRouter(tags=["reports"])
 
 NOT_AVAILABLE = "Reports are not available on this install yet."
+MEDIA_TYPES: dict[str, str] = {"csv": "text/csv; charset=utf-8", "pdf": "application/pdf"}
 
 
 class MisconfigurationReportIn(BaseModel):
     kind: Literal["misconfigurations"]
-    format: Literal["csv"] = "csv"
+    format: reports.ReportFormat = "csv"
     filters: FindingFilterQuery = Field(default_factory=FindingFilterQuery)
 
 
 class VulnerabilityReportIn(BaseModel):
     kind: Literal["vulnerabilities"]
-    format: Literal["csv"] = "csv"
+    format: reports.ReportFormat = "csv"
     filters: VulnerabilityFilterQuery = Field(default_factory=VulnerabilityFilterQuery)
 
 
@@ -196,7 +197,12 @@ def _refuse(
 @router.get(
     "/reports/{report_id}/download",
     response_class=FileResponse,
-    responses={200: {"content": {"text/csv": {}}, "description": "The report's file."}},
+    responses={
+        200: {
+            "content": {"text/csv": {}, "application/pdf": {}},
+            "description": "The report's file, as its format says.",
+        }
+    },
 )
 def download_report(report_id: int, conn: Db, user: OperatorUser, request: Request) -> FileResponse:
     """The report's file, as an attachment. The key comes from the row only, and resolves
@@ -236,7 +242,7 @@ def download_report(report_id: int, conn: Db, user: OperatorUser, request: Reque
     conn.close()
     return FileResponse(
         path,
-        media_type="text/csv; charset=utf-8",
-        filename=f"argus-{row.kind}-{row.id}.csv",
+        media_type=MEDIA_TYPES[row.format],
+        filename=f"argus-{row.kind}-{row.id}.{row.format}",
         headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
     )
