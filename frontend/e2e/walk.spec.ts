@@ -787,6 +787,59 @@ test('edit connection: switch the sign-in method, both ways, both themes, phone 
   })
 })
 
+/** Operate -> Reports (ADR-0047): Export carries a list's filters; a report is requested, built by
+ * the worker and downloaded. It writes one report (Demo accounts only), which expires in 7 days. */
+test('reports: export from a list, request, build, download; both themes, phone width', async ({ page }) => {
+  test.setTimeout(120_000)
+  await signIn(page)
+  await page.goto('/investigate/misconfigurations?tab=list&severity=critical')
+  await expect(page.getByRole('heading', { level: 1, name: 'Misconfigurations' })).toBeVisible()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const exporting = page.getByRole('dialog', { name: 'Export Misconfigurations' })
+  await expect(exporting.getByText('Critical', { exact: true })).toBeVisible()
+  await expect(exporting.getByRole('button', { name: 'Request report' })).toBeEnabled()
+  await axe(page, 'export misconfigurations')
+  await shot(page, '45-export-modal')
+  await exporting.getByRole('button', { name: 'Cancel' }).click()
+
+  await navLink(page, 'Reports')
+  await expect(page).toHaveURL(/\/scans\/reports$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Reports' })).toBeVisible()
+  await page.getByRole('button', { name: 'New report' }).first().click()
+  const creating = page.getByRole('dialog', { name: 'New report' })
+  await creating.getByText('Vulnerabilities', { exact: true }).click()
+  await axe(page, 'new report modal')
+  await creating.getByRole('button', { name: 'Request report' }).click()
+  const toastText = page.getByRole('status').filter({ hasText: /Report #\d+ requested/ })
+  await expect(toastText).toBeVisible()
+  const id = (await toastText.textContent())?.match(/#(\d+)/)?.[1] ?? ''
+  const link = page.getByRole('link', { name: `Download report #${id}` })
+  await expect(link).toBeVisible({ timeout: 60_000 }) // the worker builds it within seconds
+  await axe(page, 'reports')
+  await shot(page, '46-reports')
+
+  const href = (await link.getAttribute('href')) ?? ''
+  const response = await page.request.get(href)
+  expect(response.status()).toBe(200)
+  expect(response.headers()['content-type']).toBe('text/csv; charset=utf-8')
+  expect(response.headers()['content-disposition']).toMatch(new RegExp(`^attachment; filename="argus-vulnerabilities-${id}\\.csv"`))
+  expect(response.headers()['cache-control']).toBe('no-store')
+  expect((await response.text()).split('\r\n')[0]).toContain('vulnerability_id')
+  const download = page.waitForEvent('download')
+  await link.click()
+  expect((await download).suggestedFilename()).toBe(`argus-vulnerabilities-${id}.csv`)
+
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.reload()
+  await expect(link).toBeVisible()
+  await axe(page, 'light reports')
+  await shot(page, 'L46-reports')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(link).toBeVisible()
+  await axe(page, 'phone reports') // also waits for the drawer to finish closing
+  await shot(page, '6x-phone-reports')
+})
+
 test('light theme: every screen passes axe, and the toggle cycles', async ({ page }) => {
   // The OS prefers light, so System (the default) draws the light theme (2026-10-14).
   await page.emulateMedia({ colorScheme: 'light' })
@@ -888,6 +941,12 @@ test('users and roles: a viewer and an operator, each limited to their role', as
     }
     await navLink(page, 'Schedules')
     await expect(page.getByRole('heading', { level: 2, name: 'Run now' })).toHaveCount(canOperate ? 1 : 0)
+    // Reports carry the estate's weak points out of Argus: an Operator's and an Admin's only.
+    await expect(nav.getByRole('link', { name: 'Reports', exact: true })).toHaveCount(canOperate ? 1 : 0)
+    if (!canOperate) {
+      await page.goto('/scans/reports')
+      await expect(page.getByRole('heading', { level: 1, name: 'Overview', exact: true })).toBeVisible()
+    }
     await page.goto('/admin/settings')
     if (canOperate) {
       await expect(page.getByRole('heading', { level: 1, name: 'Settings', exact: true })).toBeVisible()

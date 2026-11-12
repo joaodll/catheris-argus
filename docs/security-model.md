@@ -141,6 +141,14 @@ when their checks need it. Argus never stores such a value:
   It writes only administration rows, and the API never serves its own API description
   ([ADR-0025](adr/0025-openapi-build-time-contract.md)).
 - **Only the web server may set the client address** the API records.
+- **Reports** ([ADR-0047](adr/0047-reports.md)) carry the estate's weak points out of Argus, so
+  only an Operator or an Admin can request or download one, an Operator only their own. Every
+  request, download and refused download is audited. The worker builds them, never the API; the
+  API serves the file only by the key stored on the report, inside the reports folder, as an
+  attachment. A report expires after 7 days. A cell a spreadsheet would read as a formula is
+  written as text. Reports export the list's columns only: no configuration and no tags. On Docker
+  Compose a report can cover Demo connections only, and the files sit on a local volume the API
+  mounts read-only. Once downloaded, a report is outside Argus's control.
 
 ## Supply chain
 

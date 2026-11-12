@@ -22,6 +22,8 @@ import SortHeader from '@/components/SortHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import ToolChip from '@/components/ToolChip.vue'
 import { useResource } from '@/composables/useResource'
+import { can } from '@/composables/useSession'
+import { toast } from '@/composables/useToasts'
 import { int } from '@/format'
 import { PROVIDERS, type Provider } from '@/providers'
 import { SEVERITIES, SEVERITY_LABEL, type Severity } from '@/views/overview/severity'
@@ -51,6 +53,7 @@ import FindingDetail from './FindingDetail.vue'
 import { type FindingState, findingLine, regionLabel, uidTail } from './labels'
 import ReachBadge from './ReachBadge.vue'
 import { FINDING_REACHES, FINDING_REACH_LABEL, type FindingReach } from './reachReason'
+import ReportModal from '@/views/scans/ReportModal.vue'
 import InvestigateTabs from './summary/InvestigateTabs.vue'
 import MisconfigurationSummary from './summary/MisconfigurationSummary.vue'
 import { type Tab, parseTab, summaryConnection } from './summary/summaryTab'
@@ -61,6 +64,13 @@ const route = useRoute()
 const router = useRouter()
 
 const filters = computed(() => parseFilters(route.query))
+// Export (ADR-0047): an Operator or Admin turns this list, as filtered, into a report.
+const operator = computed(() => can('operator'))
+const exporting = ref(false)
+function onExported(id: number): void {
+  exporting.value = false
+  toast(`Report #${id} requested. Operate → Reports has it when it is ready.`)
+}
 const order = computed(() => parseOrder(route.query))
 // One finding's own link (?finding=): it shows alone, expanded; the filters do not apply.
 const single = computed(() => parseFinding(route.query))
@@ -382,7 +392,18 @@ const VIEWS: { value: View; label: string }[] = [
   <PageHeader title="Misconfigurations">
     <template v-if="dataThrough">Data through <span class="mono strong">{{ dataThrough }}</span></template>
     <template v-else-if="loaded">No scan yet</template>
+    <template v-if="operator" #actions>
+      <button type="button" class="btn btn-secondary btn-sm" @click="exporting = true"><AppIcon name="download" :size="14" :stroke="2.2" />Export</button>
+    </template>
   </PageHeader>
+  <ReportModal
+    v-if="exporting"
+    kind="misconfigurations"
+    :filters="apiFilters(filters)"
+    :connections="connections.data.value ?? []"
+    @close="exporting = false"
+    @requested="onExported"
+  />
 
   <InvestigateTabs v-if="single == null" :model-value="tab" label="Misconfigurations views" id-prefix="mis" @update:model-value="setTab" />
 

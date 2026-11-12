@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # only, owner-only, emptied after each run and at start (ADR-0032).
     raw_staging_root: Path = Path("/var/lib/argus-staging")
     rules_dir: Path = Path("/opt/argus/rules")
+    # Where reports are kept (ADR-0047): a volume the worker writes and the API reads only.
+    # Unset means this install builds no reports: the API refuses requests and the screen
+    # says why. Docker Compose sets it; the chart does not (until reports can go to S3).
+    reports_root: Path | None = None
 
     def database_url(self) -> URL:
         # URL.create keeps the password out of string formatting and repr(). TLS goes in the

@@ -13,6 +13,7 @@ from argus.core.db import get_engine, require_pool
 from argus.core.logging import configure_logging
 from argus.core.process import hide_from_children
 from argus.core.rawstore import FilesystemRawStore, sweep_staging
+from argus.reports import LocalReportStore
 from argus.scheduling.worker import Worker, connections_needed
 
 log = logging.getLogger("argus.worker")
@@ -30,6 +31,8 @@ def main() -> int:
         store=FilesystemRawStore(settings.raw_root),
         rules_dir=settings.rules_dir,
         threads=settings.worker_threads,
+        # Unset: this install keeps no reports, and the worker builds none (ADR-0047).
+        reports_store=(LocalReportStore(settings.reports_root) if settings.reports_root else None),
     )
 
     def stop(signum: int, _frame: FrameType | None) -> None:

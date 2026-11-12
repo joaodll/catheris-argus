@@ -430,6 +430,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/reports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Reports
+         * @description Newest first: the user's own reports, or everyone's for an Admin.
+         */
+        get: operations["list_reports_api_v1_reports_get"];
+        put?: never;
+        /**
+         * Request Report
+         * @description Queues a report over the list's filters. Refused (422, with a sentence) where this
+         *     install keeps no reports, when no account matches, when an account is a real AWS
+         *     connection on a local store, or when the user has too many reports being built.
+         */
+        post: operations["request_report_api_v1_reports_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/{report_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Report */
+        get: operations["get_report_api_v1_reports__report_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/{report_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Report
+         * @description The report's file, as an attachment. The key comes from the row only, and resolves
+         *     inside the reports folder or is refused. The database connection is released before the
+         *     file streams, so a slow download never holds a slot of the API's capped pool.
+         */
+        get: operations["download_report_api_v1_reports__report_id__download_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/resources": {
         parameters: {
             query?: never;
@@ -1405,6 +1470,61 @@ export interface components {
             services: string[];
         };
         /**
+         * FindingFilterQuery
+         * @description The Findings list's filters: its query parameters, and a report's. A list parameter
+         *     repeats (`severity=high&severity=critical`) and matches any of its values; absent, it does
+         *     not filter.
+         */
+        FindingFilterQuery: {
+            /** Category */
+            category?: string[];
+            /** Check Id */
+            check_id?: string[];
+            /** Connection Id */
+            connection_id?: number[];
+            /** First Seen From */
+            first_seen_from?: string | null;
+            /** First Seen To */
+            first_seen_to?: string | null;
+            /**
+             * Muted
+             * @default any
+             * @enum {string}
+             */
+            muted: "any" | "hide" | "only";
+            /**
+             * New
+             * @default false
+             */
+            new: boolean;
+            /** Provider */
+            provider?: ("aws" | "gcp" | "oci")[];
+            /** Q */
+            q?: string | null;
+            /** Reach */
+            reach?: ("confirmed" | "restricted" | "unknown" | "not_covered")[];
+            /** Region */
+            region?: string[];
+            /** Resource Id */
+            resource_id?: number | null;
+            /** Resource Type */
+            resource_type?: string[];
+            /** Service */
+            service?: string[];
+            /** Severity */
+            severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
+            /**
+             * State
+             * @default open
+             * @enum {string}
+             */
+            state: "open" | "reopened" | "resolved" | "accepted_risk";
+            /** Status */
+            status?: ("FAIL" | "MANUAL")[];
+            /** Tool */
+            tool?: ("prowler" | "cloudfox")[];
+        };
+        /**
          * FindingGroupOut
          * @description One check of the findings matching the filters (the Findings list by check).
          */
@@ -1668,6 +1788,21 @@ export interface components {
             /** Tool */
             tool: string;
         };
+        /** MisconfigurationReportIn */
+        MisconfigurationReportIn: {
+            filters?: components["schemas"]["FindingFilterQuery"];
+            /**
+             * Format
+             * @default csv
+             * @constant
+             */
+            format: "csv";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "misconfigurations";
+        };
         /**
          * MisconfigurationSummary
          * @description Investigate → Misconfigurations → Summary, from stored counts only. Each account counts
@@ -1849,6 +1984,82 @@ export interface components {
             other: string | null;
             /** Terraform */
             terraform: string | null;
+        };
+        /** ReportOut */
+        ReportOut: {
+            /** Connection Ids */
+            connection_ids: number[];
+            /** Data Through */
+            data_through: {
+                [key: string]: string;
+            } | null;
+            /** Downloadable */
+            downloadable: boolean;
+            /** Error */
+            error: string | null;
+            /** Expired */
+            expired: boolean;
+            /** Expires At */
+            expires_at: string | null;
+            /** Filters */
+            filters: {
+                [key: string]: unknown;
+            };
+            /** Finished At */
+            finished_at: string | null;
+            /**
+             * Format
+             * @constant
+             */
+            format: "csv";
+            /** Id */
+            id: number;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "misconfigurations" | "vulnerabilities";
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /** Requested By */
+            requested_by: string;
+            /** Row Count */
+            row_count: number | null;
+            /** Size Bytes */
+            size_bytes: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "queued" | "building" | "ready" | "failed";
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** ReportPage */
+        ReportPage: {
+            /** Expiry Days */
+            expiry_days: number;
+            /** Items */
+            items: components["schemas"]["ReportOut"][];
+            /** Max Open */
+            max_open: number;
+            /** Row Cap */
+            row_cap: number;
+            /**
+             * Storage
+             * @enum {string}
+             */
+            storage: "local" | "off";
+            /** Total */
+            total: number;
+        };
+        /** ReportQueued */
+        ReportQueued: {
+            /** Id */
+            id: number;
         };
         /** RequirementCounts */
         RequirementCounts: {
@@ -2708,6 +2919,61 @@ export interface components {
             resource_types: string[];
         };
         /**
+         * VulnerabilityFilterQuery
+         * @description The Vulnerabilities list's filters: its query parameters, and a report's. A list
+         *     parameter repeats and matches any of its values; absent, it does not filter.
+         */
+        VulnerabilityFilterQuery: {
+            /** Check Id */
+            check_id?: string[];
+            /** Connection Id */
+            connection_id?: number[];
+            /**
+             * Exploitable
+             * @default false
+             */
+            exploitable: boolean;
+            /** First Seen From */
+            first_seen_from?: string | null;
+            /** First Seen To */
+            first_seen_to?: string | null;
+            /**
+             * Fix
+             * @default any
+             * @enum {string}
+             */
+            fix: "any" | "available" | "none";
+            /**
+             * Muted
+             * @default any
+             * @enum {string}
+             */
+            muted: "any" | "hide" | "only";
+            /**
+             * New
+             * @default false
+             */
+            new: boolean;
+            /** Provider */
+            provider?: ("aws" | "gcp" | "oci")[];
+            /** Q */
+            q?: string | null;
+            /** Region */
+            region?: string[];
+            /** Resource Id */
+            resource_id?: number | null;
+            /** Resource Type */
+            resource_type?: string[];
+            /** Severity */
+            severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
+            /**
+             * State
+             * @default open
+             * @enum {string}
+             */
+            state: "open" | "reopened" | "resolved" | "accepted_risk";
+        };
+        /**
          * VulnerabilityFixItem
          * @description Open vulnerabilities by whether a fix exists: `available` and `none` are the list's fix
          *     filter; `unknown` (the scanner does not say) has none.
@@ -2778,6 +3044,21 @@ export interface components {
             scanner_score: number | null;
             /** Vulnerability Id */
             vulnerability_id: string | null;
+        };
+        /** VulnerabilityReportIn */
+        VulnerabilityReportIn: {
+            filters?: components["schemas"]["VulnerabilityFilterQuery"];
+            /**
+             * Format
+             * @default csv
+             * @constant
+             */
+            format: "csv";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "vulnerabilities";
         };
         /**
          * VulnerabilitySection
@@ -3378,8 +3659,6 @@ export interface operations {
     list_findings_api_v1_findings_get: {
         parameters: {
             query?: {
-                limit?: number;
-                offset?: number;
                 connection_id?: number[];
                 severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
                 tool?: ("prowler" | "cloudfox")[];
@@ -3398,6 +3677,8 @@ export interface operations {
                 first_seen_to?: string | null;
                 resource_id?: number | null;
                 q?: string | null;
+                limit?: number;
+                offset?: number;
                 order?: "severity" | "severity_asc" | "last_seen_desc" | "last_seen_asc";
             };
             header?: {
@@ -3470,8 +3751,6 @@ export interface operations {
     finding_groups_api_v1_findings_groups_get: {
         parameters: {
             query?: {
-                limit?: number;
-                offset?: number;
                 connection_id?: number[];
                 severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
                 tool?: ("prowler" | "cloudfox")[];
@@ -3490,6 +3769,8 @@ export interface operations {
                 first_seen_to?: string | null;
                 resource_id?: number | null;
                 q?: string | null;
+                limit?: number;
+                offset?: number;
                 order?: "severity" | "severity_asc" | "last_seen_desc" | "last_seen_asc";
             };
             header?: {
@@ -3669,6 +3950,153 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    list_reports_api_v1_reports_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    request_report_api_v1_reports_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MisconfigurationReportIn"] | components["schemas"]["VulnerabilityReportIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportQueued"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_report_api_v1_reports__report_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path: {
+                report_id: number;
+            };
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_report_api_v1_reports__report_id__download_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path: {
+                report_id: number;
+            };
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The report's file. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -4684,8 +5112,6 @@ export interface operations {
     list_vulnerabilities_api_v1_vulnerabilities_get: {
         parameters: {
             query?: {
-                limit?: number;
-                offset?: number;
                 connection_id?: number[];
                 severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
                 provider?: ("aws" | "gcp" | "oci")[];
@@ -4701,6 +5127,8 @@ export interface operations {
                 fix?: "any" | "available" | "none";
                 resource_id?: number | null;
                 q?: string | null;
+                limit?: number;
+                offset?: number;
                 order?: "severity" | "severity_asc" | "last_seen_desc" | "last_seen_asc";
             };
             header?: {
@@ -4773,8 +5201,6 @@ export interface operations {
     vulnerability_groups_api_v1_vulnerabilities_groups_get: {
         parameters: {
             query?: {
-                limit?: number;
-                offset?: number;
                 connection_id?: number[];
                 severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
                 provider?: ("aws" | "gcp" | "oci")[];
@@ -4790,6 +5216,8 @@ export interface operations {
                 fix?: "any" | "available" | "none";
                 resource_id?: number | null;
                 q?: string | null;
+                limit?: number;
+                offset?: number;
                 order?: "severity" | "severity_asc" | "last_seen_desc" | "last_seen_asc";
             };
             header?: {

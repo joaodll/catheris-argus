@@ -262,12 +262,11 @@ def _many() -> Any:
     return Field(default_factory=list, max_length=50)
 
 
-class FindingQuery(BaseModel):
-    """The Findings list's query parameters. A list parameter repeats (`severity=high&
-    severity=critical`) and matches any of its values; absent, it does not filter."""
+class FindingFilterQuery(BaseModel):
+    """The Findings list's filters: its query parameters, and a report's. A list parameter
+    repeats (`severity=high&severity=critical`) and matches any of its values; absent, it does
+    not filter."""
 
-    limit: int = Field(20, ge=1, le=200)
-    offset: int = Field(0, ge=0)
     connection_id: list[int] = _many()
     severity: list[Severity] = _many()
     tool: list[Literal["prowler", "cloudfox"]] = _many()
@@ -291,10 +290,17 @@ class FindingQuery(BaseModel):
     resource_id: int | None = None
     # Matches the title, check id or resource uid anywhere, in any case.
     q: str | None = Field(None, max_length=200)
+
+
+class FindingQuery(FindingFilterQuery):
+    """The list's query parameters: its filters, then the page and the order."""
+
+    limit: int = Field(20, ge=1, le=200)
+    offset: int = Field(0, ge=0)
     order: findings.FindingOrder = "severity"
 
 
-def _filters(query: FindingQuery) -> findings.FindingFilters:
+def finding_filters(query: FindingFilterQuery) -> findings.FindingFilters:
     return findings.FindingFilters(
         connection_ids=tuple(query.connection_id),
         severities=tuple(query.severity),
@@ -319,7 +325,7 @@ def _filters(query: FindingQuery) -> findings.FindingFilters:
 
 @router.get("/findings")
 def list_findings(conn: Db, _user: Viewer, query: Annotated[FindingQuery, Query()]) -> FindingPage:
-    filters = _filters(query)
+    filters = finding_filters(query)
     return finding_page(conn, filters, limit=query.limit, offset=query.offset, order=query.order)
 
 
@@ -360,7 +366,7 @@ def finding_groups(
 ) -> FindingGroupPage:
     """The Misconfigurations list by check, with the list's filters: one row per tool and check
     id, worst severity first, then the checks with the most findings."""
-    filters = _filters(query)
+    filters = finding_filters(query)
     return group_page(conn, filters, limit=query.limit, offset=query.offset, order=query.order)
 
 

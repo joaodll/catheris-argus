@@ -227,6 +227,19 @@ minutes saying so.
 from one address, 100 for a username from anywhere. Wait, or ask an admin to open the user in
 **Administration → Users** and choose **Unlock**.
 
+**Reports.** **Operate → Reports**, or **Export** on Misconfigurations or Vulnerabilities, queues a
+CSV of that list with its filters ([ADR-0047](adr/0047-reports.md)). Operators and Admins only. The
+worker builds it on its own thread within seconds to minutes and keeps it on the `reports` volume,
+which only the worker writes and the API reads. On Docker Compose a report can cover **Demo
+connections only**: a scope with a real AWS account is refused, because real tool output never stays
+on a local disk. A report expires 7 days after it is ready; the API refuses it from then on, and the
+daily retention pass deletes the file. A report still **Building** after the worker restarted is
+failed with "The worker stopped while building this report": request it again. At the same start the
+worker deletes any file on the volume that no ready report names, such as the half-written file of a
+build it was stopped in. One user can have 3
+reports queued or building at once, and a CSV holds at most 500,000 rows (a cut file says so on the
+screen). `docker compose down -v` deletes the volume with every report on it.
+
 **A forgotten password.** Another admin opens the user in **Administration → Users** and sets a
 new one; the user chooses their own at the next sign-in. With no other admin, set it from the
 api container (it asks for the new password twice; the user must change it at the next sign-in,

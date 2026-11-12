@@ -35,12 +35,10 @@ def _many() -> Any:
     return Field(default_factory=list, max_length=50)
 
 
-class VulnerabilityQuery(BaseModel):
-    """The Vulnerabilities list's query parameters. A list parameter repeats and matches any of
-    its values; absent, it does not filter."""
+class VulnerabilityFilterQuery(BaseModel):
+    """The Vulnerabilities list's filters: its query parameters, and a report's. A list
+    parameter repeats and matches any of its values; absent, it does not filter."""
 
-    limit: int = Field(20, ge=1, le=200)
-    offset: int = Field(0, ge=0)
     connection_id: list[int] = _many()
     severity: list[Severity] = _many()
     provider: list[Provider] = Field(default_factory=list, max_length=3)
@@ -64,10 +62,17 @@ class VulnerabilityQuery(BaseModel):
     resource_id: int | None = None
     # Matches the title (CVE and package), CVE id or resource uid anywhere, in any case.
     q: str | None = Field(None, max_length=200)
+
+
+class VulnerabilityQuery(VulnerabilityFilterQuery):
+    """The list's query parameters: its filters, then the page and the order."""
+
+    limit: int = Field(20, ge=1, le=200)
+    offset: int = Field(0, ge=0)
     order: findings.FindingOrder = "severity"
 
 
-def _filters(query: VulnerabilityQuery) -> findings.FindingFilters:
+def vulnerability_filters(query: VulnerabilityFilterQuery) -> findings.FindingFilters:
     return findings.FindingFilters(
         connection_ids=tuple(query.connection_id),
         severities=tuple(query.severity),
@@ -94,7 +99,11 @@ def list_vulnerabilities(
 ) -> FindingPage:
     """One page of CVE findings; each item carries its `vulnerability`."""
     return finding_page(
-        conn, _filters(query), limit=query.limit, offset=query.offset, order=query.order
+        conn,
+        vulnerability_filters(query),
+        limit=query.limit,
+        offset=query.offset,
+        order=query.order,
     )
 
 
@@ -105,7 +114,11 @@ def vulnerability_groups(
     """The Vulnerabilities list by CVE, with the list's filters: one row per CVE, worst
     severity first, then the CVEs with the most findings."""
     return group_page(
-        conn, _filters(query), limit=query.limit, offset=query.offset, order=query.order
+        conn,
+        vulnerability_filters(query),
+        limit=query.limit,
+        offset=query.offset,
+        order=query.order,
     )
 
 

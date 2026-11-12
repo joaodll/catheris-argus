@@ -135,10 +135,15 @@ services:
       # X-Forwarded-For with the real peer, so a browser can't choose the IP that the sign-in
       # limit and the audit log record. Any other caller is recorded by its own address.
       ARGUS_TRUSTED_PROXIES: 172.31.250.2
+      # Reports (ADR-0047): the API serves the files the worker built, read-only. Unset, the
+      # install keeps no reports and the API refuses requests.
+      ARGUS_REPORTS_ROOT: /var/lib/argus-reports
     networks: [edge, data]
     <<: *hardened
     read_only: true
     tmpfs: [/tmp]
+    volumes:
+      - reports:/var/lib/argus-reports:ro
     mem_limit: 384m
     pids_limit: 128
     depends_on:
@@ -276,9 +281,12 @@ services:
       # As the API's: retention deletes what is above the bound, so both must hold the same one.
       ARGUS_MAX_HISTORY_DAYS: ${ARGUS_MAX_HISTORY_DAYS:-400}
       ARGUS_WORKER_THREADS: "2"
-      # 3 connections per run thread, 1 for Test connection, 2 for the main loop: raise it with
-      # the threads, or the worker refuses to start. api, migrate and seed use the default, 10.
-      ARGUS_DB_POOL_MAX: "9"
+      # 3 connections per run thread, 1 for Test connection, 1 for reports, 2 for the main loop:
+      # raise it with the threads, or the worker refuses to start. api, migrate and seed use the
+      # default, 10.
+      ARGUS_DB_POOL_MAX: "10"
+      # Reports (ADR-0047), for Demo connections only: real output never stays on a local disk.
+      ARGUS_REPORTS_ROOT: /var/lib/argus-reports
       ARGUS_SECRET_KEYS: ${ARGUS_SECRET_KEYS:-}
       ARGUS_SECRET_KEY_ID: ${ARGUS_SECRET_KEY_ID:-}
     # staging holds an AWS run's raw output until it is uploaded to S3, then the run's folder
@@ -287,6 +295,7 @@ services:
     volumes:
       - raw:/var/lib/argus
       - staging:/var/lib/argus-staging
+      - reports:/var/lib/argus-reports
     # egress: the only service with a route out, to S3 (raw output) and, later, AWS APIs.
     networks: [data, egress]
     <<: *hardened
@@ -603,6 +612,7 @@ volumes:
   pgdata:
   raw:
   staging:
+  reports:
   trivy-cache:
   frontend-node-modules:
   pnpm-store:
