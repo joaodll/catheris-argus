@@ -84,7 +84,8 @@ when their checks need it. Argus never stores such a value:
 - Postgres is never published, and sits on an internal network shared only with the API, the
   worker and the one-shot migration
 - the API has no route out; only the worker, which runs the scans, and the web server sit on
-  networks that have one
+  networks that have one. It can't resolve an outside name either: from the API, only the stack's
+  own services resolve (measured 2026-11-11 on Docker 29.9.3)
 - no service of the running stack mounts the Docker socket (two development tools do: `scan`,
   to read local images, and `kind`, to create a test cluster)
 
@@ -93,7 +94,8 @@ when their checks need it. Argus never stores such a value:
 - **Network:** default-deny NetworkPolicies. Postgres accepts its clients only, the API accepts the
   web pods only, and only scan Jobs reach
   port 443 outside the cluster, never instance metadata. `helm test` proves the cluster enforces
-  them once a pod is running; see Known limits for a new pod's first moments.
+  them once a pod is running; see Known limits for a new pod's first moments. Every pod may still
+  query the cluster's DNS, which looks up outside names for it (Known limits).
 - **What a scan Job can be:** the scheduler is the only pod with a Kubernetes token, and may only
   create Jobs. An admission policy rejects any Job from it whose image, command, service account,
   environment, resources, volumes and mounts, security context, placement, probes or hooks differ
@@ -202,6 +204,22 @@ Argus is pre-1.0. These are known and accepted for now:
   out; on Kubernetes, scan Jobs reach port 443 anywhere outside the cluster, because AWS service
   endpoints cannot be listed by name in a network policy. A compromised tool could send data out
   that way.
+- **On Kubernetes, DNS is a route out for every pod.** Every pod may query the cluster's DNS, which
+  forwards names outside the cluster to the VPC's resolver and on to the internet. A compromised
+  API, scheduler or migration pod, which has no other route out, could still send data out
+  encoded in the names it looks up. The chart can't close this alone: in-cluster names, AWS
+  endpoints and an external database's hostname all resolve through the same DNS. Limit what it
+  forwards at the cluster or the VPC ([runbook](runbook-kubernetes.md#keeping-the-controls-true)).
+  This is reasoned, not measured on a cluster. Compose is not affected: its internal networks
+  resolve no outside name.
+- **Argus doesn't check who owns the raw output bucket.** It uploads to the bucket named in
+  Settings, without asking S3 to confirm the owning account, because the bucket may sit in any
+  account of your organization (owner's decision, 2026-11-11). The bucket name and its policies are
+  yours to get right: a mistyped name, or a deleted bucket whose name someone else registers, could
+  receive raw output, which can hold secret values, if that bucket accepts the upload. The
+  platform identity's IAM policy names your bucket, and every change to the setting is audited. To
+  have AWS enforce the owner, add a condition to that policy
+  ([AWS policies](aws-policies.md#permissions)).
 - **Redaction goes by names and shapes.** It can't recognize a secret stored under a harmless name
   with no recognizable form, such as a stage variable called `config` holding a password. Such a
   value reaches the database, and every Viewer can read a resource's configuration. Keep secrets
