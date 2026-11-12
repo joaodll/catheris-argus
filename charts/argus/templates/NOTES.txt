@@ -4,8 +4,9 @@ CatherIs Argus {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Nam
 
      helm test {{ .Release.Name }} -n {{ .Release.Namespace }}
 
-2. Open the UI. There is no public entry until SSO exists. Forward the web Service to this
-   machine's loopback, so the browser keeps the Secure session cookie:
+2. Open the UI. {{ if .Values.auth.saml.enabled }}Single sign-on is on, at {{ .Values.auth.publicUrl }}.{{ else }}There is no single sign-on, so keep the UI private.{{ end }} To reach it
+   without an ingress, forward the web Service to this machine's loopback, so the browser keeps
+   the Secure session cookie:
 
      kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "argus.fullname" . }}-web 8080:8080
      # then http://localhost:8080, as {{ .Values.admin.username }}
@@ -46,9 +47,18 @@ sees real addresses, sign in with a wrong password and read `kubectl -n {{ .Rele
 the line must start with your address, not the ingress's.
 {{- if eq (get .Values.web.ingress.annotations "alb.ingress.kubernetes.io/scheme") "internet-facing" }}
 
-WARNING: this ALB is internet-facing, and Argus has no single sign-on or second factor yet. Restrict
-who can reach it (alb.ingress.kubernetes.io/inbound-cidrs, or your own security groups): the chart
-does not check that you did.
+{{- if .Values.auth.saml.enabled }}
+{{- if .Values.auth.localSignIn }}
+
+WARNING: this ALB is internet-facing and password sign-in is still on (auth.localSignIn), with no
+second factor. Once SSO works, turn it off, or restrict who can reach the ALB.
+{{- end }}
+{{- else }}
+
+WARNING: this ALB is internet-facing, and single sign-on is off (auth.saml), so there is no second
+factor. Restrict who can reach it (alb.ingress.kubernetes.io/inbound-cidrs, or your own security
+groups): the chart does not check that you did.
+{{- end }}
 {{- end }}
 {{- if not .Values.networkPolicy.enabled }}
 

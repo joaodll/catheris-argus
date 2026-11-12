@@ -120,11 +120,24 @@ when their checks need it. Argus never stores such a value:
   cloud. Every route checks the role on the server, a refusal is audited, and
   a role change or deactivation ends that user's sessions at once. Passwords are argon2id hashes
   in Postgres, never returned; the API's role can read them to check a sign-in. The first admin
-  comes from the environment once, at the first start, and the operator then removes it. No
-  second factor until single sign-on.
+  comes from the environment once, at the first start, and the operator then removes it.
+- **Single sign-on** ([ADR-0048](adr/0048-saml-sign-in.md), [set-up](sso.md)): SAML, started by
+  Argus only. The IdP's answer must carry a signed assertion meant for Argus's own address (from
+  `ARGUS_PUBLIC_URL`, never a request header), answer a request this browser started (a signed
+  cookie binds the two), and be used once. The XML is read by python3-saml in a child process with
+  an empty environment and a 192 MiB address-space limit, at most 2 at once per API process; web
+  lets one address post an answer once a second (burst 5). The role comes from the user's IdP groups at every
+  sign-in, the highest wins, and someone in no group is refused and their sessions end. An SSO user
+  is never linked to a local user. The IdP and the group map are set in the deployment, never in
+  the UI: whoever can change them, or the metadata ConfigMap, chooses who is Admin.
+- **Local sign-in** is the break-glass path, on by default (`auth.localSignIn`). Turn it off once
+  SSO works; until then there is no second factor behind a password. Argus always keeps one active
+  local admin.
 - **Email addresses:** optional, and the one personal field besides a display name. Only an Admin
-  sets or reads one. Argus sends no mail, and the API has no route out to send any. The audit log
-  says that an address changed and never holds its value, so deleting a user removes it.
+  sets or reads one. Argus sends no mail, and the API has no route out to send any. For a local
+  user the audit log says that an address changed and never holds its value, so deleting the user
+  removes it. An SSO user's username is their email, so the audit log, and its log lines, name
+  them by it.
 - **Sessions:** HttpOnly, Secure, SameSite=Strict cookies, double-submit CSRF protection on every
   write, and limits of 30 minutes idle and 12 hours in total.
 - **What stays in the browser:** no scan data is stored in the browser.
@@ -192,9 +205,22 @@ Argus is pre-1.0. These are known and accepted for now:
   volume) and use the worker's network. On Kubernetes the report Job (round 5) gets its own
   identity, no keyring and no route but S3.
 
-- **No single sign-on.** Users have their own passwords and a role (viewer, operator or admin),
-  stored in Postgres ([ADR-0041](adr/0041-users-and-roles.md)). Keep the UI on loopback or inside the
-  cluster network until SSO exists.
+- **Without single sign-on there is no second factor.** Local users have their own passwords
+  ([ADR-0041](adr/0041-users-and-roles.md)). Without SSO, keep the UI on loopback or inside the
+  cluster network; with it, turn local sign-in off once SSO works.
+- **While local sign-in is on, an Admin can create a local Admin.** "Whoever deploys decides who is
+  Admin" holds only with `auth.localSignIn: false`.
+- **There is no single logout.** Signing out of Argus doesn't sign out of the IdP, and someone
+  removed at the IdP keeps an open Argus session until it ends (12 hours at most, or less if you
+  lower `api.session.absoluteHours`) or until they next try to sign in.
+- **Many addresses together can hold SSO's check slots.** Each IdP answer is checked in its own
+  process, 2 at a time per API pod, and web limits each address, not the total. A flood from many
+  addresses makes SSO sign-in answer "busy" while it lasts; password sign-in, while on, stays a way
+  in.
+- **The SAML check is the verifier.** It runs in its own process with no secrets, so a flaw in
+  libxml2 or xmlsec reached by a hostile answer can't read the keyring or use the database login.
+  But such a flaw could return any user and groups, and so sign someone in. It also runs as the
+  API's user, so it could read what that user reads on disk: on Compose, the reports volume.
 - **Access keys:** an administrator may store a long-lived key, for a connection or the platform
   identity. It is sealed, write-only and audited, but it is still a long-lived credential in a
   tier-0 database; prefer roles.
@@ -219,9 +245,10 @@ Argus is pre-1.0. These are known and accepted for now:
   that reaches web can choose the address, dodge the per-address limit and plant an address in the
   audit log. A second proxy in front of the ingress would be recorded as every user's address.
 - **An ingress can be internet-facing.** The chart warns about an internet-facing ALB and doesn't
-  check that its source addresses are restricted, because that is the operator's to choose. Until
-  single sign-on exists there is no second factor behind that sign-in, so an unrestricted ingress
-  exposes a system that holds the attack map to password guessing, slowed only by the sign-in limits.
+  check that its source addresses are restricted, because that is the operator's to choose. While
+  password sign-in is on there is no second factor behind it, so an unrestricted ingress exposes a
+  system that holds the attack map to password guessing, slowed only by the sign-in limits. With
+  SSO working, turn local sign-in off.
 - **A new pod's egress rules don't hold for its first moments on some network plugins.** The plugin
   lets its outgoing traffic through until it has applied the pod's policies. Measured on kind on
   2026-11-03: a pod connecting at its start reached the internet 30 times out of 30, and a pod

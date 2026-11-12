@@ -71,6 +71,37 @@ def record_sign_in_limited(
         _line(actor=actor, action="auth.sign_in.limited", client_ip=client_ip)
 
 
+def record_sso_refused(
+    conn: Connection, *, actor: str, client_ip: str | None, reason: str, window_minutes: int
+) -> None:
+    """A refused SSO sign-in (ADR-0048), once per address and reason per window: anyone can post
+    to the ACS, and the log is never purged. Keyed on the reason too, so a forged answer is never
+    hidden behind an earlier "no group". The line follows the row, as for a limited sign-in."""
+    detail = json.dumps({"reason": reason})
+    added = conn.execute(
+        text("""
+        INSERT INTO audit_log (actor, action, detail, client_ip)
+        SELECT :actor, 'auth.sso.refused', CAST(:detail AS jsonb), CAST(:ip AS inet)
+        WHERE NOT EXISTS (
+          SELECT 1 FROM audit_log
+          WHERE action = 'auth.sso.refused'
+            AND client_ip IS NOT DISTINCT FROM CAST(:ip AS inet)
+            AND detail ->> 'reason' = :reason
+            AND occurred_at > now() - CAST(:w AS interval)
+        )
+    """),
+        {
+            "actor": actor,
+            "detail": detail,
+            "ip": client_ip,
+            "reason": reason,
+            "w": f"{window_minutes} minutes",
+        },
+    )
+    if added.rowcount == 1:
+        _line(actor=actor, action="auth.sso.refused", detail=detail, client_ip=client_ip)
+
+
 def record(
     conn: Connection,
     *,

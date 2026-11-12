@@ -16,7 +16,17 @@ from argus.auth import ROLES, role_allows
 
 pytestmark = pytest.mark.db
 
-PUBLIC = {("GET", "/api/v1/health"), ("GET", "/api/v1/ready"), ("POST", "/api/v1/auth/sign-in")}
+PUBLIC = {
+    ("GET", "/api/v1/health"),
+    ("GET", "/api/v1/ready"),
+    ("POST", "/api/v1/auth/sign-in"),
+    # Sign-in by SSO (ADR-0048): which sign-ins exist, the start, the IdP's answer, and Argus's
+    # own SAML metadata for the IdP's set-up. None reads or writes anything of a user's.
+    ("GET", "/api/v1/auth/methods"),
+    ("GET", "/api/v1/auth/saml/login"),
+    ("POST", "/api/v1/auth/saml/acs"),
+    ("GET", "/api/v1/auth/saml/metadata"),
+}
 # Any signed-in user, even one who must change their password first.
 ANY_USER = {
     ("POST", "/api/v1/auth/sign-out"),
@@ -42,6 +52,7 @@ OPERATOR = {
 }
 ADMIN = {
     ("GET", "/api/v1/settings"),
+    ("GET", "/api/v1/settings/sign-in"),
     ("POST", "/api/v1/settings/identity/test"),
     ("PUT", "/api/v1/settings/retention"),
     ("PUT", "/api/v1/settings/raw-storage"),

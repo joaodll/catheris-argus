@@ -475,6 +475,11 @@ To refresh the test fixtures from a real run (the Phase 0 spike), see
 also **deletes every volume: the database with all history, and the raw files**. There is no
 undo.
 
+### Sign-in
+
+Single sign-on, turning password sign-in off and back on, and what each refused sign-in means are in
+[SSO set-up](sso.md).
+
 ## Single instance
 
 For a shared host instead of a laptop, start with the override, which refuses the development
@@ -488,7 +493,8 @@ Set these in `.env` first (see `.env.example`): `ARGUS_DB_PASSWORD`, `ARGUS_API_
 `ARGUS_WORKER_DB_PASSWORD`, `ARGUS_SECRET_KEYS`, `ARGUS_SECRET_KEY_ID`, and for the first start the
 bootstrap admin's password or hash.
 A missing one stops Compose before anything starts, naming the variable. The UI is still published
-on `127.0.0.1` only; reach it through an SSH tunnel until SSO exists.
+on `127.0.0.1` only; reach it through an SSH tunnel, or put a TLS proxy in front and set up single
+sign-on ([SSO set-up](sso.md)).
 
 Not covered yet: backups. Until the backup procedure exists, a `pg_dump` taken with
 `docker compose exec postgres pg_dump -U argus argus` is the only copy of the history.

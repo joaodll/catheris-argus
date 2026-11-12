@@ -27,6 +27,7 @@ _argon2_slots = threading.BoundedSemaphore(ARGON2_AT_ONCE)
 
 Role = Literal["viewer", "operator", "admin"]
 # Each role can do everything the roles before it can (ADR-0041).
+AuthSource = Literal["local", "saml"]
 ROLES: tuple[Role, ...] = ("viewer", "operator", "admin")
 
 
@@ -44,6 +45,7 @@ class SessionUser:
     display_name: str
     role: Role
     must_change_password: bool
+    auth_source: AuthSource = "local"
 
 
 class SignInError(Exception):
@@ -165,6 +167,25 @@ def sign_in(
         )
         audit.record(conn, actor=username, action="auth.sign_in.failed", client_ip=client_ip)
         raise SignInError
+    token = start_session(conn, user_id=user_id, client_ip=client_ip, user_agent=user_agent)
+    # Only this address's failures: someone else's attempts on this username still count.
+    conn.execute(
+        text(
+            "DELETE FROM login_failure WHERE username = :u "
+            "AND client_ip IS NOT DISTINCT FROM CAST(:ip AS inet)"
+        ),
+        {"u": username, "ip": client_ip},
+    )
+    audit.record(conn, actor=username, action="auth.sign_in", client_ip=client_ip)
+    return token
+
+
+def start_session(
+    conn: Connection, *, user_id: int, client_ip: str | None, user_agent: str | None
+) -> str:
+    """The one way a session starts, for a password or an SSO sign-in (ADR-0048): a new token,
+    its hash stored with both expiries, and the user's last sign-in. Returns the token; the
+    caller audits and commits."""
     settings = get_settings()
     token = secrets.token_urlsafe(SESSION_TOKEN_BYTES)
     now = datetime.now(UTC)
@@ -183,16 +204,7 @@ def sign_in(
             "ua": (user_agent or "")[:400],
         },
     )
-    # Only this address's failures: someone else's attempts on this username still count.
-    conn.execute(
-        text(
-            "DELETE FROM login_failure WHERE username = :u "
-            "AND client_ip IS NOT DISTINCT FROM CAST(:ip AS inet)"
-        ),
-        {"u": username, "ip": client_ip},
-    )
     conn.execute(text("UPDATE app_user SET last_sign_in_at = now() WHERE id = :i"), {"i": user_id})
-    audit.record(conn, actor=username, action="auth.sign_in", client_ip=client_ip)
     return token
 
 
@@ -208,7 +220,7 @@ def session_user(conn: Connection, token: str) -> SessionUser | None:
     row = conn.execute(
         text("""
         SELECT s.id, s.last_seen_at, u.id AS user_id, u.username, u.display_name, u.role,
-               u.must_change_password
+               u.must_change_password, u.auth_source
         FROM user_session s JOIN app_user u ON u.id = s.user_id
         WHERE s.token_hash = :h AND s.revoked_at IS NULL
           AND s.idle_expires_at > now() AND s.absolute_expires_at > now() AND u.is_active
@@ -232,6 +244,7 @@ def session_user(conn: Connection, token: str) -> SessionUser | None:
         display_name=row.display_name,
         role=row.role,
         must_change_password=row.must_change_password,
+        auth_source=row.auth_source,
     )
 
 

@@ -290,6 +290,134 @@
       },
       "additionalProperties": false
     },
+    "auth": {
+      "type": "object",
+      "description": "Sign-in (ADR-0048): local passwords, SAML single sign-on and the group map.",
+      "properties": {
+        "localSignIn": {
+          "type": "boolean"
+        },
+        "publicUrl": {
+          "type": "string",
+          "pattern": "^$|^https://[^/?#\\s]+/?$",
+          "description": "https://host, no path"
+        },
+        "saml": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "idpMetadataConfigMap": {
+              "type": "string"
+            },
+            "idpMetadataKey": {
+              "type": "string",
+              "minLength": 1
+            },
+            "groupsAttribute": {
+              "type": "string"
+            },
+            "emailAttribute": {
+              "type": "string"
+            },
+            "nameAttribute": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "groupRoles": {
+          "type": "object",
+          "propertyNames": {
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "string",
+            "enum": [
+              "viewer",
+              "operator",
+              "admin"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "saml": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "enabled"
+                ]
+              }
+            },
+            "required": [
+              "saml"
+            ]
+          },
+          "then": {
+            "properties": {
+              "publicUrl": {
+                "minLength": 1
+              },
+              "saml": {
+                "properties": {
+                  "idpMetadataConfigMap": {
+                    "minLength": 1
+                  },
+                  "groupsAttribute": {
+                    "minLength": 1
+                  }
+                }
+              },
+              "groupRoles": {
+                "minProperties": 1
+              }
+            },
+            "required": [
+              "publicUrl",
+              "groupRoles"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "localSignIn": {
+                "const": false
+              }
+            },
+            "required": [
+              "localSignIn"
+            ]
+          },
+          "then": {
+            "properties": {
+              "saml": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "enabled"
+                ]
+              }
+            },
+            "required": [
+              "saml"
+            ]
+          }
+        }
+      ]
+    },
     "logLevel": {
       "type": "string",
       "enum": [

@@ -1,11 +1,13 @@
 """Process configuration, read from the environment (prefix ARGUS_)."""
 
+import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy.engine import URL
 
 
@@ -72,6 +74,67 @@ class Settings(BaseSettings):
     # Unset means this install builds no reports: the API refuses requests and the screen
     # says why. Docker Compose sets it; the chart does not (until reports can go to S3).
     reports_root: Path | None = None
+    # Sign-in (ADR-0048). Set in the deployment, never in the UI: whoever could change the IdP
+    # could choose who is Admin. SSO is on when the IdP's metadata file is set. Compose passes
+    # every one from .env, empty when unused.
+    # The URL people use to reach Argus. Argus's SAML entity id and ACS URL come from it, never
+    # from request headers.
+    public_url: str | None = None
+    # The IdP's metadata, a file the deployment provides. Never fetched from a URL.
+    saml_idp_metadata_file: Path | None = None
+    # Which attribute of the IdP's answer carries the groups, the email (empty: the NameID) and
+    # the display name (empty: none).
+    saml_groups_attribute: str = ""
+    saml_email_attribute: str = ""
+    saml_name_attribute: str = ""
+    # JSON: the exact group string the IdP sends -> viewer, operator or admin. The highest wins.
+    saml_group_roles: Annotated[dict[str, Literal["viewer", "operator", "admin"]], NoDecode] = {}
+    # Password sign-in, the break-glass path. Off, nobody signs in with a password.
+    local_sign_in: bool = True
+
+    @field_validator("public_url", "saml_idp_metadata_file", mode="before")
+    @classmethod
+    def _empty_is_unset(cls, value: Any) -> Any:
+        return None if value == "" else value
+
+    @field_validator("saml_group_roles", mode="before")
+    @classmethod
+    def _group_roles_json(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return json.loads(value) if value.strip() else {}
+        return value
+
+    @model_validator(mode="after")
+    def _sign_in_is_whole(self) -> "Settings":
+        """A half-configured sign-in refuses to start, rather than starting without a way in or
+        with checks it can't make."""
+        if self.public_url is not None:
+            url = urlsplit(self.public_url)
+            local = url.hostname in ("localhost", "127.0.0.1")
+            if url.scheme != "https" and not (url.scheme == "http" and local):
+                raise ValueError("ARGUS_PUBLIC_URL must be https (http only on localhost)")
+            if not url.hostname or url.path not in ("", "/") or url.query or url.fragment:
+                raise ValueError(
+                    "ARGUS_PUBLIC_URL is a scheme and host, like https://argus.example"
+                )
+        if self.saml_idp_metadata_file is not None:
+            if self.public_url is None:
+                raise ValueError("SSO needs ARGUS_PUBLIC_URL")
+            if not self.saml_groups_attribute:
+                raise ValueError("SSO needs ARGUS_SAML_GROUPS_ATTRIBUTE")
+            if not self.saml_group_roles:
+                raise ValueError("SSO needs ARGUS_SAML_GROUP_ROLES: at least one group")
+            if self.secret_keys is None or not self.secret_key_id:
+                raise ValueError(
+                    "SSO needs the keyring (ARGUS_SECRET_KEYS): it signs sign-in state"
+                )
+        elif not self.local_sign_in:
+            raise ValueError("ARGUS_LOCAL_SIGN_IN off needs SSO: nobody could sign in")
+        return self
+
+    @property
+    def sso(self) -> bool:
+        return self.saml_idp_metadata_file is not None
 
     def database_url(self) -> URL:
         # URL.create keeps the password out of string formatting and repr(). TLS goes in the

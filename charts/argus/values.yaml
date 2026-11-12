@@ -91,6 +91,31 @@ identity:
 admin:
   username: admin
 
+# Sign-in (ADR-0048). Set here, never in the UI: an Admin who could change it could choose who is
+# Admin. So write access to these values, and to the metadata ConfigMap, is Admin access.
+auth:
+  # Password sign-in, the break-glass path. Turn it off once SSO works; to recover, turn it on
+  # again, and the bootstrap admin and `admin-tools reset-password` work as before.
+  localSignIn: true
+  # The URL people use to reach Argus, https only (the ingress's). SAML's entity id and the
+  # address the IdP answers to come from it, never from a request's headers.
+  publicUrl: ""
+  saml:
+    enabled: false
+    # A ConfigMap you create with the IdP's metadata XML, under idpMetadataKey. It is never
+    # fetched from a URL. An IdP rolling its certificate can list both in it.
+    idpMetadataConfigMap: ""
+    idpMetadataKey: metadata.xml
+    # The attribute of the IdP's answer that carries the user's groups.
+    groupsAttribute: ""
+    # The attribute holding the email address; empty means the NameID, which must then be one.
+    emailAttribute: ""
+    # The attribute holding the display name; empty means none.
+    nameAttribute: ""
+  # The exact group string the IdP sends (a name, or an object id on Entra ID) -> viewer,
+  # operator or admin. The highest of a user's groups wins; a user in none is refused.
+  groupRoles: {}
+
 logLevel: INFO
 
 database:
@@ -189,9 +214,9 @@ web:
   nodeSelector: {}
   tolerations: []
   affinity: {}
-  # Off by default: reach the UI with `kubectl port-forward`. There is no single sign-on or second
-  # factor yet, so keep any ingress internal or restricted to known source addresses. It must be
-  # the one proxy in front of web, serve HTTPS, and be allowed in networkPolicy.webIngressFrom.
+  # Off by default: reach the UI with `kubectl port-forward`. Without SSO (auth.saml) there is no
+  # second factor, so keep any ingress internal or restricted to known source addresses. It must
+  # be the one proxy in front of web, serve HTTPS, and be allowed in networkPolicy.webIngressFrom.
   ingress:
     enabled: false
     className: ""

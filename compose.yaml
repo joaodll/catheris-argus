@@ -139,12 +139,22 @@ services:
       # Reports (ADR-0047): the API serves the files the worker built, read-only. Unset, the
       # install keeps no reports and the API refuses requests.
       ARGUS_REPORTS_ROOT: /var/lib/argus-reports
+      # Sign-in (ADR-0048), from .env; empty means unused. SSO is on when the IdP's metadata file
+      # is set: put it in the `saml` volume (docs/sso.md), or let the `sso` profile do it.
+      ARGUS_LOCAL_SIGN_IN: ${ARGUS_LOCAL_SIGN_IN:-true}
+      ARGUS_PUBLIC_URL: ${ARGUS_PUBLIC_URL:-}
+      ARGUS_SAML_IDP_METADATA_FILE: ${ARGUS_SAML_IDP_METADATA_FILE:-}
+      ARGUS_SAML_GROUPS_ATTRIBUTE: ${ARGUS_SAML_GROUPS_ATTRIBUTE:-}
+      ARGUS_SAML_EMAIL_ATTRIBUTE: ${ARGUS_SAML_EMAIL_ATTRIBUTE:-}
+      ARGUS_SAML_NAME_ATTRIBUTE: ${ARGUS_SAML_NAME_ATTRIBUTE:-}
+      ARGUS_SAML_GROUP_ROLES: ${ARGUS_SAML_GROUP_ROLES:-}
     networks: [edge, data]
     <<: *hardened
     read_only: true
     tmpfs: [/tmp]
     volumes:
       - reports:/var/lib/argus-reports:ro
+      - saml:/etc/argus/saml:ro
     mem_limit: 384m
     pids_limit: 128
     depends_on:
@@ -166,7 +176,7 @@ services:
     command: ["python", "-m", "argus.entrypoints.openapi", "/app/openapi.json"]
 
   # The UI: the built app on unprivileged nginx, which proxies /api to the api service. The only
-  # published port, and only on the loopback interface (the UI stays internal until SSO).
+  # published port, and only on the loopback interface: a wider entry is a TLS proxy in front.
   web:
     build:
       context: ./frontend
@@ -258,6 +268,56 @@ services:
       web:
         condition: service_healthy
     command: ["npx", "--no-install", "playwright", "test"]
+
+  # Development only (ADR-0048): a throwaway identity provider for SSO, on its own site
+  # (127.0.0.1:8180; Argus stays on localhost:8080), so its answer is a real cross-site post.
+  # The realm holds no password: sso-setup sets the test users' from ARGUS_E2E_SSO_PASSWORD, which
+  # is also this Keycloak's admin password, and writes its metadata into the `saml` volume.
+  #   ARGUS_E2E_SSO_PASSWORD='...' docker compose --profile sso up -d keycloak
+  #   ARGUS_E2E_SSO_PASSWORD='...' docker compose --profile sso run --rm sso-setup
+  # then start the API with the SSO variables of docs/sso.md (Keycloak, development).
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2@sha256:723b1d6e254c0fc96d5cffec860c7e0744d6a3277822b865bb538cf891575e41
+    profiles: [sso]
+    command: ["start-dev", "--import-realm", "--http-port=8180", "--hostname=http://127.0.0.1:8180"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${ARGUS_E2E_SSO_PASSWORD:-}
+    ports: ["127.0.0.1:8180:8180"]
+    volumes:
+      - ./deploy/sso-dev/realm.json:/opt/keycloak/data/import/argus-realm.json:ro
+
+  sso-setup:
+    image: argus-backend:runtime
+    profiles: [sso]
+    # The host network, to reach Keycloak at the address its metadata names. Root, to write the
+    # `saml` volume's file (development only).
+    network_mode: host
+    user: "0:0"
+    environment:
+      ARGUS_E2E_SSO_PASSWORD: ${ARGUS_E2E_SSO_PASSWORD:-}
+    volumes:
+      - ./deploy/sso-dev/setup.py:/sso-dev/setup.py:ro
+      - saml:/saml
+    entrypoint: ["python", "-I", "/sso-dev/setup.py"]
+
+  # The SSO walk (frontend/e2e/sso.spec.ts), on the host network: the browser reaches Argus at
+  # localhost:8080 and the IdP at 127.0.0.1:8180, two sites, as a real deployment has.
+  e2e-sso:
+    image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+    user: "${UID:-1000}:${GID:-1000}"
+    network_mode: host
+    working_dir: /repo/frontend
+    volumes:
+      - ./frontend:/repo/frontend
+      - frontend-node-modules:/repo/frontend/node_modules
+    environment:
+      HOME: /tmp
+      ARGUS_E2E_URL: http://localhost:8080
+      ARGUS_E2E_PASSWORD: ${ARGUS_E2E_PASSWORD:-}
+      ARGUS_E2E_SSO_PASSWORD: ${ARGUS_E2E_SSO_PASSWORD:-}
+    profiles: [sso]
+    command: ["npx", "--no-install", "playwright", "test", "e2e/sso.spec.ts"]
 
   # Operator helpers for .env: hash-password, new-secret-key.
   admin-tools:
@@ -626,6 +686,8 @@ volumes:
   raw:
   staging:
   reports:
+  # The IdP's SAML metadata (ADR-0048), read-only to the API.
+  saml:
   trivy-cache:
   frontend-node-modules:
   pnpm-store:

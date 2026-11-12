@@ -27,6 +27,9 @@ class UserOut(BaseModel):
     locked: bool
     created_at: datetime
     last_sign_in_at: datetime | None
+    # Where they sign in (ADR-0048). An SSO user's role comes from role_group, at each sign-in.
+    auth_source: auth.AuthSource
+    role_group: str | None
 
 
 class UserPage(BaseModel):

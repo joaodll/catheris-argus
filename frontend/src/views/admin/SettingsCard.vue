@@ -6,7 +6,20 @@ import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { SETTINGS_SECTIONS } from './settingsSections'
 
-const props = defineProps<{ id: string; title: string; description: string; dirty: boolean; saving: boolean; error: string | null; saveLabel: string }>()
+const props = withDefaults(
+  defineProps<{
+    id: string
+    title: string
+    description: string
+    dirty?: boolean
+    saving?: boolean
+    error?: string | null
+    saveLabel?: string
+    // Facts set elsewhere (Sign-in, ADR-0048): no form, no Save or Discard.
+    readonly?: boolean
+  }>(),
+  { dirty: false, saving: false, error: null, saveLabel: 'Save', readonly: false },
+)
 const emit = defineEmits<{ save: []; discard: [] }>()
 
 // The page's "On this page" list shows each card, with a dot while it has unsaved changes.
@@ -30,11 +43,14 @@ onBeforeUnmount(() => sections?.remove(props.id))
         <span class="cap">{{ description }}</span>
       </div>
     </div>
-    <form :id="id" class="panel-body body" novalidate @submit.prevent="emit('save')">
+    <div v-if="readonly" class="panel-body body">
+      <slot />
+    </div>
+    <form v-else :id="id" class="panel-body body" novalidate @submit.prevent="emit('save')">
       <slot />
       <AlertBanner v-if="error" kind="fail">{{ error }}</AlertBanner>
     </form>
-    <div class="panel-foot actions">
+    <div v-if="!readonly" class="panel-foot actions">
       <button type="button" class="btn btn-secondary" :disabled="!dirty || saving" @click="emit('discard')">Discard</button>
       <button type="submit" :form="id" class="btn btn-primary" :disabled="!dirty || saving">
         <AppIcon v-if="saving" name="spinner" :size="16" :stroke="2.4" />{{ saving ? 'Saving…' : saveLabel }}

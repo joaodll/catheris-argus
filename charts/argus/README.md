@@ -57,6 +57,13 @@ smallest valid set; `ci/external-db-values.yaml` turns on every optional piece.
 `retention.maxHistoryDays` caps the history an administrator can set in the UI. Lowering `retention.maxHistoryDays`
 below what is set in the UI deletes the history above it at the next retention.
 
+## Single sign-on
+
+`auth` turns on SAML sign-in with your identity provider and maps its groups to Argus's roles
+(`auth.saml`, `auth.groupRoles`, `auth.publicUrl`), from a metadata ConfigMap you create.
+`auth.localSignIn` turns password sign-in off once SSO works. Write access to these values and to
+that ConfigMap is Admin access to Argus. See [SSO set-up](../../docs/sso.md).
+
 ## Scaling
 
 - **Scans** scale through the scheduler: up to `scheduler.maxRunJobs` scan Jobs at once (and the

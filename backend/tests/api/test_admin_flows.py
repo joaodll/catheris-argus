@@ -288,6 +288,8 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     bodies = {}
     for path in (
         "/api/v1/auth/session",
+        "/api/v1/auth/methods",
+        "/api/v1/settings/sign-in",
         "/api/v1/compliance",
         "/api/v1/compliance/cis_6.0_aws",
         "/api/v1/compliance/cis_6.0_aws/accounts",
@@ -354,6 +356,10 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     routes = {p for p, ops in contract.items() if "get" in ops} - {
         "/api/v1/health",
         "/api/v1/ready",
+        # Without SSO configured these answer a redirect to the sign-in page and a 404: nothing of
+        # the estate's. test_saml.py covers them with SSO on.
+        "/api/v1/auth/saml/login",
+        "/api/v1/auth/saml/metadata",
     }
     swept = {p.split("?")[0] for p in bodies}
     swept = {re.sub(r"/resources/\d+$", "/resources/{resource_id}", p) for p in swept}

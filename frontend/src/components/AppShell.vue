@@ -242,7 +242,7 @@ async function doSignOut(): Promise<void> {
         <button type="button" class="foot-btn" :title="themeLabel" :aria-label="themeLabel" @click="cycleTheme">
           <AppIcon :name="themeChoice === 'light' ? 'sun' : themeChoice === 'dark' ? 'moon' : 'monitor'" :size="14" />
         </button>
-        <button type="button" class="foot-btn" title="Change password" aria-label="Change password" @click="changingPassword = true">
+        <button v-if="session?.auth_source !== 'saml'" type="button" class="foot-btn" title="Change password" aria-label="Change password" @click="changingPassword = true">
           <AppIcon name="key" :size="14" />
         </button>
         <button type="button" class="foot-btn" title="Sign out (signs out after 30 minutes idle)" aria-label="Sign out" @click="doSignOut">

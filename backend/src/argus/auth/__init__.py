@@ -17,6 +17,7 @@ transaction.
 from argus.auth.sessions import (
     ROLES,
     SESSION_TOKEN_BYTES,
+    AuthSource,
     Role,
     SessionUser,
     SignInError,
@@ -53,6 +54,7 @@ __all__ = [
     "MIN_PASSWORD",
     "ROLES",
     "SESSION_TOKEN_BYTES",
+    "AuthSource",
     "Role",
     "SessionUser",
     "SignInError",

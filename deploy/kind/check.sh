@@ -111,6 +111,18 @@ refused "a session of no minutes" --set api.session.idleMinutes=0
 refused "no sign-in failures allowed" --set api.signIn.maxFailures=0
 refused "a lockout longer than retention keeps failures" --set api.signIn.lockoutMinutes=43201
 refused "a history bound below the UI's minimum" --set retention.maxHistoryDays=10
+# Sign-in (ADR-0048): with the rest of a valid SAML set, so each is refused for its own reason.
+SAML=(--set auth.saml.enabled=true --set auth.publicUrl=https://argus.example
+  --set auth.saml.idpMetadataConfigMap=argus-idp --set auth.saml.groupsAttribute=groups
+  --set-json 'auth.groupRoles={"sec-team":"operator"}')
+refused "SAML without a public URL" "${SAML[@]}" --set auth.publicUrl=
+refused "SAML on a plain-http URL" "${SAML[@]}" --set auth.publicUrl=http://argus.example
+refused "SAML on a URL with a path" "${SAML[@]}" --set auth.publicUrl=https://argus.example/argus
+refused "SAML without the IdP's metadata" "${SAML[@]}" --set auth.saml.idpMetadataConfigMap=
+refused "SAML without a groups attribute" "${SAML[@]}" --set auth.saml.groupsAttribute=
+refused "SAML without a group map" "${SAML[@]}" --set-json 'auth.groupRoles={}'
+refused "a group mapped to an unknown role" "${SAML[@]}" --set-json 'auth.groupRoles={"g":"owner"}'
+refused "local sign-in off with no SSO: no way in" --set auth.localSignIn=false
 # With the rest of a valid ingress, so it's refused for this reason and no other.
 INGRESS=(--set web.ingress.enabled=true --set web.ingress.host=argus.example)
 PEERS=(--set-json 'networkPolicy.webIngressFrom=[{"ipBlock":{"cidr":"10.0.64.0/24"}}]')
@@ -196,6 +208,17 @@ expect_env Deployment api ARGUS_MAX_HISTORY_DAYS 500
 expect_env CronJob retention ARGUS_MAX_HISTORY_DAYS 500
 expect_env Deployment api ARGUS_SESSION_IDLE_MINUTES 45
 expect_env Deployment api ARGUS_LOGIN_MAX_FAILURES_PER_IP 33
+expect_env Deployment api ARGUS_LOCAL_SIGN_IN true
+limits=$(helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" "${SAML[@]}" \
+  --set auth.localSignIn=false --set auth.publicUrl=https://argus.example/)
+expect_env Deployment api ARGUS_LOCAL_SIGN_IN false
+expect_env Deployment api ARGUS_PUBLIC_URL https://argus.example
+expect_env Deployment api ARGUS_SAML_IDP_METADATA_FILE /etc/argus/saml/metadata.xml
+expect_env Deployment api ARGUS_SAML_GROUP_ROLES '{"sec-team":"operator"}'
+mount=$(printf '%s\n' "$limits" | yq -N 'select(.kind == "Deployment" and .metadata.name == "argus-api")
+  | .spec.template.spec.volumes[] | select(.name == "saml-idp") | .configMap.name')
+[ "$mount" = "argus-idp" ] || fail "api: the IdP metadata ConfigMap is not mounted"
+echo "api: the IdP metadata from ConfigMap argus-idp"
 
 step "no exec probe runs on Kubernetes' one-second default"
 # A command probe on a node busy with scans can take over a second to start (2026-11-09: the
