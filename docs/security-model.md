@@ -137,6 +137,16 @@ when their checks need it. Argus never stores such a value:
   failures and ended sessions after 30 days.
 - **The audit log** records every sign-in and every change. Refused sign-ins, which never reach a
   password check, write one row per address per lockout window. It is never purged.
+  - **Each row is also a log line.** One JSON line with `"audit": true` and the row's fields, so a copy
+    leaves the database with the process's output. Ship the logs somewhere the database's owner
+    can't change, and anyone who edits the table directly is seen.
+  - The line is written as the row is inserted, so a change that is rolled back afterwards still
+    leaves its line.
+  - The lines carry usernames, client addresses and what changed: bucket names and role ARNs,
+    never a credential. Treat your log pipeline as holding them.
+  - On Docker Compose the lines stay on the same host unless a Docker logging driver sends them
+    elsewhere.
+  - There is no screen for the audit log yet.
 - **The API's role in the database** reads scan data read-only, with a 5-second statement timeout.
   It writes only administration rows, and the API never serves its own API description
   ([ADR-0025](adr/0025-openapi-build-time-contract.md)).
