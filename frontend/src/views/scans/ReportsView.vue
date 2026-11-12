@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /**
- * Operate -> Reports (ADR-0047; palace frontend/08ff3c8d): exports of Misconfigurations and
- * Vulnerabilities, built by the worker. Operator and Admin only; an Operator sees their own.
+ * Operate -> Reports (ADR-0047; palace frontend/08ff3c8d, Kubernetes states 2026-11-12):
+ * exports of Misconfigurations and Vulnerabilities, built by the worker (Compose) or a report Job
+ * (Kubernetes). Operator and Admin only; an Operator sees their own.
  */
 import { computed, onScopeDispose, ref, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
@@ -33,6 +35,8 @@ const connections = useResource(() => unwrap(api.GET('/api/v1/connections')))
 const items = computed(() => reports.data.value?.items ?? [])
 const total = computed(() => reports.data.value?.total ?? 0)
 const storage = computed(() => reports.data.value?.storage ?? null)
+// Where a report can be requested now: a local volume (Compose) or the bucket (Kubernetes).
+const canRequest = computed(() => storage.value === 'local' || storage.value === 's3')
 const busy = computed(() => items.value.filter((r) => r.status === 'queued' || r.status === 'building').length)
 const atCap = computed(() => !!reports.data.value && !admin.value && busy.value >= reports.data.value.max_open)
 const creating = ref(false)
@@ -117,6 +121,14 @@ async function onRequested(id: number): Promise<void> {
   <AlertBanner v-if="storage === 'local'" class="note">
     Reports on this install cover Demo connections only. Real accounts get reports on Kubernetes, from the raw-output bucket.
   </AlertBanner>
+  <AlertBanner v-else-if="storage === 'no_identity'" kind="warn" class="note">
+    Reports can't be stored or downloaded now: the API has no IRSA identity. See the install notes.
+  </AlertBanner>
+  <AlertBanner v-else-if="storage === 'no_bucket'" kind="warn" class="note">
+    Reports go to the raw-output bucket, and none is set.
+    <template v-if="admin"><RouterLink :to="{ name: 'settings' }">Set Raw output storage</RouterLink>.</template>
+    <template v-else>Ask an Admin to set Raw output storage.</template>
+  </AlertBanner>
 
   <section class="card panel" aria-labelledby="rep-h">
     <div class="panel-h">
@@ -125,7 +137,7 @@ async function onRequested(id: number): Promise<void> {
         <span class="cap">{{ admin ? "Newest first. An Admin sees everyone's." : 'Newest first. Only your own.' }}</span>
       </div>
       <button
-        v-if="storage === 'local'"
+        v-if="canRequest"
         type="button"
         class="btn btn-primary"
         :aria-disabled="atCap ? 'true' : undefined"
@@ -146,13 +158,17 @@ async function onRequested(id: number): Promise<void> {
     <div v-else-if="storage === 'off'" class="panel-body">
       <EmptyState
         icon="info"
-        title="Reports are not available on this install yet."
-        text="They need the reports folder of the raw-output bucket, which comes in a later release."
+        title="This install keeps no reports."
+        text="On Kubernetes, reports need IRSA roles for the API and the report Job. See the install notes."
       />
     </div>
     <div v-else-if="items.length === 0" class="panel-body">
-      <EmptyState icon="report" title="No reports yet." text="Export a list from Misconfigurations or Vulnerabilities, or start one here.">
-        <button type="button" class="btn btn-secondary" @click="creating = true">New report</button>
+      <EmptyState
+        icon="report"
+        title="No reports yet."
+        :text="canRequest ? 'Export a list from Misconfigurations or Vulnerabilities, or start one here.' : 'Reports appear here once they can be stored.'"
+      >
+        <button v-if="canRequest" type="button" class="btn btn-secondary" @click="creating = true">New report</button>
       </EmptyState>
     </div>
     <div v-else class="table-wrap table-fit">

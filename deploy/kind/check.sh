@@ -22,6 +22,7 @@ KIND_SET=(
   --set "images.workerSteampipe.digest=sha256:$(printf '2%.0s' {1..64})"
   --set "images.workerProwler.digest=sha256:$(printf '4%.0s' {1..64})"
   --set "images.workerCloudfox.digest=sha256:$(printf '5%.0s' {1..64})"
+  --set "images.reports.digest=sha256:$(printf '6%.0s' {1..64})"
   --set "images.web.digest=sha256:$(printf '3%.0s' {1..64})"
   --set "images.registry=localhost:${REGISTRY_PORT}"
   --set "networkPolicy.kubeApi.cidrs={172.18.0.2/32}"
@@ -49,10 +50,13 @@ check_render() {
   tagged=$(yq -N '.. | select(has("image")) | .image' "$OUT/$name.yaml" | grep -v '@sha256:[0-9a-f]\{64\}$' || true)
   [ -z "$tagged" ] || fail "images without a digest: $tagged"
 
-  step "$name: the scan Job templates, one per work"
-  local works=cloudfox,prowler,steampipe,test work
+  step "$name: the Job templates, one per work"
+  # The report Job only where reports are kept in S3: IRSA installs (ADR-0047 round 5).
+  local works=cloudfox,prowler,steampipe,test work irsa
+  irsa=$(yq -N 'select(.kind == "ServiceAccount" and .metadata.name == "argus-report") | .metadata.name' "$OUT/$name.yaml")
+  [ -n "$irsa" ] && works=cloudfox,prowler,report,steampipe,test
   [ "$(yq -N 'select(.kind == "ConfigMap" and .metadata.name == "argus-job-templates") | .data | keys | sort | join(",")' \
-    "$OUT/$name.yaml")" = cloudfox.json,prowler.json,steampipe.json,test.json ] \
+    "$OUT/$name.yaml")" = "$(sed 's/,/.json,/g; s/$/.json/' <<< "$works")" ] \
     || fail "the ConfigMap does not hold exactly one template per work ($works)"
   for work in ${works//,/ }; do
     yq -N "select(.kind == \"ConfigMap\" and .metadata.name == \"argus-job-templates\") | .data[\"$work.json\"]" \
@@ -70,8 +74,28 @@ check_render() {
   [ "$(jq -r '.spec.template.spec.containers[0].image' "$OUT/$name-test.json")" \
     = "$(yq -N 'select(.kind == "Deployment" and .metadata.name == "argus-api") | .spec.template.spec.containers[0].image' "$OUT/$name.yaml")" ] \
     || fail "the test template does not run the runtime image"
-  [ "$(for work in ${works//,/ }; do jq -r '.spec.template.spec.containers[0].image' "$OUT/$name-$work.json"; done | sort -u | wc -l)" = 4 ] \
-    || fail "two works share one image"
+  [ "$(for work in ${works//,/ }; do jq -r '.spec.template.spec.containers[0].image' "$OUT/$name-$work.json"; done | sort -u | wc -l)" \
+    = "$(tr ',' '\n' <<< "$works" | wc -l)" ] || fail "two works share one image"
+  if [ -n "$irsa" ]; then
+    # The report Job: its own account, component and database role, and no keyring.
+    jq -e '.spec.template.spec.serviceAccountName == "argus-report"
+        and .spec.template.metadata.labels["app.kubernetes.io/component"] == "report"
+        and ([.spec.template.spec.containers[0].env[] | select(.name == "ARGUS_DB_USER") | .value] == ["argus_reports"])
+        and ([.spec.template.spec.containers[0].env[] | select(.name | startswith("ARGUS_SECRET_KEY"))] == [])' \
+      "$OUT/$name-report.json" > /dev/null \
+      || fail "the report template is not on its own account, component and role, or holds the keyring"
+    for work in test steampipe prowler cloudfox; do
+      jq -e '.spec.template.spec.serviceAccountName == "argus-run"' "$OUT/$name-$work.json" > /dev/null \
+        || fail "the $work template does not run as argus-run"
+    done
+    [ "$(yq -N 'select(.kind == "Deployment" and .metadata.name == "argus-api") | .spec.template.spec.serviceAccountName' "$OUT/$name.yaml")" = argus-api ] \
+      || fail "the API does not run as argus-api"
+    echo "report: argus-report, argus_reports, no keyring; API: argus-api"
+  else
+    [ "$(yq -N 'select(.kind == "Deployment" and .metadata.name == "argus-api") | .spec.template.spec.serviceAccountName' "$OUT/$name.yaml")" = default ] \
+      || fail "without IRSA the API has an account of its own"
+    echo "no IRSA: no report Job, the API on default"
+  fi
 }
 
 check_render minimal -f "$CHART/ci/minimal-values.yaml"
@@ -104,6 +128,12 @@ refused "instance metadata reachable from scan Jobs" --set "networkPolicy.scanEg
 refused "autoscaling with min above max" --set api.autoscaling.enabled=true --set api.autoscaling.minReplicas=5 --set api.autoscaling.maxReplicas=3
 refused "a volume claim for the scan scratch disk" --set scanJobs.scratch.storageClassName=gp3
 refused "IRSA without a role" --set identity.roleArn=
+refused "IRSA without the API's reports role" --set identity.apiRoleArn=
+refused "IRSA without the report Job's role" --set identity.reportRoleArn=
+refused "IRSA with no route to S3 and STS" --set networkPolicy.awsEgressCidrs=null
+refused "a reports image without a digest" --set images.reports.digest=
+refused "more report Jobs than the bound" --set scheduler.maxReportJobs=4
+refused "a report Job pool of none" --set database.pools.reportJob=0
 refused "an unknown key" --set networkPolicy.enabeld=false
 refused "more database connections than Postgres allows" --set api.autoscaling.enabled=true --set api.autoscaling.maxReplicas=10 --set scheduler.maxRunJobs=20 --set postgres.maxConnections=100
 refused "a scan Job pool below a run's peak" --set database.pools.scanJob=2
@@ -137,6 +167,11 @@ notes=$(helm install argus "$CHART" -n argus --dry-run=client -f "$CHART/ci/mini
   --set networkPolicy.enabled=false "${INGRESS[@]}") || fail "an ingress with the policies off must render"
 printf '%s\n' "$notes" | grep -q 'any pod that reaches web can choose' || fail "no warning with the policies off"
 echo "rendered with a warning: an ingress with the policies off"
+notes=$(helm install argus "$CHART" -n argus --dry-run=client -f "$CHART/ci/minimal-values.yaml" \
+  --set networkPolicy.enabled=false) || fail "IRSA with the policies off must render (owner, 2026-11-12)"
+printf '%s\n' "$notes" | grep -q 'WARNING: the NetworkPolicies are off, so the API and the report Job hold an AWS identity' \
+  || fail "no warning for reports' AWS identity with the policies off"
+echo "rendered with a warning: reports' AWS identity with the policies off"
 helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
   --set admissionPolicy.enabled=false --set admissionPolicy.acknowledgeUnenforced=true > /dev/null \
   || fail "the policy off, acknowledged, must render"
@@ -177,7 +212,7 @@ jq -r 'def pod: if .kind == "CronJob" then .spec.jobTemplate.spec.template.spec
           | .data[] | fromjson | report)' "$OUT/placement.json" | sort > "$OUT/placement.txt"
 cat "$OUT/placement.txt"
 if grep -q MISSING "$OUT/placement.txt"; then fail "a pod ignores its placement values"; fi
-for needed in argus-api argus-web argus-scheduler argus-postgres argus-retention argus-netpol-probe argus-scan-test- argus-scan-steampipe- argus-scan-prowler- argus-scan-cloudfox- argus-migrate- argus-rederive-; do
+for needed in argus-api argus-web argus-scheduler argus-postgres argus-retention argus-netpol-probe argus-scan-test- argus-scan-steampipe- argus-scan-prowler- argus-scan-cloudfox- argus-scan-report- argus-migrate- argus-rederive-; do
   grep -q "^$needed" "$OUT/placement.txt" || fail "$needed is not in the render, so its placement wasn't checked"
 done
 
@@ -209,6 +244,9 @@ expect_env CronJob retention ARGUS_MAX_HISTORY_DAYS 500
 expect_env Deployment api ARGUS_SESSION_IDLE_MINUTES 45
 expect_env Deployment api ARGUS_LOGIN_MAX_FAILURES_PER_IP 33
 expect_env Deployment api ARGUS_LOCAL_SIGN_IN true
+expect_env Deployment api ARGUS_REPORTS_STORE s3
+expect_env Deployment api AWS_EC2_METADATA_DISABLED true
+expect_env Deployment scheduler ARGUS_MAX_REPORT_JOBS 1
 limits=$(helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" "${SAML[@]}" \
   --set auth.localSignIn=false --set auth.publicUrl=https://argus.example/)
 expect_env Deployment api ARGUS_LOCAL_SIGN_IN false

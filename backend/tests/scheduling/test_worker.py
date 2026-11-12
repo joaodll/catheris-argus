@@ -742,6 +742,7 @@ def test_a_run_holds_at_most_run_connections_at_once(
     def _as_worker(dbapi_conn, _record):  # type: ignore[no-untyped-def]
         with dbapi_conn.cursor() as cur:
             cur.execute("SET ROLE argus_worker")
+        dbapi_conn.commit()  # kept across the pool's reset (tests/conftest.py)
 
     @event.listens_for(engine, "checkout")
     def _out(*_args):  # type: ignore[no-untyped-def]

@@ -1,15 +1,21 @@
 """AWS sessions for Argus's own calls. Our code calls a cloud only to authenticate, to
-discover accounts and to write raw output to the operator's bucket (CLAUDE.md, read-only).
+discover accounts, to write raw output to the operator's bucket, and to write and read reports in
+its reports/ folder (CLAUDE.md, read-only; ADR-0047).
 
 Credentials come from the platform identity (Settings -> Identity, ADR-0024): the ambient
-chain (instance role, Pod Identity) or an access key stored for local tests.
+chain (instance role, Pod Identity) or an access key stored for local tests. Reports never use
+it: the API and the report Job each have their own IRSA role, reached by web identity only.
 """
 
+import os
 import re
 from dataclasses import dataclass, field
-from typing import cast
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, cast
 
 import boto3
+import botocore.session
 from botocore.config import Config
 
 from argus.core.rawstore import S3Client
@@ -18,6 +24,13 @@ from argus.core.rawstore import S3Client
 CLIENT_CONFIG = Config(
     connect_timeout=10, read_timeout=60, retries={"mode": "adaptive", "max_attempts": 5}
 )
+
+# Reports' S3 calls: a download is waiting on them, so they give up sooner.
+REPORTS_CLIENT_CONFIG = Config(
+    connect_timeout=5, read_timeout=30, retries={"mode": "standard", "max_attempts": 3}
+)
+# The one credential provider a reports client may use: the pod's IRSA token (ADR-0047).
+WEB_IDENTITY_METHOD = "assume-role-with-web-identity"
 
 # AKIA: a long-lived IAM user key. ASIA: a temporary key (SSO, STS), which AWS accepts only
 # together with its session token.
@@ -109,3 +122,34 @@ def caller_identity(credentials: SessionCredentials | None) -> tuple[str, str]:
     sts = _session(credentials, None).client("sts", region_name="us-east-1", config=CLIENT_CONFIG)
     answer = sts.get_caller_identity()
     return str(answer["Account"]), str(answer["Arn"])
+
+
+class NoWebIdentityError(RuntimeError):
+    """This pod has no IRSA identity: no role ARN, or no token file."""
+
+
+def web_identity_available() -> bool:
+    """Whether the pod carries an IRSA identity: EKS's webhook sets both variables and mounts
+    the token when the pod's ServiceAccount names a role."""
+    role_arn = os.environ.get("AWS_ROLE_ARN")
+    token_file = os.environ.get("AWS_WEB_IDENTITY_TOKEN_FILE")
+    return bool(role_arn) and bool(token_file) and Path(str(token_file)).is_file()
+
+
+@lru_cache(maxsize=8)
+def web_identity_s3_client(region: str) -> Any:
+    """An S3 client signed by this pod's IRSA role and nothing else (review SA-2): every other
+    provider of the default chain is removed, so a pod whose ServiceAccount lost its annotation
+    gets an error, never the node's instance role or a key in the environment. Credentials
+    refresh themselves, so one client per region serves the process. Raises NoWebIdentityError."""
+    if not web_identity_available():
+        raise NoWebIdentityError("no IRSA identity in this pod")
+    core = botocore.session.Session()
+    resolver = core.get_component("credential_provider")
+    resolver.providers = [
+        p for p in resolver.providers if getattr(p, "METHOD", None) == WEB_IDENTITY_METHOD
+    ]
+    if not resolver.providers:
+        raise NoWebIdentityError("this botocore has no web identity provider")
+    session = boto3.Session(botocore_session=core, region_name=region)
+    return session.client("s3", config=REPORTS_CLIENT_CONFIG)

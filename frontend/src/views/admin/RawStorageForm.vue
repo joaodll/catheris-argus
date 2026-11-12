@@ -8,7 +8,7 @@ import { useDirtyGuard } from '@/composables/useDirtyGuard'
 import { toast } from '@/composables/useToasts'
 import { COLLECTOR_IDS, COLLECTORS } from '@/tools'
 import SettingsCard from './SettingsCard.vue'
-import { checkRawStorage, normalized, type FieldErrors, type Tool } from './rawStorage'
+import { REPORTS_FOLDER, checkRawStorage, normalized, type FieldErrors, type Tool } from './rawStorage'
 
 const TOOLS = COLLECTORS.map((c) => ({ tool: c.id as Tool, name: c.name }))
 
@@ -108,6 +108,7 @@ async function save(): Promise<void> {
           <span :id="`rs-${t.tool}-help`" class="cap mono path">{{ form.prefixes[t.tool] || '…' }}/aws/&lt;account&gt;/&lt;date&gt;/&lt;run&gt;/</span>
         </div>
       </div>
+      <span class="cap">Reports go to <span class="mono">{{ REPORTS_FOLDER }}/</span> in this bucket. No tool folder may be in it.</span>
     </fieldset>
     <AlertBanner kind="info">
       Use SSE-KMS as the bucket's default encryption. Raw output can hold secret values (Lambda environment, EC2 user data,

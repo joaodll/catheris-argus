@@ -39,11 +39,13 @@ ROLE_PASSWORDS = {
     "argus_api": password(),
     "argus_worker": password(),
     "argus_scheduler": password(),
+    "argus_reports": password(),
 }
 ROLE_PASSWORD_ENV = {
     "argus_api": "ARGUS_API_DB_PASSWORD",
     "argus_worker": "ARGUS_WORKER_DB_PASSWORD",
     "argus_scheduler": "ARGUS_SCHEDULER_DB_PASSWORD",
+    "argus_reports": "ARGUS_REPORTS_DB_PASSWORD",
 }
 # A password replaced during the run: it must not be in the server's log either.
 ROTATED_PASSWORDS: dict[str, str] = {}
@@ -165,6 +167,9 @@ def check_role_limits() -> None:
     with role("argus_scheduler") as conn:
         assert one(conn, "SHOW statement_timeout") == "30s"
         assert one(conn, "SHOW idle_in_transaction_session_timeout") == "1min"
+    with role("argus_reports") as conn:
+        assert one(conn, "SHOW statement_timeout") == "5min"
+        assert one(conn, "SHOW idle_in_transaction_session_timeout") == "5min"
 
 
 def check_passwords_are_scram() -> None:
@@ -172,17 +177,18 @@ def check_passwords_are_scram() -> None:
         rows = conn.execute(
             statement("""
             SELECT rolname, rolpassword FROM pg_authid
-            WHERE rolname IN ('argus_owner', 'argus_api', 'argus_worker', 'argus_scheduler')
+            WHERE rolname IN ('argus_owner', 'argus_api', 'argus_worker', 'argus_scheduler',
+                              'argus_reports')
             """)
         ).fetchall()
-    assert len(rows) == 4, rows
+    assert len(rows) == 5, rows
     for name, stored in rows:
         assert str(stored).startswith("SCRAM-SHA-256$"), f"{name} has no SCRAM password"
 
 
 def check_passwords_never_reach_the_server_log() -> None:
     """RDS can send statements to CloudWatch (log_statement, pgaudit), and migrate runs on every
-    upgrade. Migrate hashes the three role passwords first, so none of them is ever in a log."""
+    upgrade. Migrate hashes the role passwords first, so none of them is ever in a log."""
     with superuser() as conn:
         files = conn.execute(statement("SELECT name FROM pg_ls_logdir()")).fetchall()
         logged = "".join(
@@ -232,6 +238,12 @@ def check_each_role_stays_in_its_lane() -> None:
     with role("argus_scheduler") as conn:
         refused(conn, "SELECT secret_ciphertext FROM connection")
         refused(conn, "SELECT count(*) FROM resource")
+    with role("argus_reports") as conn:
+        one(conn, "SELECT count(*) FROM finding")
+        refused(conn, "SELECT secret_ciphertext FROM connection")
+        refused(conn, "SELECT count(*) FROM platform_setting")
+        refused(conn, "SELECT count(*) FROM audit_log")
+        refused(conn, "SELECT config_id FROM resource")
     for name in ROLE_PASSWORDS:
         with role(name) as conn:
             refused(conn, "CREATE TABLE public.not_allowed (id integer)")

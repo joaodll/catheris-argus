@@ -3,12 +3,12 @@ The scheduler may create a Job only exactly as the chart rendered one of its tem
 ADR-0046): this policy pins what makes "create jobs" dangerous in a namespace. The expected
 values are read from the same helper that renders the scan Job templates (argus.scanJob), so the
 two cannot drift.
-- Four templates, one per work. What differs between them (the name prefix, the labels, the
-  image, the environment, the resources) is held per template, keyed by name prefix: a Job is
-  checked whole against the one template its prefix names, so one template's work on another's
-  image, or with another's resources, matches none. An unknown prefix is denied first. The
-  chart refuses to render if the templates differ in anything else, so the shared checks below
-  hold for all four.
+- One template per work: four, and a fifth (report) on IRSA installs (ADR-0047 round 5). What
+  differs between them (the name prefix, the labels, the service account, the image, the
+  environment, the resources) is held per template, keyed by name prefix: a Job is checked whole
+  against the one template its prefix names, so one template's work on another's image, account
+  or resources matches none. An unknown prefix is denied first. The chart refuses to render if
+  the templates differ in anything else, so the shared checks below hold for all of them.
 - image, command, service account, environment (so no other Secret key, no other database
   host), labels, annotations, resources, the Job's limits;
 - the security contexts, the volumes (by name; emptyDir or the database CA only);
@@ -25,7 +25,7 @@ policy 2Gi for the 2048Mi the chart rendered.
 {{- if .Values.admissionPolicy.enabled }}
 {{- $ns := .Release.Namespace }}
 {{- $schedulerSA := include "argus.serviceAccount" (dict "root" . "name" "scheduler") }}
-{{- $images := dict }}{{- $labelsBy := dict }}{{- $envBy := dict }}{{- $requestsBy := dict }}{{- $limitsBy := dict }}
+{{- $images := dict }}{{- $labelsBy := dict }}{{- $envBy := dict }}{{- $requestsBy := dict }}{{- $limitsBy := dict }}{{- $accountBy := dict }}
 {{- $shared := "" }}
 {{- $job := dict }}
 {{- range $work, $_ := include "argus.scanWorks" . | fromYaml }}
@@ -34,6 +34,7 @@ policy 2Gi for the 2048Mi the chart rendered.
 {{- $jc := index $j.spec.template.spec.containers 0 }}
 {{- $_ := set $images $prefix $jc.image }}
 {{- $_ := set $labelsBy $prefix $j.spec.template.metadata.labels }}
+{{- $_ := set $accountBy $prefix $j.spec.template.spec.serviceAccountName }}
 {{- $env := dict }}
 {{- range $jc.env }}
 {{- if .valueFrom }}
@@ -51,10 +52,11 @@ policy 2Gi for the 2048Mi the chart rendered.
 {{- $rest := deepCopy $j }}
 {{- $_ := unset $rest.metadata "generateName" }}{{- $_ := unset $rest.metadata "labels" }}
 {{- $_ := unset $rest.spec.template.metadata "labels" }}
+{{- $_ := unset $rest.spec.template.spec "serviceAccountName" }}
 {{- $rc := index $rest.spec.template.spec.containers 0 }}
 {{- $_ := unset $rc "image" }}{{- $_ := unset $rc "env" }}{{- $_ := unset $rc "resources" }}
 {{- if and $shared (ne $shared (toJson $rest)) }}
-{{- fail (printf "scan Job template %q differs from the others beyond its prefix, labels, image, environment and resources" $work) }}
+{{- fail (printf "Job template %q differs from the others beyond its prefix, labels, service account, image, environment and resources" $work) }}
 {{- end }}
 {{- $shared = toJson $rest }}
 {{- $job = $j }}
@@ -140,10 +142,12 @@ spec:
              && variables.meta.annotations[k] == {{ toJson $annotations }}[k])
       message: the pod's annotations are not its template's
     # Who it runs as, and where.
+    # Each template's own account: a scan Job never runs as the report account, nor a report Job
+    # as the platform identity (ADR-0047 round 5).
     - expression: >-
-        variables.pod.serviceAccountName == {{ $pod.serviceAccountName | toJson }}
+        variables.pod.serviceAccountName == {{ $accountBy | toJson }}[variables.prefix]
         && (!has(variables.pod.serviceAccount)
-            || variables.pod.serviceAccount == {{ $pod.serviceAccountName | toJson }})
+            || variables.pod.serviceAccount == {{ $accountBy | toJson }}[variables.prefix])
         && has(variables.pod.automountServiceAccountToken)
         && !variables.pod.automountServiceAccountToken
       message: the Job runs as another service account

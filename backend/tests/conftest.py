@@ -73,6 +73,9 @@ def worker(owner: Engine) -> Iterator[Engine]:
     def _as_worker(dbapi_conn, _record):  # type: ignore[no-untyped-def]
         with dbapi_conn.cursor() as cur:
             cur.execute("SET ROLE argus_worker")
+        # Committed: the pool resets a returned connection with a rollback, which would undo
+        # an uncommitted SET ROLE, and every later checkout would act as the owner.
+        dbapi_conn.commit()
 
     yield engine
     engine.dispose()
@@ -87,6 +90,26 @@ def scheduler(owner: Engine) -> Iterator[Engine]:
     def _as_scheduler(dbapi_conn, _record):  # type: ignore[no-untyped-def]
         with dbapi_conn.cursor() as cur:
             cur.execute("SET ROLE argus_scheduler")
+        # Committed: the pool resets a returned connection with a rollback, which would undo
+        # an uncommitted SET ROLE, and every later checkout would act as the owner.
+        dbapi_conn.commit()
+
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def reports_role(owner: Engine) -> Iterator[Engine]:
+    """An engine acting as argus_reports (migration 0050): the Kubernetes report Job's role."""
+    engine = create_engine(get_settings().database_url(), connect_args=CONNECT_ARGS)
+
+    @event.listens_for(engine, "connect")
+    def _as_reports(dbapi_conn, _record):  # type: ignore[no-untyped-def]
+        with dbapi_conn.cursor() as cur:
+            cur.execute("SET ROLE argus_reports")
+        # Committed: the pool resets a returned connection with a rollback, which would undo
+        # an uncommitted SET ROLE, and every later checkout would act as the owner.
+        dbapi_conn.commit()
 
     yield engine
     engine.dispose()

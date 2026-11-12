@@ -38,6 +38,12 @@ push_image() {
 
 make_secret() {
   if k get secret argus-secrets > /dev/null 2>&1; then
+    # A cluster made before reports were kept in S3 has no password for their role yet.
+    if [ -z "$(k get secret argus-secrets -o jsonpath='{.data.ARGUS_REPORTS_DB_PASSWORD}')" ]; then
+      k patch secret argus-secrets --type merge \
+        -p "{\"stringData\":{\"ARGUS_REPORTS_DB_PASSWORD\":\"$(rand 32)\"}}" > /dev/null
+      ok "the Secret gained ARGUS_REPORTS_DB_PASSWORD"
+    fi
     ok "the Secret exists; its values are kept"
     return
   fi
@@ -52,6 +58,7 @@ make_secret() {
     echo "ARGUS_API_DB_PASSWORD=$(rand 32)"
     echo "ARGUS_WORKER_DB_PASSWORD=$(rand 32)"
     echo "ARGUS_SCHEDULER_DB_PASSWORD=$(rand 32)"
+    echo "ARGUS_REPORTS_DB_PASSWORD=$(rand 32)"
     echo "ARGUS_SECRET_KEYS=k1:$(head -c 32 /dev/urandom | base64 -w0)"
     echo "ARGUS_SECRET_KEY_ID=k1"
     echo "ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH=$hash"
@@ -65,7 +72,7 @@ make_secret() {
 }
 
 install() {
-  local runtime=$1 steampipe=$2 prowler=$3 cloudfox=$4 web=$5 api_ip api_port
+  local runtime=$1 steampipe=$2 prowler=$3 cloudfox=$4 web=$5 reports=$6 api_ip api_port
   api_ip=$(kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes \
     -o jsonpath='{.items[0].endpoints[0].addresses[0]}')
   api_port=$(kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes \
@@ -76,6 +83,7 @@ install() {
     --set "images.workerSteampipe.digest=$steampipe" \
     --set "images.workerProwler.digest=$prowler" \
     --set "images.workerCloudfox.digest=$cloudfox" \
+    --set "images.reports.digest=$reports" \
     --set "images.web.digest=$web" \
     --set "networkPolicy.kubeApi.cidrs={$api_ip/32}" \
     --set "networkPolicy.kubeApi.port=$api_port" \
@@ -85,9 +93,9 @@ install() {
 up() {
   local image
   for image in argus-backend:runtime argus-backend:worker-steampipe argus-backend:worker-prowler \
-               argus-backend:worker-cloudfox argus-web:runtime; do
+               argus-backend:worker-cloudfox argus-backend:reports argus-web:runtime; do
     docker image inspect "$image" > /dev/null 2>&1 \
-      || fail "no $image: docker compose build migrate web worker-steampipe worker-prowler worker-cloudfox"
+      || fail "no $image: docker compose build migrate web worker-steampipe worker-prowler worker-cloudfox reports"
   done
 
   step "local registry on 127.0.0.1:$REGISTRY_PORT"
@@ -114,18 +122,20 @@ up() {
   ok "nodes pull localhost:$REGISTRY_PORT from $REGISTRY_NAME"
 
   step "images, by digest"
-  local runtime steampipe prowler cloudfox web
+  local runtime steampipe prowler cloudfox web reports
   runtime=$(push_image argus-backend:runtime)
+  reports=$(push_image argus-backend:reports)
   steampipe=$(push_image argus-backend:worker-steampipe)
   prowler=$(push_image argus-backend:worker-prowler)
   cloudfox=$(push_image argus-backend:worker-cloudfox)
   web=$(push_image argus-web:runtime)
   [ -n "$runtime" ] && [ -n "$steampipe" ] && [ -n "$prowler" ] && [ -n "$cloudfox" ] && [ -n "$web" ] \
-    || fail "a push gave no digest"
+    && [ -n "$reports" ] || fail "a push gave no digest"
   ok "runtime   $runtime"
   ok "steampipe $steampipe"
   ok "prowler   $prowler"
   ok "cloudfox  $cloudfox"
+  ok "reports   $reports"
   ok "web       $web"
 
   step "namespace $NAMESPACE (Pod Security restricted) and the Secret"
@@ -136,7 +146,7 @@ up() {
   make_secret
 
   step "helm install"
-  install "$runtime" "$steampipe" "$prowler" "$cloudfox" "$web"
+  install "$runtime" "$steampipe" "$prowler" "$cloudfox" "$web" "$reports"
   ok "installed; next: docker compose run --rm kind test"
 }
 
@@ -254,6 +264,12 @@ test_limits() {
     | jq -r '.spec.jobTemplate.spec.template.spec.containers[0].env[] | select(.name == "ARGUS_MAX_HISTORY_DAYS") | .value')
   [ "$got" = 500 ] || fail "retention's history bound is '$got', expected 500"
   ok "retention holds the API's history bound"
+  # Reports in S3 (ADR-0047 round 5): the API knows where, and kind gives it no identity, so the
+  # Reports screen says so rather than asking a node's role.
+  got=$(k exec "deploy/$FULL-api" -c api -- python -c \
+    'from argus.core.config import get_settings as g; from argus.core.aws import web_identity_available as w; print(g().reports_store, w())')
+  [ "$got" = "s3 False" ] || fail "the API reads '$got', expected s3 False"
+  ok "the API keeps reports in S3, and has no identity on kind"
 }
 
 test_install() {
@@ -287,15 +303,19 @@ test_rights() {
   can no create deployments.apps
   can no create jobs.batch -n default
   local sa accounts tokens
-  for sa in default "$FULL-run"; do
+  for sa in default "$FULL-run" "$FULL-api" "$FULL-report"; do
     [ "$(kubectl auth can-i --as="system:serviceaccount:$NAMESPACE:$sa" -n "$NAMESPACE" create jobs.batch 2>/dev/null || true)" = no ] \
       || fail "$sa can create Jobs"
   done
   ok "no other service account can create Jobs"
-  # Only two accounts of the chart's own; every other pod runs as default.
+  # The chart's own accounts (api and report: reports in S3 on IRSA); every other pod runs as
+  # default.
   accounts=$(k get serviceaccounts -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | sort | tr '\n' ' ')
-  [ "$accounts" = "$(printf '%s\n' default "$FULL-run" "$FULL-scheduler" | sort | tr '\n' ' ')" ] \
+  [ "$accounts" = "$(printf '%s\n' default "$FULL-run" "$FULL-scheduler" "$FULL-api" "$FULL-report" | sort | tr '\n' ' ')" ] \
     || fail "service accounts: $accounts"
+  [ "$(k get deploy "$FULL-api" -o jsonpath='{.spec.template.spec.serviceAccountName}')" = "$FULL-api" ] \
+    || fail "the API does not run as $FULL-api"
+  ok "the API runs as $FULL-api"
   ok "service accounts: $accounts"
   # The scheduler is the only pod with a Kubernetes token.
   tokens=$(k get pods -l "app.kubernetes.io/instance=$RELEASE" -o json \
@@ -306,7 +326,7 @@ test_rights() {
 }
 
 # One template's Job made into another's, field by field (ADR-0046): each must match none of the
-# four. name | template | jq change, where $other is another template's Job.
+# templates. name | template | jq change, where $other is another template's Job.
 CROSS_JOBS=(
   "Steampipe's work on Prowler's image|steampipe|.spec.template.spec.containers[0].image = \$other.spec.template.spec.containers[0].image"
   "Prowler's image and work on Steampipe's name|steampipe|.spec.template.spec.containers[0] = \$other.spec.template.spec.containers[0]"
@@ -317,13 +337,21 @@ CROSS_JOBS=(
   "the test Job on a tool's image|test|.spec.template.spec.containers[0].image = \$other.spec.template.spec.containers[0].image"
   "metadata reachable|test|.spec.template.spec.containers[0].env |= map(select(.name != \"AWS_EC2_METADATA_DISABLED\"))"
   "a name prefix of no template|prowler|.metadata.generateName = \"$FULL-scan-other-\""
+  # The report Job (ADR-0047 round 5): never the platform identity, the keyring, the worker's
+  # role or a scan Job's routes; and no scan Job on the report account.
+  "the report Job as the platform identity|report|.spec.template.spec.serviceAccountName = \$other.spec.template.spec.serviceAccountName"
+  "a scan Job as the report account|prowler|.spec.template.spec.serviceAccountName = \"$FULL-report\""
+  "the keyring on the report Job|report|.spec.template.spec.containers[0].env += [\$other.spec.template.spec.containers[0].env[] | select(.name | startswith(\"ARGUS_SECRET_KEY\"))]"
+  "the worker's role on the report Job|report|(.spec.template.spec.containers[0].env[] | select(.name == \"ARGUS_DB_USER\") | .value) = \"argus_worker\" | (.spec.template.spec.containers[0].env[] | select(.name == \"ARGUS_DB_PASSWORD\") | .valueFrom.secretKeyRef.key) = \"ARGUS_WORKER_DB_PASSWORD\""
+  "a scan Job's routes for the report Job|report|.spec.template.metadata.labels[\"app.kubernetes.io/component\"] = \"run\""
+  "the report Job on a tool's image|report|.spec.template.spec.containers[0].image = \$other.spec.template.spec.containers[0].image"
 )
 
 test_admission() {
   step "the admission policy: each template passes, every change is denied"
   local tmp out entry name change work other
   tmp=$(mktemp -d)
-  for work in test steampipe prowler cloudfox; do
+  for work in test steampipe prowler cloudfox report; do
     k get configmap "$FULL-job-templates" -o json | jq -r --arg f "$work.json" '.data[$f]' > "$tmp/$work.json"
     out=$(create_as_scheduler < "$tmp/$work.json") || fail "the $work template is denied: $out"
     ok "the $work template is allowed"
@@ -569,9 +597,10 @@ test_network() {
   if k exec "deploy/$FULL-web" -- nc -z -w 3 "$FULL-postgres" 5432 2>/dev/null; then fail "web -> Postgres open"; fi
   ok "web -> $db closed"
 
-  out=$(probe_from api api "$db" 1.1.1.1:443)
+  out=$(probe_from api api "$db" 1.1.1.1:443 169.254.169.254:80)
   expect_reach "$out" api "$db" open
   expect_reach "$out" api 1.1.1.1:443 closed
+  expect_reach "$out" api 169.254.169.254:80 closed
 
   out=$(probe_from scan run "$db" "$api" "$web" 169.254.169.254:80 10.96.0.1:443 "$api_ip:$api_port" 1.1.1.1:443)
   expect_reach "$out" scan "$db" open
@@ -586,6 +615,16 @@ test_network() {
     echo "      (no internet from this host: scan -> 443 outside not checked)"
   fi
 
+  # The report Job renders names from scanned clouds: the database and S3/STS (192.0.2.0/24 on
+  # kind, where nothing answers), never the rest of the internet, metadata or the cluster.
+  out=$(probe_from report report "$db" "$api" "$web" 169.254.169.254:80 "$api_ip:$api_port" 1.1.1.1:443)
+  expect_reach "$out" report "$db" open
+  expect_reach "$out" report "$api" closed
+  expect_reach "$out" report "$web" closed
+  expect_reach "$out" report 169.254.169.254:80 closed
+  expect_reach "$out" report "$api_ip:$api_port" closed
+  expect_reach "$out" report 1.1.1.1:443 closed
+
   out=$(probe_from scheduler scheduler "$db" "$api_ip:$api_port" "$api" 1.1.1.1:443)
   expect_reach "$out" scheduler "$db" open
   expect_reach "$out" scheduler "$api_ip:$api_port" open
@@ -597,6 +636,29 @@ test_network() {
   expect_reach "$out" unlisted "$api" closed
   expect_reach "$out" unlisted "$web" closed
   expect_reach "$out" unlisted 1.1.1.1:443 closed
+}
+
+# A report Job really runs (ADR-0047 round 5): the scheduler starts it for a queued report, it
+# logs in as argus_reports, and with no IRSA on kind it fails the report as not stored, never
+# reaching for another identity.
+test_report_job() {
+  step "a report Job: started for a queued report, as argus_reports, no identity on kind"
+  local id state
+  k logs -l app.kubernetes.io/component=migrate --tail=-1 | grep -q '"roles_with_login": \[[^]]*"argus_reports"' \
+    || fail "migrate did not give argus_reports its login"
+  ok "migrate gave argus_reports its login"
+  id=$(psql_q "INSERT INTO report_request (kind, format, filters, connection_ids, requested_by,
+      storage_bucket, storage_region) VALUES ('misconfigurations', 'csv', '{}', ARRAY[1], 'kind-test',
+      'argus-reports-kind', 'eu-west-1') RETURNING id")
+  for _ in $(seq 90); do
+    state=$(psql_q "SELECT status || '|' || coalesce(error, '') FROM report_request WHERE id = $id")
+    [ "${state%%|*}" = failed ] && break
+    sleep 2
+  done
+  [ "$state" = "failed|The report could not be stored. See the report builder's log." ] \
+    || fail "report $id: '$state', expected failed as not stored"
+  k get jobs -l argus/work=report -o name | grep -q . || fail "no report Job ran"
+  ok "a report Job claimed report $id and failed it: no identity on kind"
 }
 
 test_retention() {
@@ -653,7 +715,7 @@ test_password_rotation() {
   psql_q "ALTER ROLE argus PASSWORD '$owner_new'" > /dev/null
   set_secret ARGUS_DB_PASSWORD "$owner_new"
 
-  for role in api worker scheduler; do
+  for role in api worker scheduler reports; do
     key="ARGUS_${role^^}_DB_PASSWORD"
     old=$(secret_value "$key")
     new=$(rand 32)
@@ -676,7 +738,7 @@ test_password_rotation() {
     || fail "migrate did not complete with the new owner password"
   ok "migrate ran again, signing in with the owner's new password"
 
-  for role in api worker scheduler; do
+  for role in api worker scheduler reports; do
     signs_in "argus_$role" "${new_passwords[$role]}" || fail "argus_$role: the new password is refused"
     if signs_in "argus_$role" "${old_passwords[$role]}"; then
       fail "argus_$role: the old password still signs in"
@@ -721,6 +783,7 @@ run_tests() {
   test_admission
   test_policy_compiles
   test_network
+  test_report_job
   test_demo_refused
   test_web
   test_web_without_api

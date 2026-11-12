@@ -70,10 +70,15 @@ class Settings(BaseSettings):
     # only, owner-only, emptied after each run and at start (ADR-0032).
     raw_staging_root: Path = Path("/var/lib/argus-staging")
     rules_dir: Path = Path("/opt/argus/rules")
-    # Where reports are kept (ADR-0047): a volume the worker writes and the API reads only.
-    # Unset means this install builds no reports: the API refuses requests and the screen
-    # says why. Docker Compose sets it; the chart does not (until reports can go to S3).
+    # Where reports are kept (ADR-0047), a deployment fact, never a setting. Docker Compose sets
+    # reports_root: a volume the worker writes and the API reads only, Demo connections only. The
+    # chart sets reports_store "s3" on IRSA installs: the reports/ folder of the raw-output
+    # bucket, written by the report Job and read by the API, each with its own role. Neither
+    # means this install keeps no reports: the API refuses requests and the screen says why.
     reports_root: Path | None = None
+    reports_store: Literal["s3"] | None = None
+    # Kubernetes: the most report Jobs the scheduler runs at once (a deployment fact).
+    max_report_jobs: int = Field(default=1, ge=1, le=3)
     # Sign-in (ADR-0048). Set in the deployment, never in the UI: whoever could change the IdP
     # could choose who is Admin. SSO is on when the IdP's metadata file is set. Compose passes
     # every one from .env, empty when unused.
@@ -92,7 +97,7 @@ class Settings(BaseSettings):
     # Password sign-in, the break-glass path. Off, nobody signs in with a password.
     local_sign_in: bool = True
 
-    @field_validator("public_url", "saml_idp_metadata_file", mode="before")
+    @field_validator("public_url", "saml_idp_metadata_file", "reports_store", mode="before")
     @classmethod
     def _empty_is_unset(cls, value: Any) -> Any:
         return None if value == "" else value
@@ -130,6 +135,12 @@ class Settings(BaseSettings):
                 )
         elif not self.local_sign_in:
             raise ValueError("ARGUS_LOCAL_SIGN_IN off needs SSO: nobody could sign in")
+        return self
+
+    @model_validator(mode="after")
+    def _one_reports_store(self) -> "Settings":
+        if self.reports_root is not None and self.reports_store is not None:
+            raise ValueError("set ARGUS_REPORTS_ROOT or ARGUS_REPORTS_STORE, not both")
         return self
 
     @property

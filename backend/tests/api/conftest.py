@@ -26,6 +26,9 @@ def api_engine(owner: Engine) -> Iterator[Engine]:
     def _as_api(dbapi_conn, _record):  # type: ignore[no-untyped-def]
         with dbapi_conn.cursor() as cur:
             cur.execute("SET ROLE argus_api")
+        # Committed: the pool resets a returned connection with a rollback, which would undo
+        # an uncommitted SET ROLE, and every later checkout would act as the owner.
+        dbapi_conn.commit()
 
     yield engine
     engine.dispose()

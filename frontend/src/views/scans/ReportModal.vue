@@ -38,8 +38,22 @@ const error = ref<string | null>(null)
 // What this install keeps: asked when the modal opens, so the lists need no extra request.
 const reports = useResource(() => unwrap(api.GET('/api/v1/reports', { params: { query: { limit: 1 } } })))
 const storage = computed(() => reports.data.value?.storage ?? null)
-// On a local store only Demo connections can be reported on.
-const offered = computed(() => props.connections.filter((c) => storage.value !== 'local' || c.kind === 'demo'))
+const local = computed(() => storage.value === 'local')
+// Why no report can be requested now, or null when one can (the API's own sentences).
+const unavailable = computed((): string | null => {
+  switch (storage.value) {
+    case 'off':
+      return 'This install keeps no reports. On Kubernetes they need IRSA roles for the API and the report Job.'
+    case 'no_identity':
+      return "Reports can't be stored now: the API has no IRSA identity. See the install notes."
+    case 'no_bucket':
+      return 'Reports go to the raw-output bucket, and none is set. An Admin sets it in Settings, Raw output storage.'
+    default:
+      return null
+  }
+})
+// On a local store only Demo connections can be reported on; on S3, every connection.
+const offered = computed(() => props.connections.filter((c) => !local.value || c.kind === 'demo'))
 
 const title = computed(() =>
   fromList ? `Export ${kind.value === 'misconfigurations' ? 'Misconfigurations' : 'Vulnerabilities'}` : 'New report',
@@ -51,7 +65,10 @@ const dirty = computed(
   () => format.value !== 'csv' || (!fromList && (kind.value !== 'misconfigurations' || !allAccounts.value)),
 )
 const canSend = computed(
-  () => !sending.value && storage.value === 'local' && (fromList || allAccounts.value || chosen.value.length > 0),
+  () =>
+    !sending.value &&
+    (storage.value === 'local' || storage.value === 's3') &&
+    (fromList || allAccounts.value || chosen.value.length > 0),
 )
 
 function filtersToSend(): ReportFilters {
@@ -82,9 +99,7 @@ async function send(): Promise<void> {
       <AlertBanner kind="fail">Reports didn't load: {{ reports.error.value }}</AlertBanner>
     </div>
     <div v-else-if="!reports.data.value" aria-busy="true" class="skeleton sk-48"></div>
-    <AlertBanner v-else-if="storage === 'off'">
-      Reports are not available on this install yet. They need the reports folder of the raw-output bucket, which comes in a later release.
-    </AlertBanner>
+    <AlertBanner v-else-if="unavailable" :kind="storage === 'off' ? undefined : 'warn'">{{ unavailable }}</AlertBanner>
     <form v-else id="report-form" class="form" @submit.prevent="send">
       <AlertBanner v-if="error" kind="fail">{{ error }}</AlertBanner>
       <fieldset v-if="!fromList" class="choices">
@@ -107,7 +122,7 @@ async function send(): Promise<void> {
       </div>
       <fieldset v-else class="choices">
         <legend class="lbl">Accounts</legend>
-        <label class="check"><input v-model="allAccounts" type="radio" name="report-scope" :value="true">All Demo accounts</label>
+        <label class="check"><input v-model="allAccounts" type="radio" name="report-scope" :value="true">{{ local ? 'All Demo accounts' : 'All accounts' }}</label>
         <label class="check"><input v-model="allAccounts" type="radio" name="report-scope" :value="false">Only these accounts</label>
         <div v-if="!allAccounts" class="accounts">
           <label v-for="c in offered" :key="c.id" class="check"><input v-model="chosen" type="checkbox" :value="c.id">{{ c.name }}</label>
@@ -115,11 +130,11 @@ async function send(): Promise<void> {
         </div>
         <span class="cap">All open findings of these accounts. To narrow a report, export it from its list.</span>
       </fieldset>
-      <p v-if="storage === 'local'" class="cap">Reports on this install cover Demo connections only.</p>
+      <p v-if="local" class="cap">Reports on this install cover Demo connections only.</p>
     </form>
     <template #footer>
-      <button type="button" class="btn btn-secondary" @click="emit('close')">{{ storage === 'off' ? 'Close' : 'Cancel' }}</button>
-      <button v-if="storage !== 'off'" type="submit" form="report-form" class="btn btn-primary" :disabled="!canSend">
+      <button type="button" class="btn btn-secondary" @click="emit('close')">{{ unavailable ? 'Close' : 'Cancel' }}</button>
+      <button v-if="!unavailable" type="submit" form="report-form" class="btn btn-primary" :disabled="!canSend">
         <AppIcon v-if="sending" name="spinner" :size="16" :stroke="2.4" />{{ sending ? 'Requesting…' : 'Request report' }}
       </button>
     </template>

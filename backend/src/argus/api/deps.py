@@ -33,6 +33,13 @@ def db() -> Iterator[Connection]:
 Db = Annotated[Connection, Depends(db)]
 
 
+def short_connection() -> Connection:
+    """A connection of the route's own, outside the request's: for a write after the request's
+    connection went back to the pool (a report download audits once the store has answered).
+    Use it in a `with` block."""
+    return get_engine().connect()
+
+
 def client_ip(request: Request) -> str | None:
     """The caller's address as a valid IP, or None. It is stored as inet and used for the
     per-address sign-in limit, so anything that is not an address is dropped, not trusted."""

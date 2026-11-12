@@ -2,9 +2,10 @@
 Kubernetes) as the schema owner.
 
 1. `alembic upgrade head`.
-2. Gives the argus_api, argus_worker and argus_scheduler roles LOGIN and the passwords from the
-   environment. Passwords are deployment facts: the migration creates the roles, the operator
-   owns the secrets. A role whose password variable is unset is left as it is.
+2. Gives the argus_api, argus_worker, argus_scheduler and argus_reports roles LOGIN and the
+   passwords from the environment. Passwords are deployment facts: the migration creates the
+   roles, the operator owns the secrets. A role whose password variable is unset is left as it
+   is.
 3. The first admin (ADR-0041): ARGUS_BOOTSTRAP_ADMIN_USERNAME with ARGUS_BOOTSTRAP_ADMIN_PASSWORD
    or ..._PASSWORD_HASH creates that admin while no active admin exists, and never changes an
    existing user. Before users existed the admin was ARGUS_ADMIN_USERNAME (default "admin") with
@@ -41,6 +42,7 @@ ROLE_PASSWORD_ENV = {
     "argus_api": "ARGUS_API_DB_PASSWORD",
     "argus_worker": "ARGUS_WORKER_DB_PASSWORD",
     "argus_scheduler": "ARGUS_SCHEDULER_DB_PASSWORD",
+    "argus_reports": "ARGUS_REPORTS_DB_PASSWORD",
 }
 MIGRATE_LOCK = "argus.migrate"
 # The migrate lock on one connection, the role passwords on another (Alembic has its own engine).

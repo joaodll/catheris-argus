@@ -1,7 +1,7 @@
 """The Kubernetes scheduler (ADR-0039): one replica, no cloud identity, never runs work.
 
-Every 2 seconds it starts the scan Jobs that claimable scans and queued tests need, from the
-chart's four templates (scheduling/launcher.py, ADR-0046); every 60 seconds it keeps the
+Every 2 seconds it starts the Jobs that claimable scans, queued tests and queued reports need,
+from the chart's templates (scheduling/launcher.py, ADR-0046); every 60 seconds it keeps the
 queue (scheduling/maintenance.py). A refused or failed Kubernetes call is logged with the API's
 message and retried after 30 seconds. It touches a file on every pass, which the liveness probe
 checks, and exits on SIGTERM: it holds no work of its own.
@@ -33,8 +33,14 @@ ALIVE_FILE = Path("/tmp/argus-scheduler.alive")  # noqa: S108 - the pod's own /t
 def main() -> int:
     settings = get_settings()
     configure_logging(settings.log_level)
-    templates = load_templates(settings.job_templates_dir)
-    bounds = Bounds(settings.max_run_jobs, settings.max_test_jobs)
+    # Reports are built in Jobs where this install keeps them in S3 (ADR-0047 round 5).
+    reports_in_jobs = settings.reports_store == "s3"
+    templates = load_templates(settings.job_templates_dir, reports_in_jobs=reports_in_jobs)
+    bounds = Bounds(
+        settings.max_run_jobs,
+        settings.max_test_jobs,
+        settings.max_report_jobs if reports_in_jobs else 0,
+    )
     kube = KubeClient.in_cluster()
     engine = get_engine()
     stop = threading.Event()
@@ -52,6 +58,7 @@ def main() -> int:
             "selectors": {work: selector(t) for work, t in templates.items()},
             "max_run_jobs": bounds.max_run_jobs,
             "max_test_jobs": bounds.max_test_jobs,
+            "max_report_jobs": bounds.max_report_jobs,
         },
     )
     next_maintain = 0.0

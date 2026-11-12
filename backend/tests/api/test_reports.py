@@ -180,7 +180,7 @@ def test_an_install_without_a_reports_root_refuses_requests(
     get_settings.cache_clear()
     refused = _ask(signed_in)
     assert refused.status_code == 422
-    assert refused.json()["detail"] == report_routes.NOT_AVAILABLE
+    assert refused.json()["detail"] == report_routes.UNAVAILABLE["off"]
     assert signed_in.get("/api/v1/reports").json()["storage"] == "off"
 
 
@@ -305,13 +305,13 @@ def test_the_download_gives_its_connection_back_before_the_file_streams(
     report_id = _ask(signed_in).json()["id"]
     assert _build(worker, root)
     checked_out: list[int] = []
-    real = report_routes.FileResponse
+    real = report_routes.StreamingResponse
 
     def recording(*args: Any, **kwargs: Any) -> Any:
         checked_out.append(api_engine.pool.checkedout())  # type: ignore[attr-defined]
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(report_routes, "FileResponse", recording)
+    monkeypatch.setattr(report_routes, "StreamingResponse", recording)
     assert signed_in.get(f"/api/v1/reports/{report_id}/download").status_code == 200
     assert checked_out == [0]
 

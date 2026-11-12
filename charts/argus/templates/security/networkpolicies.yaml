@@ -44,6 +44,7 @@ private addresses only, so this is not a route out of the network. */}}
 {{- $np := .Values.networkPolicy }}
 {{- /* Every pod that connects to the database. */}}
 {{- $dbClients := list "api" "scheduler" "run" "migrate" "rederive" "retention" }}
+{{- if include "argus.reportsInS3" . }}{{- $dbClients = append $dbClients "report" }}{{- end }}
 {{ include "argus.np.meta" (dict "root" . "name" "default-deny") }}
 spec:
   podSelector: {}
@@ -167,4 +168,26 @@ spec:
       ports:
         - {protocol: TCP, port: 80}
     {{- end }}
+{{- if include "argus.reportsInS3" . }}
+{{- if not $np.awsEgressCidrs }}
+{{- fail "networkPolicy.awsEgressCidrs is required with identity.mode irsa: S3 and the regional STS endpoint, the API's and the report Job's only route out for reports" }}
+{{- end }}
+---
+# Reports in S3 (ADR-0047 round 5): the API reads them and the report Job writes them, each with
+# its own IRSA role, so both reach S3 and the regional STS endpoint (IRSA trades its token there),
+# and nothing else outside the cluster. The report Job renders names from scanned clouds: unlike
+# a scan Job, it has no route to the rest of the internet.
+{{ include "argus.np.meta" (dict "root" . "name" "aws-egress") }}
+spec:
+  podSelector:
+    {{- include "argus.np.pods" (dict "root" . "components" (list "api" "report")) | nindent 4 }}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        {{- range $np.awsEgressCidrs }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {protocol: TCP, port: 443}
+{{- end }}
 {{- end }}

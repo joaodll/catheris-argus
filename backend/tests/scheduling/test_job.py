@@ -56,6 +56,7 @@ def _job(worker: Engine, tmp_path: Path, work: str = "prowler", max_runs: int = 
         rules_dir=RULES_DIR,
         worker_id="pod-1",
         max_runs=max_runs,
+        scratch=tmp_path / "scratch",
     )
 
 

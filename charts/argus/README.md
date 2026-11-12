@@ -13,7 +13,7 @@ says what the chart creates and which values matter.
 | `api` | Deployment (2 replicas, or an HPA) | The HTTP API, behind `web` |
 | `web` | Deployment (2 replicas, or an HPA) | The UI on nginx; proxies `/api` to `api`. ClusterIP only |
 | `scheduler` | Deployment (1 replica) | Queues the scans schedules call for and starts a **scan Job** for each. It never scans itself |
-| scan Jobs | Jobs the scheduler creates, from four templates, one per work | `test` answers one connection test (the Test connection button) on the runtime image; `steampipe`, `prowler` and `cloudfox` each run one AWS scan of their tool, on that tool's image, then exit. Values under `scanJobs` |
+| scan Jobs | Jobs the scheduler creates, from fixed templates, one per work | `test` answers one connection test (the Test connection button) on the runtime image; `steampipe`, `prowler` and `cloudfox` each run one AWS scan of their tool, on that tool's image, then exit; on IRSA installs `report` builds one report on the reports image, into the bucket's `reports/` folder. Values under `scanJobs` |
 | `postgres` | StatefulSet (optional) | PostgreSQL 18, the same image as Compose; or an external database |
 | `migrate`, `rederive` | Jobs, one per image | Schema migrations; deriving again after a rule change |
 | `retention` | CronJob | Daily: drops history older than the UI's **History** setting, unused configurations and old rule loads |
@@ -26,12 +26,14 @@ is uploaded to your S3 bucket.
 
 ## Service accounts
 
-The chart creates two, the only two that hold anything:
+The chart creates these, the only ones that hold anything:
 
 | Account | Used by | Holds |
 | --- | --- | --- |
 | `<release>-run` | Scan Jobs (AWS scans and connection tests) | The AWS identity: the IRSA annotation from `identity.roleArn` |
 | `<release>-scheduler` | The scheduler | A Role to create, get and list Jobs in the namespace |
+| `<release>-api` | The API, on IRSA installs | The role that reads reports: `identity.apiRoleArn` |
+| `<release>-report` | Report Jobs, on IRSA installs | The role that writes reports: `identity.reportRoleArn` |
 
 Every other pod runs as the namespace's `default` account with no token mounted. Extra annotations
 go in `serviceAccounts.run.annotations` and `serviceAccounts.scheduler.annotations`.
@@ -42,11 +44,12 @@ go in `serviceAccounts.run.annotations` and `serviceAccounts.scheduler.annotatio
 
 | Value | What |
 | --- | --- |
-| `images.registry`, `images.{runtime,workerSteampipe,workerProwler,workerCloudfox,web}.digest` | Where the images are, by `sha256:` digest |
+| `images.registry`, `images.{runtime,workerSteampipe,workerProwler,workerCloudfox,reports,web}.digest` | Where the images are, by `sha256:` digest |
 | `secrets.existingSecret` | The Secret holding every secret value ([its keys](../../docs/runbook-kubernetes.md#the-secret)) |
 | `api.trustedProxies` | The address ranges web's pods use |
 | `networkPolicy.kubeApi.cidrs` | The Kubernetes API's endpoint addresses, for the scheduler |
 | `identity.roleArn` | The IRSA role for scans (with `identity.mode: irsa`, the default) |
+| `identity.apiRoleArn`, `identity.reportRoleArn`, `networkPolicy.awsEgressCidrs` | With IRSA: the two roles for reports, and the S3 and STS ranges the API and the report Job may reach ([AWS policies](../../docs/aws-policies.md#two-roles-for-reports)) |
 
 Every value is described in place in [`values.yaml`](values.yaml). `ci/minimal-values.yaml` is the
 smallest valid set; `ci/external-db-values.yaml` turns on every optional piece.

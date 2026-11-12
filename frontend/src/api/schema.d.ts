@@ -521,7 +521,7 @@ export interface paths {
         /**
          * Request Report
          * @description Queues a report over the list's filters. Refused (422, with a sentence) where this
-         *     install keeps no reports, when no account matches, when an account is a real AWS
+         *     install can't keep a report now, when no account matches, when an account is a real AWS
          *     connection on a local store, or when the user has too many reports being built.
          */
         post: operations["request_report_api_v1_reports_post"];
@@ -557,9 +557,10 @@ export interface paths {
         };
         /**
          * Download Report
-         * @description The report's file, as an attachment. The key comes from the row only, and resolves
-         *     inside the reports folder or is refused. The database connection is released before the
-         *     file streams, so a slow download never holds a slot of the API's capped pool.
+         * @description The report's file, as an attachment. The key comes from the row only, and must have a
+         *     report key's shape. The file is served only when it is the one the build recorded (its size,
+         *     and on S3 its SHA-256), checked before the first byte. The database connection is released
+         *     before the file streams, so a slow download never holds a slot of the API's capped pool.
          */
         get: operations["download_report_api_v1_reports__report_id__download_get"];
         put?: never;
@@ -2164,7 +2165,7 @@ export interface components {
              * Storage
              * @enum {string}
              */
-            storage: "local" | "off";
+            storage: "local" | "s3" | "off" | "no_identity" | "no_bucket";
             /** Total */
             total: number;
         };

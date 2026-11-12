@@ -44,7 +44,8 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | replace 
 {{- include "argus.image" (dict "root" . "image" .Values.images.runtime "registry" true) }}
 {{- end }}
 
-{{/* One of the chart's two service accounts: "run" (the AWS identity) or "scheduler". */}}
+{{/* One of the chart's service accounts: "run" (the platform identity), "scheduler", and on IRSA
+installs "api" and "report" (the reports roles, ADR-0047). */}}
 {{- define "argus.serviceAccount" -}}
 {{- printf "%s-%s" (include "argus.fullname" .root) .name }}
 {{- end }}
@@ -118,13 +119,15 @@ database.pools in values.yaml.
 {{- $p := $v.database.pools }}
 {{- $apiPods := add (ternary $v.api.autoscaling.maxReplicas $v.api.replicas $v.api.autoscaling.enabled) 1 }}
 {{- $scanPods := add $v.scheduler.maxRunJobs $v.scheduler.maxTestJobs }}
+{{- $reportPods := ternary $v.scheduler.maxReportJobs 0 (eq (include "argus.reportsInS3" .) "true") }}
 {{- $api := mul $apiPods $p.api }}
 {{- $scans := mul $scanPods $p.scanJob }}
+{{- $reports := mul $reportPods $p.reportJob }}
 {{- $tasks := add (mul 3 $p.task) 1 }}
-{{- $total := add $api $scans $tasks $p.scheduler }}
+{{- $total := add $api $scans $reports $tasks $p.scheduler }}
 {{- $room := sub $v.postgres.maxConnections 3 }}
 {{- if gt $total $room }}
-{{- fail (printf "database connections: the pods can open %d at once (api %d = %d pods x %d, scan Jobs %d = %d x %d, migrate/rederive/retention %d, scheduler %d), above postgres.maxConnections %d less 3 reserved. Raise postgres.maxConnections, or lower database.pools, the api replicas or scheduler.maxRunJobs." $total $api $apiPods (int $p.api) $scans $scanPods (int $p.scanJob) $tasks (int $p.scheduler) (int $v.postgres.maxConnections)) }}
+{{- fail (printf "database connections: the pods can open %d at once (api %d = %d pods x %d, scan Jobs %d = %d x %d, report Jobs %d = %d x %d, migrate/rederive/retention %d, scheduler %d), above postgres.maxConnections %d less 3 reserved. Raise postgres.maxConnections, or lower database.pools, the api replicas, scheduler.maxRunJobs or scheduler.maxReportJobs." $total $api $apiPods (int $p.api) $scans $scanPods (int $p.scanJob) $reports (int $reportPods) (int $p.reportJob) $tasks (int $p.scheduler) (int $v.postgres.maxConnections)) }}
 {{- end }}
 {{- end }}
 
@@ -377,21 +380,38 @@ spec:
 {{- end }}
 
 {{/*
-The works a scan Job does (ADR-0046) and the image each runs: `test` answers a connection test
-on the runtime image; each other work runs one AWS scan of its tool, on that tool's image.
+"true" where reports are kept in S3 (ADR-0047 round 5): IRSA installs, where the API and the
+report Job each have their own role. Not a switch: reports are part of the app, and elsewhere the
+Reports screen says why there are none.
+*/}}
+{{- define "argus.reportsInS3" -}}
+{{- if eq .Values.identity.mode "irsa" }}true{{ end }}
+{{- end }}
+
+{{/*
+The works a Job does (ADR-0046) and the image each runs: `test` answers a connection test on the
+runtime image; `steampipe`, `prowler` and `cloudfox` each run one AWS scan of their tool, on that
+tool's image; `report` builds one report on the reports image, where reports are kept in S3.
+Called with the root context.
 */}}
 {{- define "argus.scanWorks" -}}
 test: runtime
 steampipe: workerSteampipe
 prowler: workerProwler
 cloudfox: workerCloudfox
+{{- if include "argus.reportsInS3" . }}
+report: reports
+{{- end }}
 {{- end }}
 
 {{/*
-A scan Job template (ADR-0039, ADR-0046): the only source of a scan Job, one per work, all from
+A Job template (ADR-0039, ADR-0046): the only source of a scheduler's Job, one per work, all from
 this one helper. The scheduler's ConfigMap and the admission policy both render it, so they
-cannot drift. Templates differ only in their name prefix, their work label, their image, their
-ARGUS_JOB_WORK and their resources. Every scan Job runs as the run account (the AWS identity).
+cannot drift. Templates differ only in their name prefix, their labels, their service account,
+their image, their environment and their resources. A scan or test Job runs as the run account
+(the platform identity) with the worker's database role and the keyring; the report Job runs as
+the report account (its own IRSA role), with argus_reports, no keyring, and its own component
+label, so it gets its own NetworkPolicy (ADR-0047 round 5).
 10001 is the user the image's /etc/passwd lists: CloudFox exits under any other.
 Called with (dict "root" $ "work" <work>).
 */}}
@@ -399,8 +419,11 @@ Called with (dict "root" $ "work" <work>).
 {{- $root := .root }}
 {{- $v := $root.Values }}
 {{- $s := $v.scanJobs }}
-{{- $image := index (include "argus.scanWorks" . | fromYaml) .work }}
-{{- $labels := printf "%s\nargus/work: %s" (include "argus.selectorLabels" (dict "root" $root "component" "run")) .work }}
+{{- $image := index (include "argus.scanWorks" $root | fromYaml) .work }}
+{{- $report := eq .work "report" }}
+{{- $component := ternary "report" "run" $report }}
+{{- $db := ternary (dict "root" $root "user" "argus_reports" "key" "ARGUS_REPORTS_DB_PASSWORD" "pool" "reportJob") (dict "root" $root "user" "argus_worker" "key" "ARGUS_WORKER_DB_PASSWORD" "pool" "scanJob") $report }}
+{{- $labels := printf "%s\nargus/work: %s" (include "argus.selectorLabels" (dict "root" $root "component" $component)) .work }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -422,27 +445,34 @@ spec:
         karpenter.sh/do-not-disrupt: "true"
         cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     spec:
-      {{- include "argus.podSpec" (dict "root" $root "component" "run" "restartPolicy" "Never" "grace" 120 "db" true
-        "serviceAccount" (include "argus.serviceAccount" (dict "root" $root "name" "run"))
+      {{- include "argus.podSpec" (dict "root" $root "component" $component "restartPolicy" "Never" "grace" 120 "db" true
+        "serviceAccount" (include "argus.serviceAccount" (dict "root" $root "name" $component))
         "placement" (dict "nodeSelector" $s.nodeSelector "tolerations" $s.tolerations)
         "tmp" (dict "medium" "Memory" "sizeLimit" $s.tmpSize)
         "volumes" (include "argus.scanJob.volumes" $root)
         "containers" (include "argus.container" (dict "root" $root "name" "run"
           "image" (include "argus.image" (dict "root" $root "image" (index $v.images $image) "registry" true))
           "command" (list "python" "-m" "argus.entrypoints.job")
-          "db" (dict "root" $root "user" "argus_worker" "key" "ARGUS_WORKER_DB_PASSWORD" "pool" "scanJob")
+          "db" $db
           "env" (include "argus.scanJob.env" .) "resources" (index $s.work .work).resources
           "mounts" "- {name: scratch, mountPath: /var/lib/argus-staging}"))) | nindent 6 }}
 {{- end }}
 
 {{- define "argus.scanJob.env" -}}
+{{- if eq .work "report" }}
+# No keyring: a report Job renders names from scanned clouds and needs no sealed value
+# (ADR-0047). Reports go to the bucket recorded on each report, in one PUT.
+- name: ARGUS_REPORTS_STORE
+  value: s3
+{{- else }}
 {{ include "argus.keyringEnv" .root }}
-# The work this Job does (ADR-0046); the Job refuses to start without a known one.
-- name: ARGUS_JOB_WORK
-  value: {{ .work | quote }}
 # The deployment's bound on scans at once.
 - name: ARGUS_MAX_RUN_JOBS
   value: {{ .root.Values.scheduler.maxRunJobs | quote }}
+{{- end }}
+# The work this Job does (ADR-0046); the Job refuses to start without a known one.
+- name: ARGUS_JOB_WORK
+  value: {{ .work | quote }}
 # Every template sets it, the test Job's runtime image included: no process in a scan Job may
 # use instance metadata (ADR-0046, gate review S1).
 - name: AWS_EC2_METADATA_DISABLED

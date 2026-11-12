@@ -11,9 +11,15 @@ api:
   resources:
     requests: {cpu: 50m, memory: 128Mi}
     limits: {memory: 384Mi}
-# No cloud identity on kind: scan Jobs answer the identity test there and run no scans.
+# IRSA, so the report Job's template, its account and its routes are installed and checked
+# (ADR-0047 round 5). kind has no IRSA webhook, so the role ARNs are placeholders that give no
+# credential: scan Jobs answer the identity test there and run no scans, and the API has no
+# identity for reports (the Reports screen says so). The other modes' render is chart-check's.
 identity:
-  mode: none
+  mode: irsa
+  roleArn: arn:aws:iam::111122223333:role/argus-platform
+  apiRoleArn: arn:aws:iam::111122223333:role/argus-api
+  reportRoleArn: arn:aws:iam::111122223333:role/argus-report
 postgres:
   storage: {size: 2Gi}
   resources:
@@ -29,6 +35,7 @@ scanJobs:
     steampipe: {resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}}
     prowler: {resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}}
     cloudfox: {resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}}
+    report: {resources: {requests: {cpu: 100m, memory: 384Mi}, limits: {memory: 1536Mi}}}
   tmpSize: 512Mi
   scratch: {size: 2Gi}
   # No node has these taints, so they change nothing here. They make the admission policy compile
@@ -40,6 +47,9 @@ scanJobs:
 networkPolicy:
   # Link-local, the pod and Service networks, and the kind nodes' Docker network.
   scanEgressExcept: [169.254.0.0/16, 10.244.0.0/16, 10.96.0.0/12, 172.16.0.0/12]
+  # Stands for S3 and STS (TEST-NET-1: nothing answers there): run.sh checks the API and the
+  # report Job reach nothing else.
+  awsEgressCidrs: [192.0.2.0/24]
 # Every node matches, so migrate, rederive, retention and helm test's probe prove they still run
 # with placement set; the toleration changes nothing, as above.
 tasks:

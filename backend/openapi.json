@@ -3488,7 +3488,10 @@
           "storage": {
             "enum": [
               "local",
-              "off"
+              "s3",
+              "off",
+              "no_identity",
+              "no_bucket"
             ],
             "title": "Storage",
             "type": "string"
@@ -9745,7 +9748,7 @@
         ]
       },
       "post": {
-        "description": "Queues a report over the list's filters. Refused (422, with a sentence) where this\ninstall keeps no reports, when no account matches, when an account is a real AWS\nconnection on a local store, or when the user has too many reports being built.",
+        "description": "Queues a report over the list's filters. Refused (422, with a sentence) where this\ninstall can't keep a report now, when no account matches, when an account is a real AWS\nconnection on a local store, or when the user has too many reports being built.",
         "operationId": "request_report_api_v1_reports_post",
         "parameters": [
           {
@@ -9942,7 +9945,7 @@
     },
     "/api/v1/reports/{report_id}/download": {
       "get": {
-        "description": "The report's file, as an attachment. The key comes from the row only, and resolves\ninside the reports folder or is refused. The database connection is released before the\nfile streams, so a slow download never holds a slot of the API's capped pool.",
+        "description": "The report's file, as an attachment. The key comes from the row only, and must have a\nreport key's shape. The file is served only when it is the one the build recorded (its size,\nand on S3 its SHA-256), checked before the first byte. The database connection is released\nbefore the file streams, so a slow download never holds a slot of the API's capped pool.",
         "operationId": "download_report_api_v1_reports__report_id__download_get",
         "parameters": [
           {
