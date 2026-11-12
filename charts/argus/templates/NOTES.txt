@@ -71,6 +71,25 @@ Argus records, and with it dodge the per-address sign-in limits.
 The run service account assumes {{ .Values.identity.roleArn }}. Its trust policy must name exactly
 system:serviceaccount:{{ .Release.Namespace }}:{{ include "argus.serviceAccount" (dict "root" . "name" "run") }}.
 {{- end }}
+{{- if include "argus.reportsInS3" . }}
+
+Reports are kept in the reports/ folder of the raw-output bucket (docs/aws-policies.md):
+  the api service account assumes {{ .Values.identity.apiRoleArn }}, which only reads reports/;
+    its trust policy must name system:serviceaccount:{{ .Release.Namespace }}:{{ include "argus.serviceAccount" (dict "root" . "name" "api") }}
+  the report service account assumes {{ .Values.identity.reportRoleArn }}, which only writes reports/;
+    its trust policy must name system:serviceaccount:{{ .Release.Namespace }}:{{ include "argus.serviceAccount" (dict "root" . "name" "report") }}
+Keep S3 Bucket Keys off: with them on, the key policy can't limit either role to reports/.
+{{- if not .Values.networkPolicy.enabled }}
+
+WARNING: the NetworkPolicies are off, so the API and the report Job hold an AWS identity and can
+reach any address on the internet with it. With them on, both reach only
+networkPolicy.awsEgressCidrs (S3 and STS).
+{{- end }}
+{{- else }}
+
+Reports: identity.mode is {{ .Values.identity.mode }}, so this install keeps none. On Kubernetes
+they need IRSA roles for the API and the report Job; the Reports screen says so.
+{{- end }}
 {{- if not .Values.postgres.enabled }}
 {{- $sslmode := include "argus.dbSslMode" . }}
 {{- if ne $sslmode "verify-full" }}

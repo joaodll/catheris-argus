@@ -9,7 +9,11 @@ finishes, so an upgrade with no change does not run it again.
   it exits at once. As argus_worker. It may wait behind a scan's ingest, which can last as
   long as the run's own deadline. */ -}}
 {{- $passwords := "" }}
-{{- range $key := list "ARGUS_API_DB_PASSWORD" "ARGUS_WORKER_DB_PASSWORD" "ARGUS_SCHEDULER_DB_PASSWORD" }}
+{{- $roleKeys := list "ARGUS_API_DB_PASSWORD" "ARGUS_WORKER_DB_PASSWORD" "ARGUS_SCHEDULER_DB_PASSWORD" }}
+{{- if include "argus.reportsInS3" . }}
+{{- $roleKeys = append $roleKeys "ARGUS_REPORTS_DB_PASSWORD" }}
+{{- end }}
+{{- range $key := $roleKeys }}
 {{- $passwords = printf "%s\n%s" $passwords (include "argus.secretEnv" (dict "root" $ "key" $key)) }}
 {{- end }}
 {{- /* The first admin, created once while there is no active admin (ADR-0041): admin.username

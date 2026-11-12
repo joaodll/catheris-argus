@@ -131,7 +131,7 @@ def test_only_the_worker_may_purge_sign_in_rows(owner: Engine) -> None:
         allowed = conn.execute(
             text("""
             SELECT rolname FROM pg_roles
-            WHERE rolname IN ('argus_api', 'argus_scheduler', 'argus_worker')
+            WHERE rolname IN ('argus_api', 'argus_scheduler', 'argus_worker', 'argus_reports')
               AND has_function_privilege(oid, 'argus_purge_sign_in_rows()', 'EXECUTE')
         """)
         ).scalars()

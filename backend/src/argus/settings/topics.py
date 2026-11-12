@@ -72,6 +72,9 @@ class RetentionSettings(BaseModel):
         return self.model_copy(update={"history_days": limit})
 
 
+# The bucket folder reports are kept in (ADR-0047). Fixed: the role, bucket and key policies name
+# it, and report keys always start with it.
+REPORTS_FOLDER = "reports"
 # An S3 key prefix: path segments of safe characters, no slash at either end, no "..".
 KeyPrefix = Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]+(/[A-Za-z0-9_-]+)*$", max_length=200)]
 
@@ -85,6 +88,15 @@ class ToolPrefixes(BaseModel):
     prowler: KeyPrefix = "raw/prowler"
     cloudfox: KeyPrefix = "raw/cloudfox"
     vulnerabilities: KeyPrefix = "raw/vulnerabilities"
+
+    @model_validator(mode="after")
+    def _not_the_reports_folder(self) -> "ToolPrefixes":
+        """reports/ is where reports live, and the API's role may read it (ADR-0047 round 5):
+        raw output there, which can hold secret values, would be readable by the API."""
+        for prefix in (self.steampipe, self.prowler, self.cloudfox, self.vulnerabilities):
+            if prefix == REPORTS_FOLDER or prefix.startswith(f"{REPORTS_FOLDER}/"):
+                raise ValueError(f"the {REPORTS_FOLDER}/ folder holds reports: choose another")
+        return self
 
 
 class RawStorageSettings(BaseModel):

@@ -165,6 +165,28 @@
             "repository",
             "digest"
           ]
+        },
+        "reports": {
+          "type": "object",
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^@:]+(:[0-9]+)?(/[^@:]+)*$",
+              "description": "Without a tag: the image is pulled by digest only."
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[a-f0-9]{64}$",
+              "description": "required: sha256:<64 hex>"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "digest"
+          ],
+          "description": "Kubernetes scan Jobs of CloudFox (ADR-0046)"
         }
       },
       "additionalProperties": false,
@@ -173,6 +195,7 @@
         "workerSteampipe",
         "workerProwler",
         "workerCloudfox",
+        "reports",
         "web",
         "postgres"
       ]
@@ -460,12 +483,18 @@
               "type": "integer",
               "minimum": 2,
               "maximum": 50
+            },
+            "reportJob": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
             }
           },
           "required": [
             "api",
             "scheduler",
             "scanJob",
+            "reportJob",
             "task"
           ],
           "additionalProperties": false
@@ -855,6 +884,11 @@
         },
         "affinity": {
           "type": "object"
+        },
+        "maxReportJobs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
         }
       },
       "additionalProperties": false
@@ -896,7 +930,7 @@
         },
         "work": {
           "type": "object",
-          "description": "Each scan Job template's own pod size (ADR-0046): test answers Test connection, the others run one tool.",
+          "description": "Each Job template's own pod size (ADR-0046): test answers Test connection, report builds one report (IRSA installs), the others run one tool.",
           "properties": {
             "test": {
               "type": "object",
@@ -997,6 +1031,31 @@
               "required": [
                 "resources"
               ]
+            },
+            "report": {
+              "type": "object",
+              "properties": {
+                "resources": {
+                  "type": "object",
+                  "properties": {
+                    "requests": {
+                      "type": "object"
+                    },
+                    "limits": {
+                      "type": "object"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "requests",
+                    "limits"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "resources"
+              ]
             }
           },
           "additionalProperties": false,
@@ -1004,7 +1063,8 @@
             "test",
             "steampipe",
             "prowler",
-            "cloudfox"
+            "cloudfox",
+            "report"
           ]
         },
         "tmpSize": {
@@ -1046,6 +1106,12 @@
         },
         "roleArn": {
           "type": "string"
+        },
+        "apiRoleArn": {
+          "type": "string"
+        },
+        "reportRoleArn": {
+          "type": "string"
         }
       },
       "additionalProperties": false,
@@ -1061,13 +1127,25 @@
       },
       "then": {
         "required": [
-          "roleArn"
+          "roleArn",
+          "apiRoleArn",
+          "reportRoleArn"
         ],
         "properties": {
           "roleArn": {
             "type": "string",
             "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$",
             "description": "required with mode irsa: the platform role's ARN"
+          },
+          "apiRoleArn": {
+            "type": "string",
+            "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$",
+            "description": "required with mode irsa: the API's role, which reads reports/ (ADR-0047)"
+          },
+          "reportRoleArn": {
+            "type": "string",
+            "pattern": "^arn:aws[a-z-]*:iam::[0-9]{12}:role/.+$",
+            "description": "required with mode irsa: the report Job's role, which writes reports/ (ADR-0047)"
           }
         }
       }
@@ -1175,6 +1253,14 @@
           "items": {
             "type": "object"
           }
+        },
+        "awsEgressCidrs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-fA-F:.]+/[0-9]{1,3}$"
+          },
+          "description": "S3 and regional STS ranges: the API's and the report Job's only route out (IRSA installs)."
         }
       },
       "additionalProperties": false,

@@ -1,13 +1,15 @@
-"""One Kubernetes scan Job (ADR-0039, ADR-0046). The scheduler starts it from one of the chart's
-four fixed templates, each with its own image and its own work (`ARGUS_JOB_WORK`); the Job
-claims its own work from the queue, with the code the Compose worker uses, and does one unit of
-it:
+"""One Kubernetes Job (ADR-0039, ADR-0046). The scheduler starts it from one of the chart's fixed
+templates, each with its own image and its own work (`ARGUS_JOB_WORK`); the Job claims its own
+work from the queue, with the code the Compose worker uses, and does one unit of it:
 
 - `test`: a queued Test connection request, on the image without tools. It never scans.
 - `steampipe`, `prowler`, `cloudfox`: one AWS scan of its tools, while fewer than the cap run
   (the smaller of the administration setting "max parallel runs" and the deployment's
   ARGUS_MAX_RUN_JOBS). It claims a connection's next request only when that request is one of
   its tools, so the tools still run in order on each connection. It never answers a test.
+- `report`: one queued report (ADR-0047 round 5), on the reports image, with its own database
+  role and IRSA role and no keyring. It first fails reports abandoned by a stopped Job, then
+  builds the oldest queued one into the reports/ folder of the bucket recorded on it.
 
 Then it exits. Its credentials, its AWS profile and its staged raw output, which can hold secret
 values, die with the pod. A Job that finds nothing to claim exits at once: the scheduler may
@@ -20,14 +22,16 @@ from typing import Literal
 
 from sqlalchemy import Engine
 
+from argus import reports
 from argus.collection import missing_tools
 from argus.core.rawstore import FilesystemRawStore
 from argus.scheduling import connection_checks
 from argus.scheduling.runner import run_once
 
 log = logging.getLogger("argus.job")
-Done = Literal["test", "scan", "nothing"]
+Done = Literal["test", "scan", "report", "nothing"]
 TEST = "test"
+REPORT = "report"
 # Each scan Job's work and the tools it may claim, one image each. The Vulnerabilities tool runs
 # the Steampipe export binary (ADR-0042), so it shares Steampipe's image.
 SCAN_WORK: dict[str, tuple[str, ...]] = {
@@ -35,7 +39,9 @@ SCAN_WORK: dict[str, tuple[str, ...]] = {
     "prowler": ("prowler",),
     "cloudfox": ("cloudfox",),
 }
-WORK = (TEST, *SCAN_WORK)
+WORK = (TEST, *SCAN_WORK, REPORT)
+# A report Job's connections: claim, read and record, one at a time (the chart's pools.reportJob).
+REPORT_CONNECTIONS = 1
 
 
 class WorkError(ValueError):
@@ -58,6 +64,8 @@ def check_work(work: str) -> None:
     missing = missing_tools(SCAN_WORK.get(work, ()))
     if missing:
         raise WorkError(f"this image does not carry {', '.join(missing)} for {work!r} work")
+    if work == REPORT and not reports.renderer_present():
+        raise WorkError("this image does not carry the PDF renderer for 'report' work")
 
 
 def run_job(
@@ -68,10 +76,19 @@ def run_job(
     rules_dir: Path,
     worker_id: str,
     max_runs: int,
+    scratch: Path,
 ) -> Done:
-    """Does this Job's one unit of work. Returns which it was."""
+    """Does this Job's one unit of work. Returns which it was. `scratch` is where a report is
+    written before its upload."""
     if work == TEST:
         return "test" if connection_checks.run_pending(engine) else "nothing"
+    if work == REPORT:
+        with engine.begin() as conn:
+            stale = reports.fail_stale(conn)
+        if stale:
+            log.info("abandoned reports failed", extra={"reports_failed": stale})
+        built = reports.build_pending(engine, store_for=reports.s3_store_for(scratch))
+        return "report" if built else "nothing"
     if work not in SCAN_WORK:
         raise WorkError(f"unknown work {work!r}")
     status = run_once(

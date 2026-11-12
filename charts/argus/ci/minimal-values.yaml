@@ -5,6 +5,7 @@ images:
   workerSteampipe: {repository: argus-backend, digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222"}
   workerProwler: {repository: argus-backend, digest: "sha256:4444444444444444444444444444444444444444444444444444444444444444"}
   workerCloudfox: {repository: argus-backend, digest: "sha256:5555555555555555555555555555555555555555555555555555555555555555"}
+  reports: {repository: argus-backend, digest: "sha256:6666666666666666666666666666666666666666666666666666666666666666"}
   web: {repository: argus-web, digest: "sha256:3333333333333333333333333333333333333333333333333333333333333333"}
 secrets:
   existingSecret: argus-secrets
@@ -13,7 +14,11 @@ api:
 identity:
   mode: irsa
   roleArn: arn:aws:iam::111122223333:role/argus-platform
+  apiRoleArn: arn:aws:iam::111122223333:role/argus-api
+  reportRoleArn: arn:aws:iam::111122223333:role/argus-report
 networkPolicy:
   kubeApi:
     cidrs: [10.0.0.10/32, 10.0.0.11/32]
   scanEgressExcept: [169.254.0.0/16, 10.0.0.0/16, 172.20.0.0/16]
+  # S3 and STS through VPC endpoints in the cluster's subnets.
+  awsEgressCidrs: [10.0.100.0/24]

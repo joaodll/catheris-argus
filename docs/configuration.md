@@ -94,7 +94,7 @@ Secret ([runbook](runbook-kubernetes.md#the-secret)). Each process reads only wh
 | `ARGUS_SECRET_KEYS` | The keyring that seals stored credentials, `k2:<base64>,k1:<base64>`: `docker compose run --rm admin-tools new-secret-key` |
 | `ARGUS_SECRET_KEY_ID` | The keyring entry new secrets are sealed with, for example `k1` |
 | `ARGUS_DB_PASSWORD` | The database password of the process's own role |
-| `ARGUS_API_DB_PASSWORD`, `ARGUS_WORKER_DB_PASSWORD`, `ARGUS_SCHEDULER_DB_PASSWORD` | Read by the migration step only: it gives each application role its password |
+| `ARGUS_API_DB_PASSWORD`, `ARGUS_WORKER_DB_PASSWORD`, `ARGUS_SCHEDULER_DB_PASSWORD`, `ARGUS_REPORTS_DB_PASSWORD` | Read by the migration step only: it gives each application role its password (the last on Kubernetes IRSA installs, for the report Job) |
 
 **The database**
 
@@ -153,15 +153,17 @@ On Kubernetes they are chart values under `auth`, and the metadata comes from a 
 | `ARGUS_LOG_LEVEL` | `INFO` | Log level; logs are JSON lines on stdout, redacted |
 | `ARGUS_TRUSTED_PROXIES` | `127.0.0.1` | Addresses or ranges whose `X-Forwarded-For` the API believes: the web server only |
 | `ARGUS_WORKER_THREADS` | `2` | Compose: runs one worker process executes at once (below **Max parallel runs**) |
-| `ARGUS_DB_POOL_MAX` | `10` | The most connections this process opens to Postgres, a hard cap (1 to 50). A process refuses to start below its own peak: a scan Job 3; migrate, rederive and retention 2; the Compose worker 3 per run thread plus 4 (`compose.yaml` sets 10 for two threads). The API uses one per request in progress; a request that waits 10 seconds for one gets 503. On Kubernetes the chart sets it per pod from `database.pools` |
+| `ARGUS_DB_POOL_MAX` | `10` | The most connections this process opens to Postgres, a hard cap (1 to 50). A process refuses to start below its own peak: a scan Job 3; a report Job 1; migrate, rederive and retention 2; the Compose worker 3 per run thread plus 4 (`compose.yaml` sets 10 for two threads). The API uses one per request in progress; a request that waits 10 seconds for one gets 503. On Kubernetes the chart sets it per pod from `database.pools` |
 | `ARGUS_MAX_RUN_JOBS` | `4` | Kubernetes: AWS scans at once, below **Max parallel runs**; read by the scheduler and by each scan Job |
 | `ARGUS_MAX_TEST_JOBS` | `1` | Kubernetes: scan Jobs the scheduler may start beyond that while connection tests wait |
-| `ARGUS_JOB_TEMPLATES_DIR` | `/etc/argus/jobs` | Kubernetes: where the scheduler reads its fixed scan Job templates, `test.json`, `steampipe.json`, `prowler.json` and `cloudfox.json` |
-| `ARGUS_JOB_WORK` | (none) | Kubernetes, set by each scan Job template: `test`, `steampipe`, `prowler` or `cloudfox`. A Job without a known one, or on an image without its tool, exits before it claims anything (ADR-0046) |
+| `ARGUS_JOB_TEMPLATES_DIR` | `/etc/argus/jobs` | Kubernetes: where the scheduler reads its fixed Job templates, `test.json`, `steampipe.json`, `prowler.json`, `cloudfox.json`, and `report.json` on IRSA installs |
+| `ARGUS_JOB_WORK` | (none) | Kubernetes, set by each Job template: `test`, `steampipe`, `prowler`, `cloudfox` or `report`. A Job without a known one, or on an image without its tool or the PDF renderer, exits before it claims anything (ADR-0046) |
 | `ARGUS_RAW_ROOT` | `/var/lib/argus` | Where Demo raw output is kept |
 | `ARGUS_RAW_STAGING_ROOT` | `/var/lib/argus-staging` | Where an AWS run is staged before upload |
 | `ARGUS_RULES_DIR` | `/opt/argus/rules` | The relationship rules |
-| `ARGUS_REPORTS_ROOT` | (none) | Where reports are kept: a volume the worker writes and the API reads only ([ADR-0047](adr/0047-reports.md)). Unset, the install keeps no reports and the API refuses requests. `compose.yaml` sets `/var/lib/argus-reports`; the chart sets none until reports can go to the raw-output bucket |
+| `ARGUS_REPORTS_ROOT` | (none) | Docker Compose: where reports are kept, a volume the worker writes and the API reads only ([ADR-0047](adr/0047-reports.md)). `compose.yaml` sets `/var/lib/argus-reports` |
+| `ARGUS_REPORTS_STORE` | (none) | Kubernetes: `s3`, set by the chart on IRSA installs. Reports go to the `reports/` folder of the raw-output bucket, written by the report Job and read by the API, each with its own IRSA role. With neither this nor `ARGUS_REPORTS_ROOT`, the install keeps no reports and the API refuses requests; setting both is refused at start |
+| `ARGUS_MAX_REPORT_JOBS` | `1` | Kubernetes: report Jobs the scheduler runs at once (1 to 3), from `scheduler.maxReportJobs` |
 
 `ARGUS_RAW_ROOT`, `ARGUS_RAW_STAGING_ROOT`, `ARGUS_REPORTS_ROOT` and `ARGUS_RULES_DIR` are where the image and
 its mounts put things, and `ARGUS_WORKER_THREADS` is set in `compose.yaml`, because `ARGUS_DB_POOL_MAX` has to

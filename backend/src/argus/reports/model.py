@@ -26,8 +26,17 @@ PDF_DETAILED_BLOCKS = 300
 PDF_NAMED_CAP = 1_000
 # A build that runs longer gives up and fails: the worker's one report thread is then free.
 MAX_BUILD_SECONDS = 3600
-# On this install's store (a local volume, Docker Compose), only Demo connections: real tool
-# output never stays on a local disk (ADR-0032).
+# A report still building this long after it started was abandoned: its Job or worker was
+# stopped. The API shows it Failed and leaves it out of the open count at once; the next report
+# Job writes the failure (Kubernetes has no worker start to end it, ADR-0047 round 5).
+STALE_AFTER_SECONDS = MAX_BUILD_SECONDS + 15 * 60
+STALE_ERROR = "The build stopped before it finished. Request it again."
+# The largest file a report may be. A report on S3 goes up in one PUT (a multipart upload under
+# SSE-KMS would need kms:Decrypt for the uploader, review 2026-11-12), and the download refuses
+# anything larger. Far above what the caps produce.
+MAX_REPORT_BYTES = 2 * 1024**3
+# On a local store (a volume, Docker Compose), only Demo connections: real tool output never
+# stays on a local disk (ADR-0032). The S3 store takes every connection.
 LOCAL_STORE_KINDS = frozenset({"demo"})
 
 
@@ -52,7 +61,10 @@ class ReportRow:
     expired: bool
     file_deleted_at: datetime | None
     storage_key: str | None
+    storage_bucket: str | None
+    storage_region: str | None
     size_bytes: int | None
+    sha256: str | None
     row_count: int | None
     truncated: bool
     data_through: dict[int, date] | None
@@ -67,3 +79,6 @@ class ClaimedReport:
     filters: dict[str, Any]
     connection_ids: list[int]
     requested_by: str
+    # Where an S3 report goes, recorded at request (None: the local store).
+    storage_bucket: str | None
+    storage_region: str | None

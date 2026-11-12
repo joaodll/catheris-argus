@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine, text
+from sqlalchemy.exc import ProgrammingError
 from tests.ingest.conftest import make_aws, make_demo
 
 from argus.core.kube import JobState
@@ -35,8 +36,9 @@ def _work(
     claimed: dict[str, int] | None = None,
     queued_tests: int = 0,
     max_parallel_runs: int = 8,
+    queued_reports: int = 0,
 ) -> Work:
-    return Work(tuple(next_work), claimed or {}, queued_tests, max_parallel_runs)
+    return Work(tuple(next_work), claimed or {}, queued_tests, max_parallel_runs, queued_reports)
 
 
 def _only(**started: int) -> dict[str, int]:
@@ -146,7 +148,7 @@ def _write_templates(directory: Path) -> dict[str, bytes]:
 
 def test_the_templates_are_checked_and_give_the_selectors(tmp_path: Path) -> None:
     _write_templates(tmp_path)
-    templates = load_templates(tmp_path)
+    templates = load_templates(tmp_path, reports_in_jobs=True)
     assert sorted(templates) == sorted(WORK)
     assert selector(templates["prowler"]) == (
         "app.kubernetes.io/component=run,app.kubernetes.io/instance=argus,argus/work=prowler"
@@ -167,6 +169,65 @@ def test_an_unusable_template_stops_the_scheduler(tmp_path: Path, bad: dict[str,
     (tmp_path / "test.json").write_text(json.dumps(bad))
     with pytest.raises(TemplateError):
         load_template(tmp_path, "test")
+
+
+def test_the_report_template_is_needed_only_where_reports_are_built_in_jobs(
+    tmp_path: Path,
+) -> None:
+    _write_templates(tmp_path)
+    (tmp_path / "report.json").unlink()
+    assert "report" not in load_templates(tmp_path, reports_in_jobs=False)
+    with pytest.raises(TemplateError):
+        load_templates(tmp_path, reports_in_jobs=True)
+
+
+REPORTS = Bounds(max_run_jobs=4, max_test_jobs=1, max_report_jobs=2)
+
+
+@pytest.mark.parametrize(
+    ("work", "live", "stuck", "bounds", "expected"),
+    [
+        (_work(queued_reports=1), {}, (), REPORTS, _only(report=1)),
+        (_work(queued_reports=5), {}, (), REPORTS, _only(report=2)),  # ARGUS_MAX_REPORT_JOBS
+        (_work(queued_reports=5), {"report": 1}, (), REPORTS, _only(report=1)),
+        (_work(queued_reports=5), {}, ("report",), REPORTS, _only()),
+        # No reports in Jobs on this install: the bound is 0.
+        (_work(queued_reports=5), {}, (), BOUNDS, _only()),
+        # A report never takes a scan's slot, nor a scan a report's.
+        (
+            _work(*["prowler"] * 6, queued_reports=1),
+            {},
+            (),
+            REPORTS,
+            _only(prowler=4, report=1),
+        ),
+    ],
+    ids=["one", "bounded", "live", "stuck", "off", "own-slots"],
+)
+def test_report_jobs_have_their_own_bound(
+    work: Work, live: dict[str, int], stuck: tuple[str, ...], bounds: Bounds, expected: object
+) -> None:
+    assert plan(work, live, bounds, frozenset(stuck)) == expected
+
+
+def test_a_queued_report_starts_a_report_job_as_the_scheduler(
+    scheduler: Engine, owner: Engine, tmp_path: Path
+) -> None:
+    """The scheduler's role may count queued reports (migration 0050) and nothing else of them."""
+    _write_templates(tmp_path)
+    templates = load_templates(tmp_path, reports_in_jobs=True)
+    with owner.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO report_request (kind, format, filters, connection_ids, requested_by) "
+                "VALUES ('misconfigurations', 'csv', '{}', ARRAY[1], 'alice')"
+            )
+        )
+    kube = _Kube()
+    assert reconcile(scheduler, kube, templates, REPORTS) == 1
+    assert kube.created == [templates["report"].body]
+    with scheduler.connect() as conn, pytest.raises(ProgrammingError, match="permission denied"):
+        conn.execute(text("SELECT filters FROM report_request"))
 
 
 def test_a_missing_template_stops_the_scheduler(tmp_path: Path) -> None:

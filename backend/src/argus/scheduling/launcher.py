@@ -1,5 +1,5 @@
-"""The scheduler's reconcile (ADR-0039, ADR-0046): count the work that could start, count the scan
-Jobs alive, and start the missing Jobs from the chart's four fixed templates, one per work.
+"""The scheduler's reconcile (ADR-0039, ADR-0046): count the work that could start, count the
+Jobs alive, and start the missing Jobs from the chart's fixed templates, one per work.
 
 - Each template is submitted byte for byte: the scheduler fills in nothing, so the admission
   policy that pins it (ADR-0040) sees exactly what the chart rendered. Kubernetes names each Job
@@ -15,6 +15,9 @@ Jobs alive, and start the missing Jobs from the chart's four fixed templates, on
   live Jobs (claimed yet or not) and its claimed scans: a claim whose pod died holds its slot
   until the reaper requeues it, so no Job is started only to find the cap full. Tests have their
   own bound, ARGUS_MAX_TEST_JOBS, so a test never waits behind a long scan.
+- Reports have theirs, ARGUS_MAX_REPORT_JOBS, and run only where this install keeps reports in
+  S3 (ARGUS_REPORTS_STORE, ADR-0047 round 5); elsewhere the report template is not loaded and
+  the bound is 0.
 - With nothing to start, the Kubernetes API is not called at all.
 - Every Job started is logged with its name and its work (review S5).
 - A Job with no running pod after STUCK_AFTER (an image it cannot pull, no node for it) is
@@ -38,14 +41,15 @@ from typing import Protocol
 
 from sqlalchemy import Engine
 
+from argus import reports
 from argus.connections import checks
 from argus.core.kube import JobState
 from argus.scheduling import claims
-from argus.scheduling.job import SCAN_WORK, TEST, WORK, work_of
+from argus.scheduling.job import REPORT, SCAN_WORK, TEST, WORK, work_of
 from argus.settings import read_collection
 
 log = logging.getLogger("argus.scheduler")
-# The label that tells the four templates' Jobs apart; its value is the template's work.
+# The label that tells the templates' Jobs apart; its value is the template's work.
 WORK_LABEL = "argus/work"
 STUCK_AFTER = timedelta(minutes=5)
 
@@ -64,6 +68,7 @@ class Template:
 class Bounds:
     max_run_jobs: int
     max_test_jobs: int
+    max_report_jobs: int = 0  # 0: this install builds no reports in Jobs
 
 
 @dataclass(frozen=True)
@@ -73,6 +78,7 @@ class Work:
     claimed: Mapping[str, int]  # AWS requests claimed now, per work
     queued_tests: int
     max_parallel_runs: int
+    queued_reports: int = 0
 
 
 class Kube(Protocol):
@@ -98,9 +104,14 @@ def load_template(directory: Path, work: str) -> Template:
     return Template(body, {str(k): str(v) for k, v in labels.items()})
 
 
-def load_templates(directory: Path) -> dict[str, Template]:
+def works(*, reports_in_jobs: bool) -> tuple[str, ...]:
+    """The works this install's scheduler starts Jobs for."""
+    return WORK if reports_in_jobs else tuple(w for w in WORK if w != REPORT)
+
+
+def load_templates(directory: Path, *, reports_in_jobs: bool = False) -> dict[str, Template]:
     """Every work's template: the scheduler refuses to start without all of them."""
-    return {work: load_template(directory, work) for work in WORK}
+    return {work: load_template(directory, work) for work in works(reports_in_jobs=reports_in_jobs)}
 
 
 def selector(template: Template) -> str:
@@ -127,10 +138,14 @@ def plan(
             free -= 1
     if TEST not in stuck:
         start[TEST] = max(min(work.queued_tests, bounds.max_test_jobs) - live.get(TEST, 0), 0)
+    if REPORT not in stuck:
+        start[REPORT] = max(
+            min(work.queued_reports, bounds.max_report_jobs) - live.get(REPORT, 0), 0
+        )
     return start
 
 
-def read_work(engine: Engine) -> Work:
+def read_work(engine: Engine, *, reports_in_jobs: bool = False) -> Work:
     with engine.connect() as conn:
         claimed: dict[str, int] = {}
         for (kind, tool), n in claims.claimed_tools(conn).items():
@@ -141,6 +156,7 @@ def read_work(engine: Engine) -> Work:
             claimed=claimed,
             queued_tests=checks.queued_tests(conn),
             max_parallel_runs=read_collection(conn).max_parallel_runs,
+            queued_reports=reports.queued_reports(conn) if reports_in_jobs else 0,
         )
 
 
@@ -156,8 +172,8 @@ def reconcile(
     """One pass. Returns how many Jobs it started. A KubeError (a denial, the API unreachable)
     propagates: the caller backs off. `warned` holds the stuck Jobs already logged, across
     passes."""
-    work = read_work(engine)
-    if not work.next_work and not work.queued_tests:
+    work = read_work(engine, reports_in_jobs=REPORT in templates)
+    if not work.next_work and not work.queued_tests and not work.queued_reports:
         return 0
     warned = warned if warned is not None else set()
     now = now or datetime.now(UTC)
@@ -198,6 +214,7 @@ def reconcile(
                     "work": name,
                     "claimable_connections": len(work.next_work),
                     "queued_tests": work.queued_tests,
+                    "queued_reports": work.queued_reports,
                 },
             )
     return sum(started.values())

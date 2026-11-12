@@ -1,6 +1,7 @@
-{{- /* The HTTP API (/api/v1), behind web's nginx. Connects as argus_api; no Kubernetes token,
-no cloud identity (ADR-0040). Reached only by web; reaches only Postgres (NetworkPolicy). Its
-Service, disruption budget and autoscaler are in services.yaml, pdb.yaml and hpa.yaml. */ -}}
+{{- /* The HTTP API (/api/v1), behind web's nginx. Connects as argus_api; no Kubernetes token
+(ADR-0040). Reached only by web; reaches Postgres, and on IRSA installs S3 and STS to read
+reports with its own role (ADR-0047 round 5, aws-egress in networkpolicies.yaml). Its Service,
+disruption budget and autoscaler are in services.yaml, pdb.yaml and hpa.yaml. */ -}}
 {{- define "argus.api.env" -}}
 {{ include "argus.keyringEnv" . }}
 {{ include "argus.historyBound.env" . }}
@@ -17,6 +18,15 @@ Service, disruption budget and autoscaler are in services.yaml, pdb.yaml and hpa
   value: {{ .Values.api.signIn.maxFailuresPerAddress | int | quote }}
 - name: ARGUS_LOGIN_MAX_FAILURES_PER_USERNAME
   value: {{ .Values.api.signIn.maxFailuresPerUsername | int | quote }}
+# Never the node's instance role: the reports client takes the IRSA role only, and nothing else
+# in the API calls AWS (review SA-2, 2026-11-12).
+- name: AWS_EC2_METADATA_DISABLED
+  value: "true"
+{{- if include "argus.reportsInS3" . }}
+# Reports are kept in the raw-output bucket's reports/ folder (ADR-0047 round 5).
+- name: ARGUS_REPORTS_STORE
+  value: s3
+{{- end }}
 # Kubernetes offers real connections only: Demo connections are for Docker Compose (ADR-0039).
 - name: ARGUS_DEMO_CONNECTIONS
   value: "false"
@@ -76,6 +86,7 @@ livenessProbe:
 {{- $db := dict "root" . "user" "argus_api" "key" "ARGUS_API_DB_PASSWORD" "pool" "api" }}
 {{- include "argus.deployment" (dict "root" . "component" "api" "v" .Values.api "pod" (dict
   "grace" 30 "db" true
+  "serviceAccount" (ternary (include "argus.serviceAccount" (dict "root" . "name" "api")) "" (eq (include "argus.reportsInS3" .) "true"))
   "initContainers" (include "argus.waitForSchema" $db)
   "volumes" (include "argus.api.samlVolume" .)
   "containers" (include "argus.container" (dict "root" . "name" "api" "db" $db

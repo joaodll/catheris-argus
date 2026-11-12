@@ -92,20 +92,27 @@ when their checks need it. Argus never stores such a value:
 **Kubernetes** ([ADR-0040](adr/0040-helm-chart-trust-boundaries.md)):
 
 - **Network:** default-deny NetworkPolicies. Postgres accepts its clients only, the API accepts the
-  web pods only, and only scan Jobs reach
-  port 443 outside the cluster, never instance metadata. `helm test` proves the cluster enforces
+  web pods only, and only scan Jobs reach port 443 anywhere outside the cluster, never instance
+  metadata. On IRSA installs the API and the report Job reach the S3 and STS ranges you list
+  (`networkPolicy.awsEgressCidrs`), for reports, and nothing else outside. `helm test` proves the cluster enforces
   them once a pod is running; see Known limits for a new pod's first moments. Every pod may still
   query the cluster's DNS, which looks up outside names for it (Known limits).
 - **What a scan Job can be:** the scheduler is the only pod with a Kubernetes token, and may only
   create Jobs. An admission policy rejects any Job from it whose image, command, service account,
   environment, resources, volumes and mounts, security context, placement, probes or hooks differ
-  from one of the chart's four fixed templates, one per work. A Job is checked whole against the
+  from one of the chart's fixed templates, one per work: four, and a fifth for reports on IRSA
+  installs. A Job is checked whole against the
   template its name prefix names, so one tool's work on another tool's image matches none
   ([ADR-0046](adr/0046-one-image-per-tool.md)). A quota bounds how many pods and Jobs can exist.
 - **What a scan Job carries:** only its own tool. Connection tests run on the runtime image with
   no tool. This narrows the code beside the credentials; it does not separate them: every scan Job
   runs as the same `-run` account, with the same database login and keyring.
-- **Who holds the cloud identity:** only the scan Jobs. Every pod the chart creates meets Pod
+- **The report Job** (IRSA installs, [ADR-0047](adr/0047-reports.md)) is not a scan Job: it runs as
+  its own `-report` account and IRSA role, which may only write `reports/`, logs in as
+  `argus_reports`, which reads what a report reads and nothing sealed, and holds no keyring. A Job on
+  `-run` with the report template, or on `-report` with a scan's, matches no template.
+- **Who holds the cloud identity:** the scan Jobs hold the platform identity. On IRSA installs the
+  API and the report Job each hold a role of their own for reports, and nothing else does. Every pod the chart creates meets Pod
   Security `restricted` (non-root, read-only root filesystem, no capabilities), and labelling the
   namespace `restricted`, an install prerequisite, enforces it.
 - **No public entry by default:** access is `kubectl port-forward`. An ingress is off until the
@@ -173,7 +180,12 @@ when their checks need it. Argus never stores such a value:
   attachment. A report expires after 7 days. A cell a spreadsheet would read as a formula is
   written as text. Reports export the list's columns only: no configuration and no tags. On Docker
   Compose a report can cover Demo connections only, and the files sit on a local volume the API
-  mounts read-only. Once downloaded, a report is outside Argus's control.
+  mounts read-only. On Kubernetes with IRSA the files sit in the bucket's `reports/` folder: the
+  report Job writes each in one upload with its SHA-256, and the API serves a file only when its
+  size and SHA-256 match what the build recorded. Its role can read that folder only, the bucket
+  policy keeps every other role out of it, and the key policy limits decrypting to it
+  ([AWS policies](aws-policies.md#two-roles-for-reports)). Once downloaded, a report is outside
+  Argus's control.
 - **The PDF renderer** reads names and tags that came from scanned clouds, so it runs apart from
   Argus: a separate program in its own venv, started with an environment built from nothing (no
   database password, no keyring, no cloud credential) and no inherited descriptors. It escapes
@@ -204,8 +216,8 @@ Argus is pre-1.0. These are known and accepted for now:
 - **The PDF renderer shares the worker's user on Docker Compose.** It holds no secret and fetches
   nothing, but a code-execution flaw in its PDF libraries, triggered by a name or tag from a scanned
   cloud, could read what the worker's user reads on disk (the Demo raw volume and the reports
-  volume) and use the worker's network. On Kubernetes the report Job (round 5) gets its own
-  identity, no keyring and no route but S3.
+  volume) and use the worker's network. On Kubernetes the report Job has its own pod, identity and
+  database role, no keyring, and no route out but S3 and STS.
 
 - **Without single sign-on there is no second factor.** Local users have their own passwords
   ([ADR-0041](adr/0041-users-and-roles.md)). Without SSO, keep the UI on loopback or inside the
@@ -226,6 +238,19 @@ Argus is pre-1.0. These are known and accepted for now:
 - **Access keys:** an administrator may store a long-lived key, for a connection or the platform
   identity. It is sealed, write-only and audited, but it is still a long-lived credential in a
   tier-0 database; prefer roles.
+- **On Kubernetes, the API holds an AWS identity.** On IRSA installs the API reads reports with
+  its own role ([ADR-0047](adr/0047-reports.md)), the owner's choice over a separate reports
+  service. A compromised API could read `reports/` (findings it can already read in the database)
+  and use the role from wherever its egress allows. With the NetworkPolicies on, that is only the
+  S3 and STS ranges, but those ranges serve every bucket, so an S3 endpoint policy naming your
+  buckets is what keeps data in them ([AWS policies](aws-policies.md#two-roles-for-reports)). With
+  the NetworkPolicies off, the API and the report Job reach any address with their roles; the
+  install notes warn, and the owner accepted it for their own install (2026-11-12). The
+  folder limits are not yet proven on real AWS.
+- **A child process can read its pod's IRSA token.** The PDF renderer in the report Job and the
+  SAML check in the API run without the parent's environment, but as the same user, so a
+  code-execution flaw in WeasyPrint or xmlsec could read the pod's token file and act as that
+  pod's role: write `reports/` (the report Job) or read it (the API), within the pod's egress.
 - **The scanning process can reach the internet.** On Compose the worker has an unrestricted route
   out; on Kubernetes, scan Jobs reach port 443 anywhere outside the cluster, because AWS service
   endpoints cannot be listed by name in a network policy. A compromised tool could send data out
@@ -238,12 +263,14 @@ Argus is pre-1.0. These are known and accepted for now:
   forwards at the cluster or the VPC ([runbook](runbook-kubernetes.md#keeping-the-controls-true)).
   This is reasoned, not measured on a cluster. Compose is not affected: its internal networks
   resolve no outside name.
-- **Argus doesn't check who owns the raw output bucket.** It uploads to the bucket named in
-  Settings, without asking S3 to confirm the owning account, because the bucket may sit in any
+- **Argus doesn't check who owns the raw output bucket.** It uploads raw output and reports to,
+  and reads reports from, the bucket named in Settings, without asking S3 to confirm the owning
+  account, because the bucket may sit in any
   account of your organization (owner's decision, 2026-11-11). The bucket name and its policies are
   yours to get right: a mistyped name, or a deleted bucket whose name someone else registers, could
   receive raw output, which can hold secret values, if that bucket accepts the upload. The
-  platform identity's IAM policy names your bucket, and every change to the setting is audited. To
+  platform identity's IAM policy and the two report roles' name your bucket, and every change to
+  the setting is audited. A report keeps the bucket it was requested for. To
   have AWS enforce the owner, add a condition to that policy
   ([AWS policies](aws-policies.md#permissions)).
 - **Redaction goes by names and shapes.** It can't recognize a secret stored under a harmless name

@@ -714,9 +714,19 @@ def test_raw_storage_setting(signed_in: TestClient, owner: Engine) -> None:
         {**body, "bucket": "Not_A_Bucket"},
         {**body, "prefixes": {**body["prefixes"], "cloudfox": "../escape"}},
         {**body, "prefixes": {**body["prefixes"], "prowler": "/leading"}},
+        # reports/ is where reports live and the API's role reads (ADR-0047 round 5): raw output,
+        # which can hold secret values, never goes there.
+        {**body, "prefixes": {**body["prefixes"], "prowler": "reports"}},
+        {**body, "prefixes": {**body["prefixes"], "steampipe": "reports/steampipe"}},
     ):
         refused = signed_in.put("/api/v1/settings/raw-storage", headers=csrf(signed_in), json=bad)
         assert refused.status_code == 422
+    # Only that folder: a name that merely contains the word is a folder like any other.
+    beside_prefixes = {**body["prefixes"], "prowler": "raw/reports", "cloudfox": "reportsx"}
+    beside = {**body, "prefixes": beside_prefixes}
+    assert (
+        signed_in.put("/api/v1/settings/raw-storage", headers=csrf(signed_in), json=beside)
+    ).status_code == 200
 
 
 def test_lists_are_paginated(

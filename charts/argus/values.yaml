@@ -32,6 +32,11 @@ images:
   workerCloudfox:
     repository: argus-backend
     digest: ""  # required
+  # argus-backend:reports: the runtime plus the PDF renderer, for the report Job (ADR-0047). Its
+  # Job runs on IRSA installs only, where reports are kept in S3.
+  reports:
+    repository: argus-backend
+    digest: ""  # required
   web:
     repository: argus-web
     digest: ""  # required
@@ -44,7 +49,8 @@ imagePullSecrets: []
 # One existing Secret holds every secret value; the chart never generates one (ADR-0040).
 # Keys: ARGUS_DB_PASSWORD (the schema owner), ARGUS_API_DB_PASSWORD,
 # ARGUS_WORKER_DB_PASSWORD, ARGUS_SCHEDULER_DB_PASSWORD, ARGUS_SECRET_KEYS,
-# ARGUS_SECRET_KEY_ID; for the first start only, ARGUS_BOOTSTRAP_ADMIN_PASSWORD or
+# ARGUS_SECRET_KEY_ID; on IRSA installs, ARGUS_REPORTS_DB_PASSWORD (the report Job's role); for
+# the first start only, ARGUS_BOOTSTRAP_ADMIN_PASSWORD or
 # ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH (below, `admin`). Each pod references only its own keys.
 secrets:
   existingSecret: ""  # required
@@ -66,10 +72,12 @@ externalSecret:
   # property from the Secrets Manager secret.
   bootstrapKeys: []
 
-# The chart creates two service accounts, the only two that hold anything:
-#   <release>-run        the AWS identity (IRSA, `identity` below); used by AWS scans and
+# The chart creates these service accounts, the only ones that hold anything:
+#   <release>-run        the platform identity (IRSA, `identity` below); used by AWS scans and
 #                        connection tests only
 #   <release>-scheduler  allowed to create Jobs in this namespace (and nothing else)
+#   <release>-api        on IRSA installs: the API's role, which reads reports (identity below)
+#   <release>-report     on IRSA installs: the report Job's role, which writes reports
 # Every other pod runs as the namespace's `default` account with no token mounted.
 serviceAccounts:
   run:
@@ -84,6 +92,12 @@ identity:
   # the UI.
   mode: irsa
   roleArn: ""
+  # Reports (ADR-0047) are kept in the reports/ folder of the raw-output bucket on IRSA installs,
+  # and each side has its own role, never the platform identity: the API's reads reports/ only,
+  # the report Job's writes reports/ only (docs/aws-policies.md). Required with mode irsa. With
+  # another mode there are no reports, and the Reports screen says why.
+  apiRoleArn: ""
+  reportRoleArn: ""
 
 # The first admin (ADR-0041): the migrate Job creates admin.username while no active admin
 # exists, with the Secret's ARGUS_BOOTSTRAP_ADMIN_PASSWORD or ..._PASSWORD_HASH. Remove that key
@@ -128,12 +142,15 @@ database:
   #   scanJob  x (scheduler.maxRunJobs + scheduler.maxTestJobs)
   #   task     x 3 (migrate, rederive and retention at once) + 1 (Alembic's own)
   #   scheduler
+  #   reportJob x scheduler.maxReportJobs, on IRSA installs
   # A pod below its own peak refuses to start: a scan Job holds 3 at once, migrate, rederive and
-  # retention 2. The api uses one per request in progress; more wait, then get 503.
+  # retention 2, a report Job 1. The api uses one per request in progress; more wait, then get
+  # 503.
   pools:
     api: 10
     scheduler: 2
     scanJob: 3
+    reportJob: 1
     task: 2
 
 # Postgres 18 in the chart (a StatefulSet), or an external one with `enabled: false`.
@@ -232,6 +249,8 @@ scheduler:
   # wait, so a test never waits behind a long scan.
   maxRunJobs: 4
   maxTestJobs: 1
+  # Report Jobs at once, on IRSA installs (1 to 3). A PDF at every cap peaked at 1.37 GiB.
+  maxReportJobs: 1
   resources:
     requests: {cpu: 50m, memory: 96Mi}
     limits: {memory: 256Mi}
@@ -273,6 +292,13 @@ scanJobs:
       resources:
         requests: {cpu: 500m, memory: 2Gi}
         limits: {memory: 6Gi}
+    # One report, on IRSA installs (ADR-0047). The renderer is capped at 2 GiB; a PDF at every
+    # cap peaked at 1.37 GiB (2026-11-11). The file is written to the scratch volume, then sent
+    # to S3 in one PUT.
+    report:
+      resources:
+        requests: {cpu: 500m, memory: 2Gi}
+        limits: {memory: 4Gi}
   # /tmp holds each scan's AWS profile and CloudFox's cache: memory-backed, as in Compose.
   tmpSize: 2Gi
   # The scan's raw output, on the node's disk until it is uploaded to S3, then deleted with the
@@ -322,6 +348,11 @@ networkPolicy:
   # (instance metadata and the Pod Identity agent).
   ipv6: false
   scanEgressExceptIPv6: ["fe80::/10", "fd00:ec2::/32"]
+  # required on IRSA installs: S3 and the regional STS endpoint, which the API and the report Job
+  # reach for reports (ADR-0047). Their only route out of the cluster. The S3 prefix list's ranges
+  # (aws ec2 describe-managed-prefix-lists) or your VPC endpoints' subnets; STS's interface
+  # endpoint, or the region's STS ranges.
+  awsEgressCidrs: []
   # Peers allowed to reach web on 8080 (an ingress controller). None by default:
   # `kubectl port-forward` is not filtered by NetworkPolicy.
   webIngressFrom: []

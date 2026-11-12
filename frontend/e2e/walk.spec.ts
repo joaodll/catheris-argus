@@ -787,6 +787,66 @@ test('edit connection: switch the sign-in method, both ways, both themes, phone 
   })
 })
 
+/** Reports on Kubernetes (ADR-0047 round 5; spec in the palace, frontend 2026-11-12). The walk runs
+ * on Compose, so the list's `storage` is answered here: each state the screen can be in, both
+ * themes, phone width. Nothing is requested or written. */
+test('reports: what the screen says on Kubernetes, each storage state', async ({ page }) => {
+  test.setTimeout(120_000)
+  let storage = 's3'
+  await page.route(/\/api\/v1\/reports(\?.*)?$/, async (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    const response = await route.fetch()
+    await route.fulfill({ response, json: { ...((await response.json()) as object), storage } })
+  })
+  await signIn(page)
+  const states: { storage: string; says: RegExp; canRequest: boolean }[] = [
+    { storage: 's3', says: /Newest first/, canRequest: true },
+    { storage: 'off', says: /This install keeps no reports\./, canRequest: false },
+    { storage: 'no_identity', says: /the API has no IRSA identity/, canRequest: false },
+    { storage: 'no_bucket', says: /Reports go to the raw-output bucket, and none is set\./, canRequest: false },
+  ]
+  for (const state of states) {
+    storage = state.storage
+    await page.goto('/scans/reports')
+    await expect(page.getByRole('heading', { level: 1, name: 'Reports' })).toBeVisible()
+    await expect(page.getByText(state.says).first()).toBeVisible()
+    await expect(page.getByRole('button', { name: 'New report' }).first()).toHaveCount(state.canRequest ? 1 : 0)
+    await expect(page.getByText('Reports on this install cover Demo connections only.')).toHaveCount(0)
+    await axe(page, `reports ${state.storage}, dark`)
+    // A theme switch is audited after a reload, as the other tests do: mid-transition colours
+    // aren't what a person sees.
+    await page.emulateMedia({ colorScheme: 'light' })
+    await page.reload()
+    await expect(page.getByText(state.says).first()).toBeVisible()
+    await axe(page, `reports ${state.storage}, light`)
+    await page.emulateMedia({ colorScheme: 'dark' })
+  }
+  // An Admin is pointed at the setting that's missing.
+  await expect(page.getByRole('link', { name: 'Set Raw output storage' })).toBeVisible()
+  await shot(page, '48-reports-no-bucket')
+
+  // On S3 the modal offers every account, not only Demo ones.
+  storage = 's3'
+  await page.goto('/scans/reports')
+  await page.getByRole('button', { name: 'New report' }).first().click()
+  const dialog = page.getByRole('dialog', { name: 'New report' })
+  await expect(dialog.getByText('All accounts', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('All Demo accounts')).toHaveCount(0)
+  await axe(page, 'new report on s3')
+  await dialog.getByRole('button', { name: 'Cancel' }).click()
+
+  // Settings names the reports folder, which no tool folder may use.
+  await page.goto('/admin/settings')
+  await expect(page.getByText('No tool folder may be in it.')).toBeVisible()
+
+  storage = 'no_identity'
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/scans/reports')
+  await expect(page.getByText(/the API has no IRSA identity/)).toBeVisible()
+  await axe(page, 'phone reports no identity')
+  await shot(page, '6x-phone-reports-no-identity')
+})
+
 /** Operate -> Reports (ADR-0047): Export carries a list's filters; a report is requested, built by
  * the worker and downloaded. It writes one report (Demo accounts only), which expires in 7 days. */
 test('reports: export from a list, request, build, download; both themes, phone width', async ({ page }) => {

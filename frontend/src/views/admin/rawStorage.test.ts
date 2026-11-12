@@ -31,4 +31,13 @@ describe('raw output storage checks', () => {
     expect(checkRawStorage({ ...ok, region: '' }).region).toMatch(/region too/)
     expect(checkRawStorage({ ...ok, bucket: '' }).bucket).toMatch(/clear the region/)
   })
+
+  it('keeps every tool out of the reports folder, which the API may read', () => {
+    for (const folder of ['reports', 'reports/prowler']) {
+      expect(checkRawStorage({ ...ok, prefixes: { ...ok.prefixes, prowler: folder } }).prowler).toMatch(/holds reports/)
+    }
+    for (const folder of ['raw/reports', 'reportsx', 'Reports']) {
+      expect(checkRawStorage({ ...ok, prefixes: { ...ok.prefixes, prowler: folder } })).toEqual({})
+    }
+  })
 })

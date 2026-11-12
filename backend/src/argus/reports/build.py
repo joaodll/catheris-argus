@@ -26,14 +26,30 @@ from argus.findings import FindingFilters
 from argus.reports import filters as report_filters
 from argus.reports import pdf, queue
 from argus.reports.csv_report import CsvReport
-from argus.reports.model import MAX_BUILD_SECONDS, ROW_CAP, ClaimedReport, ReportRefusedError
-from argus.reports.store import LocalReportStore
+from argus.reports.model import (
+    MAX_BUILD_SECONDS,
+    MAX_REPORT_BYTES,
+    ROW_CAP,
+    ClaimedReport,
+    ReportRefusedError,
+)
+from argus.reports.store import (
+    ReportStore,
+    ReportStoreError,
+    ReportStoreUnavailableError,
+    StoreFor,
+    new_key,
+)
 
 log = logging.getLogger("argus.reports")
 BATCH = 1000
 
 
 class _TooLongError(Exception):
+    pass
+
+
+class _TooLargeError(Exception):
     pass
 
 
@@ -44,11 +60,13 @@ class _Built:
     data_through: dict[int, object]
 
 
-def _scope(conn: Connection, report: ClaimedReport) -> tuple[FindingFilters, dict[int, date]]:
+def _scope(
+    conn: Connection, report: ClaimedReport, *, local: bool
+) -> tuple[FindingFilters, dict[int, date]]:
     """The report's filters over its scope, re-checked inside the build's transaction, and each
     account's data-through day."""
     scope = queue.resolve_scope(conn, tuple(report.connection_ids))
-    queue.check_scope(scope)
+    queue.check_scope(scope, local=local)
     ids = [cid for cid, _ in scope]
     filters = report_filters.from_json(report.kind, report.filters, connection_ids=ids)
     through = ingest.data_through_by_connection(conn, connection_ids=ids, tools=filters.tools)
@@ -68,10 +86,16 @@ def _snapshot(engine: Engine) -> Iterator[Connection]:
 
 
 def _write_csv(
-    engine: Engine, report: ClaimedReport, out_path: Path, *, row_cap: int, deadline: float
+    engine: Engine,
+    report: ClaimedReport,
+    out_path: Path,
+    *,
+    local: bool,
+    row_cap: int,
+    deadline: float,
 ) -> _Built:
     with _snapshot(engine) as conn:
-        filters, through = _scope(conn, report)
+        filters, through = _scope(conn, report, local=local)
         written = 0
         truncated = False
         with out_path.open("w", encoding="utf-8", newline="") as out:
@@ -102,11 +126,11 @@ def _write_csv(
     return _Built(row_count=written, truncated=truncated, data_through=dict(through))
 
 
-def _write_pdf(engine: Engine, report: ClaimedReport, out_path: Path) -> _Built:
+def _write_pdf(engine: Engine, report: ClaimedReport, out_path: Path, *, local: bool) -> _Built:
     """Reads inside the transaction, then closes it before rendering: a render can outlast the
     worker role's 5-minute limit on an idle transaction."""
     with _snapshot(engine) as conn:
-        filters, through = _scope(conn, report)
+        filters, through = _scope(conn, report, local=local)
         collected = pdf.collect(conn, report.kind, filters)
     context = pdf.build_context(
         collected,
@@ -132,45 +156,78 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _failure_reason(exc: Exception, report_id: int) -> str:
+    """The sentence a failed report shows, logged with the cause where the sentence hides it."""
+    if isinstance(exc, ReportRefusedError):
+        return str(exc)
+    if isinstance(exc, _TooLongError):
+        return "The report took longer than an hour to build. Narrow its filters."
+    if isinstance(exc, _TooLargeError):
+        return "The report's file is too large. Narrow its filters."
+    if isinstance(exc, ReportStoreUnavailableError):
+        log.warning("report store unavailable", extra={"report_id": report_id, "why": str(exc)})
+        return "The report could not be stored. See the report builder's log."
+    if isinstance(exc, ReportStoreError):
+        log.warning("report store refused", extra={"report_id": report_id, "why": str(exc)})
+        return "The report could not be stored. See the report builder's log."
+    if isinstance(exc, IsolatedRunError):
+        log.warning("report render failed", extra={"report_id": report_id, "why": str(exc)})
+        return "The PDF could not be drawn. Try the CSV, or narrow the filters."
+    log.exception("report build failed", extra={"report_id": report_id})
+    return "The report could not be built. See the report builder's log."
+
+
+def _one(store: ReportStore) -> StoreFor:
+    return lambda _report: store
+
+
 def build_pending(
     engine: Engine,
     *,
-    store: LocalReportStore,
+    store: ReportStore | None = None,
+    store_for: StoreFor | None = None,
     row_cap: int = ROW_CAP,
     max_seconds: float = MAX_BUILD_SECONDS,
 ) -> bool:
-    """Builds the oldest queued report. False when nothing was queued."""
+    """Builds the oldest queued report into `store` (Compose's one store), or the store
+    `store_for` gives for it (Kubernetes: the bucket recorded on the report). False when nothing
+    was queued."""
+    if store_for is None:
+        if store is None:
+            raise TypeError("build_pending takes store or store_for")
+        store_for = _one(store)
+    elif store is not None:
+        raise TypeError("build_pending takes store or store_for, not both")
     with engine.begin() as conn:
         report = queue.claim_report(conn)
     if report is None:
         return False
-    key = store.new_key(report.id, report.format)
+    key = new_key(report.id, report.format)
     temp: Path | None = None
     started = time.monotonic()
     try:
-        temp = store.temp_path(key)
+        target = store_for(report)
+        temp = target.temp_path(key)
         if report.format == "pdf":
-            built = _write_pdf(engine, report, temp)
+            built = _write_pdf(engine, report, temp, local=target.local)
         else:
             built = _write_csv(
-                engine, report, temp, row_cap=row_cap, deadline=started + max_seconds
+                engine,
+                report,
+                temp,
+                local=target.local,
+                row_cap=row_cap,
+                deadline=started + max_seconds,
             )
         size = temp.stat().st_size
+        if size > MAX_REPORT_BYTES:
+            raise _TooLargeError
         digest = _sha256(temp)
-        store.publish(temp, key)
+        target.publish(temp, key, sha256=digest)
     except Exception as exc:
         if temp is not None:
             temp.unlink(missing_ok=True)
-        if isinstance(exc, ReportRefusedError):
-            reason = str(exc)
-        elif isinstance(exc, _TooLongError):
-            reason = "The report took longer than an hour to build. Narrow its filters."
-        elif isinstance(exc, IsolatedRunError):
-            log.warning("report render failed", extra={"report_id": report.id, "why": str(exc)})
-            reason = "The PDF could not be drawn. Try the CSV, or narrow the filters."
-        else:
-            log.exception("report build failed", extra={"report_id": report.id})
-            reason = "The report could not be built. See the worker's log."
+        reason = _failure_reason(exc, report.id)
         with engine.begin() as conn:
             queue.fail_report(conn, report.id, reason)
         return True
@@ -187,9 +244,10 @@ def build_pending(
                 data_through=built.data_through,
             )
     except Exception:
-        # Not recorded, so no row would ever name the file: remove it, and let the next start's
-        # sweep (fail_abandoned) end the row if failing it here fails too.
-        store.delete(key)
+        # Not recorded, so no row would ever name the file: remove it where Argus may (on S3 the
+        # lifecycle rule does), and let fail_abandoned or fail_stale end the row if failing it
+        # here fails too.
+        target.delete(key)
         log.exception("report not recorded", extra={"report_id": report.id})
         with engine.begin() as conn:
             queue.fail_report(
@@ -197,7 +255,7 @@ def build_pending(
             )
         return True
     if not done:
-        store.delete(key)
+        target.delete(key)
     log.info(
         "report built",
         extra={

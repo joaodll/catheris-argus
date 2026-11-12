@@ -15,6 +15,8 @@ const BUCKET = /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/
 const REGION = /^[a-z]{2}(-[a-z]+)+-[0-9]$/
 const FOLDER = /^[A-Za-z0-9_-]+(\/[A-Za-z0-9_-]+)*$/
 const MAX_FOLDER = 200
+// Where reports are kept in the bucket (ADR-0047): Argus's own folder, never a tool's.
+export const REPORTS_FOLDER = 'reports'
 
 /** What people paste for a bucket, reduced to its name: "s3://my-bucket/", an S3 ARN. */
 export function bucketName(value: string): string {
@@ -50,6 +52,9 @@ export function checkRawStorage(form: RawStorageForm): FieldErrors {
     if (!folder) errors[tool] = 'Enter a folder, for example raw/' + tool + '.'
     else if (folder.length > MAX_FOLDER) errors[tool] = `At most ${MAX_FOLDER} characters.`
     else if (!FOLDER.test(folder)) errors[tool] = 'Letters, digits, - and _, in parts separated by /. No dots or spaces.'
+    else if (folder === REPORTS_FOLDER || folder.startsWith(`${REPORTS_FOLDER}/`)) {
+      errors[tool] = `${REPORTS_FOLDER}/ holds reports: choose another folder.`
+    }
   }
   return errors
 }

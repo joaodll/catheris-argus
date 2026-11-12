@@ -74,6 +74,25 @@ Create an IAM role for `-run`, with the policies in
 The tools in an `aws` pod can read its IRSA token, as they can read the instance role on a
 Compose host. That is why the role may only assume scanner roles and put objects.
 
+### The two roles for reports
+
+On an IRSA install, reports go to the `reports/` folder of the raw-output bucket
+([ADR-0047](adr/0047-reports.md)). The chart then creates two more accounts, `<release>-api` (the
+API reads reports) and `<release>-report` (the report Job writes them), and requires a role for
+each. Create them with the policies in
+[Suggested AWS policies](aws-policies.md#two-roles-for-reports):
+
+1. **Trust:** the IRSA policy for each account, `system:serviceaccount:argus:argus-api` and
+   `system:serviceaccount:argus:argus-report`.
+2. **Permissions:** `argus-api` reads `reports/` only; `argus-report` writes `reports/` only.
+3. **The key and the bucket:** add the two key-policy statements and the bucket policy's folder
+   statements, keep **S3 Bucket Keys off**, and add the lifecycle rule for `reports/`.
+4. Put the ARNs in `identity.apiRoleArn` and `identity.reportRoleArn`, and the S3 and STS ranges in
+   `networkPolicy.awsEgressCidrs`.
+
+Without IRSA (`identity.mode: podIdentity` or `none`) there are no reports on Kubernetes, and
+**Operate → Reports** says so.
+
 ## The Secret
 
 One Secret holds every secret value; the chart never generates one. Each pod is given only the
@@ -85,6 +104,7 @@ keys it needs.
 | `ARGUS_API_DB_PASSWORD` | Role `argus_api` |
 | `ARGUS_WORKER_DB_PASSWORD` | Role `argus_worker`: scan Jobs, rederive and retention |
 | `ARGUS_SCHEDULER_DB_PASSWORD` | Role `argus_scheduler` |
+| `ARGUS_REPORTS_DB_PASSWORD` | IRSA installs: role `argus_reports`, the report Job's. It reads what a report reads and writes its own report rows |
 | `ARGUS_SECRET_KEYS` | The credential keyring, `k1:<base64 of 32 bytes>` |
 | `ARGUS_SECRET_KEY_ID` | The current key's id, `k1` |
 | `ARGUS_BOOTSTRAP_ADMIN_PASSWORD` or `ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH` | First start only: the first admin's password, or its argon2id hash. The migrate Job creates `admin.username` with it while no active admin exists ([ADR-0041](adr/0041-users-and-roles.md)). Remove the key after the first sign-in |
@@ -110,7 +130,7 @@ rm argus-secrets.env
 ```
 
 **From AWS Secrets Manager instead:** with the External Secrets Operator installed, store the
-seven keys as one JSON secret and set `externalSecret.enabled: true`,
+seven keys (eight on an IRSA install) as one JSON secret and set `externalSecret.enabled: true`,
 `externalSecret.secretStoreRef.name` and `externalSecret.remoteKey`. For the first start, add the
 bootstrap key to that JSON and name it in `externalSecret.bootstrapKeys`. The chart's
 ExternalSecret copies those keys and nothing else into `secrets.existingSecret`.
@@ -126,6 +146,8 @@ ExternalSecret copies those keys and nothing else into `secrets.existingSecret`.
 | `api.trustedProxies` | The address ranges web's pods get, comma-separated. On the VPC CNI, pods take VPC subnet addresses: list the subnets pods run in. The API believes `X-Forwarded-For` only from these, and the NetworkPolicy lets only web reach the API |
 | `networkPolicy.kubeApi.cidrs`, `.port` | The Kubernetes API's endpoint addresses and port (443 on EKS), for the scheduler: `kubectl get endpointslices -n default -l kubernetes.io/service-name=kubernetes -o jsonpath='{.items[*].endpoints[*].addresses[*]}'`. EKS can move these addresses when it replaces its control-plane network interfaces (a version upgrade): check them after each cluster upgrade |
 | `identity.roleArn` | The IRSA role above (with `identity.mode: irsa`, the default) |
+| `identity.apiRoleArn`, `identity.reportRoleArn`, `images.reports.digest` | With IRSA: the two roles for reports, and the reports image (`argus-backend:reports`, the runtime plus the PDF renderer) |
+| `networkPolicy.awsEgressCidrs` | With IRSA: S3's ranges (the region's prefix list, `aws ec2 describe-managed-prefix-lists`, or your endpoint subnets) and the STS endpoint's. The API and the report Job reach nothing else outside the cluster |
 
 Also review:
 
@@ -136,6 +158,8 @@ Also review:
   DNSCache, lookups go to a link-local address on the node instead: allow it here.
 - `scanJobs`: the scan Jobs, one template per work: `test` answers a connection test, and
   `steampipe` (also Vulnerabilities), `prowler` and `cloudfox` each run one AWS scan of their tool.
+  `report` (IRSA installs) builds one report. `scheduler.maxReportJobs` (1, at most 3): reports
+  built at once; a PDF at every cap peaked at 1.37 GiB.
   `scanJobs.activeDeadlineSeconds` (6 hours): a scan past it is lost and counted.
   `scanJobs.scratch.size` (20 Gi): the node disk a scan's raw output may use.
   `scanJobs.work.<work>.resources`: each template's pod size. A connection test needs far less
@@ -323,6 +347,13 @@ fail.
    the new digests.
 3. `helm test argus -n argus`.
 
+**To a chart with reports on Kubernetes** (2026-11-12, ADR-0047): the schema now requires
+`images.reports.digest` on every install, and on an IRSA install also `identity.apiRoleArn`,
+`identity.reportRoleArn` and `networkPolicy.awsEgressCidrs`. Create the two roles first, add
+`ARGUS_REPORTS_DB_PASSWORD` to the Secret (and to the Secrets Manager JSON with External Secrets),
+then upgrade: migrate gives `argus_reports` its password, and the API restarts on its new
+`-api` account.
+
 **From a chart before ADR-0046** (one `images.worker`): the schema refuses `images.worker` and
 `scanJobs.resources`. Replace them with `images.workerSteampipe`, `images.workerProwler` and
 `images.workerCloudfox` (one digest each), and `scanJobs.work.<work>.resources`. Scan Jobs still
@@ -384,8 +415,8 @@ Keyring rotation keeps the old key, as in
 with its old password fails, and is retried. The database only keeps a hash, so keep each password
 in your vault or Secrets Manager.
 
-For `argus_api`, `argus_worker` or `argus_scheduler`, the Secret comes first, because migrate reads
-the new value from it:
+For `argus_api`, `argus_worker`, `argus_scheduler` or `argus_reports` (IRSA installs), the Secret
+comes first, because migrate reads the new value from it:
 
 1. Change the key in the Secret. With External Secrets, change it in Secrets Manager, then check that
    the Secret has the new value. It refreshes every `externalSecret.refreshInterval`, or at once with
