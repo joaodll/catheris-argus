@@ -80,6 +80,7 @@ def test_sign_in_lockout_and_sign_out(client: TestClient, owner: Engine) -> None
         "display_name": "",
         "role": "admin",
         "must_change_password": False,
+        "auth_source": "local",
     }
     assert client.post("/api/v1/auth/sign-out", headers=csrf(client)).status_code == 204
     assert client.get("/api/v1/auth/session").status_code == 401

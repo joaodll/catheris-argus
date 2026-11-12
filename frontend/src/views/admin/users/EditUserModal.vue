@@ -32,10 +32,16 @@ const passwordError = ref<string | null>(null)
 const acting = ref<'password' | 'unlock' | 'delete' | null>(null)
 
 const isMe = computed(() => props.user.username === session.value?.username)
-const lastAdmin = computed(() => props.user.role === 'admin' && props.user.is_active && props.activeAdmins <= 1)
+// An SSO user's role, email and sign-in come from the identity provider (ADR-0048).
+const sso = computed(() => props.user.auth_source === 'saml')
+const lastAdmin = computed(
+  () => !sso.value && props.user.role === 'admin' && props.user.is_active && props.activeAdmins <= 1,
+)
 const locked = computed(() => isMe.value || lastAdmin.value)
 const lockReason = computed(() =>
-  isMe.value ? "You can't change your own role or deactivate yourself." : 'Argus needs at least one active admin.',
+  isMe.value
+    ? "You can't change your own role or deactivate yourself."
+    : 'Argus needs at least one active admin who signs in with a password.',
 )
 const dirty = computed(
   () =>
@@ -126,12 +132,19 @@ async function remove(): Promise<void> {
         <label class="lbl" for="eu-display">Display name</label>
         <input id="eu-display" v-model.trim="displayName" class="input" maxlength="100" autocomplete="off">
       </div>
-      <div class="field">
+      <div v-if="sso" class="field">
+        <span class="lbl">Signs in with</span>
+        <span>Single sign-on. Their email address is their username.</span>
+      </div>
+      <div v-else class="field">
         <label class="lbl" for="eu-email">Email address <span class="opt">optional</span></label>
         <input id="eu-email" v-model.trim="email" class="input" type="email" maxlength="254" autocomplete="off" spellcheck="false" aria-describedby="eu-email-h">
         <span id="eu-email-h" class="cap">Only admins see it. Argus sends no mail, and they still sign in with their username.</span>
       </div>
-      <RoleCards v-model="role" name="edit-role" :disabled="locked" />
+      <RoleCards v-model="role" name="edit-role" :disabled="locked || sso" />
+      <span v-if="sso" class="cap lock">
+        <AppIcon name="info" :size="14" />Comes from their identity provider's groups at each sign-in<template v-if="props.user.role_group">, now group <span class="mono">{{ props.user.role_group }}</span></template>.
+      </span>
       <div class="field">
         <span class="lbl">Sign-in</span>
         <SwitchToggle v-model="active" :label="`Sign-in for ${props.user.username}`" :disabled="locked" />
@@ -141,7 +154,7 @@ async function remove(): Promise<void> {
     </form>
 
     <div class="actions">
-      <div v-if="!isMe" class="action">
+      <div v-if="!isMe && !sso" class="action">
         <template v-if="settingPassword">
           <SecretField v-model="password" label="New password" :error="passwordError" help="Ends their sessions. They choose their own at the next sign-in." allow-generate />
           <div class="row">
@@ -156,7 +169,7 @@ async function remove(): Promise<void> {
           <span class="cap">Ends their sessions. They choose their own at the next sign-in.</span>
         </template>
       </div>
-      <div v-if="props.user.locked" class="action">
+      <div v-if="props.user.locked && !sso" class="action">
         <button type="button" class="btn btn-secondary btn-sm" :disabled="acting !== null" @click="unlock">
           <AppIcon v-if="acting === 'unlock'" name="spinner" :size="14" :stroke="2.4" />Unlock
         </button>
@@ -166,6 +179,7 @@ async function remove(): Promise<void> {
         <button type="button" class="btn btn-danger btn-sm" :disabled="acting !== null" @click="remove">
           <AppIcon v-if="acting === 'delete'" name="spinner" :size="14" :stroke="2.4" />Delete user
         </button>
+        <span v-if="sso" class="cap">Deleting an SSO user lets them back in at their next sign-in, as a new user. Deactivate to keep them out.</span>
       </div>
     </div>
 

@@ -16,6 +16,7 @@ from argon2.low_level import Type
 from sqlalchemy import Connection, text
 
 from argus.auth.sessions import (
+    AuthSource,
     Role,
     SessionUser,
     TooManyAttemptsError,
@@ -55,6 +56,8 @@ class UserRow:
     locked: bool
     created_at: datetime
     last_sign_in_at: datetime | None
+    auth_source: AuthSource = "local"
+    role_group: str | None = None  # the IdP group that granted an SSO user's role
 
 
 def check_username(username: str) -> str:
@@ -129,7 +132,8 @@ def list_users(conn: Connection, *, limit: int, offset: int) -> tuple[list[UserR
     rows = conn.execute(
         text(f"""
         SELECT u.id, u.username, u.display_name, u.email, u.role, u.is_active,
-               u.must_change_password, ({_LOCKED}) AS locked, u.created_at, u.last_sign_in_at
+               u.must_change_password, ({_LOCKED}) AS locked, u.created_at, u.last_sign_in_at,
+               u.auth_source, u.role_group
         FROM app_user u
         ORDER BY u.is_active DESC, u.username
         LIMIT :limit OFFSET :offset
@@ -144,7 +148,8 @@ def get_user(conn: Connection, user_id: int) -> UserRow:
     row = conn.execute(
         text(f"""
         SELECT u.id, u.username, u.display_name, u.email, u.role, u.is_active,
-               u.must_change_password, ({_LOCKED}) AS locked, u.created_at, u.last_sign_in_at
+               u.must_change_password, ({_LOCKED}) AS locked, u.created_at, u.last_sign_in_at,
+               u.auth_source, u.role_group
         FROM app_user u WHERE u.id = :i
     """),  # noqa: S608 - a fixed fragment
         {"i": user_id, **_lock_params()},
@@ -202,11 +207,23 @@ def create_user(
 
 
 def _active_admins(conn: Connection) -> int:
+    """Active local admins: the break-glass path always keeps one, since an SSO admin's role can
+    change at any sign-in (ADR-0048)."""
     return int(
         conn.execute(
-            text("SELECT count(*) FROM app_user WHERE role = 'admin' AND is_active")
+            text(
+                "SELECT count(*) FROM app_user "
+                "WHERE role = 'admin' AND is_active AND auth_source = 'local'"
+            )
         ).scalar_one()
     )
+
+
+def _refuse_sso(user: UserRow, what: str) -> None:
+    if user.auth_source != "local":
+        raise UserRuleError(
+            f"{what} of a user who signs in with SSO comes from the identity provider."
+        )
 
 
 def update_user(
@@ -226,6 +243,10 @@ def update_user(
     should not."""
     _lock(conn)
     before = get_user(conn, user_id)
+    if role is not None and role != before.role:
+        _refuse_sso(before, "The role")
+    if email is not None and check_email(email) != before.email:
+        _refuse_sso(before, "The email address")
     changes: dict[str, list[Any]] = {}
     if display_name is not None and _check_display_name(display_name) != before.display_name:
         changes["display_name"] = [before.display_name, _check_display_name(display_name)]
@@ -246,12 +267,13 @@ def update_user(
         is_active if is_active is not None else before.is_active
     )
     if (
-        before.role == "admin"
+        before.auth_source == "local"
+        and before.role == "admin"
         and before.is_active
         and not stays_admin
         and _active_admins(conn) <= 1
     ):
-        raise UserRuleError("Argus needs at least one active admin.")
+        raise UserRuleError("Argus needs at least one active admin who signs in with a password.")
     conn.execute(
         text("""
         UPDATE app_user SET display_name = COALESCE(:d, display_name), role = COALESCE(:r, role),
@@ -290,6 +312,7 @@ def set_password(
     their sessions end."""
     _lock(conn)
     user = get_user(conn, user_id)
+    _refuse_sso(user, "Sign-in")
     check_password(password, user.username)
     conn.execute(
         text("""
@@ -320,6 +343,8 @@ def change_own_password(
 ) -> None:
     """The signed-in user's own change. A wrong current password counts as a failed sign-in,
     so this cannot be used to guess it past the limits. The user's other sessions end."""
+    if user.auth_source != "local":
+        raise UserRuleError("Your sign-in comes from the identity provider: change it there.")
     serialize_attempts(conn, user.username)
     if limited(conn, user.username, client_ip):
         raise TooManyAttemptsError
@@ -359,6 +384,7 @@ def change_own_password(
 def unlock(conn: Connection, *, user_id: int, actor: str, client_ip: str | None = None) -> None:
     """Clears the failed sign-ins that hold a username, from every address."""
     user = get_user(conn, user_id)
+    _refuse_sso(user, "Sign-in")
     conn.execute(text("DELETE FROM login_failure WHERE username = :u"), {"u": user.username})
     audit.record(
         conn,
@@ -445,3 +471,111 @@ def reset_password(conn: Connection, *, username: str, password: str) -> None:
     if user_id is None:
         raise LookupError(f"no user {username!r}")
     set_password(conn, user_id=int(user_id), password=password, actor="admin-tools")
+
+
+MAX_EXTERNAL_ID = 512  # the NameID, as migration 0049 bounds it
+MAX_ROLE_GROUP = 256
+
+
+class SsoRefusedError(Exception):
+    """An SSO sign-in the users rules refuse. `code` is the fixed reason the sign-in page shows
+    (`sso-<code>`); nothing from the identity provider is ever shown."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def sso_user(
+    conn: Connection,
+    *,
+    external_id: str,
+    email: str,
+    display_name: str,
+    role: Role | None,
+    role_group: str | None,
+    client_ip: str | None = None,
+) -> tuple[int, str]:
+    """The user behind an SSO sign-in the IdP has signed, created at the first one (ADR-0048).
+    Matched by the IdP's NameID, never by email, and never linked to a local user. The role is the
+    groups' (None: no group grants one, which is refused, and ends an existing user's sessions:
+    the one moment Argus learns of a removal). Returns (id, username); the caller audits the
+    sign-in and commits."""
+    try:
+        address = check_email(email)
+    except ValueError:  # what the IdP sent is not an address Argus can store
+        address = None
+    if address is None:
+        raise SsoRefusedError("email")
+    if not 0 < len(external_id) <= MAX_EXTERNAL_ID:
+        raise SsoRefusedError("nameid")
+    _lock(conn)
+    row = conn.execute(
+        text(
+            "SELECT id, username, role, role_group, is_active FROM app_user "
+            "WHERE external_id = :x AND auth_source = 'saml'"
+        ),
+        {"x": external_id},
+    ).one_or_none()
+    if role is None:
+        if row is not None:
+            end_sessions(conn, row.id)
+        raise SsoRefusedError("no-group")
+    taken = conn.execute(
+        text("SELECT id, auth_source FROM app_user WHERE username = :e OR email = :e"),
+        {"e": address},
+    ).all()
+    if any(t.id != (row.id if row else None) for t in taken):
+        raise SsoRefusedError("conflict")  # never merged with a local or another SSO user
+    name = _check_display_name(display_name[:MAX_DISPLAY_NAME])
+    if row is None:
+        user_id = conn.execute(
+            text("""
+            INSERT INTO app_user (username, email, display_name, password_hash, role, auth_source,
+                                  external_id, role_group, created_by, updated_by)
+            VALUES (:e, :e, :d, NULL, :r, 'saml', :x, :g, 'sso', 'sso') RETURNING id
+        """),
+            {"e": address, "d": name, "r": role, "x": external_id, "g": role_group},
+        ).scalar_one()
+        audit.record(
+            conn,
+            actor=address,
+            action="user.created",
+            target_type="user",
+            target_id=address,
+            detail={"role": role, "source": "saml", "group": role_group},
+            client_ip=client_ip,
+        )
+        return int(user_id), address
+    if not row.is_active:
+        raise SsoRefusedError("inactive")
+    conn.execute(
+        text("""
+        UPDATE app_user SET username = :e, email = :e,
+          display_name = CASE WHEN :d = '' THEN display_name ELSE :d END,
+          role = :r, role_group = :g, updated_at = now(), updated_by = 'sso'
+        WHERE id = :i
+    """),
+        {"e": address, "d": name, "r": role, "g": role_group, "i": row.id},
+    )
+    if row.username != address:
+        audit.record(
+            conn,
+            actor=address,
+            action="user.email_from_idp",
+            target_type="user",
+            target_id=address,
+            detail={"before": row.username, "after": address},
+            client_ip=client_ip,
+        )
+    if (row.role, row.role_group) != (role, role_group):
+        audit.record(
+            conn,
+            actor=address,
+            action="user.role_from_groups",
+            target_type="user",
+            target_id=address,
+            detail={"before": row.role, "after": role, "group": role_group},
+            client_ip=client_ip,
+        )
+    return int(row.id), address

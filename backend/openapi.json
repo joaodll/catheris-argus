@@ -2305,6 +2305,29 @@
         "title": "FrameworkListItem",
         "type": "object"
       },
+      "GroupRole": {
+        "properties": {
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "viewer",
+              "operator",
+              "admin"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group",
+          "role"
+        ],
+        "title": "GroupRole",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -2596,6 +2619,25 @@
           "finished_at"
         ],
         "title": "LastRun",
+        "type": "object"
+      },
+      "Methods": {
+        "description": "Which sign-ins this deployment offers (ADR-0048).",
+        "properties": {
+          "local": {
+            "title": "Local",
+            "type": "boolean"
+          },
+          "sso": {
+            "title": "Sso",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "local",
+          "sso"
+        ],
+        "title": "Methods",
         "type": "object"
       },
       "MisconfigurationReportIn": {
@@ -4763,6 +4805,14 @@
       },
       "Session": {
         "properties": {
+          "auth_source": {
+            "enum": [
+              "local",
+              "saml"
+            ],
+            "title": "Auth Source",
+            "type": "string"
+          },
           "display_name": {
             "title": "Display Name",
             "type": "string"
@@ -4789,7 +4839,8 @@
           "username",
           "display_name",
           "role",
-          "must_change_password"
+          "must_change_password",
+          "auth_source"
         ],
         "title": "Session",
         "type": "object"
@@ -5000,6 +5051,117 @@
           "password"
         ],
         "title": "SignIn",
+        "type": "object"
+      },
+      "SignInOut": {
+        "description": "How people sign in (ADR-0048), read-only: it is set in the deployment, never here.",
+        "properties": {
+          "acs_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acs Url"
+          },
+          "email_attribute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email Attribute"
+          },
+          "group_roles": {
+            "items": {
+              "$ref": "#/components/schemas/GroupRole"
+            },
+            "title": "Group Roles",
+            "type": "array"
+          },
+          "groups_attribute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Groups Attribute"
+          },
+          "idp_entity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idp Entity Id"
+          },
+          "local": {
+            "title": "Local",
+            "type": "boolean"
+          },
+          "name_attribute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name Attribute"
+          },
+          "public_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Url"
+          },
+          "sp_entity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sp Entity Id"
+          },
+          "sso": {
+            "title": "Sso",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "local",
+          "sso",
+          "public_url",
+          "sp_entity_id",
+          "acs_url",
+          "idp_entity_id",
+          "groups_attribute",
+          "email_attribute",
+          "name_attribute",
+          "group_roles"
+        ],
+        "title": "SignInOut",
         "type": "object"
       },
       "StripPoint": {
@@ -5681,6 +5843,14 @@
       },
       "UserOut": {
         "properties": {
+          "auth_source": {
+            "enum": [
+              "local",
+              "saml"
+            ],
+            "title": "Auth Source",
+            "type": "string"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -5738,6 +5908,17 @@
             "title": "Role",
             "type": "string"
           },
+          "role_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Group"
+          },
           "username": {
             "title": "Username",
             "type": "string"
@@ -5753,7 +5934,9 @@
           "must_change_password",
           "locked",
           "created_at",
-          "last_sign_in_at"
+          "last_sign_in_at",
+          "auth_source",
+          "role_group"
         ],
         "title": "UserOut",
         "type": "object"
@@ -6574,6 +6757,27 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auth/methods": {
+      "get": {
+        "operationId": "methods_api_v1_auth_methods_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Methods"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Methods",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/password": {
       "put": {
         "description": "The signed-in user's own password. Their other sessions end; this one stays.",
@@ -6654,6 +6858,107 @@
           }
         },
         "summary": "Change Password",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/saml/acs": {
+      "post": {
+        "description": "The IdP's answer. No CSRF header can come with a cross-site POST: the signed state cookie\nand the IdP's signature are what bind it (ADR-0048, section 4).",
+        "operationId": "saml_acs_api_v1_auth_saml_acs_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "argus_saml",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Saml"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Saml Acs",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/saml/login": {
+      "get": {
+        "operationId": "saml_login_api_v1_auth_saml_login_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "next",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 2048,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Next"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Saml Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/saml/metadata": {
+      "get": {
+        "description": "Argus's SP metadata, for the IdP's set-up. It holds no secret.",
+        "operationId": "saml_metadata_api_v1_auth_saml_metadata_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Saml Metadata",
         "tags": [
           "auth"
         ]
@@ -11953,6 +12258,87 @@
           }
         },
         "summary": "Write Retention",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/settings/sign-in": {
+      "get": {
+        "operationId": "read_sign_in_api_v1_settings_sign_in_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Read Sign In",
         "tags": [
           "settings"
         ]

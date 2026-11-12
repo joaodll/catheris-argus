@@ -35,7 +35,7 @@ OWNERS: dict[str, set[str]] = {
     "core": {"unresolved_ref", "audit_log"},
     "scheduling": {"run_request", "schedule", "schedule_connection"},
     "settings": {"platform_setting"},
-    "auth": {"app_user", "user_session", "login_failure"},
+    "auth": {"app_user", "user_session", "login_failure", "saml_assertion_seen"},
     "reports": {"report_request"},
 }
 ALL_TABLES = set().union(*OWNERS.values())

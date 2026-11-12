@@ -13,7 +13,15 @@ def test_the_committed_openapi_document_is_current() -> None:
 
 def test_every_route_but_health_requires_a_session() -> None:
     spec = json.loads(render())
-    open_paths = {"/api/v1/health", "/api/v1/ready", "/api/v1/auth/sign-in"}
+    open_paths = {
+        "/api/v1/health",
+        "/api/v1/ready",
+        "/api/v1/auth/sign-in",
+        "/api/v1/auth/methods",
+        "/api/v1/auth/saml/login",
+        "/api/v1/auth/saml/acs",
+        "/api/v1/auth/saml/metadata",
+    }
     for path, methods in spec["paths"].items():
         if path in open_paths:
             continue

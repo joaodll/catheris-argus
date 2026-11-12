@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+    "/api/v1/auth/methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Methods */
+        get: operations["methods_api_v1_auth_methods_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/password": {
         parameters: {
             query?: never;
@@ -17,6 +34,64 @@ export interface paths {
          * @description The signed-in user's own password. Their other sessions end; this one stays.
          */
         put: operations["change_password_api_v1_auth_password_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/saml/acs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Saml Acs
+         * @description The IdP's answer. No CSRF header can come with a cross-site POST: the signed state cookie
+         *     and the IdP's signature are what bind it (ADR-0048, section 4).
+         */
+        post: operations["saml_acs_api_v1_auth_saml_acs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/saml/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Saml Login */
+        get: operations["saml_login_api_v1_auth_saml_login_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/saml/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Saml Metadata
+         * @description Argus's SP metadata, for the IdP's set-up. It holds no secret.
+         */
+        get: operations["saml_metadata_api_v1_auth_saml_metadata_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -806,6 +881,23 @@ export interface paths {
         get?: never;
         /** Write Retention */
         put: operations["write_retention_api_v1_settings_retention_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/settings/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Sign In */
+        get: operations["read_sign_in_api_v1_settings_sign_in_get"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -1691,6 +1783,16 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** GroupRole */
+        GroupRole: {
+            /** Group */
+            group: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "viewer" | "operator" | "admin";
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -1787,6 +1889,16 @@ export interface components {
             status: string;
             /** Tool */
             tool: string;
+        };
+        /**
+         * Methods
+         * @description Which sign-ins this deployment offers (ADR-0048).
+         */
+        Methods: {
+            /** Local */
+            local: boolean;
+            /** Sso */
+            sso: boolean;
         };
         /** MisconfigurationReportIn */
         MisconfigurationReportIn: {
@@ -2490,6 +2602,11 @@ export interface components {
         };
         /** Session */
         Session: {
+            /**
+             * Auth Source
+             * @enum {string}
+             */
+            auth_source: "local" | "saml";
             /** Display Name */
             display_name: string;
             /** Must Change Password */
@@ -2566,6 +2683,32 @@ export interface components {
             password: string;
             /** Username */
             username: string;
+        };
+        /**
+         * SignInOut
+         * @description How people sign in (ADR-0048), read-only: it is set in the deployment, never here.
+         */
+        SignInOut: {
+            /** Acs Url */
+            acs_url: string | null;
+            /** Email Attribute */
+            email_attribute: string | null;
+            /** Group Roles */
+            group_roles: components["schemas"]["GroupRole"][];
+            /** Groups Attribute */
+            groups_attribute: string | null;
+            /** Idp Entity Id */
+            idp_entity_id: string | null;
+            /** Local */
+            local: boolean;
+            /** Name Attribute */
+            name_attribute: string | null;
+            /** Public Url */
+            public_url: string | null;
+            /** Sp Entity Id */
+            sp_entity_id: string | null;
+            /** Sso */
+            sso: boolean;
         };
         /** StripPoint */
         StripPoint: {
@@ -2819,6 +2962,11 @@ export interface components {
         /** UserOut */
         UserOut: {
             /**
+             * Auth Source
+             * @enum {string}
+             */
+            auth_source: "local" | "saml";
+            /**
              * Created At
              * Format: date-time
              */
@@ -2842,6 +2990,8 @@ export interface components {
              * @enum {string}
              */
             role: "viewer" | "operator" | "admin";
+            /** Role Group */
+            role_group: string | null;
             /** Username */
             username: string;
         };
@@ -3108,6 +3258,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    methods_api_v1_auth_methods_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Methods"];
+                };
+            };
+        };
+    };
     change_password_api_v1_auth_password_put: {
         parameters: {
             query?: never;
@@ -3141,6 +3311,82 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    saml_acs_api_v1_auth_saml_acs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: {
+                argus_saml?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    saml_login_api_v1_auth_saml_login_get: {
+        parameters: {
+            query?: {
+                next?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            302: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    saml_metadata_api_v1_auth_saml_metadata_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -4876,6 +5122,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    read_sign_in_api_v1_settings_sign_in_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SignInOut"];
                 };
             };
             /** @description Validation Error */

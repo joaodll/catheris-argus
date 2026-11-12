@@ -275,7 +275,7 @@ test('administration and scans: connections, schedules, runs, settings', async (
   await expect(page.getByRole('heading', { level: 2, name: 'Collection and throttling' })).toBeVisible()
   // The page lists its cards (2026-10-14); a link brings its card into view.
   const toc = page.getByRole('navigation', { name: 'On this page' })
-  await expect(toc.getByRole('link')).toHaveCount(4)
+  await expect(toc.getByRole('link')).toHaveCount(5)
   await axe(page, 'settings')
   await shot(page, '50-settings')
   // Pages from before 2026-10-06 still open.
@@ -969,7 +969,7 @@ test('users and roles: a viewer and an operator, each limited to their role', as
     if (canOperate) {
       await expect(page.getByRole('heading', { level: 1, name: 'Settings', exact: true })).toBeVisible()
       await expect(page.getByRole('region', { name: 'Collection and throttling' })).toBeVisible()
-      for (const other of ['Retention', 'Raw output storage', 'Platform identity']) {
+      for (const other of ['Retention', 'Raw output storage', 'Platform identity', 'Sign-in']) {
         await expect(page.getByRole('region', { name: other })).toHaveCount(0)
       }
       await axe(page, 'settings as an operator')

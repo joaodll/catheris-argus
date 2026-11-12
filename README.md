@@ -49,7 +49,7 @@ The design, and the reasoning behind each decision, is in [docs/design.md](docs/
 
 **Alpha, pre-1.0.** Argus scans real AWS accounts and has a complete UI, but it is young:
 
-- users with three roles (Viewer, Operator, Admin) and local passwords; no single sign-on yet
+- users with three roles (Viewer, Operator, Admin): single sign-on with SAML, IdP groups mapped to the roles, and local passwords as the break-glass path
 - AWS only; GCP and OCI are planned
 - no built-in Postgres backups
 - the Helm chart is verified on a local kind cluster, not yet on EKS

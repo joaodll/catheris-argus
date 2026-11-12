@@ -1,4 +1,4 @@
-{{- /* The chart's Services, all ClusterIP: no public entry until SSO (ADR-0040). The API is
+{{- /* The chart's Services, all ClusterIP: a public entry is the ingress's (ADR-0040). The API is
 reached only through web; Postgres only by its clients (NetworkPolicy), and only when it runs in
 the chart. */ -}}
 {{- $services := list (dict "component" "api" "port" 8000 "portName" "http") (dict "component" "web" "port" 8080 "portName" "http") }}

@@ -26,7 +26,10 @@ const editing = ref<Schemas['UserOut'] | null>(null)
 
 const items = computed(() => list.data.value?.items ?? [])
 const activeCount = computed(() => items.value.filter((u) => u.is_active).length)
-const activeAdmins = computed(() => items.value.filter((u) => u.is_active && u.role === 'admin').length)
+// Active admins who sign in with a password: the break-glass path always keeps one (ADR-0048).
+const activeAdmins = computed(
+  () => items.value.filter((u) => u.is_active && u.role === 'admin' && u.auth_source === 'local').length,
+)
 
 function status(u: Schemas['UserOut']): string {
   if (!u.is_active) return 'user_inactive'
@@ -82,10 +85,13 @@ async function onSaved(message: string): Promise<void> {
                 <button type="button" class="row-link" @click="editing = u">{{ u.display_name || u.username }}</button>
                 <span v-if="u.username === session?.username" class="cap">(you)</span>
               </span>
-              <span class="mono sub">{{ u.username }}</span>
-              <span v-if="u.email" class="sub email">{{ u.email }}</span>
+              <span class="mono sub email">{{ u.username }}<span v-if="u.auth_source === 'saml'" class="src"> · SSO</span></span>
+              <span v-if="u.email && u.email !== u.username" class="sub email">{{ u.email }}</span>
             </td>
-            <td data-label="Role"><span class="role" :class="{ 'is-admin': u.role === 'admin' }">{{ ROLE_LABEL[u.role] }}</span></td>
+            <td data-label="Role">
+              <span class="role" :class="{ 'is-admin': u.role === 'admin' }">{{ ROLE_LABEL[u.role] }}</span>
+              <span v-if="u.auth_source === 'saml' && u.role_group" class="sub soft">from group <span class="mono email">{{ u.role_group }}</span></span>
+            </td>
             <td data-label="Status" class="status">
               <StatusBadge :status="status(u)" />
               <span v-if="u.must_change_password" class="sub soft">Must change password</span>

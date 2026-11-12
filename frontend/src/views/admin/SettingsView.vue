@@ -9,6 +9,7 @@ import CollectionForm from './CollectionForm.vue'
 import IdentityForm from './IdentityForm.vue'
 import RawStorageForm from './RawStorageForm.vue'
 import RetentionForm from './RetentionForm.vue'
+import SignInCard from './SignInCard.vue'
 import { SETTINGS_SECTIONS, settingsSections } from './settingsSections'
 
 // An Operator gets the Collection card only; the rest is an Admin's (ADR-0041, amended 2026-11-03).
@@ -56,10 +57,11 @@ function goTo(id: string): void {
           <RetentionForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
           <RawStorageForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
           <IdentityForm :settings="settings.data.value" @saved="(s) => (settings.data.value = s)" />
+          <SignInCard />
         </template>
       </template>
       <div v-else aria-busy="true" class="cards">
-        <div v-for="n in isAdmin ? 4 : 1" :key="n" class="card skeleton sk-220"></div>
+        <div v-for="n in isAdmin ? 5 : 1" :key="n" class="card skeleton sk-220"></div>
       </div>
     </div>
   </div>

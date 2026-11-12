@@ -128,6 +128,23 @@ On Compose, set these in `.env`. On Kubernetes they are chart values: `api.sessi
 down to it. So lowering it below what is set in **Administration → Settings** deletes the history
 above it at the next retention. The chart and `compose.yaml` give both the same value.
 
+**Sign-in** ([ADR-0048](adr/0048-saml-sign-in.md), [set-up](sso.md)): set in the deployment and
+never in the UI, because whoever could change the identity provider could choose who is Admin. The
+API refuses to start on a half set.
+
+| Variable | Default | What it is |
+| --- | --- | --- |
+| `ARGUS_LOCAL_SIGN_IN` | `true` | Password sign-in, the break-glass path. Off, nobody signs in with a password; it can be off only with SSO on |
+| `ARGUS_PUBLIC_URL` | (none) | The address people use, `https://host` (plain `http` only on `localhost`). Argus's SAML entity id and reply URL come from it |
+| `ARGUS_SAML_IDP_METADATA_FILE` | (none) | The IdP's metadata file. SSO is on when it is set. Never fetched from a URL |
+| `ARGUS_SAML_GROUPS_ATTRIBUTE` | (none) | The attribute of the IdP's answer that lists the user's groups |
+| `ARGUS_SAML_EMAIL_ATTRIBUTE` | (none) | The attribute holding the email address; empty means the NameID, which must then be one |
+| `ARGUS_SAML_NAME_ATTRIBUTE` | (none) | The attribute holding the display name; empty means none |
+| `ARGUS_SAML_GROUP_ROLES` | (none) | JSON: the exact group string → `viewer`, `operator` or `admin`. The highest of a user's groups wins; a user in none is refused |
+
+On Compose, set these in `.env` and put the metadata file in the `saml` volume ([set-up](sso.md)).
+On Kubernetes they are chart values under `auth`, and the metadata comes from a ConfigMap you create.
+
 **Deployment facts**
 
 | Variable | Default | What it is |
@@ -155,6 +172,8 @@ grow with it. None of the five can be set in `.env` or the chart: changing one a
 - `ARGUS_DEV_DB_PASSWORD`, `ARGUS_DEV_API_DB_PASSWORD`, `ARGUS_DEV_WORKER_DB_PASSWORD`: optional development passwords. Without them `compose.yaml` uses fixed ones, fine on a laptop and nowhere
   else.
 - `ARGUS_E2E_PASSWORD`: the admin password, for the browser walk only.
+- `ARGUS_E2E_SSO_PASSWORD`: development only, the password of the `sso` profile's Keycloak admin and
+  its test users, for the SSO walk ([set-up](sso.md#keycloak-for-development)).
 - With `compose.single-instance.yaml` (a shared host), the development defaults are refused: set
   `ARGUS_DB_PASSWORD`, `ARGUS_API_DB_PASSWORD` and `ARGUS_WORKER_DB_PASSWORD` ([runbook](runbook.md#single-instance)).
 

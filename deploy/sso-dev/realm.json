@@ -1,0 +1,117 @@
+{
+  "realm": "argus",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "groups": [
+    {
+      "name": "argus-admins"
+    },
+    {
+      "name": "argus-operators"
+    },
+    {
+      "name": "argus-viewers"
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "email": "alice@example.test",
+      "firstName": "Alice",
+      "lastName": "Admin",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": [
+        "/argus-admins"
+      ],
+      "requiredActions": []
+    },
+    {
+      "username": "bob",
+      "email": "bob@example.test",
+      "firstName": "Bob",
+      "lastName": "Operator",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": [
+        "/argus-operators"
+      ],
+      "requiredActions": []
+    },
+    {
+      "username": "carol",
+      "email": "carol.with.a.rather.long.address@sub.example.test",
+      "firstName": "Carol",
+      "lastName": "Viewer",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": [
+        "/argus-viewers"
+      ],
+      "requiredActions": []
+    },
+    {
+      "username": "dave",
+      "email": "dave@example.test",
+      "firstName": "Dave",
+      "lastName": "Nogroup",
+      "enabled": true,
+      "emailVerified": true,
+      "groups": [],
+      "requiredActions": []
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "http://localhost:8080/api/v1/auth/saml/metadata",
+      "name": "CatherIs Argus (development)",
+      "protocol": "saml",
+      "enabled": true,
+      "frontchannelLogout": false,
+      "redirectUris": [
+        "http://localhost:8080/api/v1/auth/saml/acs"
+      ],
+      "attributes": {
+        "saml_assertion_consumer_url_post": "http://localhost:8080/api/v1/auth/saml/acs",
+        "saml.assertion.signature": "true",
+        "saml.server.signature": "false",
+        "saml.client.signature": "false",
+        "saml.authnstatement": "true",
+        "saml.signature.algorithm": "RSA_SHA256",
+        "saml_name_id_format": "persistent",
+        "saml_force_name_id_format": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "saml",
+          "protocolMapper": "saml-group-membership-mapper",
+          "config": {
+            "attribute.name": "groups",
+            "full.path": "false",
+            "single": "false"
+          }
+        },
+        {
+          "name": "email",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "config": {
+            "user.attribute": "email",
+            "attribute.name": "email"
+          }
+        },
+        {
+          "name": "name",
+          "protocol": "saml",
+          "protocolMapper": "saml-user-property-mapper",
+          "config": {
+            "user.attribute": "firstName",
+            "attribute.name": "name"
+          }
+        }
+      ]
+    }
+  ]
+}

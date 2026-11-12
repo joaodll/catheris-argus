@@ -16,7 +16,7 @@ synthetic estate, are for Docker Compose ([runbook.md](runbook.md)). Why it is s
 [ADR-0040](adr/0040-helm-chart-trust-boundaries.md).
 
 Not covered yet: Postgres backups (the design's nightly `pg_dump`), an image registry and CI that
-publish the images, SSO and a public entry, and stopping a run that is already running.
+publish the images, a public entry, and stopping a run that is already running.
 
 ## Prerequisites
 
@@ -195,8 +195,9 @@ admin now lives in the database. Add everyone else in **Administration → Users
 
 ### An ingress
 
-Off by default, with `kubectl port-forward` as the way in. Argus has no single sign-on or second
-factor yet, so keep an ingress internal, or restrict it to source addresses you know. The chart
+Off by default, with `kubectl port-forward` as the way in. Without single sign-on
+([SSO set-up](sso.md)) there is no second factor, so keep an ingress internal, or restrict it to
+source addresses you know; with SSO working, turn `auth.localSignIn` off. The chart
 warns about an internet-facing ALB but doesn't check for a restriction. With the AWS Load Balancer
 Controller:
 
@@ -423,6 +424,12 @@ kubectl -n argus exec -it deploy/argus-api -- python -m argus.entrypoints.admin_
 
 **Locked out of sign-in.** Wait 15 minutes, or ask an admin to choose **Unlock** on the user in
 **Administration → Users**.
+
+### Sign-in
+
+Single sign-on is set in the `auth` values, with the IdP's metadata in a ConfigMap you create; see
+[SSO set-up](sso.md). That page also covers turning password sign-in off and back on, and what each
+refused sign-in means.
 
 ## Keeping the controls true
 

@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, SecretStr
 
 from argus import settings as platform_settings
 from argus.api.deps import Admin, Db, Operator, Viewer, client_ip
+from argus.auth import saml
 from argus.collection import prowler_checks, prowler_services
 from argus.core import audit
 from argus.core.config import get_settings
@@ -42,6 +43,26 @@ class IdentityIn(BaseModel):
     access_key_id: str | None = None
     secret_access_key: SecretStr | None = None
     session_token: SecretStr | None = None
+
+
+class GroupRole(BaseModel):
+    group: str
+    role: Literal["viewer", "operator", "admin"]
+
+
+class SignInOut(BaseModel):
+    """How people sign in (ADR-0048), read-only: it is set in the deployment, never here."""
+
+    local: bool
+    sso: bool
+    public_url: str | None
+    sp_entity_id: str | None
+    acs_url: str | None
+    idp_entity_id: str | None
+    groups_attribute: str | None
+    email_attribute: str | None
+    name_attribute: str | None
+    group_roles: list[GroupRole]
 
 
 def _out(conn: Db) -> SettingsOut:
@@ -163,3 +184,34 @@ def write_identity(body: IdentityIn, conn: Db, user: Admin, request: Request) ->
     )  # never the key, the secret or the session token
     conn.commit()
     return _out(conn)
+
+
+@router.get("/sign-in")
+def read_sign_in(_user: Admin) -> SignInOut:
+    env = get_settings()
+    config = saml.sso_config()
+    if config is None:
+        return SignInOut(
+            local=env.local_sign_in,
+            sso=False,
+            public_url=env.public_url,
+            sp_entity_id=None,
+            acs_url=None,
+            idp_entity_id=None,
+            groups_attribute=None,
+            email_attribute=None,
+            name_attribute=None,
+            group_roles=[],
+        )
+    return SignInOut(
+        local=env.local_sign_in,
+        sso=True,
+        public_url=config.public_url,
+        sp_entity_id=config.sp_entity_id,
+        acs_url=config.acs_url,
+        idp_entity_id=config.idp.entity_id,
+        groups_attribute=config.groups_attribute,
+        email_attribute=config.email_attribute or None,
+        name_attribute=config.name_attribute or None,
+        group_roles=[GroupRole(group=g, role=r) for g, r in sorted(config.group_roles.items())],
+    )

@@ -58,7 +58,7 @@ def owner(migrated: Engine) -> Engine:
             text(
                 "TRUNCATE connection, scan_run, resource, resource_config, edge, audit_log, "
                 "metric_daily, compliance_requirement, schedule, platform_setting, login_failure, "
-                "user_session, app_user "
+                "user_session, app_user, saml_assertion_seen "
                 "RESTART IDENTITY CASCADE"
             )
         )

@@ -23,6 +23,38 @@ Service, disruption budget and autoscaler are in services.yaml, pdb.yaml and hpa
 # Only web's pods may set the client IP; the NetworkPolicy lets only them in.
 - name: ARGUS_TRUSTED_PROXIES
   value: {{ .Values.api.trustedProxies | quote }}
+# Sign-in (ADR-0048), from the values only. The API refuses to start on a half set.
+- name: ARGUS_LOCAL_SIGN_IN
+  value: {{ .Values.auth.localSignIn | quote }}
+{{- with .Values.auth.saml }}
+{{- if .enabled }}
+- name: ARGUS_PUBLIC_URL
+  value: {{ $.Values.auth.publicUrl | trimSuffix "/" | quote }}
+- name: ARGUS_SAML_IDP_METADATA_FILE
+  value: {{ printf "/etc/argus/saml/%s" .idpMetadataKey | quote }}
+- name: ARGUS_SAML_GROUPS_ATTRIBUTE
+  value: {{ .groupsAttribute | quote }}
+- name: ARGUS_SAML_EMAIL_ATTRIBUTE
+  value: {{ .emailAttribute | quote }}
+- name: ARGUS_SAML_NAME_ATTRIBUTE
+  value: {{ .nameAttribute | quote }}
+- name: ARGUS_SAML_GROUP_ROLES
+  value: {{ $.Values.auth.groupRoles | toJson | quote }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /* The IdP's metadata, from the operator's ConfigMap, read-only. */}}
+{{- define "argus.api.samlVolume" -}}
+{{- if .Values.auth.saml.enabled -}}
+- name: saml-idp
+  configMap:
+    name: {{ .Values.auth.saml.idpMetadataConfigMap }}
+{{- end }}
+{{- end }}
+{{- define "argus.api.samlMount" -}}
+{{- if .Values.auth.saml.enabled -}}
+- {name: saml-idp, mountPath: /etc/argus/saml, readOnly: true}
+{{- end }}
 {{- end }}
 {{- define "argus.api.ports" -}}
 ports:
@@ -45,7 +77,9 @@ livenessProbe:
 {{- include "argus.deployment" (dict "root" . "component" "api" "v" .Values.api "pod" (dict
   "grace" 30 "db" true
   "initContainers" (include "argus.waitForSchema" $db)
+  "volumes" (include "argus.api.samlVolume" .)
   "containers" (include "argus.container" (dict "root" . "name" "api" "db" $db
+    "mounts" (include "argus.api.samlMount" .)
     "command" (list "python" "-m" "argus.entrypoints.api")
     "env" (include "argus.api.env" .) "extra" (include "argus.api.ports" .)
     "resources" .Values.api.resources)))) }}

@@ -6,6 +6,11 @@
 
 # After real IP handling, so behind an ingress this counts each client, not the ingress.
 limit_req_zone $binary_remote_addr zone=sign_in:1m rate=1r/s;
+# SSO (ADR-0048): starting a sign-in is cheap (no XML is read), and people behind one office
+# address must not share the password zone's rate. The IdP's answer is checked in a process of its
+# own, a few at a time per API pod, so one address may post only as fast as a person signs in.
+limit_req_zone $binary_remote_addr zone=sso:1m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=sso_answer:1m rate=1r/s;
 
 server {
     listen 8080;
@@ -34,6 +39,35 @@ server {
         add_header Retry-After 5 always;
         default_type application/json;
         return 429 '{"detail":"too many attempts"}';
+    }
+
+    # SSO's start and the IdP's answer are page navigations, so a refusal is a redirect to the
+    # sign-in page with a reason, never a JSON page. The answer is a form post of a signed XML
+    # document; only here may a body be that large, and the API checks its own limit too.
+    location = /api/v1/auth/saml/login {
+        limit_req zone=sso burst=20 nodelay;
+        limit_req_status 429;
+        error_page 429 = @sso_limited;
+        include /etc/nginx/snippets/api-proxy.conf;
+        proxy_read_timeout 30s;
+        proxy_pass http://${ARGUS_API_UPSTREAM};
+    }
+
+    location = /api/v1/auth/saml/acs {
+        limit_req zone=sso_answer burst=5 nodelay;
+        limit_req_status 429;
+        error_page 429 = @sso_limited;
+        client_max_body_size 256k;
+        include /etc/nginx/snippets/api-proxy.conf;
+        proxy_read_timeout 30s;
+        proxy_pass http://${ARGUS_API_UPSTREAM};
+    }
+
+    # Relative, so behind a TLS ingress the browser stays on the address it used.
+    location @sso_limited {
+        include /etc/nginx/snippets/security-headers.conf;
+        absolute_redirect off;
+        return 303 /sign-in?reason=sso-busy;
     }
 
     # Readiness and health checks: nginx itself, never the API. A Service keeps web while the API

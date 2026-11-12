@@ -13,7 +13,9 @@ import base64
 import os
 from dataclasses import dataclass
 
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from argus.core.config import get_settings
 
@@ -60,6 +62,15 @@ def unseal(sealed: Sealed, *, binding: str) -> str:
         raise SecretsNotConfiguredError(f"key {sealed.key_id!r} is no longer in the keyring")
     nonce, ciphertext = sealed.blob[:NONCE_BYTES], sealed.blob[NONCE_BYTES:]
     return AESGCM(keys[sealed.key_id]).decrypt(nonce, ciphertext, binding.encode()).decode()
+
+
+def derived_key(label: str) -> bytes:
+    """A 32-byte key for one purpose other than sealing (for example signing SAML sign-in state),
+    derived from the current keyring key with HKDF under its own label. Rotating the current key
+    changes it."""
+    current, keys = _keyring()
+    hkdf = HKDF(algorithm=hashes.SHA256(), length=KEY_BYTES, salt=None, info=label.encode())
+    return hkdf.derive(keys[current])
 
 
 def new_key() -> str:
