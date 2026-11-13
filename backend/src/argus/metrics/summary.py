@@ -23,6 +23,7 @@ from typing import Any
 from sqlalchemy import Connection, text
 
 from argus import connections
+from argus.metrics import store
 from argus.metrics.series import HISTORY_DAYS, calendar_months, month_table
 from argus.metrics.store import ALL_CONNECTIONS
 
@@ -154,6 +155,19 @@ ASSETS_TOTAL = ASSETS.metric("total")
 ASSETS_BY_TYPE = ASSETS.metric("by_type")  # dimension: the type
 ASSETS_BY_REGION = ASSETS.metric("by_region")  # dimension: the region
 
+# Risk (ADR-0049): resources where facts from different tools add up, written by the risk module
+# after every refresh of a connection. One metric, `risk.resources`: "total" (the marker,
+# written every time, 0 included), "tier:<tier>" and "combination:<id>", every tier and
+# combination zero-filled by the writer. No events: Risk keeps no flow.
+RISK = Family(
+    "risk",
+    ("resources",),
+    by_severity=False,
+    marker_row=("resources", "total"),
+    event_kinds=(),
+)
+RISK_RESOURCES = RISK.metric("resources")
+
 TOP = 10  # items per breakdown; the rest are counted in `more`
 WEEKS = 12
 RECENT_DAYS = 30
@@ -240,6 +254,45 @@ def latest_counted_day(conn: Connection, family: Family, connection_id: int) -> 
         {"c": connection_id, "m": family.marker[0], "md": family.marker[1]},
     ).scalar_one()
     return day
+
+
+def put_family(
+    conn: Connection,
+    family: Family,
+    *,
+    connection_id: int,
+    day: date,
+    values: dict[tuple[str, str], float],
+) -> None:
+    """One family's rows for one connection, then all connections.
+
+    The day's events go on the run's day. The counts are the current state, so they go on the
+    run's day or the connection's newest counted day, whichever is later: a re-derive of an
+    older load, or an older run ingested late, must not leave the newest row stale. All
+    connections is then rolled up on those days and on every later day that carried this
+    connection's previous counts."""
+    latest = latest_counted_day(conn, family, connection_id)
+    state_day = max(day, latest) if latest else day
+    store.put(
+        conn,
+        day=day,
+        connection_id=connection_id,
+        values={k: v for k, v in values.items() if k[0] == family.events},
+        replace=[family.events],
+    )
+    store.put(
+        conn,
+        day=state_day,
+        connection_id=connection_id,
+        values={k: v for k, v in values.items() if k[0] != family.events},
+        replace=list(family.state_metrics),
+    )
+    carried = store.carried_days(
+        conn, after=state_day, metrics=[family.marker[0]], connection_id=connection_id
+    )
+    for rolled in sorted({day, state_day, *carried}):
+        # The marker is zero-filled (Family.zero), so it is written every time.
+        store.rollup_family(conn, day=rolled, metrics=family.metrics, marker=family.marker)
 
 
 def _day_rows(
@@ -617,6 +670,24 @@ def _at_risk(
     )
     counts = {dim: int(value) for dim, value in rows}
     return {key: {"count": counts.get(key, 0), "as_of": day} for key in keys}
+
+
+def risk_counts(
+    conn: Connection, *, connection_id: int, today: date
+) -> tuple[date, dict[str, int]] | None:
+    """The Risk tiles' counts (`risk.resources`) on the scope's latest counted day, and that
+    day; None while Risk was never computed for the scope, never zeros."""
+    day = _latest_day(conn, RISK, connection_id, today - timedelta(days=HISTORY_DAYS), today)
+    if day is None:
+        return None
+    rows = conn.execute(
+        text("""
+            SELECT dimension, value FROM metric_daily
+            WHERE snapshot_date = :d AND connection_id = :c AND metric = :m
+        """),
+        {"d": day, "c": connection_id, "m": RISK_RESOURCES},
+    )
+    return day, {dim: int(value) for dim, value in rows}
 
 
 def _counted(dims: dict[str, float]) -> list[dict[str, Any]]:

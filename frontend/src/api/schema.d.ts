@@ -647,6 +647,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/risk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Risk */
+        get: operations["list_risk_api_v1_risk_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/risk/combinations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Combinations */
+        get: operations["list_combinations_api_v1_risk_combinations_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/risk/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Risk Facets */
+        get: operations["risk_facets_api_v1_risk_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/risk/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Risk Summary */
+        get: operations["risk_summary_api_v1_risk_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/run-requests": {
         parameters: {
             query?: never;
@@ -1267,6 +1335,23 @@ export interface components {
              * @default 0.05
              */
             synthetic_throttle_share: number;
+        };
+        /** CombinationOut */
+        CombinationOut: {
+            /** Description */
+            description: string;
+            /**
+             * Id
+             * @enum {string}
+             */
+            id: "reachable-exploitable" | "admin-user-long-lived-credential" | "reachable-critical-cve" | "reachable-misconfigured" | "reachable-secret" | "exploitable-fixable";
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "critical" | "high" | "medium";
+            /** Title */
+            title: string;
         };
         /**
          * CommandOut
@@ -2379,6 +2464,97 @@ export interface components {
              * @default 180
              */
             history_days: number;
+        };
+        /** RiskFacets */
+        RiskFacets: {
+            /** Types */
+            types: string[];
+        };
+        /** RiskPage */
+        RiskPage: {
+            /** Computed */
+            computed: boolean;
+            /** Data Through */
+            data_through: string | null;
+            /** Items */
+            items: components["schemas"]["RiskRow"][];
+            /** Total */
+            total: number;
+        };
+        /**
+         * RiskRow
+         * @description One resource at risk. The facts are what made its combinations, each one a link on the
+         *     screen to the list it comes from.
+         */
+        RiskRow: {
+            /** Admin */
+            admin: boolean;
+            /** Combinations */
+            combinations: ("reachable-exploitable" | "admin-user-long-lived-credential" | "reachable-critical-cve" | "reachable-misconfigured" | "reachable-secret" | "exploitable-fixable")[];
+            /** Connection Id */
+            connection_id: number;
+            /** Credential Kinds */
+            credential_kinds: string[];
+            /** Door */
+            door: boolean;
+            /** Door Held Since */
+            door_held_since: string | null;
+            /** Env Secret */
+            env_secret: boolean;
+            /** Exploitable Cves */
+            exploitable_cves: number;
+            /**
+             * First Seen
+             * Format: date
+             */
+            first_seen: string;
+            /** High Cves */
+            high_cves: number;
+            /** High Misconfigurations */
+            high_misconfigurations: number;
+            /** Max Epss */
+            max_epss: number | null;
+            /** Name */
+            name: string | null;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "aws" | "gcp" | "oci";
+            /** Resource Id */
+            resource_id: number;
+            /** Resource Type */
+            resource_type: string;
+            /**
+             * Tier
+             * @enum {string}
+             */
+            tier: "critical" | "high" | "medium";
+            /** Worst Misconfiguration */
+            worst_misconfiguration: string | null;
+        };
+        /**
+         * RiskSummary
+         * @description The tiles: resources at risk on the scope's latest count, by tier and by combination.
+         *     `computed` false (and every count null): Risk was never computed for the scope.
+         */
+        RiskSummary: {
+            /** As Of */
+            as_of: string | null;
+            /** Combinations */
+            combinations: {
+                [key: string]: number;
+            } | null;
+            /** Computed */
+            computed: boolean;
+            /** Data Through */
+            data_through: string | null;
+            /** Tiers */
+            tiers: {
+                [key: string]: number;
+            } | null;
+            /** Total */
+            total: number | null;
         };
         /**
          * RoleIn
@@ -4497,6 +4673,154 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResourceDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_risk_api_v1_risk_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                connection_id?: number[];
+                provider?: ("aws" | "gcp" | "oci")[];
+                tier?: ("critical" | "high" | "medium")[];
+                combination?: ("reachable-exploitable" | "admin-user-long-lived-credential" | "reachable-critical-cve" | "reachable-misconfigured" | "reachable-secret" | "exploitable-fixable")[];
+                type?: string[];
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_combinations_api_v1_risk_combinations_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CombinationOut"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    risk_facets_api_v1_risk_facets_get: {
+        parameters: {
+            query?: {
+                connection_id?: number[];
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskFacets"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    risk_summary_api_v1_risk_summary_get: {
+        parameters: {
+            query?: {
+                connection_id?: number;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RiskSummary"];
                 };
             };
             /** @description Validation Error */

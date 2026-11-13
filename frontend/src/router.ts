@@ -23,6 +23,12 @@ export const router = createRouter({
     // After signing in with a password an admin set: every other page waits for a new one.
     { path: '/sign-in/new-password', name: 'new-password', component: () => import('@/views/NewPasswordView.vue'), meta: { title: 'Choose a new password' } },
     { path: '/', name: 'overview', component: () => import('@/views/overview/OverviewView.vue'), meta: { title: 'Overview' } },
+    // Risk (ADR-0049): the resources where facts from different tools add up, worst first.
+    {
+      path: '/risk',
+      component: () => import('@/views/ShellLayout.vue'),
+      children: [{ path: '', name: 'risk', component: () => import('@/views/risk/RiskView.vue'), meta: { title: 'Risk' } }],
+    },
     // Navigation follows CatherIs Platform's pattern (design-system.md, Shell): Posture,
     // Investigate and Operate sections, and an Administration module, each page its own route.
     // Schedules and Runs keep their /scans URLs (they moved from a Scans module to Operate on

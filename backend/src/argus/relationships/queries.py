@@ -56,10 +56,12 @@ def latest_rule_loads(conn: Connection, *, day: date) -> dict[int, tuple[date, s
 
 
 class Door(NamedTuple):
-    """What the internet rules say about one resource: its reach and why (ADR-0035)."""
+    """What the internet rules say about one resource: its reach and why (ADR-0035), and the
+    resource's id when the inventory resolved it (Risk keys on it, ADR-0049)."""
 
     reach: str
     reason: str | None
+    resource_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -83,7 +85,7 @@ def internet_reach(conn: Connection, *, connection_id: int, day: date) -> Intern
         return InternetReach(None, {})
     rows = conn.execute(
         text("""
-        SELECT e.target_uid,
+        SELECT e.target_uid, min(e.target_resource_id) AS resource_id,
                CASE WHEN bool_or(e.type = 'ROUTES_TO') THEN 'confirmed'
                     WHEN bool_or(e.type = 'PUBLIC_RESTRICTED') THEN 'restricted'
                     ELSE 'unknown' END AS reach,
@@ -105,7 +107,69 @@ def internet_reach(conn: Connection, *, connection_id: int, day: date) -> Intern
     """),
         {"c": connection_id, "rd": days["rule_day"]},
     )
-    return InternetReach(days["rule_day"], {r.target_uid: Door(r.reach, r.reason) for r in rows})
+    return InternetReach(
+        days["rule_day"],
+        {r.target_uid: Door(r.reach, r.reason, r.resource_id) for r in rows},
+    )
+
+
+@dataclass(frozen=True)
+class PrincipalFacts:
+    """What the rules say about each user and role of one account (Risk, ADR-0049): who is an
+    administrator or can make itself one, and which credential that works from anywhere each
+    IAM user holds. Keyed by resource id; `credentials` holds plain names (access_key,
+    console_password_no_mfa), so no reader of Risk reads an edge's JSONB."""
+
+    admins: frozenset[int]
+    credentials: dict[int, tuple[str, ...]]
+
+
+# The edges an administrator is known by: our rules' IS_ADMIN (principal-admin) and
+# CAN_ESCALATE_TO (privilege-escalation), and CloudFox's IS_ADMIN and CAN_PRIVESC_TO.
+_ADMIN_EDGES = ("IS_ADMIN", "CAN_ESCALATE_TO", "CAN_PRIVESC_TO")
+
+
+def principal_facts(conn: Connection, *, connection_id: int, day: date) -> PrincipalFacts:
+    """Each principal's admin fact and each user's credentials, as the latest loads on or
+    before `day` stand: rule edges on the rule day, CloudFox's on the CloudFox day."""
+    days = effective_days(conn, connection_id=connection_id, day=day)
+    admins = conn.execute(
+        text("""
+        SELECT DISTINCT e.source_resource_id FROM edge e
+        JOIN edge_snapshot s ON s.edge_id = e.id
+         AND s.snapshot_date = CASE WHEN e.origin = 'cloudfox' THEN CAST(:cf AS date)
+                                    ELSE CAST(:rd AS date) END
+        WHERE e.connection_id = :c AND e.type = ANY(CAST(:types AS text[]))
+          AND e.source_resource_id IS NOT NULL
+          AND (e.origin = 'cloudfox' OR starts_with(e.origin, 'rule:'))
+    """),
+        {
+            "c": connection_id,
+            "cf": days["cloudfox_day"],
+            "rd": days["rule_day"],
+            "types": list(_ADMIN_EDGES),
+        },
+    ).scalars()
+    credentials: dict[int, tuple[str, ...]] = {}
+    if days["rule_day"] is not None:
+        rows = conn.execute(
+            text("""
+            SELECT e.target_resource_id AS resource_id,
+                   ARRAY(SELECT jsonb_array_elements_text(
+                           CASE jsonb_typeof(e.attributes -> 'credentials')
+                             WHEN 'array' THEN e.attributes -> 'credentials' ELSE '[]' END)
+                         ORDER BY 1) AS kinds
+            FROM edge e JOIN edge_snapshot s ON s.edge_id = e.id AND s.snapshot_date = :rd
+            WHERE e.connection_id = :c AND e.source_uid = 'internet'
+              AND e.type = 'HAS_CREDENTIAL' AND starts_with(e.origin, 'rule:')
+              AND e.target_resource_id IS NOT NULL
+        """),
+            {"c": connection_id, "rd": days["rule_day"]},
+        )
+        for r in rows:
+            if r.kinds:
+                credentials[r.resource_id] = tuple(r.kinds)
+    return PrincipalFacts(frozenset(a for a in admins if a is not None), credentials)
 
 
 def delete_loads_before(conn: Connection, *, cutoff: date) -> int:

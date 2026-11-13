@@ -273,50 +273,11 @@ def _vulnerability_values(
     return values
 
 
-def _put_family(
-    conn: Connection,
-    family: summary.Family,
-    *,
-    connection_id: int,
-    day: date,
-    values: dict[tuple[str, str], float],
-) -> None:
-    """One family's rows for one connection, then all connections.
-
-    The day's events go on the run's day. The counts are the current state, so they go on the
-    run's day or the connection's newest counted day, whichever is later: a re-derive of an
-    older load, or an older run ingested late, must not leave the newest row stale. All
-    connections is then rolled up on those days and on every later day that carried this
-    connection's previous counts."""
-    latest = summary.latest_counted_day(conn, family, connection_id)
-    state_day = max(day, latest) if latest else day
-    metrics.put(
-        conn,
-        day=day,
-        connection_id=connection_id,
-        values={k: v for k, v in values.items() if k[0] == family.events},
-        replace=[family.events],
-    )
-    metrics.put(
-        conn,
-        day=state_day,
-        connection_id=connection_id,
-        values={k: v for k, v in values.items() if k[0] != family.events},
-        replace=list(family.state_metrics),
-    )
-    carried = metrics.carried_days(
-        conn, after=state_day, metrics=[family.marker[0]], connection_id=connection_id
-    )
-    for rolled in sorted({day, state_day, *carried}):
-        # The marker is zero-filled (Family.zero), so it is written every time.
-        metrics.rollup_family(conn, day=rolled, metrics=family.metrics, marker=family.marker)
-
-
 def put_misconfiguration_metrics(conn: Connection, *, connection_id: int, day: date) -> None:
     """The Misconfigurations summary's numbers for one connection after a run that changed its
     findings or their reach (Prowler, CloudFox, a Steampipe run's reach check, a re-derive),
     then all connections."""
-    _put_family(
+    summary.put_family(
         conn,
         summary.MISCONFIGURATIONS,
         connection_id=connection_id,
@@ -330,7 +291,7 @@ def put_vulnerability_metrics(conn: Connection, *, connection_id: int, day: date
     then all connections; and after a Steampipe run, which can remove the assets the Resources
     summary's exploitable count holds (ADR-0042 amended 2026-11-06). Vulnerabilities have no
     reach, so no other run changes them."""
-    _put_family(
+    summary.put_family(
         conn,
         summary.VULNERABILITIES,
         connection_id=connection_id,

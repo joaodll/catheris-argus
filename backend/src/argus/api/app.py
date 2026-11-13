@@ -15,6 +15,7 @@ from argus.api.routes import (
     overview,
     reports,
     resources,
+    risk,
     runs,
     schedules,
     settings,
@@ -117,6 +118,7 @@ def create_app() -> FastAPI:
         vulnerabilities.router,
         compliance.router,
         resources.router,
+        risk.router,
         reports.router,
         users.router,
     ):

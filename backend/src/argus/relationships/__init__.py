@@ -11,6 +11,8 @@ Owns edge, edge_snapshot and edge_load. Public interface:
                       with (the worker's re-derive after an upgrade)
     internet_reach()  what the internet rules say about each resource facing the internet,
                       and why (InternetReach, Door)
+    principal_facts() who is an administrator, and each IAM user's credentials that work
+                      from anywhere, as plain values (PrincipalFacts; Risk, ADR-0049)
     edges_at()        a resource's edges as they stood on a day
     HOSTS_SQL         the host index `h` the rules read beside `r` (ADR-0033)
     RULE_VIEWS_SQL    every view the rules read beside `r`: `h`, `g` (security group
@@ -36,11 +38,13 @@ from argus.relationships.engine import (
 from argus.relationships.queries import (
     Door,
     InternetReach,
+    PrincipalFacts,
     delete_loads_before,
     edges_at,
     effective_days,
     internet_reach,
     latest_rule_loads,
+    principal_facts,
 )
 
 __all__ = [
@@ -50,6 +54,7 @@ __all__ = [
     "DerivedEdge",
     "Door",
     "InternetReach",
+    "PrincipalFacts",
     "Rule",
     "delete_loads_before",
     "derive_edges",
@@ -60,5 +65,6 @@ __all__ = [
     "load_edges",
     "load_rules",
     "owners_of_hosts",
+    "principal_facts",
     "write_edges",
 ]
