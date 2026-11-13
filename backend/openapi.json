@@ -565,6 +565,47 @@
         "title": "CollectionSettings",
         "type": "object"
       },
+      "CombinationOut": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "enum": [
+              "reachable-exploitable",
+              "admin-user-long-lived-credential",
+              "reachable-critical-cve",
+              "reachable-misconfigured",
+              "reachable-secret",
+              "exploitable-fixable"
+            ],
+            "title": "Id",
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "critical",
+              "high",
+              "medium"
+            ],
+            "title": "Tier",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "tier",
+          "title",
+          "description"
+        ],
+        "title": "CombinationOut",
+        "type": "object"
+      },
       "CommandOut": {
         "description": "A CloudFox loot command shown on this resource (ADR-0038). Argus never runs it.",
         "properties": {
@@ -4189,6 +4230,313 @@
           }
         },
         "title": "RetentionSettings",
+        "type": "object"
+      },
+      "RiskFacets": {
+        "properties": {
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Types",
+            "type": "array"
+          }
+        },
+        "required": [
+          "types"
+        ],
+        "title": "RiskFacets",
+        "type": "object"
+      },
+      "RiskPage": {
+        "properties": {
+          "computed": {
+            "title": "Computed",
+            "type": "boolean"
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RiskRow"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "computed",
+          "data_through"
+        ],
+        "title": "RiskPage",
+        "type": "object"
+      },
+      "RiskRow": {
+        "description": "One resource at risk. The facts are what made its combinations, each one a link on the\nscreen to the list it comes from.",
+        "properties": {
+          "admin": {
+            "title": "Admin",
+            "type": "boolean"
+          },
+          "combinations": {
+            "items": {
+              "enum": [
+                "reachable-exploitable",
+                "admin-user-long-lived-credential",
+                "reachable-critical-cve",
+                "reachable-misconfigured",
+                "reachable-secret",
+                "exploitable-fixable"
+              ],
+              "type": "string"
+            },
+            "title": "Combinations",
+            "type": "array"
+          },
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "credential_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Credential Kinds",
+            "type": "array"
+          },
+          "door": {
+            "title": "Door",
+            "type": "boolean"
+          },
+          "door_held_since": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Door Held Since"
+          },
+          "env_secret": {
+            "title": "Env Secret",
+            "type": "boolean"
+          },
+          "exploitable_cves": {
+            "title": "Exploitable Cves",
+            "type": "integer"
+          },
+          "first_seen": {
+            "format": "date",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "high_cves": {
+            "title": "High Cves",
+            "type": "integer"
+          },
+          "high_misconfigurations": {
+            "title": "High Misconfigurations",
+            "type": "integer"
+          },
+          "max_epss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Epss"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "provider": {
+            "enum": [
+              "aws",
+              "gcp",
+              "oci"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "resource_id": {
+            "title": "Resource Id",
+            "type": "integer"
+          },
+          "resource_type": {
+            "title": "Resource Type",
+            "type": "string"
+          },
+          "tier": {
+            "enum": [
+              "critical",
+              "high",
+              "medium"
+            ],
+            "title": "Tier",
+            "type": "string"
+          },
+          "worst_misconfiguration": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst Misconfiguration"
+          }
+        },
+        "required": [
+          "resource_id",
+          "name",
+          "connection_id",
+          "provider",
+          "resource_type",
+          "tier",
+          "combinations",
+          "first_seen",
+          "door_held_since",
+          "door",
+          "admin",
+          "env_secret",
+          "credential_kinds",
+          "exploitable_cves",
+          "high_cves",
+          "max_epss",
+          "high_misconfigurations",
+          "worst_misconfiguration"
+        ],
+        "title": "RiskRow",
+        "type": "object"
+      },
+      "RiskSummary": {
+        "description": "The tiles: resources at risk on the scope's latest count, by tier and by combination.\n`computed` false (and every count null): Risk was never computed for the scope.",
+        "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
+          "combinations": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "propertyNames": {
+                  "enum": [
+                    "reachable-exploitable",
+                    "admin-user-long-lived-credential",
+                    "reachable-critical-cve",
+                    "reachable-misconfigured",
+                    "reachable-secret",
+                    "exploitable-fixable"
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Combinations"
+          },
+          "computed": {
+            "title": "Computed",
+            "type": "boolean"
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "tiers": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "propertyNames": {
+                  "enum": [
+                    "critical",
+                    "high",
+                    "medium"
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tiers"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          }
+        },
+        "required": [
+          "computed",
+          "as_of",
+          "data_through",
+          "total",
+          "tiers",
+          "combinations"
+        ],
+        "title": "RiskSummary",
         "type": "object"
       },
       "RoleIn": {
@@ -10643,6 +10991,467 @@
         "summary": "Resource",
         "tags": [
           "inventory"
+        ]
+      }
+    },
+    "/api/v1/risk": {
+      "get": {
+        "operationId": "list_risk_api_v1_risk_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "aws",
+                  "gcp",
+                  "oci"
+                ],
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Provider",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tier",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium"
+                ],
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Tier",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "combination",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "reachable-exploitable",
+                  "admin-user-long-lived-credential",
+                  "reachable-critical-cve",
+                  "reachable-misconfigured",
+                  "reachable-secret",
+                  "exploitable-fixable"
+                ],
+                "type": "string"
+              },
+              "maxItems": 10,
+              "title": "Combination",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 200,
+              "title": "Type",
+              "type": "array"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Risk",
+        "tags": [
+          "risk"
+        ]
+      }
+    },
+    "/api/v1/risk/combinations": {
+      "get": {
+        "operationId": "list_combinations_api_v1_risk_combinations_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CombinationOut"
+                  },
+                  "title": "Response List Combinations Api V1 Risk Combinations Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Combinations",
+        "tags": [
+          "risk"
+        ]
+      }
+    },
+    "/api/v1/risk/facets": {
+      "get": {
+        "operationId": "risk_facets_api_v1_risk_facets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskFacets"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Risk Facets",
+        "tags": [
+          "risk"
+        ]
+      }
+    },
+    "/api/v1/risk/summary": {
+      "get": {
+        "operationId": "risk_summary_api_v1_risk_summary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Connection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Risk Summary",
+        "tags": [
+          "risk"
         ]
       }
     },

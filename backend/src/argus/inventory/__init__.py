@@ -10,6 +10,8 @@ Owns resource, resource_config, resource_snapshot and resource_load. Public inte
                        for other modules' queries
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
                        (the Resources page, and a resource as of a day)
+    current_assets_among()   which of some resources are current assets, with their type
+                       (Risk)
     is_asset()         whether a resource type counts as an asset (parts, settings and links
                        are stored and searchable, not counted); stored as resource.asset
 """
@@ -26,6 +28,7 @@ from argus.inventory.queries import (
     RESOURCES_ON_DAY_SQL,
     ResourceFilters,
     ResourceOrder,
+    current_assets_among,
     delete_loads_before,
     effective_day,
     list_resources,
@@ -53,6 +56,7 @@ __all__ = [
     "InventoryResource",
     "ResourceFilters",
     "ResourceOrder",
+    "current_assets_among",
     "delete_loads_before",
     "delete_orphan_configs",
     "effective_day",

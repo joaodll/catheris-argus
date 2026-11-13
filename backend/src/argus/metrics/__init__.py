@@ -23,6 +23,7 @@ from argus.metrics.store import (
 from argus.metrics.summary import (
     misconfiguration_summary,
     resource_summary,
+    risk_counts,
     vulnerability_months,
     vulnerability_summary,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "put",
     "read",
     "resource_summary",
+    "risk_counts",
     "rollup",
     "rollup_family",
     "vulnerability_months",

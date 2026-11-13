@@ -37,6 +37,7 @@ from argus.findings.compliance import (
     framework_catalog,
     list_requirements,
 )
+from argus.findings.facts import FindingFacts, resource_finding_facts
 from argus.findings.lifecycle import (
     ANY_CHECK,
     ANY_REGION,
@@ -114,6 +115,7 @@ __all__ = [
     "VULNERABLE_RESOURCES_SQL",
     "CoverageRow",
     "FindingFacets",
+    "FindingFacts",
     "FindingFilters",
     "FindingOrder",
     "FindingReach",
@@ -156,6 +158,7 @@ __all__ = [
     "rederive_scores",
     "remove_compliance_items",
     "resource_coverage",
+    "resource_finding_facts",
     "resource_vulnerabilities",
     "scanned_resources",
     "scanner_for",

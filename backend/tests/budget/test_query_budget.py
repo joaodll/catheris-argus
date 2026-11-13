@@ -37,6 +37,7 @@ from argus import (
     metrics,
     relationships,
     reports,
+    risk,
     scheduling,
 )
 from argus.metrics.series import calendar_months
@@ -402,6 +403,24 @@ def _generate_edges(conn: Connection) -> None:
     """),  # noqa: S608 - constant fragments
         {**params, "hub_vpc": HUB_VPC, "hub_policy": HUB_POLICY},
     )
+    # Risk (ADR-0049): every administrator above also holds an access key that works from
+    # anywhere, and every other one between them can escalate to admin (our rules).
+    conn.execute(
+        text(f"""
+        INSERT INTO edge (edge_key, source_uid, target_uid, source_resource_id, type, origin,
+                          attributes, first_seen, last_seen, connection_id)
+        SELECT sha256(('cred|' || g)::bytea), 'internet', {RESOURCE_UID.format(g="g")}, NULL,
+               'HAS_CREDENTIAL', 'rule:exposed-user-credential@1',
+               CAST('{{"credentials": ["access_key"], "access_keys": 1}}' AS jsonb), :d - 30, :d, 1
+        FROM generate_series(360, 300000, 360) g
+        UNION ALL
+        SELECT sha256(('esc|' || g)::bytea), {RESOURCE_UID.format(g="g")},
+               'admin:' || (200000000000 + 1), g, 'CAN_ESCALATE_TO',
+               'rule:privilege-escalation@1', CAST('{{}}' AS jsonb), :d - 30, :d, 1
+        FROM generate_series(180, 300000, 360) g
+    """),  # noqa: S608 - constant fragments
+        params,
+    )
     conn.execute(
         text("""
         UPDATE edge SET target_resource_id = substring(target_uid from '/i-([0-9]+)$')::bigint
@@ -495,6 +514,9 @@ def estate(migrated: Engine) -> Engine:
         )
         _generate(conn)
         _reports(conn)
+        # Risk (ADR-0049) for every account, as its last ingest leaves it.
+        for connection_id in range(1, ACCOUNTS + 1):
+            risk.refresh(conn, connection_id=connection_id, day=TODAY)
     # A steady-state database: the first reads of freshly inserted rows would otherwise pay
     # for setting their hint bits and flushing the load, and time that instead of the query.
     with migrated.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
@@ -882,6 +904,37 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     "vulnerabilities: summary, fix available": lambda c: findings.list_findings(
         c, limit=20, offset=0, filters=replace(VULNERABILITY_SUMMARY_FILTERS, fix="available")
     ),
+    # Risk (ADR-0049): the list worst first, for all accounts and one, each filter; the tiles.
+    "risk: the list, all accounts": lambda c: risk.list_risk(
+        c, filters=risk.RiskFilters(), limit=20, offset=0
+    ),
+    "risk: the list, a later page": lambda c: risk.list_risk(
+        c, filters=risk.RiskFilters(), limit=20, offset=2000
+    ),
+    "risk: the list, one account": lambda c: risk.list_risk(
+        c, filters=risk.RiskFilters(connection_ids=(1,)), limit=20, offset=0
+    ),
+    "risk: the list, one tier": lambda c: risk.list_risk(
+        c, filters=risk.RiskFilters(tiers=("critical",)), limit=20, offset=0
+    ),
+    "risk: the list, one combination": lambda c: risk.list_risk(
+        c,
+        filters=risk.RiskFilters(combinations=("admin-user-long-lived-credential",)),
+        limit=20,
+        offset=0,
+    ),
+    "risk: the list, one type": lambda c: risk.list_risk(
+        c, filters=risk.RiskFilters(resource_types=("aws_lambda_function",)), limit=20, offset=0
+    ),
+    "risk: the Type filter's types": lambda c: risk.risk_types(c, connection_ids=()),
+    "risk: summary, all accounts": lambda c: (
+        metrics.risk_counts(c, connection_id=0, today=TODAY),
+        risk.risk_scope(c, connection_ids=()),
+    ),
+    "risk: summary, one account": lambda c: (
+        metrics.risk_counts(c, connection_id=1, today=TODAY),
+        risk.risk_scope(c, connection_ids=(1,)),
+    ),
     # Operate -> Reports (ADR-0047): an Admin's list of everyone's, and an Operator's own.
     "reports, an admin's list": lambda c: reports.list_reports(
         c, user_id=0, all_users=True, limit=20, offset=0
@@ -1101,6 +1154,35 @@ def test_the_vulnerability_counts_of_one_account_stay_cheap_to_write(estate: Eng
         finally:
             transaction.rollback()
     print(f"vulnerabilities: one account's counts and the rollup: {elapsed:.1f} ms")
+    assert elapsed < WRITER_BOUND_MS
+
+
+@pytest.mark.parametrize("connection_id", [1, 7], ids=["the-cve-account", "another-account"])
+def test_risk_of_one_account_stays_cheap_to_refresh(estate: Engine, connection_id: int) -> None:
+    """After every ingest (ADR-0049): one account's facts from findings and edges, its rows
+    rewritten where they changed, its counts and the rollup. Connection 1 holds the CVEs, the
+    internet doors, the credentials and the administrators."""
+    with estate.connect() as conn:
+        transaction = conn.begin()
+        try:
+            conn.execute(
+                text("DELETE FROM resource_risk WHERE connection_id = :c"), {"c": connection_id}
+            )
+            start = time.perf_counter()
+            result = risk.refresh(conn, connection_id=connection_id, day=TODAY)
+            elapsed = (time.perf_counter() - start) * 1000
+            fixable = conn.execute(
+                text(
+                    "SELECT count(*) FROM resource_risk "
+                    "WHERE 'exploitable-fixable' = ANY(combinations)"
+                )
+            ).scalar_one()
+        finally:
+            transaction.rollback()
+    print(
+        f"risk: account {connection_id}: {result.at_risk} at risk, "
+        f"{fixable} exploitable-fixable, {elapsed:.1f} ms"
+    )
     assert elapsed < WRITER_BOUND_MS
 
 

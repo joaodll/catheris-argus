@@ -202,6 +202,24 @@ def resource_facets(
     return {"types": [r.type for r in types], "regions": [r.region for r in regions]}
 
 
+def current_assets_among(
+    conn: Connection, *, connection_id: int, resource_ids: list[int]
+) -> dict[int, str]:
+    """Of these resources, the current assets of one connection (CURRENT_ASSETS_SQL), each
+    with its type. Called with the resources Risk found facts on, so the input is bounded by
+    what is at risk, not by the inventory."""
+    if not resource_ids:
+        return {}
+    rows = conn.execute(
+        text(
+            "SELECT id, type FROM resource WHERE id = ANY(CAST(:ids AS bigint[])) "
+            "AND connection_id = :c AND asset AND deleted_on IS NULL"
+        ),
+        {"ids": resource_ids, "c": connection_id},
+    )
+    return {r.id: r.type for r in rows}
+
+
 def resource_names(conn: Connection, resource_ids: list[int]) -> dict[int, str]:
     """The display name of each of these resources: its name, or its native id when it has
     none. Called with one page of ids, so the input is bounded."""

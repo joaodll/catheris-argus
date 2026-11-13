@@ -27,7 +27,7 @@ from uuid import UUID
 from sqlalchemy import Connection, Engine, text
 from sqlalchemy.exc import DBAPIError
 
-from argus import connections, metrics
+from argus import connections, metrics, risk
 from argus.cloudfox import PUBLIC_ENDPOINT_CHECK, load_cloudfox, parse_cloudfox
 from argus.cloudfox.parse import UnsupportedVersionError as CloudFoxVersionError
 from argus.core.manifest import Manifest
@@ -279,9 +279,10 @@ def check_reach(
     (ADR-0035, sixth amendment). Run after every tool and after a re-derive, whichever comes
     last. Returns how many findings changed.
 
-    Then the Misconfigurations summary's counts, which read the findings and their reach as
-    they now stand: after a Prowler or CloudFox load (`findings_loaded`), or after a Steampipe
-    run or a re-derive of a connection either tool has already scanned. An account neither has
+    Then the Misconfigurations summary's counts and the Risk rows, which read the findings and
+    their reach as they now stand. The counts: after a Prowler or CloudFox load
+    (`findings_loaded`), or after a Steampipe run or a re-derive of a connection either tool has
+    already scanned. An account neither has
     scanned gets none, so its summary says "no scan yet" rather than zero."""
     reach = internet_reach(conn, connection_id=connection_id, day=day)
     doors = {uid: (d.reach, d.reason) for uid, d in reach.doors.items()}
@@ -300,6 +301,8 @@ def check_reach(
         conn, connection_id=connection_id, tools=MISCONFIGURATION_TOOLS
     ):
         put_misconfiguration_metrics(conn, connection_id=connection_id, day=day)
+    # Risk combines the findings and doors as they now stand (ADR-0049 section 5).
+    risk.refresh(conn, connection_id=connection_id, day=day)
     return endpoints + exposure
 
 
@@ -340,7 +343,8 @@ def _cloudfox(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
 
 def _vulnerabilities(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
     """CVEs touch no edge (ADR-0042): one transaction, nothing re-evaluated. Then the
-    Vulnerabilities summary's counts in the same transaction (ADR-0042 amended 2026-11-06);
+    Vulnerabilities summary's counts and the Risk rows in the same transaction (ADR-0042
+    amended 2026-11-06; ADR-0049);
     the Overview shows no vulnerability number, so the tool has no Overview metric."""
     batch = parse_vulnerabilities(raw)
     with engine.begin() as conn:
@@ -353,6 +357,7 @@ def _vulnerabilities(engine: Engine, run: _Run, raw: RawRun) -> dict[str, int]:
             scan_run_id=run.scan_run_id,
         )
         put_vulnerability_metrics(conn, connection_id=run.connection_id, day=run.day)
+        risk.refresh(conn, connection_id=run.connection_id, day=run.day)
     return loaded
 
 

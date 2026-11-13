@@ -5,6 +5,10 @@ old rules' edges until its next runs. When the worker starts, before its run thr
 enabled connection whose latest rule load was derived with another rule set (edge_load.ruleset,
 migration 0026; none before it) is derived again on that load's day: its edges and reach
 checks.
+
+Then Risk (ADR-0049): every enabled connection never refreshed, or refreshed with another
+combination set, is refreshed once, so the Risk screen fills at the first start after an upgrade
+instead of after each account's next scans.
 """
 
 import logging
@@ -13,8 +17,10 @@ from pathlib import Path
 
 from sqlalchemy import Engine, text
 
-from argus import connections
+from argus import connections, risk
+from argus.collection import TOOL_ORDER
 from argus.ingest.pipeline import REDERIVE_LOCK, check_reach, rule_set
+from argus.ingest.queries import data_through
 from argus.relationships import latest_rule_loads, write_edges
 
 log = logging.getLogger(__name__)
@@ -88,8 +94,36 @@ def rederive_stale(engine: Engine, *, rules_dir: Path, today: date) -> list[int]
                 "rule set checked",
                 extra={"ruleset": ruleset[:12], "stale": len(stale), "re_derived": len(done)},
             )
+            refresh_stale_risk(engine, today=today)
             return done
         finally:
             lock.execute(text("SELECT pg_advisory_unlock(hashtext(:k))"), {"k": REDERIVE_LOCK})
             lock.execute(text("SELECT pg_advisory_unlock(hashtext(:k))"), {"k": REDERIVE_ONCE_LOCK})
             lock.commit()
+
+
+def refresh_stale_risk(engine: Engine, *, today: date) -> list[int]:
+    """Refreshes Risk for every enabled connection whose risk_load is missing or carries
+    another combination set, on the newest day its ingested data covers. A connection with no
+    ingested run is left alone: its Risk stays "not computed yet", never "nothing at risk".
+    Called under the re-derive lock. One connection's failure is logged and does not stop the
+    others: its next ingest refreshes it anyway."""
+    with engine.connect() as conn:
+        stale = {
+            cid: day
+            for cid in risk.stale_connections(conn)
+            if (day := data_through(conn, connection_id=cid, tools=TOOL_ORDER)) is not None
+        }
+    done = []
+    for connection_id, day in stale.items():
+        try:
+            with engine.begin() as conn:
+                result = risk.refresh(conn, connection_id=connection_id, day=min(day, today))
+            done.append(connection_id)
+            log.info(
+                "risk refreshed",
+                extra={"connection_id": connection_id, "at_risk": result.at_risk},
+            )
+        except Exception:
+            log.exception("risk refresh failed", extra={"connection_id": connection_id})
+    return done

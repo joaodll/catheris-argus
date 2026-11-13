@@ -4,10 +4,12 @@ findings through argus.findings. Public interface:
     load_cloudfox()    edges (origin "cloudfox") and attacker-view findings for a day
     PUBLIC_ENDPOINT_CHECK   the check of CloudFox's public endpoints, which ingest checks
                        against Argus's internet rules (ADR-0035)
+    ENV_EXPOSURE_CHECK  the check of a secret in a function's environment (Risk, ADR-0049)
 """
 
 from argus.cloudfox.load import load_cloudfox
 from argus.cloudfox.parse import (
+    ENV_EXPOSURE_CHECK,
     PUBLIC_ENDPOINT_CHECK,
     SUPPORTED_VERSIONS,
     CloudFoxBatch,
@@ -15,6 +17,7 @@ from argus.cloudfox.parse import (
 )
 
 __all__ = [
+    "ENV_EXPOSURE_CHECK",
     "PUBLIC_ENDPOINT_CHECK",
     "SUPPORTED_VERSIONS",
     "CloudFoxBatch",

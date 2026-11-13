@@ -27,6 +27,8 @@ type Entry =
 
 const NAV: Entry[] = [
   { kind: 'item', name: 'overview', label: 'Overview', icon: 'overview' },
+  { kind: 'section', label: 'Risk' },
+  { kind: 'item', name: 'risk', label: 'Risk', icon: 'warning' },
   { kind: 'section', label: 'Posture' },
   { kind: 'item', name: 'compliance', label: 'Compliance', icon: 'checklist' },
   { kind: 'section', label: 'Investigate' },

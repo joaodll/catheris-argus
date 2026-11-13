@@ -1059,3 +1059,50 @@ test('users and roles: a viewer and an operator, each limited to their role', as
     await expect(page.getByRole('status').filter({ hasText: `${p.username} deleted.` })).toBeVisible()
   }
 })
+
+/** Risk (ADR-0049; spec in the palace, frontend/4180ca5e): the Demo connections' resources where
+ * facts add up, worst first. A tile opens the list that reproduces it, the filter survives a
+ * reload, a row opens its resource's panel, both themes, phone width. */
+test('risk: worst first, tiles reproduce the list, a row opens its panel', async ({ page }) => {
+  await signIn(page)
+  await navLink(page, 'Risk')
+  await expect(page.getByRole('heading', { level: 1, name: 'Risk', exact: true })).toBeVisible()
+  const tiles = page.getByRole('region', { name: 'Resources at risk by tier' })
+  const list = page.getByRole('region', { name: 'Resources at risk' })
+  await expect(list.locator('tbody tr').first()).toBeVisible()
+  // Worst first: the first row is Critical.
+  await expect(list.locator('tbody tr').first().getByText('Critical', { exact: true }).first()).toBeVisible()
+  await axe(page, 'risk')
+  await shot(page, '90-risk')
+
+  // The Critical tile opens the list of exactly its resources.
+  const critical = Number((await tiles.locator('.stat-card').first().locator('.stat-value').innerText()).replace(/\D/g, ''))
+  await tiles.getByRole('link', { name: /^Critical: .* Show in list$/ }).click()
+  await expect(page).toHaveURL(/tier=critical/)
+  await expect(list.locator('tbody tr')).toHaveCount(Math.min(critical, 20))
+  await page.reload()
+  await expect(page).toHaveURL(/tier=critical/)
+  await expect(list.locator('tbody tr')).toHaveCount(Math.min(critical, 20))
+
+  // A row opens its resource's panel, which lives in the URL; Escape closes it.
+  const name = list.locator('tbody tr').first().getByRole('link').first()
+  await name.click()
+  await expect(page).toHaveURL(/open=\d+/)
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await axe(page, 'risk resource sheet')
+  await page.keyboard.press('Escape')
+  await expect(page).not.toHaveURL(/open=/)
+
+  await page.emulateMedia({ colorScheme: 'light' })
+  await axe(page, 'risk, light')
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/risk')
+  await expect(list.locator('tbody tr').first()).toBeVisible()
+  await axe(page, 'risk, phone')
+  await shot(page, '91-risk-phone')
+  // A stacked row stays compact: its facts are one wrapped line, not a line per fact.
+  await list.locator('tbody tr').first().screenshot({ path: `${SHOTS}/91b-risk-phone-row.png` })
+  const height = await list.locator('tbody tr').first().evaluate((el) => el.getBoundingClientRect().height)
+  expect(height, 'a stacked risk row').toBeLessThan(400)
+})

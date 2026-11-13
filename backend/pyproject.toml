@@ -98,6 +98,7 @@ root_package = "argus"
 #   collection   raw store, manifest, sources (synthetic now, aws later)
 #   ingest       runs adapters, rules, lifecycle, snapshots and metrics for one run
 #   metrics      the metric_daily store; each domain module computes and puts its own rollups
+#   risk         combines findings, relationships and inventory facts per resource (ADR-0049)
 [[tool.importlinter.contracts]]
 name = "Layering: entrypoints > api > scheduling > collection/ingest > domain > core"
 type = "layers"
@@ -106,7 +107,7 @@ layers = [
     "(argus.api)",
     "(argus.scheduling)",
     "(argus.collection) : (argus.ingest) : (argus.retention) : (argus.reports)",
-    "(argus.cloudfox) : (argus.auth)",
+    "(argus.cloudfox) : (argus.auth) : (argus.risk)",
     "(argus.findings) : (argus.relationships)",
     "(argus.inventory) : (argus.connections) : (argus.metrics) : (argus.settings)",
     "argus.core",
