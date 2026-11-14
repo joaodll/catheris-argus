@@ -26,6 +26,7 @@ from the internet can really arrive, and why.
 | **Misconfigurations** | Failing Prowler checks and CloudFox's attacker findings, with what each tool found on the resource, their history (new, resolved, reopened) and remediation, as a list or grouped by check |
 | **Vulnerabilities** | The CVEs each provider's own scanner reports (AWS Inspector on AWS), with package, fix, public exploit and EPSS, as a list or grouped by CVE |
 | **Resources** | The inventory Steampipe collects, with each resource's configuration and connections, and the vulnerabilities each provider's own scanner reports (AWS Inspector on AWS) on instances, functions and container repositories |
+| **Resource Map** | What a resource connects to, as a diagram: the network it sits in, the roles it runs as, what calls it and what it calls, up to three hops at a time. No security finding on it, so it also serves as an architecture diagram |
 | **Operations** | Schedules, run history, and connections added in the UI; every change audited |
 
 ## How it works

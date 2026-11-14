@@ -611,6 +611,203 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await expect(page).toHaveURL(/\/investigate\/misconfigurations$/)
 })
 
+test('resource map: the start, a map as a diagram, the panel and the list; both themes, phone width', async ({ page }) => {
+  test.setTimeout(120_000)
+  await signIn(page)
+  // The Resource Map reads no security fact (ADR-0051, owner 2026-11-13): every request it makes
+  // is seen, and none goes to a route that carries one.
+  const asked: string[] = []
+  const everything: string[] = []
+  page.on('request', (r) => {
+    if (r.url().includes('/api/v1/')) {
+      asked.push(new URL(r.url()).pathname)
+      if (new URL(page.url()).pathname.startsWith('/investigate/map')) everything.push(new URL(r.url()).pathname)
+    }
+  })
+  await navLink(page, 'Resource Map')
+  await expect(page).toHaveURL(/\/investigate\/map/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Resource Map' })).toBeVisible()
+  // The start: find a resource, reopen a recent one, or see what is here. No name needed.
+  await expect(page.getByRole('heading', { level: 2, name: 'Map a resource' })).toBeVisible()
+  await expect(page.getByLabel('Account')).toHaveValue('')
+  await expect(page.getByRole('heading', { level: 3, name: 'Recently opened' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { level: 3, name: "What's here" })).toBeVisible()
+  const aType = page.getByRole('link', { name: /^IAM role, [\d,]+ resources?$/ })
+  await expect(aType).toBeVisible()
+  await axe(page, 'map start')
+  await shot(page, '90-map-start')
+  // The counts are the Resources Summary's stored numbers, through the map's own plain route.
+  expect(asked).toContain('/api/v1/map/types')
+  await aType.click()
+  await expect(page).toHaveURL(/type=aws_iam_role/)
+  await expect(page.getByRole('heading', { level: 3, name: 'IAM role' })).toBeFocused()
+  await axe(page, 'map start, a type')
+  await shot(page, '90b-map-start-type')
+  await page.getByRole('button', { name: 'Next page' }).click()
+  await expect(page).toHaveURL(/page=2/)
+  const aRow = page.getByRole('region', { name: 'IAM role' }).getByRole('listitem').getByRole('link').first()
+  await aRow.click()
+  await expect(page).toHaveURL(/focus=/)
+  await expect(page).toHaveURL(/type=aws_iam_role/)
+  await expect(page.getByRole('application', { name: /^Resource Map, \d+ resources/ })).toBeVisible()
+  // Back returns to the same type and page.
+  await page.goBack()
+  await expect(page.getByRole('heading', { level: 3, name: 'IAM role' })).toBeVisible()
+  await expect(page).toHaveURL(/page=2/)
+  // A page past the end shows the last one.
+  await page.goto('/investigate/map?type=aws_iam_role&page=999')
+  await expect(page).not.toHaveURL(/page=999/)
+  await expect(page.getByRole('region', { name: 'IAM role' }).getByRole('listitem').first()).toBeVisible()
+  // An account with none of a type says so and leads back.
+  await page.goto('/investigate/map?type=aws_not_a_type')
+  await expect(page.getByRole('heading', { name: 'No resources of this type in this account.' })).toBeVisible()
+  await page.getByRole('main').getByRole('link', { name: 'All types' }).last().click()
+  await expect(page.getByRole('heading', { level: 3, name: "What's here" })).toBeVisible()
+  // Find a resource: the combobox searches by name, id or ARN, in the chosen account only.
+  const find = page.getByRole('combobox', { name: 'Find a resource' })
+  await find.fill('edge-alb')
+  await expect(page.getByRole('option').filter({ hasText: 'edge-alb' }).first()).toBeVisible()
+  await page.getByLabel('Account').selectOption({ label: 'demo-prod' })
+  await find.click()
+  const found = page.getByRole('listbox', { name: 'Resources' }).getByRole('option')
+  await expect(found.first()).toContainText('demo-prod')
+  await expect(found.filter({ hasNotText: 'demo-prod' })).toHaveCount(0)
+  asked.length = 0
+  const answered = page.waitForResponse((r) => r.url().includes('/api/v1/map/graph') && r.status() === 200)
+  await found.filter({ hasText: 'edge-alb' }).first().click()
+  await expect(page).toHaveURL(/focus=/)
+  const canvas = page.getByRole('application', { name: /^Resource Map, \d+ resources/ })
+  await expect(canvas).toBeVisible()
+  // The map says which scan it shows.
+  await expect(page.getByText(/^(Scanned \d{4}-\d{2}-\d{2}|Argus rules \d{4}-\d{2}-\d{2} · CloudFox \d{4}-\d{2}-\d{2})$/)).toBeVisible()
+  // The answer says what a resource is and where, and nothing else.
+  const graph = (await (await answered).json()) as { nodes: Record<string, unknown>[] }
+  expect(graph.nodes.length).toBeGreaterThan(1)
+  for (const node of graph.nodes) {
+    expect(Object.keys(node).sort()).toEqual(['boundary', 'connection_id', 'deleted_on', 'expanded', 'kind', 'name', 'region', 'resource_id', 'type', 'uid'])
+  }
+  // A map opens at the canvas's full width; the panel comes when a card is chosen.
+  await expect(page.getByRole('complementary', { name: 'Resource panel' })).toHaveCount(0)
+  await axe(page, 'map opened')
+  await shot(page, '91b-map-opened')
+  await canvas.locator('.node.focus').click()
+  // The panel: the inventory's description, connections, tags and configuration. No security fact.
+  const focusPanel = page.getByRole('complementary', { name: 'Resource panel' })
+  for (const block of ['Steampipe', 'Connections', 'Tags', 'Configuration']) {
+    await expect(focusPanel.getByRole('heading', { level: 3, name: new RegExp(`^${block}`) })).toBeVisible()
+  }
+  for (const block of ['Prowler', 'CloudFox', 'Vulnerabilities', 'From the internet', 'Commands']) {
+    await expect(focusPanel.getByRole('heading', { name: new RegExp(`^${block}`) })).toHaveCount(0)
+  }
+  await page.waitForLoadState('networkidle')
+  expect(asked.filter((path) => /\/(findings|vulnerabilities|risk)\b/.test(path))).toEqual([])
+  // A line says what it is, in words drawn above the lines; every card has its type's glyph.
+  await expect(page.locator('.line-word', { hasText: 'routes to' }).first()).toBeVisible()
+  await expect(canvas.locator('.node .disc svg').first()).toBeVisible()
+  await axe(page, 'map focus')
+  await shot(page, '91a-map-focus')
+  // Back to the start from the menu: the resource is in Recently opened, and reopens.
+  await navLink(page, 'Resource Map')
+  await expect(page).not.toHaveURL(/focus=/)
+  const recent = page.getByRole('link', { name: /edge-alb/ }).first()
+  await expect(recent).toBeVisible()
+  await axe(page, 'map start with a recent resource')
+  await shot(page, '90a-map-recent')
+  await recent.click()
+  await expect(page).toHaveURL(/focus=/)
+  await expect(canvas).toBeVisible()
+  // The map opens one hop wide; Depth reads up to three hops in one request.
+  const depth = page.getByRole('group', { name: 'Depth' })
+  await expect(depth.getByRole('button', { name: '1 hop' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('complementary', { name: 'Resource panel' })).toHaveCount(0)
+  await expect(canvas.locator('.node', { hasText: 'prod-orders-api' })).toHaveCount(0)
+  const deep = page.waitForRequest((r) => r.url().includes('/api/v1/map/graph') && new URL(r.url()).searchParams.get('depth') === '3')
+  await depth.getByRole('button', { name: '3 hops' }).click()
+  expect(new URL((await deep).url()).searchParams.get('map')).toBe('resource')
+  await expect(page).toHaveURL(/depth=3/)
+  // edge-alb -> its target group -> the API function: two hops away, drawn without an Expand.
+  await expect(canvas.locator('.node', { hasText: 'prod-orders-api' }).first()).toBeVisible()
+  await axe(page, 'map at three hops')
+  await shot(page, '91d-map-depth-3')
+  await depth.getByRole('button', { name: '1 hop' }).click()
+  await expect(page).not.toHaveURL(/depth=/)
+  await expect(canvas.locator('.node', { hasText: 'prod-orders-api' })).toHaveCount(0)
+  // Expand on a card one hop out adds that card's own hop: one request, for one hop.
+  // prod-tg-fn, a target group, leads to the API function.
+  const grows = await canvas.getAttribute('aria-label')
+  await canvas.locator('.node', { hasText: 'prod-tg-fn' }).click()
+  const hop = page.waitForRequest((r) => r.url().includes('/api/v1/map/graph') && r.url().includes('prod-tg-fn'))
+  await page.getByRole('complementary', { name: 'Resource panel' }).getByRole('button', { name: 'Expand' }).click()
+  expect(new URL((await hop).url()).searchParams.get('depth')).toBe('1')
+  await expect(canvas).not.toHaveAttribute('aria-label', grows ?? '')
+  await expect(canvas.locator('.node', { hasText: 'prod-orders-api' }).first()).toBeVisible()
+  await shot(page, '91c-map-expanded')
+  await page.getByRole('button', { name: 'Reset' }).click()
+  await expect(canvas.locator('.node', { hasText: 'prod-orders-api' })).toHaveCount(0)
+  await expect(page.getByRole('complementary', { name: 'Resource panel' })).toHaveCount(0)
+  await axe(page, 'map')
+  await shot(page, '91-map')
+  // The keyboard: the arrow keys move between cards, Enter opens the panel, Expand adds that
+  // card's own hop, which is one request for one hop.
+  await canvas.focus()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Enter')
+  const panel = page.getByRole('complementary', { name: 'Resource panel' })
+  await expect(panel.getByRole('button', { name: 'Expand' })).toBeVisible()
+  const before = await canvas.getAttribute('aria-label')
+  if (await panel.getByRole('button', { name: 'Expand' }).isEnabled()) {
+    const hop = page.waitForRequest((r) => r.url().includes('/api/v1/map/graph'))
+    await panel.getByRole('button', { name: 'Expand' }).click()
+    expect(new URL((await hop).url()).searchParams.get('depth')).toBe('1')
+    await expect(canvas).not.toHaveAttribute('aria-label', before ?? '')
+  }
+  await axe(page, 'map with a resource')
+  await shot(page, '92-map-resource')
+  // The same picture as tables.
+  await page.getByRole('group', { name: 'Show as' }).getByRole('button', { name: 'List' }).click()
+  await expect(page).toHaveURL(/view=list/)
+  await expect(page.getByRole('heading', { level: 3, name: 'Connections' }).first()).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'Open findings' })).toHaveCount(0)
+  await axe(page, 'map list view')
+  await shot(page, '93-map-list')
+  const mapUrl = page.url().replace(/[?&]view=list/, '')
+  // Nothing on the Resource Map read a route that carries a security fact.
+  expect(everything.filter((path) => /^\/api\/v1\/(resources|findings|vulnerabilities|risk)\b/.test(path))).toEqual([])
+
+  // Resources has Open in Resource Map on every resource.
+  await page.goto('/investigate/resources?tab=list')
+  await page.getByRole('table').locator('tbody tr').first().getByRole('link').click()
+  await expect(page).toHaveURL(/open=\d+/)
+  await page.getByRole('dialog').getByRole('link', { name: 'Open in Resource Map' }).click()
+  await expect(page).toHaveURL(/\/investigate\/map\?.*focus=/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Resource Map' })).toBeVisible()
+
+  // The light theme: the start and the map.
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto(mapUrl)
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await expect(canvas).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'light map')
+  await shot(page, 'L91-map')
+  await page.goto('/investigate/map')
+  await expect(page.getByRole('heading', { level: 3, name: "What's here" })).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'light map start')
+  await shot(page, 'L90-map-start')
+
+  // Phone width: the start in one column, and a map opens as its List.
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await expect(page.getByRole('heading', { level: 3, name: "What's here" })).toBeVisible()
+  await axe(page, 'phone map start')
+  await shot(page, 'P90-map-start')
+  await page.goto(mapUrl)
+  await expect(page.getByRole('heading', { level: 3, name: 'Connections' }).first()).toBeVisible()
+  await axe(page, 'phone map')
+  await shot(page, 'P91-map')
+})
+
 test('posture: compliance frameworks and one framework, read-only', async ({ page }) => {
   await signIn(page)
   await navLink(page, 'Compliance')

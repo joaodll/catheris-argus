@@ -98,6 +98,23 @@ describe.each([
     expect(failing).toEqual([])
   })
 
+  it("the Resource map's words read on its canvas and cards, and its glyphs on their disc", () => {
+    const pairs: [string, string, number][] = [
+      // A line's word on the canvas: at rest, hovered and lit.
+      ['text-2', 'graph-canvas', 4.5],
+      ['text', 'graph-canvas', 4.5],
+      ['text-strong', 'graph-canvas', 4.5],
+      ['text-3', 'graph-canvas', 4.5], // a column's name
+      // A card's name and its type.
+      ['text', 'graph-node', 4.5],
+      ['text-3', 'graph-node', 4.5],
+      // A type's glyph on its disc.
+      ['text-2', 'surface-sunken', 3],
+    ]
+    const failing = pairs.filter(([text, on, least]) => ratio(hex(theme, text), hex(theme, on)) < least).map(([text, on]) => `${text} on ${on}: ${ratio(hex(theme, text), hex(theme, on)).toFixed(2)}`)
+    expect(failing).toEqual([])
+  })
+
   it('text on the accent reaches 4.5:1', () => {
     expect(ratio(hex(theme, 'on-accent'), hex(theme, 'accent'))).toBeGreaterThanOrEqual(4.5)
   })

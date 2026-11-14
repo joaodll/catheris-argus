@@ -202,6 +202,27 @@ def resource_facets(
     return {"types": [r.type for r in types], "regions": [r.region for r in regions]}
 
 
+# Exported SQL: one row per inventoried resource, as a node of the Resource map (ADR-0051).
+# Joined by uid, so another module can place resources on a map without naming the table.
+RESOURCE_NODES_SQL = """
+  SELECT id, resource_uid AS uid, type, coalesce(name, native_id) AS name, region,
+         connection_id, deleted_on
+  FROM resource
+"""
+
+
+def resource_nodes(conn: Connection, uids: list[str]) -> dict[str, dict[str, Any]]:
+    """The inventoried resources among these uids, as map nodes. Bounded by the caller (a map
+    response holds at most 500 nodes)."""
+    if not uids:
+        return {}
+    rows = conn.execute(
+        text(f"SELECT * FROM ({RESOURCE_NODES_SQL}) n WHERE n.uid = ANY(CAST(:u AS text[]))"),  # noqa: S608 - constant SQL
+        {"u": uids},
+    )
+    return {r.uid: dict(r._mapping) for r in rows}
+
+
 def resource_names(conn: Connection, resource_ids: list[int]) -> dict[int, str]:
     """The display name of each of these resources: its name, or its native id when it has
     none. Called with one page of ids, so the input is bounded."""

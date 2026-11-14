@@ -91,6 +91,35 @@ it can be reached from the internet, what it connects to, and its configuration.
 
 ![Resources](images/resources.png)
 
+### Investigate → Resource Map
+
+Choose a resource and see what it connects to, as a diagram. The start lists the resource types in
+your accounts with their counts; a type lists its resources, and a resource opens its map. You can
+also search by name, id or ARN, or use **Open in Resource Map** on any resource in **Resources**.
+The Resource Map shows no security finding and reads none, so you can use it as a network and
+architecture diagram. Security judgements, such as who can escalate to administrator, go on the
+Security Map (coming next).
+
+The chosen resource sits in the middle, with what leads to it on its left and what it leads to on
+its right. Each line says what it is in plain words ("routes to", "runs as"). **Depth** draws one,
+two or three hops around it at once. Open a resource and choose **Expand** to add its own
+neighbours: the map grows one column per click. The map never walks past the internet, an
+account's administrator or another account's resource on its own; expand those yourself. Use
+**Connections** to choose which kinds of line are drawn (traffic, identity, network, IAM policy,
+data access).
+
+- More than 25 neighbours of one kind are drawn as one group card. Open it to list its members
+  and add the ones you want.
+- The map draws at most 500 resources. Past that it says so: lower the depth, show fewer kinds of
+  connection, or Reset to start again from the chosen resource.
+- A resource of another account is drawn but not expanded. Make it the focus to explore it in its
+  own account.
+- The map shows each account's latest scan and says which day that is.
+
+The map shows what exists and how it connects. It carries no misconfiguration, vulnerability or
+reach verdict, so it can be handed to an auditor or used as an architecture diagram. Those facts
+are on **Misconfigurations**, **Vulnerabilities** and each resource in **Resources**.
+
 ### Operate and Administration
 
 ![Runs](images/runs.png)
