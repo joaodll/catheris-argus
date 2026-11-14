@@ -1,6 +1,6 @@
 /**
  * The map's state in the URL (ADR-0051): the focus on the canvas, the depth, the kinds of
- * connection drawn, their sources, Map or List, the open resource and the connection. Defaults
+ * connection drawn, Map or List, the open resource and the connection. Defaults
  * are left out, so a link reproduces the view. Nodes added by Expand or from a group are not in
  * the URL: after a reload the user sees the focus and its neighbourhood again. A value the page
  * does not know is ignored, so a link from the first map (?path=, ?highlight=, ?flow=) opens the
@@ -10,13 +10,10 @@ import type { LocationQuery, LocationQueryRaw } from 'vue-router'
 
 export const LAYERS = ['traffic', 'identity', 'network', 'policy', 'data'] as const
 export type Layer = (typeof LAYERS)[number]
-export const DEFAULT_LAYERS: Layer[] = ['traffic', 'identity']
+// Every kind but Data access (owner, 2026-11-14): a resource opens with its network, role and
+// policies; Data access fans out to many resources. The API's relationships.DEFAULT_LAYERS.
+export const DEFAULT_LAYERS: Layer[] = ['traffic', 'identity', 'network', 'policy']
 export const LAYER_LABEL: Record<Layer, string> = { traffic: 'Traffic', identity: 'Identity', network: 'Network', policy: 'IAM policy', data: 'Data access' }
-
-// Manual joins these with the edge editor (the seam is kept, the editor comes later).
-export const ORIGINS = ['rule', 'cloudfox'] as const
-export type Origin = (typeof ORIGINS)[number]
-export const ORIGIN_LABEL: Record<Origin, string> = { rule: 'Rules', cloudfox: 'CloudFox' }
 
 // Hops one read walks around the focus (the API's MAX_DEPTH). Expand always adds one hop.
 export const DEPTHS = [1, 2, 3] as const
@@ -27,11 +24,14 @@ export type MapKind = 'resource' | 'security'
 
 export type View = 'map' | 'list'
 
+// The open resource's tab in the panel (spec frontend/d37cd13b); Overview is left out of the URL.
+export const PANEL_TABS = ['overview', 'problems', 'connections', 'configuration'] as const
+export type PanelTab = (typeof PANEL_TABS)[number]
+
 export interface MapState {
   focus: string | null
   depth: Depth
   layers: Layer[]
-  origins: Origin[]
   view: View
   open: string | null
   // The connection the map walks (one per read, ADR-0051), or none, and then the API
@@ -42,6 +42,7 @@ export interface MapState {
   // way back to the start return to the same list.
   type: string | null
   page: number
+  tab: PanelTab
 }
 
 const UID_MAX = 2048 // as the API
@@ -73,7 +74,6 @@ function ordered<T extends string>(chosen: readonly T[], all: readonly T[]): T[]
 
 export function parseMapQuery(query: LocationQuery, defaultView: View = 'map'): MapState {
   const layers = ordered(strings(query.layer) as Layer[], LAYERS)
-  const origins = ordered(strings(query.origin) as Origin[], ORIGINS)
   const view = one(query.view)
   const depth = Number(one(query.depth))
   const rawType = one(query.type)
@@ -82,30 +82,29 @@ export function parseMapQuery(query: LocationQuery, defaultView: View = 'map'): 
     focus: uid(query.focus),
     depth: (DEPTHS as readonly number[]).includes(depth) ? (depth as Depth) : 1,
     layers: layers.length ? layers : [...DEFAULT_LAYERS],
-    origins: origins.length ? origins : [...ORIGINS],
     view: view === 'map' || view === 'list' ? view : defaultView,
     open: uid(query.open),
     connection: id(query.connection),
     type,
     // A page belongs to a type's list.
     page: type ? (id(query.page) ?? 1) : 1,
+    tab: (PANEL_TABS as readonly string[]).includes(one(query.tab) ?? '') ? (one(query.tab) as PanelTab) : 'overview',
   }
 }
 
 export function mapQueryToUrl(s: MapState, defaultView: View = 'map'): LocationQueryRaw {
   const same = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((v, i) => v === b[i])
   const layers = ordered(s.layers, LAYERS)
-  const origins = ordered(s.origins, ORIGINS)
   return {
     focus: s.focus ?? undefined,
     depth: s.depth === 1 ? undefined : String(s.depth),
     layer: same(layers, DEFAULT_LAYERS) ? undefined : layers,
-    origin: same(origins, ORIGINS) ? undefined : origins,
     view: s.view === defaultView ? undefined : s.view,
     open: s.open ?? undefined,
     connection: s.connection == null ? undefined : String(s.connection),
     type: s.type ?? undefined,
     page: s.type == null || s.page === 1 ? undefined : String(s.page),
+    tab: s.tab === 'overview' ? undefined : s.tab,
   }
 }
 
@@ -123,5 +122,6 @@ export function graphParams(
   focus: string,
   { connection = s.connection, depth = s.depth }: { connection?: number | null; depth?: Depth } = {},
 ) {
-  return { focus, depth, layer: s.layers, origin: s.origins, connection_id: connection ?? undefined }
+  // Both sources are always drawn (owner, 2026-11-14): the API's default.
+  return { focus, depth, layer: s.layers, connection_id: connection ?? undefined }
 }

@@ -15,7 +15,6 @@ import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
-import AppIcon from '@/components/AppIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import MultiSelect from '@/components/MultiSelect.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -28,8 +27,8 @@ import MapList from './MapList.vue'
 import MapPanel from './MapPanel.vue'
 import MapStart from './MapStart.vue'
 import ResourceSearch from './ResourceSearch.vue'
-import { addMember, emptyGraph, MAX_NODES, mergeGraph, nodeName, scanLine, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
-import { DEPTHS, LAYER_LABEL, LAYERS, ORIGIN_LABEL, ORIGINS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapKind, type MapState, type Origin } from './mapQuery'
+import { addMember, emptyGraph, MAX_NODES, mergeGraph, nodeName, replay, scanLine, withoutExpand, type GraphResponse, type GraphState, type MapEdge, type MapNode, type Selection, type Step } from './mapGraph'
+import { DEFAULT_LAYERS, DEPTHS, LAYER_LABEL, LAYERS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapKind, type MapState } from './mapQuery'
 
 const props = withDefaults(defineProps<{ map?: MapKind }>(), { map: 'resource' })
 const route = useRoute()
@@ -61,6 +60,11 @@ function connectionName(id: number): string {
 
 // ---- The graph: the focus neighbourhood, then what Expand and group members add.
 const graph = shallowRef<GraphState>(emptyGraph())
+// The first read and what grew the map since (Expand, a group's member): Collapse draws the map
+// again from them without one Expand (mapGraph.replay).
+let base: GraphResponse = { nodes: [], edges: [] }
+const steps = shallowRef<Step[]>([])
+const collapsible = computed(() => new Set(steps.value.flatMap((st) => (st.kind === 'expand' ? [st.uid] : []))))
 const loading = ref(false)
 const error = ref<string | null>(null)
 const notFound = ref(false)
@@ -77,7 +81,7 @@ const localSelection = ref<Selection | null>(null)
 // The map is in the key: the two maps' routes share this component instance, so Back from the
 // Security Map to the Resource Map at the same focus must read the plain graph again.
 const neighbourhoodKey = computed(() =>
-  JSON.stringify([props.map, state.value.focus, state.value.connection, state.value.depth, state.value.layers, state.value.origins]),
+  JSON.stringify([props.map, state.value.focus, state.value.connection, state.value.depth, state.value.layers]),
 )
 
 /** "Recently opened": the focus, once the map has drawn it (it is in the inventory). */
@@ -97,6 +101,8 @@ async function load(): Promise<void> {
   const s = state.value
   const mine = ++generation
   graph.value = emptyGraph()
+  base = { nodes: [], edges: [] }
+  steps.value = []
   localSelection.value = null // a group or an edge of the old neighbourhood
   truncated.value = false
   capped.value = false
@@ -108,6 +114,7 @@ async function load(): Promise<void> {
     const result = await readGraph(graphParams(s, s.focus))
     if (mine !== generation) return
     const merged = mergeGraph(emptyGraph(), result)
+    base = result
     graph.value = merged.state
     walked.value = result.connection_id
     truncated.value = result.truncated
@@ -138,6 +145,7 @@ async function expand(uid: string): Promise<void> {
     if (mine !== generation) return
     const merged = mergeGraph(graph.value, result)
     graph.value = merged.state
+    steps.value = [...steps.value, { kind: 'expand', uid, response: result }]
     capped.value ||= merged.capped || result.truncated
   } catch (err) {
     if (mine === generation) error.value = err instanceof ApiError ? err.message : 'Something went wrong while expanding.'
@@ -147,8 +155,20 @@ async function expand(uid: string): Promise<void> {
 function add(member: { node: MapNode; edge: MapEdge }): void {
   const merged = addMember(graph.value, member)
   graph.value = merged.state
+  steps.value = [...steps.value, { kind: 'add', anchor: member.edge.source_uid === member.node.uid ? member.edge.target_uid : member.edge.source_uid, member }]
   capped.value ||= merged.capped
 }
+
+/** Undoes one Expand: the map without it, and without what grew from what it added. */
+function collapse(uid: string): void {
+  const before = graph.value.nodes.size
+  const again = replay(base, withoutExpand(steps.value, uid))
+  graph.value = again.state
+  steps.value = again.steps
+  capped.value = again.capped
+  collapsedNote.value = `${graph.value.nodes.get(uid) ? nodeName(graph.value.nodes.get(uid)!) : 'The resource'} collapsed, ${before - again.state.nodes.size} resources removed.`
+}
+const collapsedNote = ref('')
 
 /** A boundary node becomes the focus in its own connection; anything else stays in this one. */
 function focusHere(uid: string): void {
@@ -167,7 +187,11 @@ const everSelected = ref(false)
 watch(selection, (sel) => {
   if (sel) everSelected.value = true
 }, { immediate: true })
+// The last selection the panel took focus for (see the watch below): a person clearing the
+// selection forgets it, so choosing the same card again takes focus again.
+let lastSelected: string | null = null
 function select(next: Selection | null): void {
+  if (next == null) lastSelected = null
   if (next?.kind === 'node') {
     localSelection.value = null
     if (state.value.open !== next.id) navigate({ open: next.id }, 'replace')
@@ -209,11 +233,6 @@ const layerOptions = LAYERS.map((l) => ({ value: l, label: LAYER_LABEL[l] }))
 function setLayers(values: string[]): void {
   navigate({ layers: chosenLayers(values) })
 }
-function toggleOrigin(origin: Origin): void {
-  const on = state.value.origins.includes(origin)
-  if (on && state.value.origins.length === 1) return // one origin stays on
-  navigate({ origins: on ? state.value.origins.filter((o) => o !== origin) : ORIGINS.filter((o) => o === origin || state.value.origins.includes(o)) })
-}
 /** Back to the focus and its neighbourhood at the chosen depth: no expansions or selection. */
 function reset(): void {
   if (state.value.open) navigate({ open: null }, 'replace')
@@ -240,10 +259,14 @@ onBeforeUnmount(() => media?.removeEventListener('change', onMedia))
 const panel = ref<InstanceType<typeof MapPanel> | null>(null)
 const sheetTitle = computed(() => (panel.value?.title as string | undefined) ?? 'Resource')
 const sheetCaption = computed(() => (panel.value?.caption as string | undefined) ?? '')
-watch(selection, (sel, before) => {
-  if (sel && !narrow.value && JSON.stringify(sel) !== JSON.stringify(before)) {
-    void nextTick(() => panelRef.value?.querySelector<HTMLElement>('.title')?.focus({ preventScroll: true }))
-  }
+// Only a new choice moves focus: a reload (a toggle in Connections, a depth) empties the graph
+// and brings the same selection back, and taking focus then would close the open menu.
+watch(selection, (sel) => {
+  if (!sel) return
+  const key = JSON.stringify(sel)
+  if (key === lastSelected) return
+  lastSelected = key
+  if (!narrow.value) void nextTick(() => panelRef.value?.querySelector<HTMLElement>('.title')?.focus({ preventScroll: true }))
 })
 
 const alone = computed(() => started.value && !loading.value && graph.value.nodes.size === 1 && graph.value.edges.size === 0 && graph.value.groups.size === 0)
@@ -274,24 +297,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
       </div>
     </div>
     <div class="field">
-      <MultiSelect id="map-layers" label="Connections" :options="layerOptions" :model-value="state.layers" @update:model-value="setLayers" />
-    </div>
-    <div class="field">
-      <span id="map-origins" class="lbl">Sources</span>
-      <div class="origins" role="group" aria-labelledby="map-origins">
-        <button
-          v-for="o in ORIGINS"
-          :key="o"
-          type="button"
-          class="toggle-chip"
-          :aria-pressed="state.origins.includes(o)"
-          :disabled="state.origins.includes(o) && state.origins.length === 1"
-          :title="state.origins.includes(o) && state.origins.length === 1 ? 'One source stays on' : undefined"
-          @click="toggleOrigin(o)"
-        >
-          <AppIcon v-if="state.origins.includes(o)" name="check" :size="14" :stroke="2.2" />{{ ORIGIN_LABEL[o] }}
-        </button>
-      </div>
+      <MultiSelect id="map-layers" label="Connections" :options="layerOptions" :model-value="state.layers" select-all :reset-to="DEFAULT_LAYERS" @update:model-value="setLayers" />
     </div>
     <div class="field">
       <span id="map-view" class="lbl">Show as</span>
@@ -309,6 +315,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
     <template v-if="!everyLayer" #action><button type="button" class="btn btn-secondary btn-sm" @click="setLayers([])">Show every connection</button></template>
   </AlertBanner>
   <p v-if="groupCount" class="sr-only" role="status">{{ groupCount }} groups stand for resources not drawn one by one.</p>
+  <p class="sr-only" role="status">{{ collapsedNote }}</p>
 
   <div class="work" :class="{ 'has-panel': started && !narrow && !!selection }">
     <section class="card canvas-card" :class="{ 'is-map': started && state.view === 'map' }" :aria-label="title">
@@ -356,8 +363,10 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         :focus="state.focus"
         :selection="selection"
         :connection-name="connectionName"
+        :collapsible="collapsible"
         @select="select"
         @expand="expand"
+        @collapse="collapse"
         @focus-here="focusHere"
       >
         <template #overlay>
@@ -373,9 +382,13 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         :graph="graph"
         :selection="selection"
         :full="full"
+        :collapsible="collapsible"
+        :tab="state.tab"
         :connection-name="connectionName"
         :connection-id="walked"
+        @tab="(t) => navigate({ tab: t }, 'replace')"
         @close="select(null)"
+        @collapse="collapse"
         @expand="expand"
         @focus-here="focusHere"
         @add="add"
@@ -392,9 +405,13 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
       :graph="graph"
       :selection="selection"
       :full="full"
+      :collapsible="collapsible"
+      :tab="state.tab"
       :connection-name="connectionName"
       :connection-id="walked"
+      @tab="(t) => navigate({ tab: t }, 'replace')"
       @close="select(null)"
+      @collapse="collapse"
       @expand="expand"
       @focus-here="focusHere"
       @add="add"
@@ -410,35 +427,6 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
   align-items: flex-end;
   gap: var(--s-12) var(--s-16);
   padding: var(--s-16);
-}
-
-.origins {
-  display: flex;
-  gap: var(--s-6);
-}
-
-.toggle-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--s-4);
-  height: var(--control-h);
-  padding: 0 var(--s-12);
-  border: 1px solid var(--border-control);
-  border-radius: var(--r-control);
-  background: var(--surface-sunken);
-  color: var(--text-2);
-  font-size: 13px;
-  cursor: pointer;
-}
-
-.toggle-chip[aria-pressed='true'] {
-  background: var(--surface-raised);
-  color: var(--text);
-  font-weight: 600;
-}
-
-.toggle-chip:disabled {
-  cursor: not-allowed;
 }
 
 .reset {

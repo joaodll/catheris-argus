@@ -1586,6 +1586,8 @@ export interface components {
              * Format: date
              */
             last_seen: string;
+            /** Layer */
+            layer?: string | null;
             /** Origin */
             origin: string;
             /** Source Name */
@@ -2069,6 +2071,8 @@ export interface components {
              * Format: date
              */
             last_seen: string;
+            /** Layer */
+            layer: string | null;
             /** Origin */
             origin: string;
             /** Source Uid */
@@ -2114,6 +2118,8 @@ export interface components {
             edge_type: string;
             /** Id */
             id: string;
+            /** Layer */
+            layer: string | null;
             /** Resource Type */
             resource_type: string | null;
         };
@@ -2608,6 +2614,10 @@ export interface components {
             name: string | null;
             /** Native Id */
             native_id: string;
+            /** Open By Severity */
+            open_by_severity: {
+                [key: string]: number;
+            };
             /** Provider */
             provider: string;
             /** Region */

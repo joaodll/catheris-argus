@@ -7,13 +7,13 @@ describe('Map state in the URL', () => {
     expect(state).toEqual({
       focus: null,
       depth: 1,
-      layers: ['traffic', 'identity'],
-      origins: ['rule', 'cloudfox'],
+      layers: ['traffic', 'identity', 'network', 'policy'],
       view: 'map',
       open: null,
       connection: null,
       type: null,
       page: 1,
+      tab: 'overview',
     })
     expect(Object.values(mapQueryToUrl(state)).filter((v) => v !== undefined)).toEqual([])
   })
@@ -35,18 +35,26 @@ describe('Map state in the URL', () => {
     const query = {
       focus: 'arn:aws:lambda:us-east-1:1:function:api',
       layer: ['network', 'traffic'],
-      origin: 'cloudfox',
       view: 'list',
       open: 'internet',
     }
     const state = parseMapQuery(query)
     expect(state.layers).toEqual(['traffic', 'network'])
-    expect(mapQueryToUrl(state)).toMatchObject({ ...query, layer: ['traffic', 'network'], origin: ['cloudfox'] })
+    expect(mapQueryToUrl(state)).toMatchObject({ ...query, layer: ['traffic', 'network'] })
   })
 
   it('ignores values it does not know', () => {
     const state = parseMapQuery({ layer: 'everything', origin: 'probe', view: 'graph', focus: 'x'.repeat(3000) })
-    expect(state).toMatchObject({ layers: ['traffic', 'identity'], origins: ['rule', 'cloudfox'], view: 'map', focus: null })
+    expect(state).toMatchObject({ layers: ['traffic', 'identity', 'network', 'policy'], view: 'map', focus: null })
+    // Sources is gone (owner, 2026-11-14): an old link's ?origin= is ignored and never written.
+    expect('origin' in mapQueryToUrl(parseMapQuery({ origin: 'cloudfox' }))).toBe(false)
+  })
+
+  it("keeps the panel's tab, leaves Overview out and ignores an unknown one", () => {
+    expect(parseMapQuery({ tab: 'problems' }).tab).toBe('problems')
+    expect(mapQueryToUrl(parseMapQuery({ tab: 'problems' })).tab).toBe('problems')
+    expect(mapQueryToUrl(parseMapQuery({ tab: 'overview' })).tab).toBeUndefined()
+    expect(parseMapQuery({ tab: 'summary' }).tab).toBe('overview')
   })
 
   it('defaults to the List view on a phone, and keeps a chosen Map', () => {
@@ -61,7 +69,7 @@ describe('Map state in the URL', () => {
 
   it('builds the graph request for a focus', () => {
     const state = parseMapQuery({ focus: 'a', depth: '2', as_of: '2026-10-01' }) // an older link's day means nothing now
-    expect(graphParams(state, 'b')).toEqual({ focus: 'b', depth: 2, layer: ['traffic', 'identity'], origin: ['rule', 'cloudfox'], connection_id: undefined })
+    expect(graphParams(state, 'b')).toEqual({ focus: 'b', depth: 2, layer: ['traffic', 'identity', 'network', 'policy'], connection_id: undefined })
     expect(graphParams({ ...state, connection: 4 }, 'b').connection_id).toBe(4)
     expect(graphParams({ ...state, connection: 4 }, 'b', { connection: 7 }).connection_id).toBe(7)
     // Expand reads one hop, whatever the depth.

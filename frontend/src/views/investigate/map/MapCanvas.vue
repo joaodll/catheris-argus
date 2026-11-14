@@ -24,7 +24,7 @@
  * shows when hovered.
  *
  * The canvas is one focusable region: the arrow keys move a keyboard position between nodes,
- * Enter selects, E expands, F makes the focus, Esc clears. The List view is the accessible
+ * Enter selects, E expands, C collapses, F makes the focus, Esc clears. The List view is the accessible
  * equivalent of the whole picture.
  */
 import cytoscape, { type Core, type EdgeSingular, type ElementDefinition } from 'cytoscape'
@@ -47,8 +47,10 @@ const props = defineProps<{
   selection: Selection | null
   connectionName: (id: number) => string
   map?: MapKind
+  // The cards a person expanded (Collapse undoes them).
+  collapsible?: ReadonlySet<string>
 }>()
-const emit = defineEmits<{ select: [selection: Selection | null]; expand: [uid: string]; focusHere: [uid: string] }>()
+const emit = defineEmits<{ select: [selection: Selection | null]; expand: [uid: string]; collapse: [uid: string]; focusHere: [uid: string] }>()
 const security = computed(() => props.map === 'security')
 
 /** One card on the canvas: a node of the graph, or a group standing for many. */
@@ -140,7 +142,7 @@ const laid = computed(() => {
   const laidNodes = cards.value.map<LaidNode>((c) => ({ id: c.id, kind: c.kind, type: c.type, name: c.name }))
   return layout(
     laidNodes,
-    lines.value.map((l) => ({ source: l.source, target: l.target })),
+    lines.value.map((l) => ({ source: l.source, target: l.target, layer: l.layer })),
     props.focus,
   )
 })
@@ -374,9 +376,23 @@ function fit(eles?: cytoscape.CollectionArgument, animate = false): void {
   else c.viewport(viewport)
 }
 
-/** The first view of a graph: everything fitted. */
+// The opening view reads (spec frontend/d37cd13b, B): everything when it fits at this zoom or
+// more, else this zoom centred on the focus, with the overview for the rest.
+const OPEN_ZOOM = 0.8
+/** The first view of a graph: everything fitted if the cards stay readable, else the focus at a
+ * readable zoom. */
 function firstView(): void {
-  fit()
+  const c = cy.value
+  if (!c || c.elements().length === 0) return
+  const box = c.elements().boundingBox()
+  const level = Math.min(MAX_FIT_ZOOM, (c.width() - 2 * FIT_PADDING) / Math.max(box.w, 1), (c.height() - 2 * FIT_PADDING) / Math.max(box.h, 1))
+  const focusEl = props.focus ? c.getElementById(props.focus) : null
+  if (level >= OPEN_ZOOM || !focusEl || focusEl.empty()) {
+    fit()
+    return
+  }
+  const p = focusEl.position()
+  c.viewport({ zoom: OPEN_ZOOM, pan: { x: c.width() / 2 - p.x * OPEN_ZOOM, y: c.height() / 2 - p.y * OPEN_ZOOM } })
 }
 
 /** The drawn elements with these ids (an id no longer drawn is skipped). */
@@ -506,6 +522,8 @@ const regionStyle = computed(() => ({ backgroundSize: `${GRID * zoom.value}px ${
 const columnNames = computed(() => {
   let top = Infinity
   for (const p of laid.value.positions.values()) top = Math.min(top, p.y)
+  // A kind's header sits above its first card: the column names go above the highest header.
+  for (const h of laid.value.headers) top = Math.min(top, h.y + NODE_HEIGHT / 2)
   if (!Number.isFinite(top)) return []
   return laid.value.lanes.map((l) => ({ lane: l.lane, label: l.label, left: l.x + LANE_WIDTH / 2, top: top - LANE_NAME_RISE }))
 })
@@ -594,6 +612,8 @@ function onKey(event: KeyboardEvent): void {
     clickCard(card)
   } else if ((event.key === 'e' || event.key === 'E') && card) {
     expandCard(card)
+  } else if ((event.key === 'c' || event.key === 'C') && card && props.collapsible?.has(card.id)) {
+    emit('collapse', card.id)
   } else if ((event.key === 'f' || event.key === 'F') && card?.node && card.kind === 'resource') {
     emit('focusHere', card.id)
   } else if (event.key === 'Escape') {
@@ -723,6 +743,7 @@ defineExpose({ fit })
     <div ref="container" class="cy"></div>
     <div class="world" :class="{ far }" :style="worldStyle" aria-hidden="true" @wheel="onWheel">
       <span v-for="col in columnNames" :key="col.lane" class="eyebrow col-name" :style="{ left: `${col.left}px`, top: `${col.top}px` }">{{ col.label }}</span>
+      <span v-for="h in laid.headers" :key="h.key" class="eyebrow kind-name" :style="{ left: `${h.x}px`, top: `${h.y}px` }">{{ h.label }}</span>
       <span v-for="w in words" :key="w.key" class="line-word" :class="[w.tone, { sec: w.sec }]" :style="{ left: `${w.x}px`, top: `${w.y}px` }">{{ w.text }}</span>
       <div
         v-for="card in cards"
@@ -865,6 +886,19 @@ defineExpose({ fit })
   white-space: nowrap;
   letter-spacing: 0.12em;
   color: var(--text-3);
+}
+
+/* A kind's header inside a column (spec frontend/d37cd13b, A): the word carries the kind. */
+.kind-name {
+  position: absolute;
+  padding-top: 18px;
+  white-space: nowrap;
+  letter-spacing: 0.12em;
+  color: var(--text-3);
+}
+
+.world.far .kind-name {
+  visibility: hidden;
 }
 
 .line-word {

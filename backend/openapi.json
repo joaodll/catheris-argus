@@ -1061,6 +1061,17 @@
             "title": "Last Seen",
             "type": "string"
           },
+          "layer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer"
+          },
           "origin": {
             "title": "Origin",
             "type": "string"
@@ -2727,6 +2738,17 @@
             "title": "Last Seen",
             "type": "string"
           },
+          "layer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer"
+          },
           "origin": {
             "title": "Origin",
             "type": "string"
@@ -2752,7 +2774,8 @@
           "origin",
           "attributes",
           "first_seen",
-          "last_seen"
+          "last_seen",
+          "layer"
         ],
         "title": "MapEdge",
         "type": "object"
@@ -2848,6 +2871,17 @@
             "title": "Id",
             "type": "string"
           },
+          "layer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layer"
+          },
           "resource_type": {
             "anyOf": [
               {
@@ -2866,7 +2900,8 @@
           "direction",
           "edge_type",
           "resource_type",
-          "count"
+          "count",
+          "layer"
         ],
         "title": "MapGroup",
         "type": "object"
@@ -4423,6 +4458,13 @@
             "title": "Native Id",
             "type": "string"
           },
+          "open_by_severity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Open By Severity",
+            "type": "object"
+          },
           "provider": {
             "title": "Provider",
             "type": "string"
@@ -4501,7 +4543,8 @@
           "edges",
           "scanned",
           "commands",
-          "vulnerabilities"
+          "vulnerabilities",
+          "open_by_severity"
         ],
         "title": "ResourceDetail",
         "type": "object"

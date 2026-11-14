@@ -101,12 +101,22 @@ architecture diagram. Security judgements, such as who can escalate to administr
 Security Map (below).
 
 The chosen resource sits in the middle, with what leads to it on its left and what it leads to on
-its right. Each line says what it is in plain words ("routes to", "runs as"). **Depth** draws one,
-two or three hops around it at once. Open a resource and choose **Expand** to add its own
-neighbours: the map grows one column per click. The map never walks past the internet, an
-account's administrator or another account's resource on its own; expand those yourself. Use
-**Connections** to choose which kinds of line are drawn (traffic, identity, network, IAM policy,
-data access).
+its right. In each column the resources are grouped by the kind of line that reaches them
+(Traffic, Network, Identity, IAM policy, Data access), each group under its name, and sit beside
+what they connect to. An EC2 instance, for example, opens with its subnet and security groups
+under Network and its role under Identity. Each line says what it is in plain words ("routes to",
+"runs as"). **Depth** draws one, two or three hops around it at once. Open a resource and choose
+**Expand** to add its own neighbours; **Collapse** takes them away again. The map never walks
+past the internet, an account's administrator, another account's resource, a VPC or a subnet on
+its own; expand those yourself.
+
+**Connections** chooses which kinds of line are drawn. A map opens with every kind but Data
+access, which can reach many resources; **Select all** adds it and **Default** goes back. A solid
+line was found by Argus's own rules, a dashed one only by CloudFox (the Legend says so too).
+
+Choosing a resource opens its panel: a short summary first, then tabs. **Overview** says what it
+is and where, **Connections** lists its lines by kind, and **Config** holds its tags and
+configuration.
 
 - More than 25 neighbours of one kind are drawn as one group card. Open it to list its members
   and add the ones you want.
@@ -133,9 +143,10 @@ Security Map** is on every resource in **Resources**. It adds:
   vulnerabilities, and a warning sign for a public exploit. A card shows nothing when there is
   nothing, or when the tools have not scanned that account; its tooltip and the List view say
   which.
-- **In the panel**, the resource's facts, each a link to the list that counts it
-  (Misconfigurations, Vulnerabilities, or Misconfigurations whose internet reach is confirmed),
-  then the whole resource as Resources shows it.
+- **In the panel**, the summary is the resource's problems: open misconfigurations by severity,
+  internet reach and vulnerabilities, each a link to the list that counts it. A **Problems** tab
+  holds the tools' findings, its vulnerabilities, the door from the internet and CloudFox's
+  commands.
 
 The counts are the ones Resources and the lists show. The map finds no whole attack routes: it
 draws the lines one by one, and you follow them.

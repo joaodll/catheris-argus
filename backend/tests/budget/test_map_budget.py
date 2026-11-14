@@ -108,6 +108,8 @@ class Sample:
     errors: list[str] = field(default_factory=list)
     # What each timed-out request asked for, so a failure says which reads were slow.
     timed_out: list[str] = field(default_factory=list)
+    # Each kind of request's latencies, so a slow mix says which reads made it slow.
+    by_label: dict[str, list[float]] = field(default_factory=dict)
 
     def line(self) -> str:
         if not self.latencies_ms:
@@ -201,6 +203,7 @@ def _client(
             ms = (time.perf_counter() - started) * 1000
             with lock:
                 sample.latencies_ms.append(ms)
+                sample.by_label.setdefault(_label(ask), []).append(ms)
         except OperationalError as e:
             with lock:
                 if "timeout" in str(e).lower() or "canceling statement" in str(e).lower():
@@ -421,6 +424,14 @@ def test_a_realistic_mix_stays_within_budget_idle_and_during_an_ingest(estate: E
                 print(f"      {error}")
             for label, count in Counter(results[condition].timed_out).most_common():
                 print(f"      timed out {count}x: {label}")
+            slowest = sorted(
+                results[condition].by_label.items(),
+                key=lambda kv: -_percentile(kv[1], 0.95),
+            )[:5]
+            for label, times in slowest:
+                print(
+                    f"      slowest: p95 {_percentile(times, 0.95):7.1f} ms ({len(times)}x) {label}"
+                )
     finally:
         api.dispose()
     for condition, sample in results.items():

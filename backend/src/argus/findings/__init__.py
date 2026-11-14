@@ -82,6 +82,7 @@ from argus.findings.queries import (
     iter_findings,
     list_findings,
     open_finding_counts,
+    open_finding_severities,
 )
 from argus.findings.repair import remove_compliance_items
 from argus.findings.vulnerabilities import (
@@ -151,6 +152,7 @@ __all__ = [
     "load_tool_findings",
     "load_vulnerabilities",
     "open_finding_counts",
+    "open_finding_severities",
     "parse_prowler",
     "parse_vulnerabilities",
     "put_findings_metrics",

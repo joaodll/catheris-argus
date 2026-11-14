@@ -5,6 +5,9 @@
  * once; nothing chosen means no filter ("All"). Options that name a `group` are listed under its
  * header, in the order given (the Type filter groups types by service): a header is a label,
  * never an option, so the arrow keys pass over it.
+ *
+ * A choice where nothing chosen is not "All" (the map's Connections) passes `selectAll` and
+ * `resetTo`: the footer then offers "Select all" and "Default" in place of Clear.
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -28,8 +31,12 @@ const props = withDefaults(
     status?: 'ready' | 'loading' | 'error'
     // What the trigger says with nothing chosen: "All" for a filter; a skip list says "None".
     emptyLabel?: string
+    // The footer offers "Select all" (every option) in place of Clear.
+    selectAll?: boolean
+    // The footer offers "Default" (these values) in place of Clear.
+    resetTo?: string[]
   }>(),
-  { status: 'ready', emptyLabel: 'All' },
+  { status: 'ready', emptyLabel: 'All', resetTo: undefined },
 )
 const emit = defineEmits<{ 'update:modelValue': [string[]] }>()
 
@@ -59,6 +66,8 @@ const summary = computed(() => {
   return labels.value[0] ?? props.emptyLabel
 })
 const extra = computed(() => Math.max(0, labels.value.length - 1))
+const allChosen = computed(() => props.options.every((o) => chosen.value.has(o.value)))
+const atDefault = computed(() => !!props.resetTo && props.resetTo.length === chosen.value.size && props.resetTo.every((v) => chosen.value.has(v)))
 const optionId = (index: number): string => `${props.id}-opt-${index}`
 const activeId = computed(() => (shown.value.length ? optionId(active.value) : undefined))
 // The shown options in runs of one group, each option keeping its index in `shown` (the keys
@@ -73,6 +82,13 @@ const sections = computed(() => {
   })
   return runs
 })
+
+/** Select all or Default: the button hides once it applies, so the focus moves to the list
+ * first, or losing it would close the panel. */
+function choose(values: string[]): void {
+  listbox.value?.focus()
+  emit('update:modelValue', values)
+}
 
 function toggleValue(value: string): void {
   const next = chosen.value.has(value) ? props.modelValue.filter((v) => v !== value) : [...props.modelValue, value]
@@ -239,7 +255,14 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
         </li>
       </ul>
       <p v-if="!shown.length" class="cap ms-none">No match</p>
-      <div v-if="modelValue.length" class="ms-foot">
+      <div v-if="selectAll || resetTo" class="ms-foot">
+        <span class="cap">{{ modelValue.length }} selected</span>
+        <span class="ms-foot-actions">
+          <button v-if="selectAll && !allChosen" type="button" class="btn btn-ghost btn-sm" @click="choose(options.map((o) => o.value))">Select all</button>
+          <button v-if="resetTo && !atDefault" type="button" class="btn btn-ghost btn-sm" @click="choose([...resetTo])">Default</button>
+        </span>
+      </div>
+      <div v-else-if="modelValue.length" class="ms-foot">
         <span class="cap">{{ modelValue.length }} selected</span>
         <button type="button" class="btn btn-ghost btn-sm" @click="emit('update:modelValue', [])">Clear</button>
       </div>
@@ -435,6 +458,11 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
   margin: 0;
   padding: var(--s-8);
   text-align: center;
+}
+
+.ms-foot-actions {
+  display: inline-flex;
+  gap: var(--s-4);
 }
 
 .ms-foot {
