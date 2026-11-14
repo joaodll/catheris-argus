@@ -34,6 +34,19 @@ def to_json(filters: FindingFilters) -> dict[str, Any]:
     return out
 
 
+def _tags(stored: Any) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Stored tags, [[name, [values]], ...], back to FindingFilters.tags; any other shape is
+    refused, as an unknown filter is."""
+    out: list[tuple[str, tuple[str, ...]]] = []
+    for item in stored or ():
+        match item:
+            case [str() as key, list() as values] if all(isinstance(v, str) for v in values):
+                out.append((key, tuple(values)))
+            case _:
+                raise ValueError("malformed report tag filter")
+    return tuple(out)
+
+
 def from_json(
     kind: ReportKind, stored: dict[str, Any], *, connection_ids: list[int]
 ) -> FindingFilters:
@@ -46,7 +59,9 @@ def from_json(
     for name, value in stored.items():
         if name in _SET_BY_THE_REPORT:
             continue
-        if name in _TUPLES:
+        if name == "tags":
+            values[name] = _tags(value)
+        elif name in _TUPLES:
             values[name] = tuple(value or ())
         elif name in _DATES:
             values[name] = date.fromisoformat(value) if value else None

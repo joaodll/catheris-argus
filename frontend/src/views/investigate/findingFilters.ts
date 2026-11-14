@@ -8,6 +8,7 @@ import { PROVIDERS, type Provider } from '@/providers'
 import { SEVERITIES, type Severity } from '@/views/overview/severity'
 import type { FindingState } from './labels'
 import { FINDING_REACHES, type FindingReach } from './reachReason'
+import { type TagPair, byName, parseTags, tagParams } from './tagFilter'
 
 export type Tool = 'prowler' | 'cloudfox'
 export type Result = 'FAIL' | 'MANUAL'
@@ -36,10 +37,12 @@ export interface FindingFilters {
   state: FindingState
   q: string
   resource: number | null
+  // The finding's resource's tags (tagFilter.ts): values of one name OR, names AND.
+  tags: TagPair[]
 }
 
 /** The filters in row 2 (More filters): how many are set, for the button's count. */
-export const SECONDARY: (keyof FindingFilters)[] = ['service', 'type', 'check', 'reach', 'region', 'result', 'muted', 'new', 'firstSeenFrom']
+export const SECONDARY: (keyof FindingFilters)[] = ['service', 'type', 'check', 'reach', 'region', 'result', 'muted', 'new', 'firstSeenFrom', 'tags']
 
 const TOOLS: Tool[] = ['prowler', 'cloudfox']
 const PROVIDER_IDS: Provider[] = PROVIDERS.map((p) => p.id)
@@ -98,6 +101,7 @@ export function parseFilters(query: LocationQuery): FindingFilters {
     state: oneOf(query.state, STATES, 'open'),
     q: strings(query.q)[0]?.slice(0, 200) ?? '',
     resource,
+    tags: parseTags(query.tag),
   }
 }
 
@@ -137,6 +141,7 @@ export function filtersToQuery(f: FindingFilters): LocationQueryRaw {
     state: f.state === 'open' ? undefined : f.state,
     q: f.q || undefined,
     resource: f.resource == null ? undefined : String(f.resource),
+    tag: list(tagParams(f.tags)),
   }
 }
 
@@ -161,6 +166,7 @@ export function apiFilters(f: FindingFilters) {
     state: f.state,
     q: f.q || null,
     resource_id: f.resource,
+    tag: tagParams(f.tags),
   }
 }
 
@@ -175,7 +181,10 @@ export function isFiltered(f: FindingFilters): boolean {
 
 /** How many row-2 filters are set. */
 export function secondaryCount(f: FindingFilters): number {
-  return SECONDARY.filter((key) => {
+  // Each tag name counts once.
+  const tags = byName(f.tags).length
+  return tags + SECONDARY.filter((key) => {
+    if (key === 'tags') return false
     if (key === 'firstSeenFrom') return Boolean(f.firstSeenFrom || f.firstSeenTo) // one filter, two ends
     const value = f[key]
     return Array.isArray(value) ? value.length > 0 : key === 'muted' ? value !== 'any' : Boolean(value)

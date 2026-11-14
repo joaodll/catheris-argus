@@ -25,6 +25,7 @@ from argus import connections, metrics
 from argus.core.resolver import record_unresolved, resolve
 from argus.findings.model import SEVERITIES, VULNERABILITY_TOOL, CheckText, FindingResult
 from argus.findings.prowler import ProwlerBatch
+from argus.findings.tags import lock_facets, refresh_tag_facets
 from argus.inventory import RESOURCES_ON_DAY_SQL, resource_id_sql
 
 SEVERITY_CODE = {s: i + 1 for i, s in enumerate(SEVERITIES)}
@@ -307,6 +308,7 @@ def _refresh_facets(conn: Connection, *, connection_id: int) -> None:
     the list reads these instead of a DISTINCT over every finding. CVE check ids are left out:
     one per CVE, thousands on a real account, too many for a list of options; the
     search matches a CVE id instead (ADR-0042)."""
+    lock_facets(conn, connection_id=connection_id)
     conn.execute(text("DELETE FROM finding_facet WHERE connection_id = :c"), {"c": connection_id})
     conn.execute(
         text(f"""
@@ -321,6 +323,7 @@ def _refresh_facets(conn: Connection, *, connection_id: int) -> None:
     """),  # noqa: S608 - a fixed constant
         {"c": connection_id},
     )
+    refresh_tag_facets(conn, connection_id=connection_id)
 
 
 def _frameworks(conn: Connection, batch: ProwlerBatch) -> None:

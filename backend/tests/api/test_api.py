@@ -771,6 +771,7 @@ def test_a_list_without_data_says_so(signed_in: TestClient) -> None:
         "resource_types": [],
         "categories": [],
         "checks": [],
+        "tags": [],
     }
     assert signed_in.get("/api/v1/resources/facets").json() == {"types": [], "regions": []}
 

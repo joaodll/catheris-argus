@@ -54,6 +54,8 @@ import { type FindingState, findingLine, regionLabel, uidTail } from './labels'
 import ReachBadge from './ReachBadge.vue'
 import { FINDING_REACHES, FINDING_REACH_LABEL, type FindingReach } from './reachReason'
 import ReportModal from '@/views/scans/ReportModal.vue'
+import TagChips from './TagChips.vue'
+import TagFilter from './TagFilter.vue'
 import InvestigateTabs from './summary/InvestigateTabs.vue'
 import MisconfigurationSummary from './summary/MisconfigurationSummary.vue'
 import { type Tab, parseTab, summaryConnection } from './summary/summaryTab'
@@ -423,6 +425,7 @@ const VIEWS: { value: View; label: string }[] = [
           <AppIcon name="cross" :size="14" :stroke="2.2" />
         </button>
       </span>
+      <TagChips :model-value="filters.tags" @update:model-value="set('tags', $event)" />
       <div class="field search">
         <label class="lbl" for="f-q">Search</label>
         <span class="search-wrap">
@@ -540,6 +543,15 @@ const VIEWS: { value: View; label: string }[] = [
             <input type="checkbox" :checked="filters.new" @change="set('new', ($event.target as HTMLInputElement).checked)">
             New in latest scan
           </label>
+          <TagFilter
+            id="f-tag"
+            list="misconfigurations"
+            :names="facets.data.value?.tags ?? null"
+            :status="facetStatus"
+            :connection-ids="filters.connection"
+            :model-value="filters.tags"
+            @update:model-value="set('tags', $event)"
+          />
           <fieldset class="field first-seen">
             <legend class="lbl">First seen</legend>
             <span class="dates">

@@ -1471,6 +1471,13 @@
             },
             "title": "Services",
             "type": "array"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/TagKeyOut"
+            },
+            "title": "Tags",
+            "type": "array"
           }
         },
         "required": [
@@ -1478,7 +1485,8 @@
           "services",
           "resource_types",
           "categories",
-          "checks"
+          "checks",
+          "tags"
         ],
         "title": "FindingFacets",
         "type": "object"
@@ -1669,6 +1677,16 @@
             },
             "maxItems": 50,
             "title": "Status",
+            "type": "array"
+          },
+          "tag": {
+            "items": {
+              "maxLength": 2400,
+              "minLength": 7,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Tag",
             "type": "array"
           },
           "tool": {
@@ -5491,6 +5509,51 @@
         "title": "TableError",
         "type": "object"
       },
+      "TagKeyOut": {
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "listed": {
+            "title": "Listed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "listed"
+        ],
+        "title": "TagKeyOut",
+        "type": "object"
+      },
+      "TagValues": {
+        "description": "One tag name's values, in order, at most 500: narrow them with `q`, or type one when\n`more`.",
+        "properties": {
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "more": {
+            "title": "More",
+            "type": "boolean"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "values",
+          "more"
+        ],
+        "title": "TagValues",
+        "type": "object"
+      },
       "TestOut": {
         "properties": {
           "caller_arn": {
@@ -6217,11 +6280,19 @@
             },
             "title": "Resource Types",
             "type": "array"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/TagKeyOut"
+            },
+            "title": "Tags",
+            "type": "array"
           }
         },
         "required": [
           "regions",
-          "resource_types"
+          "resource_types",
+          "tags"
         ],
         "title": "VulnerabilityFacets",
         "type": "object"
@@ -6382,6 +6453,16 @@
             ],
             "title": "State",
             "type": "string"
+          },
+          "tag": {
+            "items": {
+              "maxLength": 2400,
+              "minLength": 7,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Tag",
+            "type": "array"
           }
         },
         "title": "VulnerabilityFilterQuery",
@@ -8656,6 +8737,21 @@
           },
           {
             "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 2400,
+                "minLength": 7,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Tag",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
             "name": "q",
             "required": false,
             "schema": {
@@ -9160,6 +9256,21 @@
           },
           {
             "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 2400,
+                "minLength": 7,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Tag",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
             "name": "q",
             "required": false,
             "schema": {
@@ -9379,6 +9490,130 @@
           }
         },
         "summary": "Finding Summary",
+        "tags": [
+          "findings"
+        ]
+      }
+    },
+    "/api/v1/findings/tag-values": {
+      "get": {
+        "description": "A tag name's values on the Misconfigurations list's resources. A masked value is never\none.",
+        "operationId": "finding_tag_values_api_v1_findings_tag_values_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagValues"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Finding Tag Values",
         "tags": [
           "findings"
         ]
@@ -13117,6 +13352,21 @@
           },
           {
             "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 2400,
+                "minLength": 7,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Tag",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
             "name": "q",
             "required": false,
             "schema": {
@@ -13563,6 +13813,21 @@
           },
           {
             "in": "query",
+            "name": "tag",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 2400,
+                "minLength": 7,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Tag",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
             "name": "q",
             "required": false,
             "schema": {
@@ -13782,6 +14047,130 @@
           }
         },
         "summary": "Vulnerability Summary",
+        "tags": [
+          "vulnerabilities"
+        ]
+      }
+    },
+    "/api/v1/vulnerabilities/tag-values": {
+      "get": {
+        "description": "A tag name's values on the Vulnerabilities list's resources. A masked value is never\none.",
+        "operationId": "vulnerability_tag_values_api_v1_vulnerabilities_tag_values_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 1,
+              "title": "Key",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 256,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "default": [],
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagValues"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Vulnerability Tag Values",
         "tags": [
           "vulnerabilities"
         ]

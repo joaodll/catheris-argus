@@ -23,4 +23,11 @@ group('a report’s filters in words', () => {
     )
     expect(describe({ exploitable: true, fix: 'available' }, name)).toBe('public exploit · fix available')
   })
+
+  it('names tags, from the list and from a stored report alike', () => {
+    const query = { tag: [JSON.stringify(['Team', 'payments']), JSON.stringify(['Team', 'billing'])] }
+    const stored = { tags: [['Team', ['payments', 'billing']]] }
+    expect(describe(query, name)).toBe('tag Team = payments or billing')
+    expect(describe(fromStored(stored), name)).toBe('tag Team = payments or billing')
+  })
 })

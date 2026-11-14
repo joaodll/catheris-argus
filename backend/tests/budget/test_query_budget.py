@@ -90,6 +90,18 @@ def _generate(conn: Connection) -> None:
     """),
         {"n": ACCOUNTS, "d": TODAY},
     )
+    # Tags (migration 0051): a Name each, and three shared names of 3, 50 and 200 values.
+    conn.execute(
+        text("""
+        INSERT INTO resource_tag (resource_id, key, value)
+        SELECT r.id, t.key, t.value
+        FROM resource r,
+             LATERAL (VALUES ('Name', r.name),
+                             ('Environment', (ARRAY['prod','staging','dev'])[1 + r.id % 3]),
+                             ('Team', 'team-' || r.id % 50),
+                             ('CostCenter', 'cc-' || r.id % 200)) t(key, value)
+    """)
+    )
     # Every resource's inventory row: today's, or STALE's 90 days ago, with its load.
     conn.execute(
         text("""
@@ -200,6 +212,8 @@ def _generate(conn: Connection) -> None:
     _generate_edges(conn)
     _generate_compliance(conn)
     _generate_vulnerabilities(conn)
+    for connection_id in range(1, ACCOUNTS + 1):  # the Tag filter's options, as ingest builds them
+        findings.refresh_tag_facets(conn, connection_id=connection_id)
     conn.execute(text("ANALYZE"))
 
 
@@ -647,6 +661,53 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         c, limit=20, offset=0, filters=findings.FindingFilters(connection_ids=(7,))
     ),
     "findings, facets": lambda c: findings.finding_facets(c, tools=MISCONFIGURATIONS),
+    # The Tag filter (migration 0051): a rare tag, a common one, two names, one account.
+    "misconfigurations: a tag": lambda c: findings.list_findings(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(tools=MISCONFIGURATIONS, tags=(("CostCenter", ("cc-7",)),)),
+    ),
+    "misconfigurations: a common tag": lambda c: findings.list_findings(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(
+            tools=MISCONFIGURATIONS, tags=(("Environment", ("prod",)),)
+        ),
+    ),
+    "misconfigurations: two tag names": lambda c: findings.list_findings(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(
+            tools=MISCONFIGURATIONS,
+            tags=(("Environment", ("prod",)), ("Team", ("team-7", "team-8"))),
+        ),
+    ),
+    "misconfigurations: a tag, one account": lambda c: findings.list_findings(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(
+            tools=MISCONFIGURATIONS, connection_ids=(7,), tags=(("Team", ("team-7",)),)
+        ),
+    ),
+    "misconfigurations: by check, a common tag": lambda c: findings.finding_groups(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(
+            tools=MISCONFIGURATIONS, tags=(("Environment", ("prod",)),)
+        ),
+    ),
+    "misconfigurations: tag names": lambda c: findings.tag_keys(c, tools=MISCONFIGURATIONS),
+    "misconfigurations: tag values": lambda c: findings.tag_values(
+        c, tools=MISCONFIGURATIONS, key="CostCenter"
+    ),
+    "misconfigurations: tag values, searched, two accounts": lambda c: findings.tag_values(
+        c, tools=MISCONFIGURATIONS, key="CostCenter", connection_ids=(7, 8), q="cc-1"
+    ),
     "findings, facets, two accounts": lambda c: findings.finding_facets(
         c, tools=MISCONFIGURATIONS, connection_ids=(7, 8)
     ),
@@ -845,6 +906,14 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         filters=findings.FindingFilters(tools=("vulnerabilities",), fix="none"),
     ),
     "vulnerabilities: facets": lambda c: findings.finding_facets(c, tools=("vulnerabilities",)),
+    "vulnerabilities: a common tag": lambda c: findings.list_findings(
+        c,
+        limit=20,
+        offset=0,
+        filters=findings.FindingFilters(
+            tools=("vulnerabilities",), tags=(("Environment", ("prod",)),)
+        ),
+    ),
     "resources: summary, all accounts": lambda c: metrics.resource_summary(
         c, connection_id=0, today=TODAY
     ),
@@ -1072,6 +1141,20 @@ def test_the_summary_counts_of_one_account_stay_cheap_to_write(estate: Engine) -
         finally:
             transaction.rollback()
     print(f"misconfigurations: one account's counts and the rollup: {elapsed:.1f} ms")
+    assert elapsed < WRITER_BOUND_MS
+
+
+def test_the_tag_options_of_one_account_stay_cheap_to_write(estate: Engine) -> None:
+    """After a findings or inventory load: one account's Tag filter options (migration 0051)."""
+    with estate.connect() as conn:
+        transaction = conn.begin()
+        try:
+            start = time.perf_counter()
+            findings.refresh_tag_facets(conn, connection_id=1)
+            elapsed = (time.perf_counter() - start) * 1000
+        finally:
+            transaction.rollback()
+    print(f"tag options of the account with the CVEs: {elapsed:.1f} ms")
     assert elapsed < WRITER_BOUND_MS
 
 

@@ -3,6 +3,7 @@
  * filters in the API's query shape (connection_id, severity…); a stored report holds them in the
  * backend's shape (connection_ids, severities…). Both are described the same way.
  */
+import { byName, parseTags, tagParams, tagWords, type TagPair } from '@/views/investigate/tagFilter'
 
 export type ReportFilters = Record<string, unknown>
 
@@ -21,9 +22,21 @@ const STORED_AS_QUERY: Record<string, string> = {
   reaches: 'reach',
 }
 
-/** A stored report's filters in the list's query shape. */
+/** A stored report's filters in the list's query shape. Stored tags are [[name, [values]], ...];
+ * the list sends each pair as ["name", "value"]. */
 export function fromStored(stored: ReportFilters): ReportFilters {
-  return Object.fromEntries(Object.entries(stored).map(([k, v]) => [STORED_AS_QUERY[k] ?? k, v]))
+  return Object.fromEntries(
+    Object.entries(stored).map(([k, v]) => (k === 'tags' ? ['tag', tagParams(storedTags(v))] : [STORED_AS_QUERY[k] ?? k, v])),
+  )
+}
+
+function storedTags(value: unknown): TagPair[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item: unknown) => {
+    if (!Array.isArray(item) || typeof item[0] !== 'string' || !Array.isArray(item[1])) return []
+    const key = item[0]
+    return (item[1] as unknown[]).filter((v): v is string => typeof v === 'string').map((v): TagPair => [key, v])
+  })
 }
 
 const STATES: Record<string, string> = { reopened: 'Reopened', resolved: 'Resolved', accepted_risk: 'Accepted risk' }
@@ -77,6 +90,7 @@ export function describe(filters: ReportFilters, accountName: (id: number) => st
   if (f.exploitable === true) words.push('public exploit')
   if (f.fix === 'available') words.push('fix available')
   if (f.fix === 'none') words.push('no fix yet')
+  for (const { key, values } of byName(parseTags(list(f.tag)))) words.push(`tag ${tagWords(key, values)}`)
   const shown = words.filter((w): w is string => w !== null)
   return shown.length ? shown.join(' · ') : 'All open'
 }

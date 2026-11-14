@@ -86,6 +86,7 @@ def load_inventory(
                 for r in batch.resources
             ],
         )
+        _sync_tags(conn, uids=[r.uid for r in batch.resources], connection_id=connection_id)
 
     conn.execute(
         text(
@@ -197,3 +198,32 @@ def delete_orphan_configs(conn: Connection) -> int:
     """)
     ).rowcount
     return deleted
+
+
+def _sync_tags(conn: Connection, *, uids: list[str], connection_id: int) -> None:
+    """resource_tag mirrors resource.tags (migration 0051) for the resources this load wrote: a
+    pair the row no longer holds goes, a new one comes. Read from the rows themselves, so the two
+    can't disagree whatever the upsert kept, and a resource owned by another connection is
+    untouched. Unchanged tags write nothing."""
+    params = {"uids": uids, "c": connection_id}
+    conn.execute(
+        text("""
+            DELETE FROM resource_tag rt USING resource r
+            WHERE rt.resource_id = r.id AND r.resource_uid = ANY(CAST(:uids AS text[]))
+              AND r.connection_id = :c
+              AND (jsonb_typeof(r.tags) <> 'object' OR r.tags ->> rt.key IS DISTINCT FROM rt.value)
+        """),
+        params,
+    )
+    conn.execute(
+        text("""
+            INSERT INTO resource_tag (resource_id, key, value)
+            SELECT r.id, t.key, t.value
+            FROM resource r, jsonb_each_text(
+                   CASE WHEN jsonb_typeof(r.tags) = 'object' THEN r.tags ELSE '{}' END) t
+            WHERE r.resource_uid = ANY(CAST(:uids AS text[])) AND r.connection_id = :c
+              AND t.key <> '' AND t.value IS NOT NULL
+            ON CONFLICT (resource_id, key) DO NOTHING
+        """),
+        params,
+    )

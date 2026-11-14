@@ -36,6 +36,9 @@ DEMO_ONLY = (
     "Reports on this install cover Demo connections only. Filter the list to Demo accounts, "
     "or choose them in New report."
 )
+# report_request.filters' CHECK (migration 0047).
+FILTERS_MAX_CHARS = 16384
+TOO_MANY_FILTERS = "This report has too many filters to keep. Remove some tags or values."
 if "'" in STALE_ERROR:  # it is written into SQL as a literal below
     raise ValueError("STALE_ERROR must hold no quote")
 # Abandoned: still building long after it started. STALE_AFTER_SECONDS is an int constant.
@@ -88,6 +91,11 @@ def request_report(
     region) an S3 report goes to, recorded with it; None is the local store. Refused
     (ReportRefusedError) when no account matches, when one is a real AWS connection on a local
     store, or when the user already has MAX_OPEN_PER_USER open. The caller commits."""
+    stored = json.dumps(to_json(filters))
+    # report_request.filters holds at most FILTERS_MAX_CHARS (migration 0047). json.dumps escapes
+    # what jsonb keeps as one character, so its length is never shorter than the column's.
+    if len(stored) > FILTERS_MAX_CHARS:
+        raise ReportRefusedError(TOO_MANY_FILTERS)
     scope = resolve_scope(conn, filters.connection_ids)
     check_scope(scope, local=bucket is None)
     # One user's requests in turn, so two at once cannot both pass the cap.
@@ -117,7 +125,7 @@ def request_report(
         {
             "k": kind,
             "f": fmt,
-            "filters": json.dumps(to_json(filters)),
+            "filters": stored,
             "c": [cid for cid, _ in scope],
             "u": user_id,
             "n": username,

@@ -2,12 +2,14 @@
 
 Owns finding, finding_facet, finding_snapshot, finding_event, compliance_requirement,
 compliance_snapshot, compliance_framework, compliance_rollup, finding_vulnerability,
-vulnerability_coverage.
+vulnerability_coverage, finding_tag_key, finding_tag_value.
 Public interface:
     parse_prowler()     the Prowler adapter: one run's raw files -> ProwlerBatch (pure)
     load_prowler()      lifecycle + day snapshots for one connection and day
     list_findings(), finding_facets(), open_finding_counts()   the read side (Findings page)
     iter_findings()     every finding matching the list's filters, in id batches (reports)
+    tag_keys(), tag_values()   the Tag filter's options; refresh_tag_facets() rebuilds them after
+                        an inventory load (ingest), as a findings load does itself
     check_texts()       each listed check's risk, description and fix code (reports)
     finding_groups()    the Findings list by check
     framework_catalog(), list_requirements()                   the read side (Compliance page)
@@ -82,6 +84,13 @@ from argus.findings.queries import (
     open_finding_counts,
 )
 from argus.findings.repair import remove_compliance_items
+from argus.findings.tags import (
+    TAG_VALUES_LISTED,
+    TagKey,
+    refresh_tag_facets,
+    tag_keys,
+    tag_values,
+)
 from argus.findings.vulnerabilities import (
     VULNERABLE_RESOURCES_SQL,
     CoverageRow,
@@ -110,6 +119,7 @@ __all__ = [
     "PROWLER_EXPOSURE_CHECKS",
     "SEVERITIES",
     "SUPPORTED_VERSIONS",
+    "TAG_VALUES_LISTED",
     "VULNERABILITY_TOOL",
     "VULNERABLE_RESOURCES_SQL",
     "CoverageRow",
@@ -129,6 +139,7 @@ __all__ = [
     "ResolvedCommand",
     "ResourceCommand",
     "ResourceVulnerabilities",
+    "TagKey",
     "VulnerabilityBatch",
     "VulnerabilityCount",
     "VulnerabilityFacts",
@@ -154,12 +165,15 @@ __all__ = [
     "put_misconfiguration_metrics",
     "put_vulnerability_metrics",
     "rederive_scores",
+    "refresh_tag_facets",
     "remove_compliance_items",
     "resource_coverage",
     "resource_vulnerabilities",
     "scanned_resources",
     "scanner_for",
     "set_reach",
+    "tag_keys",
+    "tag_values",
     "vulnerability_counts",
     "vulnerability_facts",
 ]
