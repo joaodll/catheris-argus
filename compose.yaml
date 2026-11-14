@@ -76,6 +76,11 @@ services:
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     mem_limit: 1g
     pids_limit: 512
+    # A tiny init as PID 1, so a healthcheck's pg_isready orphaned by a timed-out shell is
+    # reaped by it and not by the postmaster, which takes an unknown child's exit 2 for a crash
+    # and restarts every backend ("untracked child process ... exited with exit code 2", seen
+    # under load 2026-11-13 and 2026-11-14; none with init in a full budget run).
+    init: true
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U argus -d argus"]
       interval: 2s
