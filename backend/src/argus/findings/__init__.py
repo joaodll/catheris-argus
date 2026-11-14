@@ -6,7 +6,8 @@ vulnerability_coverage.
 Public interface:
     parse_prowler()     the Prowler adapter: one run's raw files -> ProwlerBatch (pure)
     load_prowler()      lifecycle + day snapshots for one connection and day
-    list_findings(), finding_facets(), open_finding_counts()   the read side (Findings page)
+    list_findings(), finding_facets(), open_finding_counts(),
+    confirmed_reach_resources()   the read side (Findings page)
     iter_findings()     every finding matching the list's filters, in id batches (reports)
     check_texts()       each listed check's risk, description and fix code (reports)
     finding_groups()    the Findings list by check
@@ -74,6 +75,7 @@ from argus.findings.queries import (
     MisconfigurationLevel,
     MutedFilter,
     check_texts,
+    confirmed_reach_resources,
     finding_facets,
     finding_groups,
     get_finding,
@@ -136,6 +138,7 @@ __all__ = [
     "carry_forward_compliance",
     "check_texts",
     "commands_for_resource",
+    "confirmed_reach_resources",
     "finding_facets",
     "finding_groups",
     "framework_catalog",

@@ -2926,6 +2926,17 @@
             ],
             "title": "Name"
           },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
           "region": {
             "anyOf": [
               {
@@ -2968,6 +2979,7 @@
           "uid",
           "kind",
           "resource_id",
+          "provider",
           "type",
           "name",
           "region",
@@ -3242,6 +3254,32 @@
           "sso"
         ],
         "title": "Methods",
+        "type": "object"
+      },
+      "MisconfigurationFacts": {
+        "description": "Open misconfigurations on the resource (findings.OPEN_MISCONFIGURATION), as the Resources\nlist's column counts them.",
+        "properties": {
+          "open": {
+            "title": "Open",
+            "type": "integer"
+          },
+          "worst": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worst"
+          }
+        },
+        "required": [
+          "open",
+          "worst"
+        ],
+        "title": "MisconfigurationFacts",
         "type": "object"
       },
       "MisconfigurationReportIn": {
@@ -3531,6 +3569,41 @@
           "pass_rate"
         ],
         "title": "MonthlyPassRate",
+        "type": "object"
+      },
+      "NodeFacts": {
+        "properties": {
+          "internet_reachable": {
+            "title": "Internet Reachable",
+            "type": "boolean"
+          },
+          "misconfigurations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MisconfigurationFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "vulnerabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VulnerabilitySummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "misconfigurations",
+          "vulnerabilities",
+          "internet_reachable"
+        ],
+        "title": "NodeFacts",
         "type": "object"
       },
       "Overview": {
@@ -5500,6 +5573,251 @@
           "score"
         ],
         "title": "ScorePoint",
+        "type": "object"
+      },
+      "SecurityGraph": {
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "days": {
+            "$ref": "#/components/schemas/MapDays"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/MapEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "focus": {
+            "title": "Focus",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/MapGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/SecurityNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "focus",
+          "connection_id",
+          "nodes",
+          "edges",
+          "groups",
+          "truncated",
+          "days",
+          "data_through"
+        ],
+        "title": "SecurityGraph",
+        "type": "object"
+      },
+      "SecurityGroupMember": {
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/MapEdge"
+          },
+          "node": {
+            "$ref": "#/components/schemas/SecurityNode"
+          }
+        },
+        "required": [
+          "node",
+          "edge"
+        ],
+        "title": "SecurityGroupMember",
+        "type": "object"
+      },
+      "SecurityGroupPage": {
+        "properties": {
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SecurityGroupMember"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "data_through"
+        ],
+        "title": "SecurityGroupPage",
+        "type": "object"
+      },
+      "SecurityNode": {
+        "properties": {
+          "boundary": {
+            "title": "Boundary",
+            "type": "boolean"
+          },
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "deleted_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted On"
+          },
+          "expanded": {
+            "title": "Expanded",
+            "type": "boolean"
+          },
+          "facts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "enum": [
+              "resource",
+              "internet",
+              "admin",
+              "external",
+              "any"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "uid": {
+            "title": "Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid",
+          "kind",
+          "resource_id",
+          "provider",
+          "type",
+          "name",
+          "region",
+          "connection_id",
+          "deleted_on",
+          "expanded",
+          "boundary",
+          "facts"
+        ],
+        "title": "SecurityNode",
         "type": "object"
       },
       "Session": {
@@ -10195,6 +10513,7 @@
     },
     "/api/v1/map/graph": {
       "get": {
+        "description": "The Resource Map: how resources connect, with no security line.",
         "operationId": "map_graph_api_v1_map_graph_get",
         "parameters": [
           {
@@ -10205,20 +10524,6 @@
               "maxLength": 2048,
               "minLength": 1,
               "title": "Focus",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "map",
-            "required": false,
-            "schema": {
-              "default": "resource",
-              "enum": [
-                "resource",
-                "security"
-              ],
-              "title": "Map",
               "type": "string"
             }
           },
@@ -10368,7 +10673,7 @@
     },
     "/api/v1/map/group": {
       "get": {
-        "description": "A group's members, by name, each with the edge that links it to the anchor.",
+        "description": "A group's members on the Resource Map, by name, each with the edge that links it to the\nanchor.",
         "operationId": "map_group_api_v1_map_group_get",
         "parameters": [
           {
@@ -10390,20 +10695,6 @@
               "minimum": 1,
               "title": "Connection Id",
               "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "map",
-            "required": false,
-            "schema": {
-              "default": "resource",
-              "enum": [
-                "resource",
-                "security"
-              ],
-              "title": "Map",
-              "type": "string"
             }
           },
           {
@@ -10782,6 +11073,333 @@
           }
         },
         "summary": "Map Resources",
+        "tags": [
+          "map"
+        ]
+      }
+    },
+    "/api/v1/map/security/graph": {
+      "get": {
+        "description": "The Security Map: the Resource Map's walk with the security lines, and each\ninventoried node's facts.",
+        "operationId": "security_graph_api_v1_map_security_graph_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "focus",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Focus",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 3,
+              "minimum": 1,
+              "title": "Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Connection Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "layer",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "traffic",
+                  "identity",
+                  "network",
+                  "policy",
+                  "data"
+                ],
+                "type": "string"
+              },
+              "maxItems": 5,
+              "title": "Layer",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "origin",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "rule",
+                  "cloudfox",
+                  "manual"
+                ],
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Origin",
+              "type": "array"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecurityGraph"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Security Graph",
+        "tags": [
+          "map"
+        ]
+      }
+    },
+    "/api/v1/map/security/group": {
+      "get": {
+        "description": "A group's members on the Security Map, each with its facts.",
+        "operationId": "security_group_api_v1_map_security_group_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "anchor",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Anchor",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Connection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": true,
+            "schema": {
+              "enum": [
+                "out",
+                "in"
+              ],
+              "title": "Direction",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "edge_type",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z][A-Z_]{0,63}$",
+              "title": "Edge Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecurityGroupPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Security Group",
         "tags": [
           "map"
         ]

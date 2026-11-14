@@ -270,8 +270,8 @@ def neighbourhood(
     """The focus and its neighbours up to `depth` hops (1 to MAX_DEPTH), in one connection, as
     they stood on `day`, with the lines of one map.
 
-    Returns nodes (uid, kind, and the inventory's id, type, name, region, connection when it
-    has the resource; `expanded` when its neighbours were read; `boundary` for another
+    Returns nodes (uid, kind, and the inventory's id, provider, type, name, region, connection
+    when it has the resource; `expanded` when its neighbours were read; `boundary` for another
     connection's or account's resource, which is never expanded), edges, groups and
     `truncated` (the 500-node cap stopped the walk). A hop goes on only from the connection's
     own resources: a pseudo-node or a boundary node is drawn and left for the screen to
@@ -364,6 +364,7 @@ def _node(uid: str, info: dict[str, Any], expanded: bool, boundary: bool) -> dic
         "uid": uid,
         "kind": kind_of(uid),
         "resource_id": info.get("id"),
+        "provider": info.get("provider"),
         "type": info.get("type"),
         "name": info.get("name"),
         "region": info.get("region"),

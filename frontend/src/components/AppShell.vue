@@ -34,6 +34,7 @@ const NAV: Entry[] = [
   { kind: 'item', name: 'vulnerabilities', label: 'Vulnerabilities', icon: 'bug' },
   { kind: 'item', name: 'resources', label: 'Resources', icon: 'stack' },
   { kind: 'item', name: 'resource-map', label: 'Resource Map', icon: 'graph' },
+  { kind: 'item', name: 'security-map', label: 'Security Map', icon: 'shield' },
   { kind: 'section', label: 'Operate' },
   { kind: 'item', name: 'schedules', label: 'Schedules', icon: 'calendar' },
   { kind: 'item', name: 'runs', label: 'Runs', icon: 'scans' },

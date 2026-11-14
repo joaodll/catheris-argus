@@ -5,10 +5,16 @@ neighbourhood (Expand). Every read is for one connection, in its latest scan, ho
 maps have no past days. A node says what a resource is and where.
 
 The Resource Map reads no security fact from any route (owner, 2026-11-13): its graph and
-groups leave out relationships.SECURITY_EDGE_TYPES, and its start, search and panel read the
-plain routes below (/map/types, /map/resources, /map/resource/{id}), whose models carry no
-misconfiguration, vulnerability, reach, risk or loot field (tests/api/test_resource_map.py
-checks the contract)."""
+groups (/map/graph, /map/group) leave out relationships.SECURITY_EDGE_TYPES, and its start,
+search and panel read the plain routes below (/map/types, /map/resources, /map/resource/{id}),
+whose models carry no misconfiguration, vulnerability, reach, risk or loot field
+(tests/api/test_resource_map.py checks the contract).
+
+The Security Map has its own routes (/map/security/graph, /map/security/group; decided
+2026-11-14): the same walk with the security lines, and each inventoried node's facts, counted
+as the Resources list counts them (open misconfigurations and the worst severity, open CVEs and
+a public exploit, reachable from the internet as Argus's rules confirm it). A response holds at
+most 500 nodes, so its facts are a few bounded reads over their ids."""
 
 from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
@@ -17,9 +23,14 @@ from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection
 
-from argus import connections, ingest, inventory, metrics, relationships
+from argus import connections, findings, ingest, inventory, metrics, relationships
 from argus.api.deps import Db, Viewer
-from argus.api.routes.resources import EdgeOut, ResourceOut
+from argus.api.routes.resources import (
+    EdgeOut,
+    ResourceOut,
+    VulnerabilitySummary,
+    vulnerability_summaries,
+)
 from argus.core.db import SEARCH_COUNT_CAP
 
 router = APIRouter(tags=["map"])
@@ -34,6 +45,7 @@ class MapNode(BaseModel):
     kind: Literal["resource", "internet", "admin", "external", "any"]
     # Null when the resource is not in the inventory (another account, a type not collected).
     resource_id: int | None
+    provider: str | None
     type: str | None
     name: str | None
     region: str | None
@@ -102,8 +114,6 @@ class GroupPage(BaseModel):
 
 class MapQuery(BaseModel):
     focus: Uid
-    # Which map: the Resource Map draws no security line (relationships.SECURITY_EDGE_TYPES).
-    map: relationships.Map = "resource"
     depth: int = Field(1, ge=1, le=relationships.MAX_DEPTH)
     # The connection whose edges are walked. Absent: the focus resource's own connection.
     connection_id: int | None = Field(None, ge=1)
@@ -144,8 +154,7 @@ def _connection(conn: Connection, connection_id: int | None, focus: str) -> rela
     return relationships.MapScope(found.id, found.account_id)
 
 
-@router.get("/map/graph")
-def map_graph(conn: Db, _user: Viewer, query: Annotated[MapQuery, Query()]) -> MapGraph:
+def _walk(conn: Connection, query: MapQuery, kind: relationships.Map) -> MapGraph:
     day = _today()
     scope = _connection(conn, query.connection_id, query.focus)
     found = relationships.neighbourhood(
@@ -156,7 +165,7 @@ def map_graph(conn: Db, _user: Viewer, query: Annotated[MapQuery, Query()]) -> M
         depth=query.depth,
         layers=tuple(query.layer),
         origins=tuple(query.origin),
-        kind=query.map,
+        kind=kind,
     )
     focus = found["nodes"][0]
     if focus["kind"] == "resource" and focus["resource_id"] is None and not found["edges"]:
@@ -174,13 +183,18 @@ def map_graph(conn: Db, _user: Viewer, query: Annotated[MapQuery, Query()]) -> M
     )
 
 
+@router.get("/map/graph")
+def map_graph(conn: Db, _user: Viewer, query: Annotated[MapQuery, Query()]) -> MapGraph:
+    """The Resource Map: how resources connect, with no security line."""
+    return _walk(conn, query, "resource")
+
+
 class GroupQuery(BaseModel):
     """A group: its anchor node, the edges' direction and type, the members' resource type
     (absent for members not in the inventory)."""
 
     anchor: Uid
     connection_id: int = Field(ge=1)
-    map: relationships.Map = "resource"
     direction: Literal["out", "in"]
     edge_type: Annotated[str, Field(pattern=r"^[A-Z][A-Z_]{0,63}$")]
     resource_type: Annotated[str | None, Field(max_length=128)] = None
@@ -188,13 +202,11 @@ class GroupQuery(BaseModel):
     offset: int = Field(0, ge=0, le=100_000)
 
 
-@router.get("/map/group")
-def map_group(conn: Db, _user: Viewer, query: Annotated[GroupQuery, Query()]) -> GroupPage:
-    """A group's members, by name, each with the edge that links it to the anchor."""
+def _members(conn: Connection, query: GroupQuery, kind: relationships.Map) -> GroupPage:
     day = _today()
     scope = _connection(conn, query.connection_id, query.anchor)
     through = _through(_days(conn, scope.connection_id, day))
-    if not relationships.on_map(query.edge_type, query.map):  # a line this map never draws
+    if not relationships.on_map(query.edge_type, kind):  # a line this map never draws
         return GroupPage(items=[], total=0, data_through=through)
     rows, total = relationships.group_members(
         conn,
@@ -216,6 +228,119 @@ def map_group(conn: Db, _user: Viewer, query: Annotated[GroupQuery, Query()]) ->
         ],
         total=total,
         data_through=through,
+    )
+
+
+@router.get("/map/group")
+def map_group(conn: Db, _user: Viewer, query: Annotated[GroupQuery, Query()]) -> GroupPage:
+    """A group's members on the Resource Map, by name, each with the edge that links it to the
+    anchor."""
+    return _members(conn, query, "resource")
+
+
+# ---- the Security Map: the same walk, the security lines, and each node's facts ------------
+
+
+class MisconfigurationFacts(BaseModel):
+    """Open misconfigurations on the resource (findings.OPEN_MISCONFIGURATION), as the Resources
+    list's column counts them."""
+
+    open: int
+    worst: str | None  # null when there are none
+
+
+class NodeFacts(BaseModel):
+    # Null: neither Prowler nor CloudFox has an ingested run for the resource's connection (not
+    # covered, never 0).
+    misconfigurations: MisconfigurationFacts | None
+    # The Resources list's Vulnerabilities cell; null when no scanner covers the provider and
+    # type, or the vulnerabilities tool never ran for the connection.
+    vulnerabilities: VulnerabilitySummary | None
+    # An open misconfiguration whose reach Argus's rules confirm (the Resources list's Internet
+    # reachable filter).
+    internet_reachable: bool
+
+
+class SecurityNode(MapNode):
+    # Null for a node not in the inventory (a pseudo-node, another account's ARN).
+    facts: NodeFacts | None
+
+
+class SecurityGraph(MapGraph):
+    nodes: list[SecurityNode]  # type: ignore[assignment]
+
+
+class SecurityGroupMember(GroupMember):
+    node: SecurityNode
+
+
+class SecurityGroupPage(GroupPage):
+    items: list[SecurityGroupMember]  # type: ignore[assignment]
+
+
+def node_facts(conn: Connection, nodes: list[MapNode]) -> dict[int, NodeFacts]:
+    """The facts of these nodes' inventoried resources, by resource id: a fixed number of
+    reads over their ids (a response holds at most 500 nodes)."""
+    rows: list[dict[str, Any]] = [
+        {"id": n.resource_id, "provider": n.provider, "type": n.type, "connection_id": c}
+        for n in nodes
+        if n.resource_id is not None
+        and n.provider is not None
+        and n.type is not None
+        and (c := n.connection_id) is not None
+    ]
+    if not rows:
+        return {}
+    ids: list[int] = [r["id"] for r in rows]
+    scanned = ingest.data_through_by_connection(
+        conn,
+        connection_ids=sorted({r["connection_id"] for r in rows}),
+        tools=list(findings.MISCONFIGURATION_TOOLS),
+    )
+    counts = findings.open_finding_counts(conn, ids)
+    reachable = findings.confirmed_reach_resources(conn, ids)
+    vulnerabilities = vulnerability_summaries(conn, rows)
+    facts: dict[int, NodeFacts] = {}
+    for r in rows:
+        rid: int = r["id"]
+        n, worst = counts.get(rid, (0, None))
+        facts[rid] = NodeFacts(
+            misconfigurations=MisconfigurationFacts(open=n, worst=worst)
+            if r["connection_id"] in scanned
+            else None,
+            vulnerabilities=vulnerabilities.get(rid),
+            internet_reachable=rid in reachable,
+        )
+    return facts
+
+
+def _secure(node: MapNode, facts: dict[int, NodeFacts]) -> SecurityNode:
+    found = facts.get(node.resource_id) if node.resource_id is not None else None
+    return SecurityNode(**node.model_dump(), facts=found)
+
+
+@router.get("/map/security/graph")
+def security_graph(conn: Db, _user: Viewer, query: Annotated[MapQuery, Query()]) -> SecurityGraph:
+    """The Security Map: the Resource Map's walk with the security lines, and each
+    inventoried node's facts."""
+    graph = _walk(conn, query, "security")
+    facts = node_facts(conn, graph.nodes)
+    return SecurityGraph(
+        **graph.model_dump(exclude={"nodes"}), nodes=[_secure(n, facts) for n in graph.nodes]
+    )
+
+
+@router.get("/map/security/group")
+def security_group(
+    conn: Db, _user: Viewer, query: Annotated[GroupQuery, Query()]
+) -> SecurityGroupPage:
+    """A group's members on the Security Map, each with its facts."""
+    page = _members(conn, query, "security")
+    facts = node_facts(conn, [m.node for m in page.items])
+    return SecurityGroupPage(
+        items=[SecurityGroupMember(node=_secure(m.node, facts), edge=m.edge) for m in page.items],
+        total=page.total,
+        data_through=page.data_through,
     )
 
 

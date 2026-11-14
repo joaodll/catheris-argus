@@ -28,15 +28,22 @@ const resourceLink = (id: number) => ({ name: 'resources', query: { open: String
 
 <template>
   <SideSheet :title="title" :description="description" @close="emit('close')">
-    <RouterLink v-if="current" class="btn btn-secondary btn-sm open-map" :to="{ name: 'resource-map', query: { focus: current.resource_uid } }">
-      <AppIcon name="graph" :size="16" />Open in Resource Map
-    </RouterLink>
+    <div v-if="current" class="open-maps">
+      <RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'resource-map', query: { focus: current.resource_uid } }">
+        <AppIcon name="graph" :size="16" />Open in Resource Map
+      </RouterLink>
+      <RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'security-map', query: { focus: current.resource_uid } }">
+        <AppIcon name="shield" :size="16" />Open in Security Map
+      </RouterLink>
+    </div>
     <ResourceDetail :resource-id="resourceId" :connection-name="connectionName" :resource-link="resourceLink" :at="at" @loaded="current = $event" />
   </SideSheet>
 </template>
 
 <style scoped>
-.open-map {
-  align-self: flex-start;
+.open-maps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-8);
 }
 </style>

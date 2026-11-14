@@ -40,6 +40,7 @@ from argus import (
     reports,
     scheduling,
 )
+from argus.api.routes import resource_map
 from argus.metrics.series import calendar_months
 from argus.reports import pdf as report_pdf
 
@@ -168,10 +169,13 @@ def _generate(conn: Connection) -> None:
     conn.execute(
         text("""
         INSERT INTO scan_run (run_uid, connection_id, tool, tool_version, source, snapshot_date,
-                              status, started_at, finished_at, raw_path)
+                              status, started_at, finished_at, ingested_at, raw_path)
         SELECT gen_random_uuid(), c, t, '1', 'synthetic', :d - day, 'complete',
-               (:d - day)::timestamptz, (:d - day)::timestamptz + interval '5 minutes', 'raw'
-        FROM generate_series(1, :n) c, unnest(ARRAY['steampipe','prowler','cloudfox']) t,
+               (:d - day)::timestamptz, (:d - day)::timestamptz + interval '5 minutes',
+               -- Ingested, so data_through() and the Security Map's facts see the tools as run.
+               (:d - day)::timestamptz + interval '10 minutes', 'raw'
+        FROM generate_series(1, :n) c,
+             unnest(ARRAY['steampipe','prowler','cloudfox','vulnerabilities']) t,
              generate_series(0, 179) day
     """),
         {"n": ACCOUNTS, "d": TODAY},
@@ -544,6 +548,65 @@ SUMMARY_FILTERS = findings.FindingFilters(tools=MISCONFIGURATIONS, statuses=("FA
 # What every Vulnerabilities summary number counts: open, not suppressed.
 VULNERABILITY_SUMMARY_FILTERS = findings.FindingFilters(tools=("vulnerabilities",), muted="hide")
 
+
+def _with_facts(conn: Connection, found: dict[str, Any]) -> dict[int, Any]:
+    """The Security Map's cards over a walk's nodes (api/routes/resource_map.py)."""
+    return resource_map.node_facts(
+        conn, [resource_map.MapNode.model_validate(n) for n in found["nodes"]]
+    )
+
+
+# The Security Map's worst case: a full response of 500 inventoried resources, half with
+# misconfigurations (connection 2: connection 1's estate findings are all resolved) and half with
+# CVEs (connection 1, the only one with them). The walk beside the hubs meets mostly
+# pseudo-nodes and other accounts' resources, which carry no facts. The nodes are chosen on the
+# first run, which the p95 of the runs leaves out.
+_FACT_NODES = text("""
+    (SELECT r.id FROM resource r WHERE r.connection_id = 2 AND r.id IN (
+       SELECT f.resource_id FROM finding f WHERE f.connection_id = 2 AND f.tool = 'prowler')
+     ORDER BY r.id LIMIT 250)
+    UNION
+    (SELECT r.id FROM resource r WHERE r.connection_id = 1 AND r.id IN (
+       SELECT f.resource_id FROM finding f WHERE f.connection_id = 1
+         AND f.tool = 'vulnerabilities')
+     ORDER BY r.id LIMIT 250)
+""")
+
+
+_FACT_MAP_NODES: list[Any] = []  # chosen once: the timing is the facts' reads alone
+
+
+def _facts_for_500(conn: Connection) -> dict[int, Any]:
+    if not _FACT_MAP_NODES:
+        ids = [r.id for r in conn.execute(_FACT_NODES)]
+        uids = [
+            r.resource_uid
+            for r in conn.execute(
+                text("SELECT resource_uid FROM resource WHERE id = ANY(CAST(:i AS bigint[]))"),
+                {"i": ids},
+            )
+        ]
+        _FACT_MAP_NODES.extend(
+            resource_map.MapNode.model_validate(
+                {
+                    **n,
+                    "kind": "resource",
+                    "resource_id": n["id"],
+                    "expanded": False,
+                    "boundary": False,
+                }
+            )
+            for n in inventory.resource_nodes(conn, uids).values()
+        )
+    facts = resource_map.node_facts(conn, _FACT_MAP_NODES)
+    # The estate gives every read something to count, or the timing measures nothing.
+    assert len(facts) >= 400, len(facts)
+    assert sum(1 for f in facts.values() if f.misconfigurations and f.misconfigurations.open) > 100
+    assert sum(1 for f in facts.values() if f.vulnerabilities and f.vulnerabilities.open) > 100
+    assert any(f.internet_reachable for f in facts.values())  # i-1, connection 2
+    return facts
+
+
 QUERIES: dict[str, Callable[[Connection], Any]] = {
     "overview, all accounts": lambda c: metrics.build_overview(c, connection_id=0, as_of=TODAY),
     "overview, one account": lambda c: metrics.build_overview(c, connection_id=7, as_of=TODAY),
@@ -758,6 +821,20 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
             kind="security",
         )
     ),
+    # The whole Security Map read the API makes: the walk, then each card's facts.
+    "map: three hops beside the hubs, every layer, Security Map, with facts": lambda c: _with_facts(
+        c,
+        relationships.neighbourhood(
+            c,
+            focus="arn:aws:ec2:us-east-1:200000000001:instance/i-36000",
+            **HUB_SCOPE,
+            day=TODAY,
+            depth=3,
+            layers=("traffic", "identity", "network", "policy", "data"),
+            kind="security",
+        ),
+    ),
+    "map: the Security Map's facts for 500 resources": _facts_for_500,
     "map: the internet hub": lambda c: relationships.neighbourhood(
         c, focus="internet", day=TODAY, **HUB_SCOPE
     ),

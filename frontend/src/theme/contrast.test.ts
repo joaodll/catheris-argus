@@ -115,6 +115,21 @@ describe.each([
     expect(failing).toEqual([])
   })
 
+  it("the Security Map's pill, marks and security lines (card B)", () => {
+    const failing = [
+      // The pill's count over its 12 % tint (the severity tag's), on a card and in the member table.
+      ...SEVERITIES.flatMap((sev) =>
+        ['graph-node', 'surface']
+          .filter((on) => ratio(hex(theme, `sev-${sev}-text`), mix(hex(theme, `sev-${sev}`), hex(theme, on), 0.12)) < 4.5)
+          .map((on) => `sev-${sev}-text over its 12 % tint on ${on}`),
+      ),
+      // The marks on a card, a security line on the canvas.
+      ...(['text-2', 'text'] as const).filter((t) => ratio(hex(theme, t), hex(theme, 'graph-node')) < 3).map((t) => `${t} mark on graph-node`),
+      ...(ratio(hex(theme, 'text-3'), hex(theme, 'graph-canvas')) < 3 ? ['text-3 security line on graph-canvas'] : []),
+    ]
+    expect(failing).toEqual([])
+  })
+
   it('text on the accent reaches 4.5:1', () => {
     expect(ratio(hex(theme, 'on-accent'), hex(theme, 'accent'))).toBeGreaterThanOrEqual(4.5)
   })

@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import Connection
 
 from argus import findings, ingest, inventory, metrics, relationships
 from argus.api.deps import Db, Viewer
@@ -216,7 +217,7 @@ def list_resources(
     capped = bool(q) and total > SEARCH_COUNT_CAP
     ids = [r["id"] for r in rows]
     counts = findings.open_finding_counts(conn, ids)
-    vulns = _vulnerabilities(conn, rows)
+    vulns = vulnerability_summaries(conn, rows)
     return ResourcePage(
         items=[
             ResourceRow.model_validate(
@@ -237,9 +238,12 @@ def list_resources(
     )
 
 
-def _vulnerabilities(conn: Db, rows: list[dict[str, Any]]) -> dict[int, VulnerabilitySummary]:
-    """For one page of resources: the Vulnerabilities cell of those a scanner scans the provider
-    and type of, on connections with a vulnerabilities run."""
+def vulnerability_summaries(
+    conn: Connection, rows: list[dict[str, Any]]
+) -> dict[int, VulnerabilitySummary]:
+    """For one page of resources (id, provider, type, connection_id): the Vulnerabilities cell
+    of those a scanner scans the provider and type of, on connections with a vulnerabilities
+    run. The Resources list and the Security Map's cards share it, so they count alike."""
     scannable = [r for r in rows if findings.scanner_for(r["provider"], r["type"])]
     tool = [findings.VULNERABILITY_TOOL]
     collected = {
