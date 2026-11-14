@@ -60,6 +60,46 @@ const props = withDefaults(defineProps<{ name: IconName; size?: number; stroke?:
     <template v-else-if="props.name === 'sun'"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></template>
     <template v-else-if="props.name === 'moon'"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></template>
     <template v-else-if="props.name === 'monitor'"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></template>
+    <template v-else-if="props.name === 'graph'"><circle cx="5" cy="16" r="2.5" /><circle cx="12" cy="7" r="2.5" /><circle cx="19" cy="16" r="2.5" /><path d="M6.4 13.9l4.2-4.8M13.4 9.1l4.2 4.8" /></template>
+    <template v-else-if="props.name === 'expand'"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" /><path d="M15 3h6v6M21 3l-8 8" /></template>
+    <template v-else-if="props.name === 'minus'"><path d="M5 12h14" /></template>
+    <template v-else-if="props.name === 'fit'"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" /></template>
+    <template v-else-if="props.name === 'layers'"><path d="M12 3L3 8l9 5 9-5z" /><path d="M3 13l9 5 9-5" /></template>
+    <template v-else-if="props.name === 'globe'"><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z" /></template>
+    <template v-else-if="props.name === 'server'"><rect x="3" y="4" width="18" height="7" rx="1.5" /><rect x="3" y="13" width="18" height="7" rx="1.5" /><path d="M7 7.5h.01M7 16.5h.01" /></template>
+    <template v-else-if="props.name === 'lambda'"><path d="M6 4h3l7 16h3M11.2 9.2L6 20" /></template>
+    <template v-else-if="props.name === 'container'"><rect x="3" y="6" width="18" height="12" rx="1.5" /><path d="M8 9.5v5M12 9.5v5M16 9.5v5" /></template>
+    <template v-else-if="props.name === 'helm'"><circle cx="12" cy="12" r="5.5" /><circle cx="12" cy="12" r="1.3" /><path d="M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4M5.3 5.3l2.8 2.8M15.9 15.9l2.8 2.8M5.3 18.7l2.8-2.8M15.9 8.1l2.8-2.8" /></template>
+    <template v-else-if="props.name === 'registry'"><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /><rect x="8.5" y="4" width="7" height="7" rx="1" /></template>
+    <template v-else-if="props.name === 'bucket'"><ellipse cx="12" cy="6" rx="8" ry="2.5" /><path d="M4 6l2 13c.2 1.1 2.8 2 6 2s5.8-.9 6-2l2-13" /></template>
+    <template v-else-if="props.name === 'disk'"><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6" /></template>
+    <template v-else-if="props.name === 'database'"><ellipse cx="12" cy="6" rx="7" ry="3" /><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3" /></template>
+    <template v-else-if="props.name === 'table'"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 9.5h18M3 14.5h18M9 4v16M15 4v16" /></template>
+    <template v-else-if="props.name === 'vpc'"><path d="M7 18a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17 8.6a4.7 4.7 0 0 1 .5 9.4z" /></template>
+    <template v-else-if="props.name === 'subnet'"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16M7.5 12h.01M16.5 12h.01" /></template>
+    <template v-else-if="props.name === 'firewall'"><rect x="3" y="4" width="18" height="16" rx="1.5" /><path d="M3 9.3h18M3 14.7h18M9 4v5.3M15 4v5.3M6 9.3v5.4M12 9.3v5.4M18 9.3v5.4M9 14.7V20M15 14.7V20" /></template>
+    <template v-else-if="props.name === 'balancer'"><circle cx="5" cy="12" r="2" /><path d="M7 12h13M11 12l3.5-6H20M11 12l3.5 6H20" /></template>
+    <template v-else-if="props.name === 'target'"><circle cx="12" cy="12" r="9" /><circle cx="12" cy="12" r="5" /><circle cx="12" cy="12" r="1" fill="currentColor" /></template>
+    <template v-else-if="props.name === 'gateway'"><path d="M5 4v16M19 4v16M8 12h8M13 9l3 3-3 3" /></template>
+    <template v-else-if="props.name === 'cdn'"><circle cx="12" cy="12" r="9" /><path d="M3.6 9h16.8M3.6 15h16.8M12 3v18" /></template>
+    <template v-else-if="props.name === 'dns'"><path d="M12 3v18" /><path d="M12 5h6l2 2.5-2 2.5h-6zM12 12H6l-2 2.5L6 17h6z" /></template>
+    <template v-else-if="props.name === 'role'"><rect x="5" y="3" width="14" height="18" rx="2" /><circle cx="12" cy="10.5" r="2.5" /><path d="M8.5 17.5a3.5 3.5 0 0 1 7 0M10 3v2h4V3" /></template>
+    <template v-else-if="props.name === 'user'"><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></template>
+    <template v-else-if="props.name === 'policy'"><path d="M6 3h9l4 4v14H6z" /><path d="M15 3v4h4M9 14l2 2 4-4" /></template>
+    <template v-else-if="props.name === 'kms'"><path d="M12 2.5l8.2 4.75v9.5L12 21.5l-8.2-4.75v-9.5z" /><circle cx="9.5" cy="12" r="2" /><path d="M11.5 12h5M15 12v2" /></template>
+    <template v-else-if="props.name === 'lock'"><rect x="5" y="11" width="14" height="10" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></template>
+    <template v-else-if="props.name === 'filter'"><path d="M3 5h18l-7 8v6l-4 2v-8z" /></template>
+    <template v-else-if="props.name === 'certificate'"><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M7 9h6M7 12.5h4" /><circle cx="16.5" cy="13" r="2.5" /><path d="M15 15.2V21l1.5-1.2L18 21v-5.8" /></template>
+    <template v-else-if="props.name === 'queue'"><rect x="3" y="6" width="4" height="12" rx="1" /><rect x="9" y="6" width="4" height="12" rx="1" /><path d="M16 12h5M19 9.5l2.5 2.5-2.5 2.5" /></template>
+    <template v-else-if="props.name === 'topic'"><circle cx="6" cy="18" r="1.5" fill="currentColor" /><path d="M5 11a8 8 0 0 1 8 8M5 5a14 14 0 0 1 14 14" /></template>
+    <template v-else-if="props.name === 'event'"><path d="M13 2L5 13.5h6L10 22l9-12h-6z" /></template>
+    <template v-else-if="props.name === 'flow'"><rect x="3" y="9.5" width="5" height="5" rx="1" /><rect x="16" y="3.5" width="5" height="5" rx="1" /><rect x="16" y="15.5" width="5" height="5" rx="1" /><path d="M8 12h4M12 12V6h4M12 12v6h4" /></template>
+    <template v-else-if="props.name === 'stream'"><path d="M3 9c3-3 6-3 9 0s6 3 9 0M3 16c3-3 6-3 9 0s6 3 9 0" /></template>
+    <template v-else-if="props.name === 'log'"><path d="M4 6h8M4 10.5h16M4 15h16M4 19.5h12" /></template>
+    <template v-else-if="props.name === 'nodes'"><circle cx="12" cy="5" r="2.2" /><circle cx="5" cy="19" r="2.2" /><circle cx="19" cy="19" r="2.2" /><path d="M12 7.2v5M12 12.2l-5.7 5M12 12.2l5.7 5" /></template>
+    <template v-else-if="props.name === 'chart'"><path d="M4 20V10M10 20V4M16 20v-7M21 20H3" /></template>
+    <template v-else-if="props.name === 'sliders'"><path d="M4 7h10M18 7h2M4 17h2M10 17h10" /><circle cx="16" cy="7" r="2" /><circle cx="8" cy="17" r="2" /></template>
+    <template v-else-if="props.name === 'cube'"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" /><path d="M4 7.5l8 4.5 8-4.5M12 12v9" /></template>
     <template v-else-if="props.name === 'reopen'"><path d="M4 12a8 8 0 0 1 14-5.3L20 9" /><path d="M20 4v5h-5" /><path d="M20 12a8 8 0 0 1-14 5.3L4 15" /></template>
   </svg>
 </template>

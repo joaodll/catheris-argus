@@ -468,6 +468,97 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/map/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Map Graph */
+        get: operations["map_graph_api_v1_map_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/map/group": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Map Group
+         * @description A group's members, by name, each with the edge that links it to the anchor.
+         */
+        get: operations["map_group_api_v1_map_group_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/map/resource/{resource_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Map Resource */
+        get: operations["map_resource_api_v1_map_resource__resource_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/map/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Map Resources */
+        get: operations["map_resources_api_v1_map_resources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/map/types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Map Types
+         * @description All connections (0) or one: stored counts written by ingest.
+         */
+        get: operations["map_types_api_v1_map_types_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/overview": {
         parameters: {
             query?: never;
@@ -1784,6 +1875,20 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** GroupMember */
+        GroupMember: {
+            edge: components["schemas"]["MapEdge"];
+            node: components["schemas"]["MapNode"];
+        };
+        /** GroupPage */
+        GroupPage: {
+            /** Data Through */
+            data_through: string | null;
+            /** Items */
+            items: components["schemas"]["GroupMember"][];
+            /** Total */
+            total: number;
+        };
         /** GroupRole */
         GroupRole: {
             /** Group */
@@ -1890,6 +1995,193 @@ export interface components {
             status: string;
             /** Tool */
             tool: string;
+        };
+        /**
+         * MapDays
+         * @description The scans the connection's lines come from. Null: that family has no load yet.
+         */
+        MapDays: {
+            /** Cloudfox Day */
+            cloudfox_day: string | null;
+            /** Rule Day */
+            rule_day: string | null;
+        };
+        /** MapEdge */
+        MapEdge: {
+            /** Attributes */
+            attributes: {
+                [key: string]: unknown;
+            };
+            /**
+             * First Seen
+             * Format: date
+             */
+            first_seen: string;
+            /** Id */
+            id: number;
+            /**
+             * Last Seen
+             * Format: date
+             */
+            last_seen: string;
+            /** Origin */
+            origin: string;
+            /** Source Uid */
+            source_uid: string;
+            /** Target Uid */
+            target_uid: string;
+            /** Type */
+            type: string;
+        };
+        /** MapGraph */
+        MapGraph: {
+            /** Connection Id */
+            connection_id: number;
+            /** Data Through */
+            data_through: string | null;
+            days: components["schemas"]["MapDays"];
+            /** Edges */
+            edges: components["schemas"]["MapEdge"][];
+            /** Focus */
+            focus: string;
+            /** Groups */
+            groups: components["schemas"]["MapGroup"][];
+            /** Nodes */
+            nodes: components["schemas"]["MapNode"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
+         * MapGroup
+         * @description More neighbours of one kind than the map draws one by one: one node for all of them.
+         */
+        MapGroup: {
+            /** Anchor Uid */
+            anchor_uid: string;
+            /** Count */
+            count: number;
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "out" | "in";
+            /** Edge Type */
+            edge_type: string;
+            /** Id */
+            id: string;
+            /** Resource Type */
+            resource_type: string | null;
+        };
+        /** MapNode */
+        MapNode: {
+            /** Boundary */
+            boundary: boolean;
+            /** Connection Id */
+            connection_id: number | null;
+            /** Deleted On */
+            deleted_on: string | null;
+            /** Expanded */
+            expanded: boolean;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "resource" | "internet" | "admin" | "external" | "any";
+            /** Name */
+            name: string | null;
+            /** Region */
+            region: string | null;
+            /** Resource Id */
+            resource_id: number | null;
+            /** Type */
+            type: string | null;
+            /** Uid */
+            uid: string;
+        };
+        /**
+         * MapResource
+         * @description The Resource Map's panel: what Steampipe describes, the lines the map draws, tags and
+         *     configuration (redacted at ingest).
+         */
+        MapResource: {
+            /**
+             * As Of
+             * Format: date
+             */
+            as_of: string;
+            /** Config */
+            config: {
+                [key: string]: unknown;
+            } | null;
+            /** Connection Id */
+            connection_id: number;
+            /** Data Through */
+            data_through: string | null;
+            /** Deleted On */
+            deleted_on: string | null;
+            /** Edges */
+            edges: components["schemas"]["EdgeOut"][];
+            /**
+             * First Seen
+             * Format: date
+             */
+            first_seen: string;
+            /** Id */
+            id: number;
+            /**
+             * Last Seen
+             * Format: date
+             */
+            last_seen: string;
+            /** Name */
+            name: string | null;
+            /** Native Id */
+            native_id: string;
+            /** Provider */
+            provider: string;
+            /** Region */
+            region: string;
+            /** Resource Uid */
+            resource_uid: string;
+            /** Seen On */
+            seen_on: string | null;
+            /** Tags */
+            tags: {
+                [key: string]: unknown;
+            };
+            /** Type */
+            type: string;
+            /** Vpc Id */
+            vpc_id: string | null;
+        };
+        /** MapResourcePage */
+        MapResourcePage: {
+            /** Data Through */
+            data_through: string | null;
+            /** Items */
+            items: components["schemas"]["ResourceOut"][];
+            /** Total */
+            total: number;
+            /** Total Capped */
+            total_capped: boolean;
+        };
+        /** MapTypeCount */
+        MapTypeCount: {
+            /** Count */
+            count: number;
+            /** Type */
+            type: string;
+        };
+        /**
+         * MapTypesOut
+         * @description The start's "What's here": the inventory's assets by type, largest first, as the
+         *     Resources summary counts them; null before any Steampipe load.
+         */
+        MapTypesOut: {
+            /** By Type */
+            by_type: components["schemas"]["MapTypeCount"][] | null;
+            /** Data Through */
+            data_through: string | null;
         };
         /**
          * Methods
@@ -2276,6 +2568,39 @@ export interface components {
             regions: string[];
             /** Types */
             types: string[];
+        };
+        /** ResourceOut */
+        ResourceOut: {
+            /** Connection Id */
+            connection_id: number;
+            /** Deleted On */
+            deleted_on: string | null;
+            /**
+             * First Seen
+             * Format: date
+             */
+            first_seen: string;
+            /** Id */
+            id: number;
+            /**
+             * Last Seen
+             * Format: date
+             */
+            last_seen: string;
+            /** Name */
+            name: string | null;
+            /** Native Id */
+            native_id: string;
+            /** Provider */
+            provider: string;
+            /** Region */
+            region: string;
+            /** Resource Uid */
+            resource_uid: string;
+            /** Type */
+            type: string;
+            /** Vpc Id */
+            vpc_id: string | null;
         };
         /** ResourcePage */
         ResourcePage: {
@@ -4139,6 +4464,202 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    map_graph_api_v1_map_graph_get: {
+        parameters: {
+            query: {
+                focus: string;
+                map?: "resource" | "security";
+                depth?: number;
+                connection_id?: number | null;
+                layer?: ("traffic" | "identity" | "network" | "policy" | "data")[];
+                origin?: ("rule" | "cloudfox" | "manual")[];
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapGraph"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    map_group_api_v1_map_group_get: {
+        parameters: {
+            query: {
+                anchor: string;
+                connection_id: number;
+                map?: "resource" | "security";
+                direction: "out" | "in";
+                edge_type: string;
+                resource_type?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    map_resource_api_v1_map_resource__resource_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path: {
+                resource_id: number;
+            };
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapResource"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    map_resources_api_v1_map_resources_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                connection_id?: number[];
+                type?: string[];
+                q?: string | null;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapResourcePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    map_types_api_v1_map_types_get: {
+        parameters: {
+            query?: {
+                connection_id?: number;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapTypesOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

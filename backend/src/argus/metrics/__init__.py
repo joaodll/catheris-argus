@@ -21,6 +21,7 @@ from argus.metrics.store import (
     rollup_family,
 )
 from argus.metrics.summary import (
+    asset_types,
     misconfiguration_summary,
     resource_summary,
     vulnerability_months,
@@ -30,6 +31,7 @@ from argus.metrics.summary import (
 __all__ = [
     "ALL_CONNECTIONS",
     "Range",
+    "asset_types",
     "build_overview",
     "carried_days",
     "compliance_by_account",

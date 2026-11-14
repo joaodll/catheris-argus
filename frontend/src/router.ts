@@ -49,6 +49,8 @@ export const router = createRouter({
         // A link or bookmark from before the split: a CVE's goes to Vulnerabilities.
         { path: 'findings', redirect: (to) => ({ name: findingsRedirect(to.query), query: to.query }) },
         { path: 'resources', name: 'resources', component: () => import('@/views/investigate/ResourcesView.vue'), meta: { title: 'Resources · Investigate' } },
+        // An open resource adds its name in front of the title (MapView).
+        { path: 'map', name: 'resource-map', component: () => import('@/views/investigate/map/MapView.vue'), meta: { title: 'Resource Map · Investigate' } },
       ],
     },
     {
