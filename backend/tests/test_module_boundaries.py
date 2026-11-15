@@ -14,13 +14,21 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "argus"
 
 OWNERS: dict[str, set[str]] = {
     "connections": {"connection", "connection_test"},
-    "inventory": {"resource", "resource_config", "resource_snapshot", "resource_load"},
+    "inventory": {
+        "resource",
+        "resource_config",
+        "resource_snapshot",
+        "resource_load",
+        "resource_tag",
+    },
     "relationships": {"edge", "edge_snapshot", "edge_load"},
     "findings": {
         "finding",
         "finding_command",
         "finding_check_text",
         "finding_facet",
+        "finding_tag_key",
+        "finding_tag_value",
         "finding_vulnerability",
         "vulnerability_coverage",
         "finding_snapshot",

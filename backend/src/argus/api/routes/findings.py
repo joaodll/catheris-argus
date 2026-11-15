@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from argus import findings, ingest, inventory, metrics
 from argus.api.deps import Db, Viewer
-from argus.api.types import Provider
+from argus.api.types import TAG_KEY_MAX, TAG_VALUE_MAX, Provider, TagFilter, TagKeyOut, tag_pairs
 from argus.core.db import SEARCH_COUNT_CAP
 
 router = APIRouter(tags=["findings"])
@@ -164,6 +164,7 @@ class FindingFacets(BaseModel):
     resource_types: list[str]
     categories: list[str]
     checks: list[CheckFacet]
+    tags: list[TagKeyOut]  # tag names; their values: GET /findings/tag-values
 
 
 class SeverityCounts(BaseModel):
@@ -288,6 +289,9 @@ class FindingFilterQuery(BaseModel):
     first_seen_from: date | None = None
     first_seen_to: date | None = None
     resource_id: int | None = None
+    # Tags of the finding's resource: each a JSON array ["name", "value"]. Values of one name
+    # are OR, names are AND; a finding with no inventoried resource never matches.
+    tag: list[TagFilter] = _many()
     # Matches the title, check id or resource uid anywhere, in any case.
     q: str | None = Field(None, max_length=200)
 
@@ -320,6 +324,7 @@ def finding_filters(query: FindingFilterQuery) -> findings.FindingFilters:
         first_seen_to=query.first_seen_to,
         resource_id=query.resource_id,
         q=query.q or None,
+        tags=tag_pairs(query.tag),
     )
 
 
@@ -418,6 +423,55 @@ def finding_facets(
         resource_types=facets.resource_types,
         categories=facets.categories,
         checks=[CheckFacet(tool=t, check_id=c) for t, c in facets.checks],
+        tags=tag_keys_out(conn, tools=TOOLS, connection_ids=tuple(connection_id)),
+    )
+
+
+def tag_keys_out(
+    conn: Db, *, tools: tuple[str, ...], connection_ids: tuple[int, ...]
+) -> list[TagKeyOut]:
+    return [
+        TagKeyOut(key=k.key, listed=k.listed)
+        for k in findings.tag_keys(conn, tools=tools, connection_ids=connection_ids)
+    ]
+
+
+class TagValues(BaseModel):
+    """One tag name's values, in order, at most 500: narrow them with `q`, or type one when
+    `more`."""
+
+    key: str
+    values: list[str]
+    # More values than these: the one wanted may be missing, so it can be typed exactly.
+    more: bool
+
+
+def tag_values_out(
+    conn: Db,
+    *,
+    tools: tuple[str, ...],
+    key: str,
+    connection_ids: tuple[int, ...],
+    q: str | None,
+) -> TagValues:
+    values, more = findings.tag_values(
+        conn, tools=tools, key=key, connection_ids=connection_ids, q=q
+    )
+    return TagValues(key=key, values=values, more=more)
+
+
+@router.get("/findings/tag-values")
+def finding_tag_values(
+    conn: Db,
+    _user: Viewer,
+    key: Annotated[str, Query(min_length=1, max_length=TAG_KEY_MAX)],
+    q: Annotated[str | None, Query(max_length=TAG_VALUE_MAX)] = None,
+    connection_id: Annotated[list[int], Query(max_length=50)] = [],  # noqa: B006 - FastAPI copies
+) -> TagValues:
+    """A tag name's values on the Misconfigurations list's resources. A masked value is never
+    one."""
+    return tag_values_out(
+        conn, tools=TOOLS, key=key, connection_ids=tuple(connection_id), q=q or None
     )
 
 

@@ -1293,6 +1293,64 @@ test('reports: export from a list, request, build, download; both themes, phone 
   await shot(page, '6x-phone-reports')
 })
 
+/** The Tag filter (migration 0051): a tag picked on Misconfigurations is in the URL, a chip and the
+ * list's Export; the report it requests names it on Operate -> Reports; New report offers it too. */
+test('tag filter: pick a tag, export it, see it in Reports; both themes, phone width', async ({ page }) => {
+  test.setTimeout(180_000)
+  await signIn(page)
+  await page.goto('/investigate/misconfigurations?tab=list')
+  await expect(page.getByRole('heading', { level: 1, name: 'Misconfigurations' })).toBeVisible()
+  await page.getByRole('button', { name: /^More filters/ }).click()
+  const tagName = page.locator('#f-tag-name')
+  await expect(tagName).toBeEnabled()
+  await tagName.selectOption('Environment')
+  await page.locator('#f-tag-values').click()
+  const values = page.getByRole('listbox', { name: 'Values' })
+  const first = values.getByRole('option').first()
+  const value = ((await first.textContent()) ?? '').trim()
+  expect(value).not.toBe('')
+  await first.click()
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveURL(/[?&]tag=/)
+  const chip = page.getByText(`Tag: Environment = ${value}`, { exact: true })
+  await expect(chip).toBeVisible()
+  await expect(page.getByRole('button', { name: /^More filters · 1/ })).toBeVisible()
+  await axe(page, 'tag filter')
+  await shot(page, '48-tag-filter')
+
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const exporting = page.getByRole('dialog', { name: 'Export Misconfigurations' })
+  await expect(exporting.getByText(`tag Environment = ${value}`)).toBeVisible()
+  await exporting.getByRole('button', { name: 'Request report' }).click()
+  const toastText = page.getByRole('status').filter({ hasText: /Report #\d+ requested/ }).last()
+  await expect(toastText).toBeVisible()
+  const id = (await toastText.textContent())?.match(/#(\d+)/)?.[1] ?? ''
+
+  // Removing the chip removes the filter.
+  await page.getByRole('button', { name: 'Remove tag filter Environment' }).click()
+  await expect(page).not.toHaveURL(/[?&]tag=/)
+
+  await navLink(page, 'Reports')
+  await expect(page.getByRole('link', { name: `Download report #${id}` })).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText(`tag Environment = ${value}`).first()).toBeVisible()
+
+  await page.getByRole('button', { name: 'New report' }).first().click()
+  const creating = page.getByRole('dialog', { name: 'New report' })
+  await expect(creating.getByRole('group', { name: 'Tag' })).toBeVisible()
+  await creating.getByLabel('Tag name').selectOption('Environment')
+  await creating.locator('#report-tag-values').click()
+  await page.getByRole('listbox', { name: 'Values' }).getByRole('option').first().click()
+  await page.keyboard.press('Escape')
+  await expect(creating.getByText(/^Tag: Environment = /)).toBeVisible()
+  await axe(page, 'new report with a tag')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await axe(page, 'light new report with a tag')
+  await page.setViewportSize({ width: 390, height: 844 })
+  const inner = await creating.evaluate((el) => el.scrollWidth - el.clientWidth)
+  expect(inner, 'the dialog does not scroll sideways').toBeLessThanOrEqual(0)
+  await shot(page, '6x-phone-new-report-tag')
+})
+
 test('light theme: every screen passes axe, and the toggle cycles', async ({ page }) => {
   // The OS prefers light, so System (the default) draws the light theme (2026-10-14).
   await page.emulateMedia({ colorScheme: 'light' })

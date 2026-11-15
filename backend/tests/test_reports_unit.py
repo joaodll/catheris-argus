@@ -3,6 +3,7 @@ and the store's path checks."""
 
 import csv
 import io
+import json
 from datetime import date
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from argus.findings import FindingFilters, VulnerabilityFacts
 from argus.reports import LocalReportStore, ReportStoreError
 from argus.reports.csv_report import COLUMNS, CsvReport
 from argus.reports.filters import from_json, to_json
+from argus.reports.pdf import describe
 
 
 @pytest.mark.parametrize(
@@ -109,3 +111,19 @@ def test_a_symlinked_folder_cannot_lead_outside_the_root(tmp_path: Path) -> None
     (root / "reports").symlink_to(tmp_path)
     with pytest.raises(ReportStoreError):
         LocalReportStore(root).path("reports/1-" + "0" * 32 + ".csv")
+
+
+def test_tags_survive_storage_and_read_in_words() -> None:
+    filters = FindingFilters(tags=(("Team", ("a", "b", "c", "d")), ("Stage", ("prod",))))
+    stored = to_json(filters)
+    back = from_json("misconfigurations", json_round_trip(stored), connection_ids=[1])
+    assert back.tags == filters.tags
+    words = describe(back, accounts=1)
+    assert "tag Team = a or 3 more" in words and "tag Stage = prod" in words
+    with pytest.raises(ValueError):
+        from_json("misconfigurations", {"tags": [["Team", "a"]]}, connection_ids=[1])
+
+
+def json_round_trip(value: object) -> dict[str, object]:
+    loaded: dict[str, object] = json.loads(json.dumps(value))
+    return loaded

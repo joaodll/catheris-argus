@@ -47,6 +47,7 @@ from argus.findings import (
     put_misconfiguration_metrics,
     put_vulnerability_metrics,
     rederive_scores,
+    refresh_tag_facets,
     set_reach,
 )
 from argus.findings.inspector import UnsupportedVersionError as InspectorVersionError
@@ -251,6 +252,9 @@ def _steampipe(engine: Engine, run: _Run, raw: RawRun, rules_dir: Path) -> dict[
         ruleset=rule_set(rules_dir),
     )
     with engine.begin() as conn:
+        # The Tag filter's options follow the tags this load wrote (migration 0051). First: its
+        # lock comes before the metrics lock, as in a findings load.
+        refresh_tag_facets(conn, connection_id=run.connection_id)
         put_inventory_metrics(conn, connection_id=run.connection_id, day=run.day)
         loaded["reach_checked"] = check_reach(conn, connection_id=run.connection_id, day=run.day)
         # A removed asset leaves the Resources summary's exploitable count, which the

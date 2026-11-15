@@ -381,6 +381,7 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
       <template #action><RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'vulnerabilities', query: { tab: 'list' } }">Show all vulnerabilities</RouterLink></template>
     </AlertBanner>
     <FilterBar v-else label="Filter vulnerabilities" :active="filtered" @clear="clearFilters">
+      <TagChips :model-value="filters.tags" @update:model-value="set('tags', $event)" />
       <span v-if="resourceId" class="filter-chip" :title="resource.data.value?.resource_uid">
         Resource: <span class="mono">{{ resourceChip }}</span>
         <button type="button" class="icon-btn chip-x" aria-label="Remove resource filter" @click="set('resource', null)">
@@ -437,6 +438,15 @@ const noData = computed(() => loaded.value && dataThrough.value == null)
         <div v-show="more" id="v-more" class="more-row">
           <MultiSelect id="v-type" label="Resource type" :options="typeOptions" :status="facetStatus" :model-value="filters.type" @update:model-value="set('type', $event)" />
           <MultiSelect id="v-region" label="Region" :options="regionOptions" :status="facetStatus" :model-value="filters.region" @update:model-value="set('region', $event)" />
+          <TagFilter
+            id="v-tag"
+            list="vulnerabilities"
+            :names="facets.data.value?.tags ?? null"
+            :status="facetStatus"
+            :connection-ids="filters.connection"
+            :model-value="filters.tags"
+            @update:model-value="set('tags', $event)"
+          />
           <div class="field">
             <span id="v-muted" class="lbl">Suppressed</span>
             <div class="segmented" role="group" aria-labelledby="v-muted">

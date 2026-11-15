@@ -10,6 +10,8 @@ import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import AppModal from '@/components/AppModal.vue'
 import { useResource } from '@/composables/useResource'
+import TagFilter from '@/views/investigate/TagFilter.vue'
+import { type TagPair, tagParams } from '@/views/investigate/tagFilter'
 import { describe, type ReportFilters } from './reportFilters'
 
 type Kind = 'misconfigurations' | 'vulnerabilities'
@@ -58,11 +60,31 @@ const offered = computed(() => props.connections.filter((c) => !local.value || c
 const title = computed(() =>
   fromList ? `Export ${kind.value === 'misconfigurations' ? 'Misconfigurations' : 'Vulnerabilities'}` : 'New report',
 )
+// New report's tags (spec frontend/27ceefe0): the names the kind's list offers over the accounts.
+const tags = ref<TagPair[]>([])
+const scopeIds = computed(() => (allAccounts.value ? offered.value.map((c) => c.id) : chosen.value))
+const scopeKey = computed(() => scopeIds.value.join(','))
+const tagNames = useResource(
+  async () => {
+    if (fromList) return null
+    const query = { connection_id: scopeIds.value }
+    const facets =
+      kind.value === 'misconfigurations'
+        ? await unwrap(api.GET('/api/v1/findings/facets', { params: { query } }))
+        : await unwrap(api.GET('/api/v1/vulnerabilities/facets', { params: { query } }))
+    return facets.tags
+  },
+  { watch: [kind, scopeKey] },
+)
+const tagStatus = computed(() => (tagNames.error.value ? 'error' : tagNames.data.value ? 'ready' : 'loading'))
+
 const filterWords = computed(() =>
   listFilters.value ? describe(listFilters.value, (id) => props.connections.find((c) => c.id === id)?.name ?? `#${id}`) : '',
 )
 const dirty = computed(
-  () => format.value !== 'csv' || (!fromList && (kind.value !== 'misconfigurations' || !allAccounts.value)),
+  () =>
+    format.value !== 'csv' ||
+    (!fromList && (kind.value !== 'misconfigurations' || !allAccounts.value || tags.value.length > 0)),
 )
 const canSend = computed(
   () =>
@@ -73,8 +95,9 @@ const canSend = computed(
 
 function filtersToSend(): ReportFilters {
   if (listFilters.value) return listFilters.value
-  if (allAccounts.value) return offered.value.length ? { connection_id: offered.value.map((c) => c.id) } : {}
-  return { connection_id: chosen.value }
+  const tag = tags.value.length ? { tag: tagParams(tags.value) } : {}
+  if (allAccounts.value) return offered.value.length ? { connection_id: offered.value.map((c) => c.id), ...tag } : tag
+  return { connection_id: chosen.value, ...tag }
 }
 
 async function send(): Promise<void> {
@@ -128,8 +151,19 @@ async function send(): Promise<void> {
           <label v-for="c in offered" :key="c.id" class="check"><input v-model="chosen" type="checkbox" :value="c.id">{{ c.name }}</label>
           <span v-if="chosen.length === 0" class="cap">Choose at least one account.</span>
         </div>
-        <span class="cap">All open findings of these accounts. To narrow a report, export it from its list.</span>
+        <span class="cap">All open findings of these accounts. To narrow a report by anything else, export it from its list.</span>
       </fieldset>
+      <TagFilter
+        v-if="!fromList"
+        id="report-tag"
+        :list="kind"
+        :names="tagNames.data.value"
+        :status="tagStatus"
+        :connection-ids="scopeIds"
+        :model-value="tags"
+        chips
+        @update:model-value="tags = $event"
+      />
       <p v-if="local" class="cap">Reports on this install cover Demo connections only.</p>
     </form>
     <template #footer>

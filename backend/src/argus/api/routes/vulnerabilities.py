@@ -21,10 +21,21 @@ from argus.api.routes.findings import (
     SummaryAccounts,
     SummaryAge,
     SummaryBreakdown,
+    TagValues,
     finding_page,
     group_page,
+    tag_keys_out,
+    tag_values_out,
 )
-from argus.api.types import Provider, VulnerabilityMonths
+from argus.api.types import (
+    TAG_KEY_MAX,
+    TAG_VALUE_MAX,
+    Provider,
+    TagFilter,
+    TagKeyOut,
+    VulnerabilityMonths,
+    tag_pairs,
+)
 
 router = APIRouter(tags=["vulnerabilities"])
 
@@ -60,6 +71,9 @@ class VulnerabilityFilterQuery(BaseModel):
     # available: a fixed version exists for its packages (or some of them); none: not yet.
     fix: findings.FixFilter = "any"
     resource_id: int | None = None
+    # Tags of the finding's resource: each a JSON array ["name", "value"]. Values of one name
+    # are OR, names are AND; a finding with no inventoried resource never matches.
+    tag: list[TagFilter] = _many()
     # Matches the title (CVE and package), CVE id or resource uid anywhere, in any case.
     q: str | None = Field(None, max_length=200)
 
@@ -88,6 +102,7 @@ def vulnerability_filters(query: VulnerabilityFilterQuery) -> findings.FindingFi
         first_seen_to=query.first_seen_to,
         resource_id=query.resource_id,
         q=query.q or None,
+        tags=tag_pairs(query.tag),
         exploitable=query.exploitable,
         fix=query.fix,
     )
@@ -125,6 +140,7 @@ def vulnerability_groups(
 class VulnerabilityFacets(BaseModel):
     regions: list[str]
     resource_types: list[str]
+    tags: list[TagKeyOut]  # tag names; their values: GET /vulnerabilities/tag-values
 
 
 @router.get("/vulnerabilities/facets")
@@ -135,7 +151,26 @@ def vulnerability_facets(
 ) -> VulnerabilityFacets:
     """The options of the Vulnerabilities filters that come from the data."""
     facets = findings.finding_facets(conn, tools=TOOLS, connection_ids=tuple(connection_id))
-    return VulnerabilityFacets(regions=facets.regions, resource_types=facets.resource_types)
+    return VulnerabilityFacets(
+        regions=facets.regions,
+        resource_types=facets.resource_types,
+        tags=tag_keys_out(conn, tools=TOOLS, connection_ids=tuple(connection_id)),
+    )
+
+
+@router.get("/vulnerabilities/tag-values")
+def vulnerability_tag_values(
+    conn: Db,
+    _user: Viewer,
+    key: Annotated[str, Query(min_length=1, max_length=TAG_KEY_MAX)],
+    q: Annotated[str | None, Query(max_length=TAG_VALUE_MAX)] = None,
+    connection_id: Annotated[list[int], Query(max_length=50)] = [],  # noqa: B006 - FastAPI copies
+) -> TagValues:
+    """A tag name's values on the Vulnerabilities list's resources. A masked value is never
+    one."""
+    return tag_values_out(
+        conn, tools=TOOLS, key=key, connection_ids=tuple(connection_id), q=q or None
+    )
 
 
 class VulnerabilitiesSummaryOpen(BaseModel):

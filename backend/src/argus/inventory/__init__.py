@@ -1,12 +1,13 @@
 """Inventory: resources, their configurations and their daily snapshots.
 
-Owns resource, resource_config, resource_snapshot and resource_load. Public interface:
+Owns resource, resource_config, resource_snapshot, resource_load and resource_tag.
+Public interface:
     parse_steampipe()  the Steampipe adapter: one run's raw files -> InventoryBatch (pure)
     load_inventory()   writes a batch for one connection and day, in the caller's transaction
     effective_day()    the inventory that stands for a day: the latest load, however old
     delete_orphan_configs(), delete_loads_before()   retention's cleanup
-    RESOURCES_ON_DAY_SQL, RESOURCES_IN_REGIONS_SQL, CURRENT_ASSETS_SQL, resource_id_sql(),
-    uid_by_native_id()
+    RESOURCES_ON_DAY_SQL, RESOURCES_IN_REGIONS_SQL, CURRENT_ASSETS_SQL, TAGGED_RESOURCES_SQL,
+    RESOURCE_TAGS_SQL, resource_id_sql(), uid_by_native_id()
                        for other modules' queries
     RESOURCE_NODES_SQL, resource_nodes()   resources as Resource map nodes, by uid
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
@@ -24,8 +25,10 @@ from argus.inventory.metrics import (
 from argus.inventory.queries import (
     CURRENT_ASSETS_SQL,
     RESOURCE_NODES_SQL,
+    RESOURCE_TAGS_SQL,
     RESOURCES_IN_REGIONS_SQL,
     RESOURCES_ON_DAY_SQL,
+    TAGGED_RESOURCES_SQL,
     ResourceFilters,
     ResourceOrder,
     delete_loads_before,
@@ -52,7 +55,9 @@ __all__ = [
     "RESOURCES_IN_REGIONS_SQL",
     "RESOURCES_ON_DAY_SQL",
     "RESOURCE_NODES_SQL",
+    "RESOURCE_TAGS_SQL",
     "SUPPORTED_VERSIONS",
+    "TAGGED_RESOURCES_SQL",
     "InventoryBatch",
     "InventoryResource",
     "ResourceFilters",

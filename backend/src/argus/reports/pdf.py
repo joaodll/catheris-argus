@@ -344,6 +344,11 @@ def describe(filters: FindingFilters, *, accounts: int) -> str:
     words.append(f"matching “{filters.q}”" if filters.q else None)
     words.append("public exploit" if filters.exploitable else None)
     words.append({"available": "fix available", "none": "no fix yet"}.get(filters.fix))
+    for key, values in filters.tags:  # as the screen says it: past three values, a count
+        shown = (
+            " or ".join(values) if len(values) <= 3 else f"{values[0]} or {len(values) - 1} more"
+        )
+        words.append(f"tag {key} = {shown}")
     return " · ".join(w for w in words if w)
 
 

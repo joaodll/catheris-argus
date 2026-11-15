@@ -12,6 +12,7 @@ from sqlalchemy import Connection, text
 from argus.connections import DIRECTORY_SQL
 from argus.core.db import count_sql, like_contains
 from argus.findings.model import OPEN_MISCONFIGURATION
+from argus.inventory import TAGGED_RESOURCES_SQL
 
 FindingState = Literal["open", "reopened", "resolved", "accepted_risk"]
 FindingOrder = Literal["severity", "severity_asc", "last_seen_desc", "last_seen_asc"]
@@ -59,6 +60,7 @@ _FILTERS = f"""
     AND (CAST(:fs_from AS date) IS NULL OR f.first_seen >= CAST(:fs_from AS date))
     AND (CAST(:fs_to AS date) IS NULL OR f.first_seen <= CAST(:fs_to AS date))
     AND (CAST(:res AS bigint) IS NULL OR f.resource_id = :res)
+    AND (CAST(:tag_keys AS text[]) IS NULL OR f.resource_id IN ({TAGGED_RESOURCES_SQL}))
     AND (CAST(:p AS text) IS NULL OR {_SEARCH} ILIKE :p ESCAPE '\\')
     AND (NOT :expl OR EXISTS (SELECT 1 FROM finding_vulnerability v
                               WHERE v.finding_id = f.id AND v.exploit_available))
@@ -112,6 +114,9 @@ class FindingFilters:
     # Vulnerabilities only (finding_vulnerability): a public exploit exists; a fix exists or not.
     exploitable: bool = False
     fix: FixFilter = "any"
+    # Tags of the finding's resource (migration 0051): (name, values) pairs; values of one name
+    # are OR, names are AND. A finding with no inventoried resource never matches.
+    tags: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 def _any(values: tuple[Any, ...]) -> list[Any] | None:
@@ -141,6 +146,17 @@ def _params(filters: FindingFilters) -> dict[str, Any]:
         "p": like_contains(filters.q) if filters.q else None,
         "expl": filters.exploitable,
         "fix": _FIX[filters.fix],
+        **_tag_params(filters.tags),
+    }
+
+
+def _tag_params(tags: tuple[tuple[str, tuple[str, ...]], ...]) -> dict[str, Any]:
+    """inventory.TAGGED_RESOURCES_SQL's parameters: one position per (name, value)."""
+    pairs = [(key, value) for key, values in tags for value in values]
+    return {
+        "tag_keys": [k for k, _ in pairs] or None,
+        "tag_values": [v for _, v in pairs] or None,
+        "tag_names": len({k for k, _ in pairs}),
     }
 
 

@@ -35,6 +35,20 @@ RESOURCES_IN_REGIONS_SQL = """
 # The ids of one connection's current assets, :c: an asset type (resource.asset, migration
 # 0045) and not removed. The Resources summary's risk counts, as the Resources list keeps them
 # with `assets=1` (deleted resources left out).
+# The resources carrying every tag name asked, each with one of that name's values: pairs bound
+# to :tag_keys and :tag_values (one name and one value per position; a name may repeat), whose
+# distinct names are :tag_names. Values of one name are OR, names are AND (migration 0051).
+TAGGED_RESOURCES_SQL = """
+  SELECT rt.resource_id
+  FROM resource_tag rt
+  JOIN unnest(CAST(:tag_keys AS text[]), CAST(:tag_values AS text[])) want(key, value)
+    ON rt.key = want.key AND rt.value = want.value
+  GROUP BY rt.resource_id
+  HAVING count(DISTINCT rt.key) = CAST(:tag_names AS int)
+"""
+# Every tag of every resource, as stored (already redacted): what other modules' tag options read.
+RESOURCE_TAGS_SQL = "SELECT resource_id, key, value FROM resource_tag"
+
 CURRENT_ASSETS_SQL = """
   SELECT id FROM resource WHERE connection_id = :c AND asset AND deleted_on IS NULL
 """

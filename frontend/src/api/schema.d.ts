@@ -427,6 +427,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/findings/tag-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Finding Tag Values
+         * @description A tag name's values on the Misconfigurations list's resources. A masked value is never
+         *     one.
+         */
+        get: operations["finding_tag_values_api_v1_findings_tag_values_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/findings/{finding_id}": {
         parameters: {
             query?: never;
@@ -1198,6 +1219,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/vulnerabilities/tag-values": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Vulnerability Tag Values
+         * @description A tag name's values on the Vulnerabilities list's resources. A masked value is never
+         *     one.
+         */
+        get: operations["vulnerability_tag_values_api_v1_vulnerabilities_tag_values_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1699,6 +1741,8 @@ export interface components {
             resource_types: string[];
             /** Services */
             services: string[];
+            /** Tags */
+            tags: components["schemas"]["TagKeyOut"][];
         };
         /**
          * FindingFilterQuery
@@ -1752,6 +1796,8 @@ export interface components {
             state: "open" | "reopened" | "resolved" | "accepted_risk";
             /** Status */
             status?: ("FAIL" | "MANUAL")[];
+            /** Tag */
+            tag?: string[];
             /** Tool */
             tool?: ("prowler" | "cloudfox")[];
         };
@@ -3290,6 +3336,26 @@ export interface components {
             /** Table */
             table: string;
         };
+        /** TagKeyOut */
+        TagKeyOut: {
+            /** Key */
+            key: string;
+            /** Listed */
+            listed: boolean;
+        };
+        /**
+         * TagValues
+         * @description One tag name's values, in order, at most 500: narrow them with `q`, or type one when
+         *     `more`.
+         */
+        TagValues: {
+            /** Key */
+            key: string;
+            /** More */
+            more: boolean;
+            /** Values */
+            values: string[];
+        };
         /** TestOut */
         TestOut: {
             /** Caller Arn */
@@ -3529,6 +3595,8 @@ export interface components {
             regions: string[];
             /** Resource Types */
             resource_types: string[];
+            /** Tags */
+            tags: components["schemas"]["TagKeyOut"][];
         };
         /**
          * VulnerabilityFilterQuery
@@ -3584,6 +3652,8 @@ export interface components {
              * @enum {string}
              */
             state: "open" | "reopened" | "resolved" | "accepted_risk";
+            /** Tag */
+            tag?: string[];
         };
         /**
          * VulnerabilityFixItem
@@ -4384,6 +4454,7 @@ export interface operations {
                 first_seen_from?: string | null;
                 first_seen_to?: string | null;
                 resource_id?: number | null;
+                tag?: string[];
                 q?: string | null;
                 limit?: number;
                 offset?: number;
@@ -4476,6 +4547,7 @@ export interface operations {
                 first_seen_from?: string | null;
                 first_seen_to?: string | null;
                 resource_id?: number | null;
+                tag?: string[];
                 q?: string | null;
                 limit?: number;
                 offset?: number;
@@ -4535,6 +4607,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MisconfigurationSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    finding_tag_values_api_v1_findings_tag_values_get: {
+        parameters: {
+            query: {
+                key: string;
+                q?: string | null;
+                connection_id?: number[];
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagValues"];
                 };
             };
             /** @description Validation Error */
@@ -6145,6 +6255,7 @@ export interface operations {
                 exploitable?: boolean;
                 fix?: "any" | "available" | "none";
                 resource_id?: number | null;
+                tag?: string[];
                 q?: string | null;
                 limit?: number;
                 offset?: number;
@@ -6234,6 +6345,7 @@ export interface operations {
                 exploitable?: boolean;
                 fix?: "any" | "available" | "none";
                 resource_id?: number | null;
+                tag?: string[];
                 q?: string | null;
                 limit?: number;
                 offset?: number;
@@ -6293,6 +6405,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VulnerabilitiesSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    vulnerability_tag_values_api_v1_vulnerabilities_tag_values_get: {
+        parameters: {
+            query: {
+                key: string;
+                q?: string | null;
+                connection_id?: number[];
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TagValues"];
                 };
             };
             /** @description Validation Error */
