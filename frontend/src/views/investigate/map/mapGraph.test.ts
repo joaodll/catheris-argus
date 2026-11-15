@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { addMember, boundaryLabel, drawnEdges, emptyGraph, lineStyle, mergeGraph, nodeName, scanLine, traceOf, type MapEdge, type MapNode } from './mapGraph'
 
 function node(uid: string, extra: Partial<MapNode> = {}): MapNode {
-  return { uid, kind: 'resource', resource_id: 1, type: 'aws_lambda_function', name: uid, region: 'us-east-1', connection_id: 1, deleted_on: null, expanded: false, boundary: false, ...extra }
+  return { uid, kind: 'resource', resource_id: 1, provider: 'aws', type: 'aws_lambda_function', name: uid, region: 'us-east-1', connection_id: 1, deleted_on: null, expanded: false, boundary: false, ...extra }
 }
 let next = 1
 function edge(source: string, target: string, origin = 'rule:x@1', type = 'ROUTES_TO'): MapEdge {

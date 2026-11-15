@@ -684,7 +684,7 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   const graph = (await (await answered).json()) as { nodes: Record<string, unknown>[] }
   expect(graph.nodes.length).toBeGreaterThan(1)
   for (const node of graph.nodes) {
-    expect(Object.keys(node).sort()).toEqual(['boundary', 'connection_id', 'deleted_on', 'expanded', 'kind', 'name', 'region', 'resource_id', 'type', 'uid'])
+    expect(Object.keys(node).sort()).toEqual(['boundary', 'connection_id', 'deleted_on', 'expanded', 'kind', 'name', 'provider', 'region', 'resource_id', 'type', 'uid'])
   }
   // A map opens at the canvas's full width; the panel comes when a card is chosen.
   await expect(page.getByRole('complementary', { name: 'Resource panel' })).toHaveCount(0)
@@ -723,7 +723,7 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   await expect(canvas.locator('.node', { hasText: 'prod-orders-api' })).toHaveCount(0)
   const deep = page.waitForRequest((r) => r.url().includes('/api/v1/map/graph') && new URL(r.url()).searchParams.get('depth') === '3')
   await depth.getByRole('button', { name: '3 hops' }).click()
-  expect(new URL((await deep).url()).searchParams.get('map')).toBe('resource')
+  expect(new URL((await deep).url()).pathname).toBe('/api/v1/map/graph')
   await expect(page).toHaveURL(/depth=3/)
   // edge-alb -> its target group -> the API function: two hops away, drawn without an Expand.
   await expect(canvas.locator('.node', { hasText: 'prod-orders-api' }).first()).toBeVisible()
@@ -772,7 +772,7 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   await shot(page, '93-map-list')
   const mapUrl = page.url().replace(/[?&]view=list/, '')
   // Nothing on the Resource Map read a route that carries a security fact.
-  expect(everything.filter((path) => /^\/api\/v1\/(resources|findings|vulnerabilities|risk)\b/.test(path))).toEqual([])
+  expect(everything.filter((path) => /^\/api\/v1\/(resources|findings|vulnerabilities|risk|map\/security)\b/.test(path))).toEqual([])
 
   // Resources has Open in Resource Map on every resource.
   await page.goto('/investigate/resources?tab=list')
@@ -806,6 +806,117 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   await expect(page.getByRole('heading', { level: 3, name: 'Connections' }).first()).toBeVisible()
   await axe(page, 'phone map')
   await shot(page, 'P91-map')
+})
+
+test('security map: card B, the security lines and each fact linked to its list; both themes, phone width', async ({ page }) => {
+  test.setTimeout(150_000)
+  await signIn(page)
+  const graphs: string[] = []
+  page.on('request', (r) => {
+    if (r.url().includes('/api/v1/map/')) graphs.push(new URL(r.url()).pathname)
+  })
+  await navLink(page, 'Security Map')
+  await expect(page).toHaveURL(/\/investigate\/security-map/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Security Map' })).toBeVisible()
+  await expect(page.getByText('also has Open in Security Map.')).toBeVisible()
+  await axe(page, 'security map start')
+  // The front door, two hops deep: the internet's lines, the ALB's findings and the function.
+  await page.getByLabel('Account').selectOption({ label: 'demo-prod' })
+  const find = page.getByRole('combobox', { name: 'Find a resource' })
+  await find.fill('edge-alb')
+  const answered = page.waitForResponse((r) => r.url().includes('/api/v1/map/security/graph') && r.status() === 200)
+  await page.getByRole('listbox', { name: 'Resources' }).getByRole('option').filter({ hasText: 'edge-alb' }).first().click()
+  const canvas = page.getByRole('application', { name: /^Security Map, \d+ resources/ })
+  await expect(canvas).toBeVisible()
+  // Each node of the answer carries its facts (null outside the inventory).
+  const graph = (await (await answered).json()) as { nodes: { resource_id: number | null; facts: unknown }[] }
+  for (const node of graph.nodes) expect(node.resource_id == null ? node.facts === null : node.facts !== null).toBe(true)
+  await page.getByRole('group', { name: 'Depth' }).getByRole('button', { name: '2 hops' }).click()
+  await expect(page).toHaveURL(/depth=2/)
+  // The security lines are drawn, in their own words (CloudFox's internet reach on the ALB).
+  await expect(page.locator('.line-word.sec').first()).toBeVisible()
+  // Card B: a count pill, and marks that each carry a title.
+  const pilled = canvas.locator('.node:has(.card-pill)').first()
+  await expect(pilled).toBeVisible()
+  await expect(canvas.locator('.mark[title]').first()).toBeVisible()
+  // The legend explains the pill, the marks and the security line.
+  await page.getByRole('button', { name: /Legend/ }).click()
+  await expect(page.locator('#map-legend')).toContainText('Open misconfigurations, in the worst severity')
+  await expect(page.locator('#map-legend')).toContainText("the globe is Argus's confirmed verdict")
+  await axe(page, 'security map')
+  await shot(page, '94-security-map')
+
+  // A card's count equals the list its link opens: Misconfigurations, then Vulnerabilities and
+  // the internet, on whichever cards carry them.
+  const count = (await pilled.locator('.card-pill').innerText()).trim()
+  await pilled.click()
+  const panel = page.getByRole('complementary', { name: 'Resource panel' })
+  const facts = panel.getByRole('region', { name: 'Security facts' })
+  await expect(facts).toBeVisible()
+  // The panel is the whole resource on this map.
+  await expect(panel.getByRole('heading', { level: 3, name: /^Prowler/ })).toBeVisible()
+  const misLink = facts.getByRole('link', { name: /open misconfigurations?/ })
+  await expect(misLink).toContainText(count)
+  await axe(page, 'security map panel')
+  await shot(page, '94a-security-map-panel')
+  const checked: string[] = []
+  const follow = async (link: ReturnType<Page['getByRole']>, expected: RegExp): Promise<void> => {
+    const href = await link.getAttribute('href')
+    expect(href).toBeTruthy()
+    const back = page.url()
+    await page.goto(href!)
+    await expect(page.locator('.panel-foot .total')).toHaveText(expected)
+    await page.goto(back)
+    await expect(canvas).toBeVisible()
+  }
+  await follow(misLink, new RegExp(`^${count} records?$`))
+  checked.push('misconfigurations')
+  // Internet reachable: a card with the globe at the front door.
+  await canvas.locator('.node:has(.mark-internet)').first().click()
+  await follow(facts.getByRole('link', { name: /Reachable from the internet/ }), /^[1-9][\d,]* records?$/)
+  checked.push('internet')
+  // Vulnerabilities: a function with four open CVEs, one with a public exploit (the Demo estate).
+  await find.fill('prod-resize-2-g21')
+  await page.getByRole('listbox', { name: 'Resources' }).getByRole('option').filter({ hasText: 'prod-resize-2-g21' }).first().click()
+  const vulnerable = canvas.locator('.node.focus')
+  await expect(vulnerable.locator('.mark-vulnerable')).toBeVisible()
+  await expect(vulnerable.locator('.mark-exploit')).toBeVisible()
+  await vulnerable.click()
+  const cves = facts.getByRole('link', { name: /open vulnerabilit/ })
+  await expect(cves).toContainText('4 open vulnerabilities')
+  await expect(cves).toContainText('Exploit')
+  await follow(cves, /^4 records$/)
+  checked.push('vulnerabilities')
+  expect(checked).toEqual(['misconfigurations', 'internet', 'vulnerabilities'])
+  // The List view says each fact in words.
+  await page.getByRole('group', { name: 'Show as' }).getByRole('button', { name: 'List' }).click()
+  await expect(page.locator('.list .sub', { hasText: /misconfigurations? \((Critical|High|Medium|Low|Informational)\)/ }).first()).toBeVisible()
+  await axe(page, 'security map list')
+  await shot(page, '94b-security-map-list')
+  const listUrl = page.url().replace(/([?&])open=[^&]*&?/, '$1').replace(/[?&]$/, '')
+  // The Security Map read only its own routes and the plain start; never the Resource Map's graph.
+  expect(graphs.filter((p) => p === '/api/v1/map/graph' || p === '/api/v1/map/group')).toEqual([])
+
+  // Resources has Open in Security Map.
+  await page.goto('/investigate/resources?tab=list')
+  await page.getByRole('table').locator('tbody tr').first().getByRole('link').click()
+  await page.getByRole('dialog').getByRole('link', { name: 'Open in Security Map' }).click()
+  await expect(page).toHaveURL(/\/investigate\/security-map\?.*focus=/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Security Map' })).toBeVisible()
+
+  // The light theme and phone width.
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto(listUrl.replace(/[?&]view=list/, ''))
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await expect(canvas).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'light security map')
+  await shot(page, 'L94-security-map')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(listUrl.replace(/[?&]view=list/, ''))
+  await expect(page.locator('.list .sub').first()).toBeVisible()
+  await axe(page, 'phone security map')
+  await shot(page, 'P94-security-map')
 })
 
 test('posture: compliance frameworks and one framework, read-only', async ({ page }) => {

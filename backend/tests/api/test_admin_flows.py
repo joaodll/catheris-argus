@@ -268,6 +268,10 @@ def _sweep_reports(
     assert not any(MARKERS.search(context) for context in setup.contexts)
 
 
+# Each map's graph and group routes (ADR-0051): the Security Map has its own.
+MAP_ROUTE = {"resource": "/api/v1/map", "security": "/api/v1/map/security"}
+
+
 def _sweep_map(client: TestClient, connection_id: int, bodies: dict[str, str]) -> None:
     """Both maps' three hops around every resource, on every layer, every group they can page,
     and the Resource Map's plain start, search and panel for every resource."""
@@ -283,8 +287,8 @@ def _sweep_map(client: TestClient, connection_id: int, bodies: dict[str, str]) -
     groups = set()
     for kind in ("resource", "security"):
         for uid in sorted(uids):
-            query = urlencode({"focus": uid, "connection_id": connection_id, "map": kind})
-            path = f"/api/v1/map/graph?{query}&depth=3&{layers}"
+            query = urlencode({"focus": uid, "connection_id": connection_id})
+            path = f"{MAP_ROUTE[kind]}/graph?{query}&depth=3&{layers}"
             response = client.get(path)
             assert response.status_code == 200, (path, response.text)
             bodies[path] = response.text
@@ -303,11 +307,10 @@ def _sweep_map(client: TestClient, connection_id: int, bodies: dict[str, str]) -
                 "connection_id": connection_id,
                 "direction": direction,
                 "edge_type": edge_type,
-                "map": kind,
                 **({"resource_type": resource_type} if resource_type else {}),
             }
         )
-        path = f"/api/v1/map/group?{query}&limit=100"
+        path = f"{MAP_ROUTE[kind]}/group?{query}&limit=100"
         response = client.get(path)
         assert response.status_code == 200, (path, response.text)
         bodies[path] = response.text

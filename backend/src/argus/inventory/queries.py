@@ -205,7 +205,7 @@ def resource_facets(
 # Exported SQL: one row per inventoried resource, as a node of the Resource map (ADR-0051).
 # Joined by uid, so another module can place resources on a map without naming the table.
 RESOURCE_NODES_SQL = """
-  SELECT id, resource_uid AS uid, type, coalesce(name, native_id) AS name, region,
+  SELECT id, resource_uid AS uid, provider, type, coalesce(name, native_id) AS name, region,
          connection_id, deleted_on
   FROM resource
 """

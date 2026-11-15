@@ -61,12 +61,11 @@ describe('Map state in the URL', () => {
 
   it('builds the graph request for a focus', () => {
     const state = parseMapQuery({ focus: 'a', depth: '2', as_of: '2026-10-01' }) // an older link's day means nothing now
-    expect(graphParams(state, 'b')).toEqual({ focus: 'b', depth: 2, map: 'resource', layer: ['traffic', 'identity'], origin: ['rule', 'cloudfox'], connection_id: undefined })
+    expect(graphParams(state, 'b')).toEqual({ focus: 'b', depth: 2, layer: ['traffic', 'identity'], origin: ['rule', 'cloudfox'], connection_id: undefined })
     expect(graphParams({ ...state, connection: 4 }, 'b').connection_id).toBe(4)
     expect(graphParams({ ...state, connection: 4 }, 'b', { connection: 7 }).connection_id).toBe(7)
     // Expand reads one hop, whatever the depth.
     expect(graphParams(state, 'b', { depth: 1 }).depth).toBe(1)
-    expect(graphParams(state, 'b', { map: 'security' }).map).toBe('security')
   })
 
   it('keeps a depth of 1 to 3, and leaves 1 out of the URL', () => {

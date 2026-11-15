@@ -23,6 +23,7 @@ NODE_FIELDS = {
     "uid",
     "kind",
     "resource_id",
+    "provider",
     "type",
     "name",
     "region",
@@ -41,8 +42,9 @@ def prod(owner: Engine, worker: Engine, store: FilesystemRawStore) -> int:
     return target.connection_id
 
 
-def _graph(client: TestClient, focus: str, **params: Any) -> dict[str, Any]:
-    response = client.get("/api/v1/map/graph", params={"focus": focus, **params})
+def _graph(client: TestClient, focus: str, kind: str = "resource", **params: Any) -> dict[str, Any]:
+    path = "/api/v1/map/graph" if kind == "resource" else "/api/v1/map/security/graph"
+    response = client.get(path, params={"focus": focus, **params})
     assert response.status_code == 200, response.text
     graph: dict[str, Any] = response.json()
     return graph
@@ -122,7 +124,7 @@ def test_identity_lines_and_no_security_fact_on_a_node(signed_in: TestClient, pr
     alb = _resource(signed_in, "edge-alb", connection_id=prod)
     # The edge ALB is found by our rule and by CloudFox: two lines from the internet.
     from_internet = _graph(
-        signed_in, "internet", connection_id=prod, layer=["traffic"], map="security"
+        signed_in, "internet", connection_id=prod, layer=["traffic"], kind="security"
     )["edges"]
     assert {
         (e["type"], e["origin"].split(":")[0])
@@ -144,7 +146,7 @@ def test_identity_lines_and_no_security_fact_on_a_node(signed_in: TestClient, pr
     near = _graph(signed_in, function["uid"], layer=["identity"])
     role = _named(near, "prod-orders-api-role")
     assert (function["uid"], role["uid"], "RUNS_AS") in _edges(near)
-    further = _graph(signed_in, role["uid"], layer=["identity"], map="security")
+    further = _graph(signed_in, role["uid"], layer=["identity"], kind="security")
     admin = next(n for n in further["nodes"] if n["kind"] == "admin")
     assert (role["uid"], admin["uid"], "CAN_PRIVESC_TO") in _edges(further)
     # The Resource Map draws how they connect, never the security judgement.
@@ -162,7 +164,9 @@ def test_identity_lines_and_no_security_fact_on_a_node(signed_in: TestClient, pr
     }
     # The Infrastructure view (ADR-0051): a node says what and where, nothing about findings,
     # vulnerabilities or reach.
-    assert all(set(n) == NODE_FIELDS for g in (graph, near, further) for n in g["nodes"])
+    assert all(set(n) == NODE_FIELDS for g in (graph, near, plain) for n in g["nodes"])
+    # The Security Map adds each node's facts, and nothing else.
+    assert all(set(n) == NODE_FIELDS | {"facts"} for n in further["nodes"])
     # One hop: only the focus has had its neighbours read.
     assert [n["uid"] for n in near["nodes"] if n["expanded"]] == [function["uid"]]
 
@@ -250,7 +254,6 @@ def test_the_map_cap_and_bad_requests(
         {**scoped, "focus": "x" * 2049},
         {**scoped, "depth": 0},
         {**scoped, "depth": 4},
-        {**scoped, "map": "attack"},
     ]
     for params in bad_graphs:
         assert signed_in.get("/api/v1/map/graph", params=params).status_code == 422, params
@@ -274,6 +277,8 @@ def test_the_map_needs_a_session(client: TestClient) -> None:
     for path in (
         "/api/v1/map/graph?focus=internet",
         "/api/v1/map/group?anchor=internet",
+        "/api/v1/map/security/graph?focus=internet",
+        "/api/v1/map/security/group?anchor=internet",
         "/api/v1/map/types",
         "/api/v1/map/resources",
         "/api/v1/map/resource/1",
@@ -289,7 +294,7 @@ def test_the_map_draws_connections_not_reach(
     only CloudFox's line to it, never the verdict, and no map edge carries the rules' evidence.
     The verdict and its evidence stay on the edge row, where the Resources sheet reads them
     (ADR-0035)."""
-    graph = _graph(signed_in, "internet", connection_id=prod, layer=["traffic"], map="security")
+    graph = _graph(signed_in, "internet", connection_id=prod, layer=["traffic"], kind="security")
     assert {e["type"] for e in graph["edges"]} <= {"ROUTES_TO", "TRIGGERS", "INTERNET_REACHABLE"}
     assert all(set(e["attributes"]) <= set(EDGE_ATTRIBUTES) for e in graph["edges"])
     admin = _named(graph, "prod-admin-alb")
@@ -355,7 +360,9 @@ def test_the_resource_map_never_draws_a_security_line(signed_in: TestClient, pro
     plain = _graph(signed_in, "internet", connection_id=prod, layer=every, depth=3)
     assert not any(e["type"] in security_types for e in plain["edges"])
     assert not any(g["edge_type"] in security_types for g in plain["groups"])
-    secure = _graph(signed_in, "internet", connection_id=prod, layer=every, depth=3, map="security")
+    secure = _graph(
+        signed_in, "internet", kind="security", connection_id=prod, layer=every, depth=3
+    )
     assert any(e["type"] in security_types for e in secure["edges"])
     # A group of a security line has no members on the Resource Map: the same group, with a
     # real member type, lists them on the Security Map.
@@ -372,7 +379,7 @@ def test_the_resource_map_never_draws_a_security_line(signed_in: TestClient, pro
         "edge_type": "INTERNET_REACHABLE",
         "resource_type": reached,
     }
-    shown = signed_in.get("/api/v1/map/group", params={**group, "map": "security"}).json()
+    shown = signed_in.get("/api/v1/map/security/group", params=group).json()
     assert shown["total"] > 0 and shown["items"]
     hidden = signed_in.get("/api/v1/map/group", params=group).json()
     assert hidden["total"] == 0 and hidden["items"] == []
@@ -455,3 +462,94 @@ def test_the_resource_maps_start_search_and_panel(signed_in: TestClient, prod: i
     assert not any(e["type"].startswith("PUBLIC_") for e in panel["edges"])
     assert all(set(e["attributes"]) <= set(EDGE_ATTRIBUTES) for e in panel["edges"])
     assert signed_in.get("/api/v1/map/resource/999999999").status_code == 404
+
+
+def _total(client: TestClient, path: str, **params: Any) -> int:
+    response = client.get(path, params={"limit": 1, **params})
+    assert response.status_code == 200, response.text
+    return int(response.json()["total"])
+
+
+def test_the_security_maps_facts_count_as_their_lists(signed_in: TestClient, prod: int) -> None:
+    """Each card's facts equal the list its link opens: Misconfigurations (open, FAIL, not
+    muted, both tools), Vulnerabilities (open, not suppressed) and Misconfigurations whose reach
+    the rules confirm. Pseudo-nodes and resources outside the inventory carry none."""
+    every = ["traffic", "identity", "network", "policy", "data"]
+    graph = _graph(signed_in, "internet", kind="security", connection_id=prod, layer=every, depth=2)
+    checked = {"misconfigured": 0, "vulnerable": 0, "exploitable": 0, "reachable": 0}
+    for node in graph["nodes"]:
+        if node["resource_id"] is None:
+            assert node["facts"] is None, node["uid"]
+            continue
+        facts, rid = node["facts"], node["resource_id"]
+        assert facts["misconfigurations"] is not None  # Prowler and CloudFox ran
+        open_ = {"resource_id": rid, "status": "FAIL", "muted": "hide"}
+        misconfigured = _total(signed_in, "/api/v1/findings", **open_)
+        assert facts["misconfigurations"]["open"] == misconfigured, node["name"]
+        if misconfigured:
+            checked["misconfigured"] += 1
+            worst = signed_in.get(
+                "/api/v1/findings", params={**open_, "order": "severity", "limit": 1}
+            ).json()["items"][0]["severity"]
+            assert facts["misconfigurations"]["worst"] == worst
+        else:
+            assert facts["misconfigurations"]["worst"] is None
+        reachable = _total(signed_in, "/api/v1/findings", **open_, reach="confirmed") > 0
+        assert facts["internet_reachable"] == reachable, node["name"]
+        checked["reachable"] += reachable
+        cves = facts["vulnerabilities"]
+        if cves is None:
+            continue
+        unmuted = {"resource_id": rid, "muted": "hide"}
+        assert cves["open"] == _total(signed_in, "/api/v1/vulnerabilities", **unmuted)
+        assert cves["exploitable"] == _total(
+            signed_in, "/api/v1/vulnerabilities", **unmuted, exploitable=True
+        )
+        checked["vulnerable"] += cves["open"] > 0
+        checked["exploitable"] += cves["exploitable"] > 0
+    assert all(checked.values()), checked  # the estate exercises every fact
+
+
+def test_the_security_maps_facts_say_not_covered(
+    signed_in: TestClient, owner: Engine, worker: Engine, store: FilesystemRawStore
+) -> None:
+    """A connection with only an inventory: no misconfiguration or vulnerability facts (not
+    covered), never a zero."""
+    target = make_demo(owner, seed=1)
+    run_tool(worker, store, target, "steampipe", datetime.now(UTC).date())
+    found = signed_in.get(
+        "/api/v1/map/resources", params={"connection_id": target.connection_id, "limit": 1}
+    ).json()["items"][0]
+    graph = _graph(signed_in, found["resource_uid"], kind="security")
+    focus = next(n for n in graph["nodes"] if n["uid"] == found["resource_uid"])
+    assert focus["facts"] == {
+        "misconfigurations": None,
+        "vulnerabilities": None,
+        "internet_reachable": False,
+    }
+
+
+def test_the_security_maps_group_members_carry_facts(signed_in: TestClient, prod: int) -> None:
+    every = ["traffic", "identity", "network", "policy", "data"]
+    graph = _graph(signed_in, "internet", kind="security", connection_id=prod, layer=every, depth=3)
+    types = {n["uid"]: n["type"] for n in graph["nodes"]}
+    edge = next(e for e in graph["edges"] if types.get(e["target_uid"]))
+    group = {
+        "anchor": edge["source_uid"],
+        "connection_id": prod,
+        "direction": "out",
+        "edge_type": edge["type"],
+        "resource_type": types[edge["target_uid"]],
+    }
+    secure = signed_in.get("/api/v1/map/security/group", params=group).json()
+    assert secure["items"]
+    assert all(m["node"]["facts"] is not None for m in secure["items"])
+    plain = signed_in.get("/api/v1/map/group", params=group).json()
+    assert all("facts" not in m["node"] for m in plain["items"])
+
+
+def test_only_the_security_routes_carry_facts() -> None:
+    for model in (resource_map.SecurityGraph, resource_map.SecurityGroupPage):
+        assert "facts" in _field_names(model), model
+    for model in (resource_map.MapGraph, resource_map.GroupPage):
+        assert "facts" not in _field_names(model), model

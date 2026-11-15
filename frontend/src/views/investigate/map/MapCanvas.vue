@@ -9,8 +9,12 @@
  * corner. Positions come from mapLanes (Cytoscape's preset layout), so the same view always
  * places a card in the same spot.
  *
- * A card says what a resource is and where, never a security fact: this is the Infrastructure
- * view, the map as a network and architecture diagram.
+ * On the Resource Map a card says what a resource is and where, never a security fact: the map
+ * as a network and architecture diagram. On the Security Map (`map`, card B; spec
+ * frontend/4242ef35) a card also carries a count pill of open misconfigurations in the worst
+ * severity's colour and marks for internet reachable, open vulnerabilities and a public
+ * exploit (mapFacts.ts), and the security lines are heavier than the connections. Positions
+ * never depend on a fact.
  *
  * Each line says what it is in plain words (edgeWords.ts) at its midpoint, in the gap between
  * columns, at one size on screen whatever the zoom. The words are in the HTML layer too:
@@ -29,6 +33,10 @@ import AppIcon from '@/components/AppIcon.vue'
 import type { IconName } from '@/components/icons'
 import { regionLabel } from '../labels'
 import { edgeWord } from '../edgeWords'
+import CountPill from './CountPill.vue'
+import { SECURITY_EDGE_TYPES, factLines, factsOf, marksOf, pillCount, worstOf, type Marks } from './mapFacts'
+import type { Severity } from '@/views/overview/severity'
+import type { MapKind } from './mapQuery'
 import { boundaryLabel, drawnEdges, groupNodeId, nodeName, traceOf, type GraphState, type MapGroup, type MapNode, type Selection } from './mapGraph'
 import { LANE_NAME_RISE, LANE_WIDTH, NODE_HEIGHT, NODE_WIDTH, cardGlyph, layout, moveSelection, typeLabel, type LaidNode, type Move, type NodeKind } from './mapLanes'
 import { resolvedTheme } from '@/composables/useTheme'
@@ -38,8 +46,10 @@ const props = defineProps<{
   focus: string | null
   selection: Selection | null
   connectionName: (id: number) => string
+  map?: MapKind
 }>()
 const emit = defineEmits<{ select: [selection: Selection | null]; expand: [uid: string]; focusHere: [uid: string] }>()
+const security = computed(() => props.map === 'security')
 
 /** One card on the canvas: a node of the graph, or a group standing for many. */
 interface Card {
@@ -54,6 +64,11 @@ interface Card {
   icon: IconName
   w: number
   h: number
+  // The Security Map's card B: the pill's count and its severity's token, the marks, the facts
+  // in words (tooltip, announcement). Null or empty on the Resource Map and on pseudo-nodes.
+  pill: { count: string; severity: Severity } | null
+  marks: Marks | null
+  facts: string[]
 }
 
 const SIZE: Record<NodeKind, [number, number]> = {
@@ -77,6 +92,10 @@ const cards = computed<Card[]>(() => {
     const kind = node.kind as NodeKind
     const [w, h] = SIZE[kind]
     const what = node.boundary ? boundaryLabel(node, props.connectionName) : kind === 'external' ? 'Not in the inventory' : kind === 'any' ? 'Wildcard grant (*)' : typeLabel(node.type)
+    const facts = security.value ? factsOf(node) : null
+    const count = pillCount(facts)
+    const worst = worstOf(facts)
+    const marks = marksOf(facts)
     out.push({
       id: node.uid,
       kind,
@@ -88,6 +107,9 @@ const cards = computed<Card[]>(() => {
       icon: cardGlyph(kind, node.type),
       w,
       h,
+      pill: count && worst ? { count, severity: worst } : null,
+      marks: marks.internet || marks.vulnerable || marks.exploit ? marks : null,
+      facts: facts ? factLines(facts, node.connection_id != null ? props.connectionName(node.connection_id) : 'its account') : [],
     })
   }
   for (const group of props.graph.groups.values()) {
@@ -103,6 +125,10 @@ const cards = computed<Card[]>(() => {
       icon: cardGlyph('group', group.resource_type),
       w: NODE_WIDTH,
       h: NODE_HEIGHT,
+      pill: null,
+      marks: null,
+      // A group's members are unbounded: their facts are in the panel's member table.
+      facts: security.value ? ['Open the group to see each member'] : [],
     })
   }
   return out
@@ -193,6 +219,8 @@ interface LineWord {
   x: number
   y: number
   tone: 'rest' | 'hover' | 'lit'
+  // A security line's word (the Security Map): stronger at rest.
+  sec: boolean
 }
 const words = shallowRef<LineWord[]>([])
 function elements(): ElementDefinition[] {
@@ -206,7 +234,8 @@ function elements(): ElementDefinition[] {
     .filter((l) => positions.has(l.source) && positions.has(l.target) && l.source !== l.target)
     .map((l) => {
       const { weights, distances, mid } = bend(positions.get(l.source)!, positions.get(l.target)!)
-      return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: edgeWord(l.type, l.target), line: l.style, weights, distances, mx: mid.x, my: mid.y } }
+      const sec = security.value && SECURITY_EDGE_TYPES.has(l.type) ? 1 : 0
+      return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: edgeWord(l.type, l.target), line: l.style, sec, weights, distances, mx: mid.x, my: mid.y } }
     })
   return [...nodes, ...edges]
 }
@@ -215,6 +244,7 @@ function style(): cytoscape.StylesheetJson {
   const edge = token('--graph-edge')
   const accent = token('--accent')
   const text2 = token('--text-2')
+  const text3 = token('--text-3')
   const dim = Number(token('--graph-dim')) || 0.3
   return [
     {
@@ -245,6 +275,9 @@ function style(): cytoscape.StylesheetJson {
       } as never,
     },
     { selector: 'edge[line = "dotted"]', style: { 'line-dash-pattern': [1.5, 3] } },
+    // A security line (the Security Map): heavier and lighter in tone than a connection; hover
+    // and lit below still win.
+    { selector: 'edge[sec = 1]', style: { width: 2.2, 'line-color': text3, 'target-arrow-color': text3 } },
     { selector: 'edge.hover', style: { 'line-color': text2, 'target-arrow-color': text2 } },
     // Lit (a trace, the selection): accent line with a soft glow.
     {
@@ -300,7 +333,7 @@ function placeLabels(): void {
     if (placed.some(touches) || (rank(e) > 1 && blocks.some(touches))) continue
     placed.push(box)
     const r = rank(e)
-    shown.push({ key: e.id(), text: e.data('label'), x: e.data('mx'), y: e.data('my'), tone: r === 0 ? 'hover' : r === 1 ? 'lit' : 'rest' })
+    shown.push({ key: e.id(), text: e.data('label'), x: e.data('mx'), y: e.data('my'), tone: r === 0 ? 'hover' : r === 1 ? 'lit' : 'rest', sec: e.data('sec') === 1 })
   }
   words.value = shown
 }
@@ -509,6 +542,7 @@ function clickCard(card: Card): void {
 }
 
 // ---- Hover: traces the card's lines at once; a tooltip after 300 ms.
+const TIP_WIDTH = 320 // .tip's max-width
 const tip = ref<{ card: Card; x: number; y: number } | null>(null)
 let tipTimer: number | undefined
 function hover(card: Card, event: MouseEvent): void {
@@ -517,7 +551,8 @@ function hover(card: Card, event: MouseEvent): void {
   const box = region.value?.getBoundingClientRect()
   const target = (event.currentTarget as HTMLElement).getBoundingClientRect()
   tipTimer = window.setTimeout(() => {
-    if (box) tip.value = { card, x: target.left - box.left, y: target.bottom - box.top + 6 }
+    // Kept inside the canvas: a docked panel narrows it, and the Security Map's tooltip is wider.
+    if (box) tip.value = { card, x: Math.max(8, Math.min(target.left - box.left, box.width - TIP_WIDTH - 8)), y: target.bottom - box.top + 6 }
   }, 300)
 }
 function unhover(): void {
@@ -571,9 +606,10 @@ const announcement = computed(() => {
   if (!card || !focused.value) return ''
   const lane = laid.value.positions.get(card.id)?.lane
   const where = lane ? `, ${laneLabel.value.get(lane)} column` : ''
-  return `${card.name}, ${card.typeLabel}${where}${card.kind === 'group' ? `, ${card.group?.count} resources` : ''}.`
+  const facts = card.kind === 'group' ? [] : card.facts.map((f) => `, ${f}`)
+  return `${card.name}, ${card.typeLabel}${where}${card.kind === 'group' ? `, ${card.group?.count} resources` : ''}${facts.join('')}.`
 })
-const regionLabelText = computed(() => `Resource Map, ${props.graph.nodes.size} resources. The List view shows the same resources as a table.`)
+const regionLabelText = computed(() => `${security.value ? 'Security Map' : 'Resource Map'}, ${props.graph.nodes.size} resources. The List view shows the same resources as a table.`)
 
 // ---- Legend: a popover from its button, closed by default and remembered per browser.
 const LEGEND_KEY = 'argus.map.legend'
@@ -687,7 +723,7 @@ defineExpose({ fit })
     <div ref="container" class="cy"></div>
     <div class="world" :class="{ far }" :style="worldStyle" aria-hidden="true" @wheel="onWheel">
       <span v-for="col in columnNames" :key="col.lane" class="eyebrow col-name" :style="{ left: `${col.left}px`, top: `${col.top}px` }">{{ col.label }}</span>
-      <span v-for="w in words" :key="w.key" class="line-word" :class="w.tone" :style="{ left: `${w.x}px`, top: `${w.y}px` }">{{ w.text }}</span>
+      <span v-for="w in words" :key="w.key" class="line-word" :class="[w.tone, { sec: w.sec }]" :style="{ left: `${w.x}px`, top: `${w.y}px` }">{{ w.text }}</span>
       <div
         v-for="card in cards"
         :key="card.id"
@@ -726,8 +762,16 @@ defineExpose({ fit })
                 <template v-if="card.kind === 'group'"><span class="mono">{{ card.group?.count }}</span> {{ card.name }}</template>
                 <template v-else>{{ card.name }}</template>
               </span>
-              <span class="line2 mono">{{ card.typeLabel }}</span>
+              <span class="line2-row">
+                <span class="line2 mono">{{ card.typeLabel }}</span>
+                <span v-if="card.marks" class="marks">
+                  <span v-if="card.marks.internet" class="mark mark-internet" title="Reachable from the internet"><AppIcon name="globe" :size="14" :stroke="1.8" /></span>
+                  <span v-if="card.marks.vulnerable" class="mark mark-vulnerable" title="Open vulnerabilities"><AppIcon name="bug" :size="14" :stroke="1.8" /></span>
+                  <span v-if="card.marks.exploit" class="mark mark-exploit exploit" title="A public exploit"><AppIcon name="warning" :size="14" :stroke="1.8" /></span>
+                </span>
+              </span>
             </span>
+            <CountPill v-if="card.pill" class="card-pill" :count="card.pill.count" :severity="card.pill.severity" />
           </span>
         </template>
       </div>
@@ -739,6 +783,7 @@ defineExpose({ fit })
       <span v-if="tip.card.node?.region || tip.card.node?.connection_id">
         {{ tip.card.node?.region ? regionLabel(tip.card.node.region) : '' }}{{ tip.card.node?.connection_id ? ` · ${connectionName(tip.card.node.connection_id)}` : '' }}
       </span>
+      <span v-for="f in tip.card.facts" :key="f" class="fact">{{ f }}</span>
     </div>
 
     <p class="sr-only" aria-live="polite">{{ announcement }}</p>
@@ -754,8 +799,16 @@ defineExpose({ fit })
         <div><dt><span class="sw group-sw"></span></dt><dd>Group of resources</dd></div>
         <div><dt><span class="sw ext-sw"></span></dt><dd>Not in the inventory</dd></div>
         <div><dt><span class="sw boundary-sw"></span></dt><dd>Other connection or account</dd></div>
+        <template v-if="security">
+          <div class="wide"><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l sec" /></svg></dt><dd>Security line: what an identity can do, or the internet reaching a resource</dd></div>
+          <div class="wide"><dt><CountPill count="3" severity="high" /></dt><dd>Open misconfigurations, in the worst severity's colour</dd></div>
+          <div class="wide"><dt><AppIcon name="globe" :size="14" :stroke="1.8" /></dt><dd>Reachable from the internet (Argus's rules confirm it)</dd></div>
+          <div><dt><AppIcon name="bug" :size="14" :stroke="1.8" /></dt><dd>Open vulnerabilities</dd></div>
+          <div><dt><AppIcon name="warning" :size="14" :stroke="1.8" class="exploit" /></dt><dd>A public exploit</dd></div>
+        </template>
         <div class="wide"><dt><span class="sw-disc"><AppIcon name="server" :size="12" /></span></dt><dd>Icon: the type of resource</dd></div>
         <div class="wide"><dd>Data access is what a role's policies allow, not observed traffic.</dd></div>
+        <div v-if="security" class="wide"><dd>A line from the internet that CloudFox found is CloudFox's claim; the globe is Argus's confirmed verdict.</dd></div>
       </dl>
       <div class="buttons">
         <button type="button" class="btn btn-secondary btn-sm legend-btn" :aria-expanded="legendOpen" aria-controls="map-legend" @click.stop="legendOpen = !legendOpen">
@@ -824,6 +877,10 @@ defineExpose({ fit })
   font: 500 11px/1.2 var(--font-sans);
   white-space: nowrap;
   color: var(--text-2);
+}
+
+.line-word.sec {
+  font-weight: 600;
 }
 
 .line-word.hover {
@@ -912,6 +969,39 @@ defineExpose({ fit })
   text-overflow: ellipsis;
 }
 
+/* Line 2 and the Security Map's marks after it: the type gives way first. */
+.line2-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.line2-row .line2 {
+  min-width: 0;
+}
+
+.marks {
+  flex: none;
+  display: inline-flex;
+  gap: 4px;
+  color: var(--text-2);
+}
+
+.mark {
+  display: inline-flex;
+}
+
+.marks .exploit,
+.legend-body .exploit {
+  color: var(--text);
+}
+
+/* Card B's count pill (CountPill.vue): 8 px from the lines, at the face's padding. */
+.card-pill {
+  margin-left: -2px;
+}
+
 /* Not on the trace: muted, not faded, so its text keeps the contrast floor (WCAG AA). */
 .node.faded .face {
   border-color: var(--border);
@@ -924,7 +1014,9 @@ defineExpose({ fit })
 
 .node.faded .disc,
 .node.faded .back,
-.node.faded .ring {
+.node.faded .ring,
+.node.faded .card-pill,
+.node.faded .marks {
   opacity: var(--graph-dim);
 }
 
@@ -1036,8 +1128,20 @@ defineExpose({ fit })
 }
 
 .world.far .lines,
-.world.far .under {
+.world.far .under,
+.world.far .card-pill :deep(.n) {
   visibility: hidden;
+}
+
+/* Zoomed out: the pill keeps only its square, larger. */
+.world.far .card-pill {
+  min-width: 0;
+  padding: 0 5px;
+}
+
+.world.far .card-pill :deep(.sq) {
+  width: 10px;
+  height: 10px;
 }
 
 .tip {
@@ -1065,6 +1169,10 @@ defineExpose({ fit })
 
 .tip .mono {
   font-size: 11px;
+}
+
+.tip .fact {
+  color: var(--text);
 }
 
 .overlay {
@@ -1141,6 +1249,11 @@ defineExpose({ fit })
 
 .l.dashed {
   stroke-dasharray: 6 4;
+}
+
+.l.sec {
+  stroke: var(--text-3);
+  stroke-width: 2.2;
 }
 
 .sw {

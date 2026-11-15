@@ -97,8 +97,8 @@ Choose a resource and see what it connects to, as a diagram. The start lists the
 your accounts with their counts; a type lists its resources, and a resource opens its map. You can
 also search by name, id or ARN, or use **Open in Resource Map** on any resource in **Resources**.
 The Resource Map shows no security finding and reads none, so you can use it as a network and
-architecture diagram. Security judgements, such as who can escalate to administrator, go on the
-Security Map (coming next).
+architecture diagram. Security judgements, such as who can escalate to administrator, are on the
+Security Map (below).
 
 The chosen resource sits in the middle, with what leads to it on its left and what it leads to on
 its right. Each line says what it is in plain words ("routes to", "runs as"). **Depth** draws one,
@@ -118,7 +118,27 @@ data access).
 
 The map shows what exists and how it connects. It carries no misconfiguration, vulnerability or
 reach verdict, so it can be handed to an auditor or used as an architecture diagram. Those facts
-are on **Misconfigurations**, **Vulnerabilities** and each resource in **Resources**.
+are on the Security Map, **Misconfigurations**, **Vulnerabilities** and each resource in
+**Resources**.
+
+### Investigate → Security Map
+
+The same map, with what is wrong on it. It starts and grows like the Resource Map, and **Open in
+Security Map** is on every resource in **Resources**. It adds:
+
+- **Security lines**, drawn heavier than the connections: is administrator, can escalate to,
+  trusts an outside account, holds a credential, and CloudFox's "reaches" from the internet.
+- **On each card**, a count of its open misconfigurations in the colour of the worst severity,
+  and marks: a globe when Argus's rules confirm the internet can reach it, a bug for open
+  vulnerabilities, and a warning sign for a public exploit. A card shows nothing when there is
+  nothing, or when the tools have not scanned that account; its tooltip and the List view say
+  which.
+- **In the panel**, the resource's facts, each a link to the list that counts it
+  (Misconfigurations, Vulnerabilities, or Misconfigurations whose internet reach is confirmed),
+  then the whole resource as Resources shows it.
+
+The counts are the ones Resources and the lists show. The map finds no whole attack routes: it
+draws the lines one by one, and you follow them.
 
 ### Operate and Administration
 

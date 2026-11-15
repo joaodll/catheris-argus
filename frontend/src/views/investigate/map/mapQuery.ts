@@ -115,13 +115,13 @@ export function chosenLayers(values: string[]): Layer[] {
   return layers.length ? layers : [...LAYERS]
 }
 
-/** The graph request's parameters (GET /map/graph): `depth` hops around a focus on one map, in
- * one connection: the one the first response walked (an Expand), else the URL's, else the API
- * picks the focus's. */
+/** The graph request's parameters (GET /map/graph, or /map/security/graph for the Security
+ * Map): `depth` hops around a focus, in one connection: the one the first response
+ * walked (an Expand), else the URL's, else the API picks the focus's. */
 export function graphParams(
   s: MapState,
   focus: string,
-  { connection = s.connection, depth = s.depth, map = 'resource' }: { connection?: number | null; depth?: Depth; map?: MapKind } = {},
+  { connection = s.connection, depth = s.depth }: { connection?: number | null; depth?: Depth } = {},
 ) {
-  return { focus, depth, map, layer: s.layers, origin: s.origins, connection_id: connection ?? undefined }
+  return { focus, depth, layer: s.layers, origin: s.origins, connection_id: connection ?? undefined }
 }

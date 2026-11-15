@@ -475,7 +475,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Map Graph */
+        /**
+         * Map Graph
+         * @description The Resource Map: how resources connect, with no security line.
+         */
         get: operations["map_graph_api_v1_map_graph_get"];
         put?: never;
         post?: never;
@@ -494,7 +497,8 @@ export interface paths {
         };
         /**
          * Map Group
-         * @description A group's members, by name, each with the edge that links it to the anchor.
+         * @description A group's members on the Resource Map, by name, each with the edge that links it to the
+         *     anchor.
          */
         get: operations["map_group_api_v1_map_group_get"];
         put?: never;
@@ -531,6 +535,47 @@ export interface paths {
         };
         /** Map Resources */
         get: operations["map_resources_api_v1_map_resources_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/map/security/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Security Graph
+         * @description The Security Map: the Resource Map's walk with the security lines, and each
+         *     inventoried node's facts.
+         */
+        get: operations["security_graph_api_v1_map_security_graph_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/map/security/group": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Security Group
+         * @description A group's members on the Security Map, each with its facts.
+         */
+        get: operations["security_group_api_v1_map_security_group_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2089,6 +2134,8 @@ export interface components {
             kind: "resource" | "internet" | "admin" | "external" | "any";
             /** Name */
             name: string | null;
+            /** Provider */
+            provider: string | null;
             /** Region */
             region: string | null;
             /** Resource Id */
@@ -2193,6 +2240,17 @@ export interface components {
             /** Sso */
             sso: boolean;
         };
+        /**
+         * MisconfigurationFacts
+         * @description Open misconfigurations on the resource (findings.OPEN_MISCONFIGURATION), as the Resources
+         *     list's column counts them.
+         */
+        MisconfigurationFacts: {
+            /** Open */
+            open: number;
+            /** Worst */
+            worst: string | null;
+        };
         /** MisconfigurationReportIn */
         MisconfigurationReportIn: {
             filters?: components["schemas"]["FindingFilterQuery"];
@@ -2267,6 +2325,13 @@ export interface components {
             month: string;
             /** Pass Rate */
             pass_rate: number | null;
+        };
+        /** NodeFacts */
+        NodeFacts: {
+            /** Internet Reachable */
+            internet_reachable: boolean;
+            misconfigurations: components["schemas"]["MisconfigurationFacts"] | null;
+            vulnerabilities: components["schemas"]["VulnerabilitySummary"] | null;
         };
         /** Overview */
         Overview: {
@@ -2925,6 +2990,67 @@ export interface components {
             date: string;
             /** Score */
             score: number;
+        };
+        /** SecurityGraph */
+        SecurityGraph: {
+            /** Connection Id */
+            connection_id: number;
+            /** Data Through */
+            data_through: string | null;
+            days: components["schemas"]["MapDays"];
+            /** Edges */
+            edges: components["schemas"]["MapEdge"][];
+            /** Focus */
+            focus: string;
+            /** Groups */
+            groups: components["schemas"]["MapGroup"][];
+            /** Nodes */
+            nodes: components["schemas"]["SecurityNode"][];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /** SecurityGroupMember */
+        SecurityGroupMember: {
+            edge: components["schemas"]["MapEdge"];
+            node: components["schemas"]["SecurityNode"];
+        };
+        /** SecurityGroupPage */
+        SecurityGroupPage: {
+            /** Data Through */
+            data_through: string | null;
+            /** Items */
+            items: components["schemas"]["SecurityGroupMember"][];
+            /** Total */
+            total: number;
+        };
+        /** SecurityNode */
+        SecurityNode: {
+            /** Boundary */
+            boundary: boolean;
+            /** Connection Id */
+            connection_id: number | null;
+            /** Deleted On */
+            deleted_on: string | null;
+            /** Expanded */
+            expanded: boolean;
+            facts: components["schemas"]["NodeFacts"] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "resource" | "internet" | "admin" | "external" | "any";
+            /** Name */
+            name: string | null;
+            /** Provider */
+            provider: string | null;
+            /** Region */
+            region: string | null;
+            /** Resource Id */
+            resource_id: number | null;
+            /** Type */
+            type: string | null;
+            /** Uid */
+            uid: string;
         };
         /** Session */
         Session: {
@@ -4472,7 +4598,6 @@ export interface operations {
         parameters: {
             query: {
                 focus: string;
-                map?: "resource" | "security";
                 depth?: number;
                 connection_id?: number | null;
                 layer?: ("traffic" | "identity" | "network" | "policy" | "data")[];
@@ -4514,7 +4639,6 @@ export interface operations {
             query: {
                 anchor: string;
                 connection_id: number;
-                map?: "resource" | "security";
                 direction: "out" | "in";
                 edge_type: string;
                 resource_type?: string | null;
@@ -4615,6 +4739,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MapResourcePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    security_graph_api_v1_map_security_graph_get: {
+        parameters: {
+            query: {
+                focus: string;
+                depth?: number;
+                connection_id?: number | null;
+                layer?: ("traffic" | "identity" | "network" | "policy" | "data")[];
+                origin?: ("rule" | "cloudfox" | "manual")[];
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecurityGraph"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    security_group_api_v1_map_security_group_get: {
+        parameters: {
+            query: {
+                anchor: string;
+                connection_id: number;
+                direction: "out" | "in";
+                edge_type: string;
+                resource_type?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SecurityGroupPage"];
                 };
             };
             /** @description Validation Error */

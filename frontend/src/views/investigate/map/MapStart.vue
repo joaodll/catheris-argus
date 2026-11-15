@@ -17,6 +17,8 @@ import ResourceSearch from './ResourceSearch.vue'
 import { typeLabel } from './mapLanes'
 
 const props = defineProps<{
+  // Which map the start opens (the Security Map shares it): only its hint names the map.
+  map?: 'resource' | 'security'
   connections: Schemas['ConnectionOut'][] | null
   connectionsFailed: boolean
   connection: number | null
@@ -115,7 +117,7 @@ const account = (r: RecentResource) =>
       />
       <MapStartTypes v-else :connection="connection" :type-link="typeLink" :take-focus="moved" />
 
-      <p class="cap hint">Every resource on <RouterLink to="/investigate/resources">Resources</RouterLink> also has Open in Resource Map.</p>
+      <p class="cap hint">Every resource on <RouterLink to="/investigate/resources">Resources</RouterLink> also has Open in {{ map === 'security' ? 'Security Map' : 'Resource Map' }}.</p>
     </div>
   </div>
 </template>

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 /**
- * The Resource map's docked panel (ADR-0051): the selected resource as the inventory describes
- * it (ResourceDetail, plain: its description, connections, tags and configuration, with no
- * security fact), a group's members to add, or one connection in words, with where it was found
- * and its ports. Not modal: the map stays usable beside it. The page frames it (docked,
+ * The map's docked panel (ADR-0051): the selected resource, a group's members to add, or one
+ * connection in words, with where it was found and its ports. On the Resource Map the resource is
+ * as the inventory describes it (ResourceDetail, plain: its description, connections, tags and
+ * configuration, with no security fact). On the Security Map it leads with its facts, each linked
+ * to the list that counts it (mapFacts.ts), then the whole resource: findings, vulnerabilities,
+ * the door from the internet and commands; a group's members show their facts. Not modal: the map stays usable beside it. The page frames it (docked,
  * overlaid, or as the detail sheet on a phone).
  */
 import { computed, ref, watch } from 'vue'
@@ -15,6 +17,10 @@ import { useResource } from '@/composables/useResource'
 import { originLabel, regionLabel } from '../labels'
 import { edgeTitle } from '../edgeWords'
 import ResourceDetail from '../ResourceDetail.vue'
+import SeverityTag from '@/components/SeverityTag.vue'
+import ExploitMark from '../ExploitMark.vue'
+import CountPill from './CountPill.vue'
+import { factLinks, factSub, factsOf, marksOf, pillCount, worstOf } from './mapFacts'
 import { boundaryLabel, drawnEdges, nodeName, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
 import { typeLabel } from './mapLanes'
 
@@ -27,7 +33,9 @@ const props = defineProps<{
   connectionId: number | null
   // Shown as the sheet on a phone: the sheet has its own title and close button.
   framed?: boolean
+  map?: 'resource' | 'security'
 }>()
+const security = computed(() => props.map === 'security')
 const emit = defineEmits<{
   close: []
   expand: [uid: string]
@@ -84,24 +92,35 @@ const members = useResource(
   async () => {
     const g = group.value
     if (!g || props.connectionId == null) return null
-    return await unwrap(
-      api.GET('/api/v1/map/group', {
-        params: {
-          query: {
-            anchor: g.anchor_uid,
-            connection_id: props.connectionId,
-            direction: g.direction as 'out' | 'in',
-            edge_type: g.edge_type,
-            resource_type: g.resource_type,
-            limit: PAGE,
-            offset: (page.value - 1) * PAGE,
-          },
-        },
-      }),
-    )
+    const query = {
+      anchor: g.anchor_uid,
+      connection_id: props.connectionId,
+      direction: g.direction as 'out' | 'in',
+      edge_type: g.edge_type,
+      resource_type: g.resource_type,
+      limit: PAGE,
+      offset: (page.value - 1) * PAGE,
+    }
+    // The Resource Map reads only its plain route; the Security Map's members carry facts.
+    return security.value
+      ? await unwrap(api.GET('/api/v1/map/security/group', { params: { query } }))
+      : await unwrap(api.GET('/api/v1/map/group', { params: { query } }))
   },
-  { watch: [group, page, () => props.connectionId] },
+  { watch: [group, page, () => props.connectionId, security] },
 )
+
+// ---- The Security Map's facts on the selected resource, each linked to the list counting it.
+const facts = computed(() => (security.value ? factsOf(node.value) : null))
+const links = computed(() => (node.value?.resource_id != null ? factLinks(node.value.resource_id) : null))
+const nodeConnection = computed(() => (node.value?.connection_id != null ? props.connectionName(node.value.connection_id) : 'its account'))
+const memberPill = (m: Schemas['GroupMember'] | Schemas['SecurityGroupMember']) => {
+  const f = factsOf(m.node as MapNode)
+  const count = pillCount(f)
+  const worst = worstOf(f)
+  return count && worst ? { count, severity: worst } : null
+}
+const memberMarks = (m: Schemas['GroupMember'] | Schemas['SecurityGroupMember']) => marksOf(factsOf(m.node as MapNode))
+const memberWords = (m: Schemas['GroupMember'] | Schemas['SecurityGroupMember']) => factSub(factsOf(m.node as MapNode)).join(' · ') || 'No open findings'
 function added(member: Schemas['GroupMember']): boolean {
   return props.graph.nodes.has(member.node.uid)
 }
@@ -152,12 +171,44 @@ function ports(edge: MapEdge): string | null {
           Open in Resources<span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
         </RouterLink>
       </div>
+      <section v-if="security && node.resource_id != null && facts && links" class="sec-facts" aria-labelledby="mp-facts">
+        <h3 id="mp-facts" class="lbl">Security facts</h3>
+        <ul class="fact-rows">
+          <li>
+            <AppIcon name="flag" :size="16" class="glyph" />
+            <span v-if="facts.misconfigurations == null" class="cap">Misconfigurations: not covered (Prowler and CloudFox have not scanned {{ nodeConnection }})</span>
+            <span v-else-if="facts.misconfigurations.open === 0" class="body">No open misconfigurations</span>
+            <RouterLink v-else :to="links.misconfigurations" target="_blank" class="fact-link">
+              <SeverityTag v-if="facts.misconfigurations.worst" :severity="facts.misconfigurations.worst" compact />
+              <span><span class="mono">{{ facts.misconfigurations.open.toLocaleString('en-US') }}</span> open {{ facts.misconfigurations.open === 1 ? 'misconfiguration' : 'misconfigurations' }}</span>
+              <span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
+            </RouterLink>
+          </li>
+          <li v-if="facts.vulnerabilities">
+            <AppIcon name="bug" :size="16" class="glyph" />
+            <span v-if="!facts.vulnerabilities.scanned && facts.vulnerabilities.open === 0" class="cap">Not scanned for vulnerabilities</span>
+            <span v-else-if="facts.vulnerabilities.open === 0" class="body">No open vulnerabilities</span>
+            <RouterLink v-else :to="links.vulnerabilities" target="_blank" class="fact-link">
+              <span><span class="mono">{{ facts.vulnerabilities.open.toLocaleString('en-US') }}</span> open {{ facts.vulnerabilities.open === 1 ? 'vulnerability' : 'vulnerabilities' }}</span>
+              <ExploitMark v-if="facts.vulnerabilities.exploitable > 0" :count="facts.vulnerabilities.exploitable" />
+              <span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
+            </RouterLink>
+          </li>
+          <li v-if="facts.internet_reachable">
+            <AppIcon name="globe" :size="16" class="glyph" />
+            <RouterLink :to="links.internet" target="_blank" class="fact-link">
+              <span>Reachable from the internet</span>
+              <span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
+            </RouterLink>
+          </li>
+        </ul>
+      </section>
       <ResourceDetail
         v-if="node.resource_id != null"
         :resource-id="node.resource_id"
         :connection-name="connectionName"
         :resource-link="resourceLink"
-        plain
+        :plain="!security"
         new-tab
       />
       <p v-else class="body">{{ pseudoText(node) }}</p>
@@ -173,12 +224,20 @@ function ports(edge: MapEdge): string | null {
         <div class="table-wrap">
           <table class="table compact">
             <thead>
-              <tr><th scope="col">Name</th><th scope="col">Region</th><th scope="col"><span class="sr-only">Add</span></th></tr>
+              <tr><th scope="col">Name</th><th scope="col">Region</th><th v-if="security" scope="col">Facts</th><th scope="col"><span class="sr-only">Add</span></th></tr>
             </thead>
             <tbody>
               <tr v-for="m in members.data.value.items" :key="m.node.uid">
                 <td class="name" :title="m.node.uid">{{ nodeName(m.node) }}</td>
                 <td class="mono small">{{ m.node.region ? regionLabel(m.node.region) : '—' }}</td>
+                <td v-if="security" class="member-facts" :title="memberWords(m)">
+                  <CountPill v-if="memberPill(m)" :count="memberPill(m)!.count" :severity="memberPill(m)!.severity" base="var(--surface)" />
+                  <span v-else class="soft" aria-hidden="true">—</span>
+                  <AppIcon v-if="memberMarks(m).internet" name="globe" :size="14" :stroke="1.8" />
+                  <AppIcon v-if="memberMarks(m).vulnerable" name="bug" :size="14" :stroke="1.8" />
+                  <AppIcon v-if="memberMarks(m).exploit" name="warning" :size="14" :stroke="1.8" class="exploit" />
+                  <span class="sr-only">{{ memberWords(m) }}</span>
+                </td>
                 <td class="right">
                   <span :title="full && !added(m) ? FULL : undefined">
                     <button
@@ -234,6 +293,79 @@ function ports(edge: MapEdge): string | null {
 </template>
 
 <style scoped>
+/* The Security Map's facts on the resource (spec frontend/4242ef35, 7). */
+.sec-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-8);
+}
+
+.sec-facts .lbl {
+  margin: 0;
+}
+
+.fact-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s-8);
+  font-size: 13px;
+}
+
+.fact-rows li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-8);
+}
+
+.fact-rows .glyph {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-2);
+}
+
+.fact-rows .cap,
+.fact-rows .body {
+  margin: 0;
+}
+
+.fact-link {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-6);
+}
+
+.member-facts {
+  white-space: nowrap;
+}
+
+.member-facts > * {
+  vertical-align: middle;
+}
+
+.member-facts > * + * {
+  margin-left: 4px;
+}
+
+.member-facts .exploit {
+  color: var(--text);
+}
+
+.member-facts :deep(svg) {
+  color: var(--text-2);
+}
+
+.soft {
+  color: var(--text-3);
+}
+
+@media (max-width: 400px) {
+  .member-facts {
+    white-space: normal;
+  }
+}
 .facts {
   list-style: none;
   margin: 0;

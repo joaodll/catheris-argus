@@ -46,6 +46,7 @@ from tests.budget.conftest import settle
 from tests.budget.test_query_budget import ACCOUNTS, HUB_BIG_VPC, HUB_POLICY, HUB_VPC, TODAY
 
 from argus import relationships
+from argus.api.routes import resource_map
 from argus.core.config import get_settings
 from argus.core.db import CONNECT_ARGS
 from argus.relationships import DEFAULT_LAYERS, Map, MapScope
@@ -143,10 +144,17 @@ def _label(ask: Ask) -> str:
     return f"{focus}: {'every layer' if ask.layers == ALL_LAYERS else 'default layers'}{hops}"
 
 
+def _facts(conn: Connection, ask: Ask, nodes: list[dict[str, Any]]) -> None:
+    """The Security Map's cards: each inventoried node's facts, as the API reads them
+    (api/routes/resource_map.py); the Resource Map reads none."""
+    if ask.kind == "security":
+        resource_map.node_facts(conn, [resource_map.MapNode.model_validate(n) for n in nodes])
+
+
 def _read(conn: Connection, ask: Ask) -> Any:
     if ask.group is not None:
         g = ask.group
-        return relationships.group_members(
+        rows, total = relationships.group_members(
             conn,
             anchor=g["anchor_uid"],
             scope=ask.scope,
@@ -157,7 +165,9 @@ def _read(conn: Connection, ask: Ask) -> Any:
             limit=PAGE_SIZE,
             offset=ask.offset,
         )
-    return relationships.neighbourhood(
+        _facts(conn, ask, [r["node"] for r in rows])
+        return rows, total
+    found = relationships.neighbourhood(
         conn,
         focus=ask.focus,
         scope=ask.scope,
@@ -166,6 +176,8 @@ def _read(conn: Connection, ask: Ask) -> Any:
         depth=ask.depth,
         kind=ask.kind,
     )
+    _facts(conn, ask, found["nodes"])
+    return found
 
 
 def _client(

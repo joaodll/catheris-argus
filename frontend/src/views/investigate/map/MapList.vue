@@ -1,11 +1,14 @@
 <script setup lang="ts">
 /**
- * The Resource map as tables (ADR-0051): the same resources and connections as the canvas, and
- * its accessible equivalent. Choosing a name selects it and opens the panel.
+ * The map as tables (ADR-0051): the same resources and connections as the canvas, and its
+ * accessible equivalent. Choosing a name selects it and opens the panel. On the Security Map a
+ * resource's name has its facts in words under it (mapFacts.factSub), as the card's pill and
+ * marks show them.
  */
 import { computed, ref, watch } from 'vue'
 import AppPagination from '@/components/AppPagination.vue'
 import { edgeWord } from '../edgeWords'
+import { factSub, factsOf } from './mapFacts'
 import { degree, drawnEdges, groupNodeId, nodeName, type GraphState, type Selection } from './mapGraph'
 import { hopColumns, hopLabel, typeLabel } from './mapLanes'
 
@@ -14,6 +17,7 @@ const props = defineProps<{
   graph: GraphState
   selection: Selection | null
   focus: string | null
+  map?: 'resource' | 'security'
 }>()
 const emit = defineEmits<{ select: [selection: Selection] }>()
 
@@ -39,7 +43,13 @@ const position = computed<{ col: (uid: string) => number; label: (col: number) =
 })
 const nodes = computed(() =>
   [...props.graph.nodes.values()]
-    .map((n) => ({ node: n, name: nodeName(n), col: position.value.col(n.uid), degree: degree(props.graph, n.uid) }))
+    .map((n) => ({
+      node: n,
+      name: nodeName(n),
+      col: position.value.col(n.uid),
+      degree: degree(props.graph, n.uid),
+      facts: props.map === 'security' ? factSub(factsOf(n)).join(' · ') : '',
+    }))
     .sort((a, b) => a.col - b.col || a.name.localeCompare(b.name) || a.node.uid.localeCompare(b.node.uid)),
 )
 const groups = computed(() => [...props.graph.groups.values()])
@@ -70,6 +80,7 @@ const selectedId = computed(() => (props.selection?.kind === 'node' ? props.sele
                 <button type="button" class="row-link" :title="row.node.uid" :aria-current="row.node.uid === selectedId ? 'true' : undefined" @click="emit('select', { kind: 'node', id: row.node.uid })">
                   {{ row.name }}
                 </button>
+                <span v-if="row.facts" class="sub small">{{ row.facts }}</span>
               </td>
               <td data-label="Type" class="mono small">{{ row.node.type ?? typeLabel(null) }}</td>
               <td data-label="Position">{{ position.label(row.col) }}</td>

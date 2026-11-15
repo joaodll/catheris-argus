@@ -5,9 +5,11 @@
  * its neighbourhood at the chosen depth (1 to 3 hops; the API walks on only from the account's
  * own resources) and grows one hop per click (Expand, group members), at most 500 nodes. Never a
  * whole account.
- * It draws the resources and how they connect, with no security fact on a card or in the panel,
- * and reads none (the /map/* plain routes), so it also serves as a network and architecture
- * diagram. Everything except expansions lives in the URL (mapQuery).
+ * The Resource Map draws the resources and how they connect, with no security fact on a card or
+ * in the panel, and reads none (the /map/* plain routes), so it also serves as a network and
+ * architecture diagram. The Security Map is the same page on its own route (`map`): it reads
+ * /map/security/*, which adds the security lines and each card's facts (card B, mapFacts.ts),
+ * and its panel is the whole resource. Everything except expansions lives in the URL (mapQuery).
  */
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -27,10 +29,19 @@ import MapPanel from './MapPanel.vue'
 import MapStart from './MapStart.vue'
 import ResourceSearch from './ResourceSearch.vue'
 import { addMember, emptyGraph, MAX_NODES, mergeGraph, nodeName, scanLine, type GraphState, type MapEdge, type MapNode, type Selection } from './mapGraph'
-import { DEPTHS, LAYER_LABEL, LAYERS, ORIGIN_LABEL, ORIGINS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapState, type Origin } from './mapQuery'
+import { DEPTHS, LAYER_LABEL, LAYERS, ORIGIN_LABEL, ORIGINS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapKind, type MapState, type Origin } from './mapQuery'
 
+const props = withDefaults(defineProps<{ map?: MapKind }>(), { map: 'resource' })
 const route = useRoute()
 const router = useRouter()
+const title = computed(() => (props.map === 'security' ? 'Security Map' : 'Resource Map'))
+
+/** One graph read on this page's map: the Resource Map only ever asks the plain route. */
+function readGraph(query: ReturnType<typeof graphParams>) {
+  return props.map === 'security'
+    ? unwrap(api.GET('/api/v1/map/security/graph', { params: { query } }))
+    : unwrap(api.GET('/api/v1/map/graph', { params: { query } }))
+}
 
 // Under 600 px the List view is the default; Map can still be chosen.
 const phone = window.matchMedia?.('(max-width: 600px)').matches ?? false
@@ -63,8 +74,10 @@ let generation = 0
 // The selected group or edge (a node's selection is ?open=; see Selection below).
 const localSelection = ref<Selection | null>(null)
 
+// The map is in the key: the two maps' routes share this component instance, so Back from the
+// Security Map to the Resource Map at the same focus must read the plain graph again.
 const neighbourhoodKey = computed(() =>
-  JSON.stringify([state.value.focus, state.value.connection, state.value.depth, state.value.layers, state.value.origins]),
+  JSON.stringify([props.map, state.value.focus, state.value.connection, state.value.depth, state.value.layers, state.value.origins]),
 )
 
 /** "Recently opened": the focus, once the map has drawn it (it is in the inventory). */
@@ -92,7 +105,7 @@ async function load(): Promise<void> {
   if (!s.focus) return
   loading.value = true
   try {
-    const result = await unwrap(api.GET('/api/v1/map/graph', { params: { query: graphParams(s, s.focus) } }))
+    const result = await readGraph(graphParams(s, s.focus))
     if (mine !== generation) return
     const merged = mergeGraph(emptyGraph(), result)
     graph.value = merged.state
@@ -121,7 +134,7 @@ async function expand(uid: string): Promise<void> {
   if (full.value) return
   const mine = generation
   try {
-    const result = await unwrap(api.GET('/api/v1/map/graph', { params: { query: graphParams(state.value, uid, { connection: walked.value, depth: 1 }) } }))
+    const result = await readGraph(graphParams(state.value, uid, { connection: walked.value, depth: 1 }))
     if (mine !== generation) return
     const merged = mergeGraph(graph.value, result)
     graph.value = merged.state
@@ -173,7 +186,8 @@ watch(
 const panelRef = ref<HTMLElement | null>(null)
 
 // The open resource's name goes in front of the page title.
-const pageTitle = document.title
+// From the route (router.ts sets it): the instance outlives a move between the two maps.
+const pageTitle = computed(() => `${String(route.meta.title ?? 'Argus')} · Argus`)
 const selectedName = computed(() => {
   const sel = selection.value
   if (sel?.kind === 'node') {
@@ -183,9 +197,9 @@ const selectedName = computed(() => {
   return null
 })
 watch(
-  selectedName,
-  (name) => {
-    document.title = name ? `${name} · ${pageTitle}` : pageTitle
+  [selectedName, pageTitle],
+  ([name, page]) => {
+    document.title = name ? `${name} · ${page}` : page
   },
   { immediate: true },
 )
@@ -246,7 +260,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
 </script>
 
 <template>
-  <PageHeader title="Resource Map">
+  <PageHeader :title="title">
     <!-- The map's day, so only with a map: the start says its own under "What's here". -->
     <template v-if="started && !loading && !notFound && !error">{{ scanLine(days, dataThrough) }}</template>
   </PageHeader>
@@ -297,9 +311,10 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
   <p v-if="groupCount" class="sr-only" role="status">{{ groupCount }} groups stand for resources not drawn one by one.</p>
 
   <div class="work" :class="{ 'has-panel': started && !narrow && !!selection }">
-    <section class="card canvas-card" :class="{ 'is-map': started && state.view === 'map' }" aria-label="Resource Map">
+    <section class="card canvas-card" :class="{ 'is-map': started && state.view === 'map' }" :aria-label="title">
       <MapStart
         v-if="!started"
+        :map="map"
         :connections="connections.data.value ?? null"
         :connections-failed="!!connections.error.value"
         :connection="state.connection"
@@ -328,6 +343,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
       </div>
       <MapList
         v-else-if="state.view === 'list'"
+        :map="map"
         :graph="graph"
         :selection="selection"
         :focus="state.focus"
@@ -335,6 +351,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
       />
       <MapCanvas
         v-else
+        :map="map"
         :graph="graph"
         :focus="state.focus"
         :selection="selection"
@@ -352,6 +369,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
     <aside v-if="started && !narrow && selection" ref="panelRef" class="card panel" aria-label="Resource panel">
       <MapPanel
         ref="panel"
+        :map="map"
         :graph="graph"
         :selection="selection"
         :full="full"
@@ -369,6 +387,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
   <SideSheet v-if="narrow && selection" :title="sheetTitle" :description="sheetCaption" @close="select(null)">
     <MapPanel
       ref="panel"
+      :map="map"
       framed
       :graph="graph"
       :selection="selection"
