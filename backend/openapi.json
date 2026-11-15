@@ -2305,6 +2305,56 @@
         "title": "FrameworkListItem",
         "type": "object"
       },
+      "GroupMember": {
+        "properties": {
+          "edge": {
+            "$ref": "#/components/schemas/MapEdge"
+          },
+          "node": {
+            "$ref": "#/components/schemas/MapNode"
+          }
+        },
+        "required": [
+          "node",
+          "edge"
+        ],
+        "title": "GroupMember",
+        "type": "object"
+      },
+      "GroupPage": {
+        "properties": {
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GroupMember"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "data_through"
+        ],
+        "title": "GroupPage",
+        "type": "object"
+      },
       "GroupRole": {
         "properties": {
           "group": {
@@ -2619,6 +2669,560 @@
           "finished_at"
         ],
         "title": "LastRun",
+        "type": "object"
+      },
+      "MapDays": {
+        "description": "The scans the connection's lines come from. Null: that family has no load yet.",
+        "properties": {
+          "cloudfox_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cloudfox Day"
+          },
+          "rule_day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Day"
+          }
+        },
+        "required": [
+          "rule_day",
+          "cloudfox_day"
+        ],
+        "title": "MapDays",
+        "type": "object"
+      },
+      "MapEdge": {
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "title": "Attributes",
+            "type": "object"
+          },
+          "first_seen": {
+            "format": "date",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_seen": {
+            "format": "date",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "source_uid": {
+            "title": "Source Uid",
+            "type": "string"
+          },
+          "target_uid": {
+            "title": "Target Uid",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_uid",
+          "target_uid",
+          "type",
+          "origin",
+          "attributes",
+          "first_seen",
+          "last_seen"
+        ],
+        "title": "MapEdge",
+        "type": "object"
+      },
+      "MapGraph": {
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "days": {
+            "$ref": "#/components/schemas/MapDays"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/MapEdge"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "focus": {
+            "title": "Focus",
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/MapGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/MapNode"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "focus",
+          "connection_id",
+          "nodes",
+          "edges",
+          "groups",
+          "truncated",
+          "days",
+          "data_through"
+        ],
+        "title": "MapGraph",
+        "type": "object"
+      },
+      "MapGroup": {
+        "description": "More neighbours of one kind than the map draws one by one: one node for all of them.",
+        "properties": {
+          "anchor_uid": {
+            "title": "Anchor Uid",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "direction": {
+            "enum": [
+              "out",
+              "in"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "edge_type": {
+            "title": "Edge Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "resource_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Type"
+          }
+        },
+        "required": [
+          "id",
+          "anchor_uid",
+          "direction",
+          "edge_type",
+          "resource_type",
+          "count"
+        ],
+        "title": "MapGroup",
+        "type": "object"
+      },
+      "MapNode": {
+        "properties": {
+          "boundary": {
+            "title": "Boundary",
+            "type": "boolean"
+          },
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "deleted_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted On"
+          },
+          "expanded": {
+            "title": "Expanded",
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "resource",
+              "internet",
+              "admin",
+              "external",
+              "any"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Region"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "uid": {
+            "title": "Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid",
+          "kind",
+          "resource_id",
+          "type",
+          "name",
+          "region",
+          "connection_id",
+          "deleted_on",
+          "expanded",
+          "boundary"
+        ],
+        "title": "MapNode",
+        "type": "object"
+      },
+      "MapResource": {
+        "description": "The Resource Map's panel: what Steampipe describes, the lines the map draws, tags and\nconfiguration (redacted at ingest).",
+        "properties": {
+          "as_of": {
+            "format": "date",
+            "title": "As Of",
+            "type": "string"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config"
+          },
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "deleted_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted On"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/EdgeOut"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "first_seen": {
+            "format": "date",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_seen": {
+            "format": "date",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "native_id": {
+            "title": "Native Id",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          },
+          "resource_uid": {
+            "title": "Resource Uid",
+            "type": "string"
+          },
+          "seen_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen On"
+          },
+          "tags": {
+            "additionalProperties": true,
+            "title": "Tags",
+            "type": "object"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "vpc_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vpc Id"
+          }
+        },
+        "required": [
+          "id",
+          "resource_uid",
+          "connection_id",
+          "provider",
+          "region",
+          "type",
+          "native_id",
+          "name",
+          "vpc_id",
+          "first_seen",
+          "last_seen",
+          "deleted_on",
+          "tags",
+          "as_of",
+          "seen_on",
+          "config",
+          "edges",
+          "data_through"
+        ],
+        "title": "MapResource",
+        "type": "object"
+      },
+      "MapResourcePage": {
+        "properties": {
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "total_capped": {
+            "title": "Total Capped",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "total_capped",
+          "data_through"
+        ],
+        "title": "MapResourcePage",
+        "type": "object"
+      },
+      "MapTypeCount": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "count"
+        ],
+        "title": "MapTypeCount",
+        "type": "object"
+      },
+      "MapTypesOut": {
+        "description": "The start's \"What's here\": the inventory's assets by type, largest first, as the\nResources summary counts them; null before any Steampipe load.",
+        "properties": {
+          "by_type": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MapTypeCount"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Type"
+          },
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          }
+        },
+        "required": [
+          "by_type",
+          "data_through"
+        ],
+        "title": "MapTypesOut",
         "type": "object"
       },
       "Methods": {
@@ -3851,6 +4455,98 @@
           "regions"
         ],
         "title": "ResourceFacets",
+        "type": "object"
+      },
+      "ResourceOut": {
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "deleted_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted On"
+          },
+          "first_seen": {
+            "format": "date",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_seen": {
+            "format": "date",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "native_id": {
+            "title": "Native Id",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "region": {
+            "title": "Region",
+            "type": "string"
+          },
+          "resource_uid": {
+            "title": "Resource Uid",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "vpc_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vpc Id"
+          }
+        },
+        "required": [
+          "id",
+          "resource_uid",
+          "connection_id",
+          "provider",
+          "region",
+          "type",
+          "native_id",
+          "name",
+          "vpc_id",
+          "first_seen",
+          "last_seen",
+          "deleted_on"
+        ],
+        "title": "ResourceOut",
         "type": "object"
       },
       "ResourcePage": {
@@ -9494,6 +10190,693 @@
         "summary": "Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/map/graph": {
+      "get": {
+        "operationId": "map_graph_api_v1_map_graph_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "focus",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Focus",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "map",
+            "required": false,
+            "schema": {
+              "default": "resource",
+              "enum": [
+                "resource",
+                "security"
+              ],
+              "title": "Map",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "depth",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 3,
+              "minimum": 1,
+              "title": "Depth",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Connection Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "layer",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "traffic",
+                  "identity",
+                  "network",
+                  "policy",
+                  "data"
+                ],
+                "type": "string"
+              },
+              "maxItems": 5,
+              "title": "Layer",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "origin",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "rule",
+                  "cloudfox",
+                  "manual"
+                ],
+                "type": "string"
+              },
+              "maxItems": 3,
+              "title": "Origin",
+              "type": "array"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapGraph"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Map Graph",
+        "tags": [
+          "map"
+        ]
+      }
+    },
+    "/api/v1/map/group": {
+      "get": {
+        "description": "A group's members, by name, each with the edge that links it to the anchor.",
+        "operationId": "map_group_api_v1_map_group_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "anchor",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Anchor",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Connection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "map",
+            "required": false,
+            "schema": {
+              "default": "resource",
+              "enum": [
+                "resource",
+                "security"
+              ],
+              "title": "Map",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "direction",
+            "required": true,
+            "schema": {
+              "enum": [
+                "out",
+                "in"
+              ],
+              "title": "Direction",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "edge_type",
+            "required": true,
+            "schema": {
+              "pattern": "^[A-Z][A-Z_]{0,63}$",
+              "title": "Edge Type",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resource_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Resource Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Map Group",
+        "tags": [
+          "map"
+        ]
+      }
+    },
+    "/api/v1/map/resource/{resource_id}": {
+      "get": {
+        "operationId": "map_resource_api_v1_map_resource__resource_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "resource_id",
+            "required": true,
+            "schema": {
+              "title": "Resource Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapResource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Map Resource",
+        "tags": [
+          "map"
+        ]
+      }
+    },
+    "/api/v1/map/resources": {
+      "get": {
+        "operationId": "map_resources_api_v1_map_resources_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 100000,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "items": {
+                "type": "integer"
+              },
+              "maxItems": 50,
+              "title": "Connection Id",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "items": {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Type",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapResourcePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Map Resources",
+        "tags": [
+          "map"
+        ]
+      }
+    },
+    "/api/v1/map/types": {
+      "get": {
+        "description": "All connections (0) or one: stored counts written by ingest.",
+        "operationId": "map_types_api_v1_map_types_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Connection Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapTypesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Map Types",
+        "tags": [
+          "map"
         ]
       }
     },

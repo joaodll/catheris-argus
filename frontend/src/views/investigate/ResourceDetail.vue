@@ -2,7 +2,10 @@
 /**
  * One resource, read-only, a block per tool (docs/ui/screens.md, E11, Resource panel): what
  * Steampipe describes, what Prowler checks, what CloudFox shows an attacker could use, then its
- * connections, tags and configuration. The Resources sheet (E8) shows this body.
+ * connections, tags and configuration. The Resources sheet (E8) shows this body, and so does
+ * the Resource Map's panel, as `plain`: the Resource Map reads no security fact (ADR-0051, owner
+ * 2026-11-13), so a plain body asks GET /map/resource/{id} instead, which returns only the
+ * description, the lines the map draws, tags and configuration, and asks for no findings.
  */
 import { computed, ref, watch } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
@@ -32,44 +35,53 @@ const props = defineProps<{
   // A block to bring into view once it shows: a finding's See the evidence opens the sheet at
   // From the internet (ADR-0035, sixth amendment).
   at?: 'from-internet' | null
+  // The Resource Map: the plain read only, no findings, vulnerabilities, reach or loot commands.
+  plain?: boolean
+  // Links to other resources open in a new tab (the map stays as it is).
+  newTab?: boolean
 }>()
-const emit = defineEmits<{ loaded: [resource: Schemas['ResourceDetail'] | null] }>()
+type Detail = Schemas['ResourceDetail'] | Schemas['MapResource']
+const emit = defineEmits<{ loaded: [resource: Detail | null] }>()
 
 const SHOWN = 5
 type Tool = 'prowler' | 'cloudfox'
 
-const detail = useResource(
-  () =>
-    unwrap(
-      api.GET('/api/v1/resources/{resource_id}', {
-        params: { path: { resource_id: props.resourceId } },
-      }),
-    ),
-  { watch: [() => props.resourceId] },
+const detail = useResource<Detail>(
+  () => {
+    const params = { params: { path: { resource_id: props.resourceId } } }
+    return props.plain ? unwrap(api.GET('/api/v1/map/resource/{resource_id}', params)) : unwrap(api.GET('/api/v1/resources/{resource_id}', params))
+  },
+  { watch: [() => props.resourceId, () => props.plain] },
 )
 // The resource's open misconfigurations, as the Resources list's column counts them (one
 // definition, 2026-11-06): open or reopened, status FAIL, not muted.
 const OPEN_MISCONFIGURATIONS = { status: ['FAIL' as const], muted: 'hide' as const }
 const toolFindings = (tool: Tool) =>
   useResource(
-    () =>
-      unwrap(
-        api.GET('/api/v1/findings', { params: { query: { resource_id: props.resourceId, tool: [tool], ...OPEN_MISCONFIGURATIONS, limit: SHOWN } } }),
-      ),
-    { watch: [() => props.resourceId] },
+    async () =>
+      props.plain
+        ? null
+        : await unwrap(
+            api.GET('/api/v1/findings', { params: { query: { resource_id: props.resourceId, tool: [tool], ...OPEN_MISCONFIGURATIONS, limit: SHOWN } } }),
+          ),
+    { watch: [() => props.resourceId, () => props.plain] },
   )
 const findings: Record<Tool, ReturnType<typeof toolFindings>> = { prowler: toolFindings('prowler'), cloudfox: toolFindings('cloudfox') }
 
 // Until the detail arrives (or while another resource loads), nothing of the old one shows.
 const current = computed(() => (detail.data.value?.id === props.resourceId ? detail.data.value : null))
+// The whole resource, with what the tools judged: never on a plain body, whose read has none.
+const full = computed(() => (current.value && 'scanned' in current.value ? current.value : null))
 watch(current, (r) => emit('loaded', r), { immediate: true })
 
 const connection = computed(() => (current.value ? props.connectionName(current.value.connection_id) : ''))
-const cloudfoxEdges = computed(() => (current.value?.edges ?? []).filter((e) => e.origin === 'cloudfox'))
+const cloudfoxEdges = computed(() => (full.value?.edges ?? []).filter((e) => e.origin === 'cloudfox'))
+// A plain read already holds only the lines the Resource Map draws.
+const listedEdges = computed(() => current.value?.edges ?? [])
 // The internet rules' verdict on this resource, when it faces the internet (ADR-0035): a badge,
 // a why-line and the evidence.
 const door = computed(() => {
-  for (const e of current.value?.edges ?? []) {
+  for (const e of full.value?.edges ?? []) {
     const d = e.source_uid === 'internet' ? doorOfEdge(e) : null
     if (d) return { ...d, why: doorWhy(d) }
   }
@@ -86,12 +98,14 @@ const TOOLS: { tool: Tool; name: string }[] = [
   { tool: 'prowler', name: 'Prowler' },
   { tool: 'cloudfox', name: 'CloudFox' },
 ]
+// A plain panel has no block for the tools that judge: their findings are security facts.
+const shownTools = computed(() => (full.value ? TOOLS : []))
 
 // The provider's vulnerability scanner's view of this resource (ADR-0042, AWS Inspector on AWS);
 // null for a provider and type no scanner covers.
 const vulns = computed(() => {
-  const section = current.value?.vulnerabilities
-  if (!section || !current.value) return null
+  const section = full.value?.vulnerabilities
+  if (!section || !full.value) return null
   const open = Object.values(section.by_severity).reduce((sum, n) => sum + n, 0)
   const inactive = section.coverage.find((c) => !c.active)
   const scanner = scannerName(section.scanner)
@@ -99,7 +113,7 @@ const vulns = computed(() => {
     ...section,
     open,
     scanner,
-    collected: current.value.scanned.vulnerabilities != null,
+    collected: full.value.scanned.vulnerabilities != null,
     scanned: section.coverage.some((c) => c.active),
     lastScanned: lastScanned(section.coverage),
     reason: coverageReason(section.scanner, inactive?.status_reason) ?? `${scanner} reports no coverage for it.`,
@@ -136,7 +150,7 @@ const vulns = computed(() => {
       <AlertBanner v-else kind="warn">Not in the inventory on {{ current.as_of }}. Shown as last recorded.</AlertBanner>
     </section>
 
-    <section v-for="t in TOOLS" :key="t.tool" class="block" :aria-labelledby="`rd-${t.tool}`">
+    <section v-for="t in shownTools" :key="t.tool" class="block" :aria-labelledby="`rd-${t.tool}`">
       <h3 :id="`rd-${t.tool}`" class="lbl tool-title">{{ t.name }} <ToolChip :tool="t.tool" /></h3>
       <AlertBanner v-if="findings[t.tool].error.value" kind="fail">
         {{ t.name }} findings didn't load: {{ findings[t.tool].error.value }}
@@ -144,9 +158,9 @@ const vulns = computed(() => {
       </AlertBanner>
       <div v-else-if="!findings[t.tool].data.value" aria-busy="true" class="skeleton sk-48"></div>
       <template v-else-if="findings[t.tool].data.value!.total === 0">
-        <template v-if="current.scanned[t.tool]">
+        <template v-if="full?.scanned[t.tool]">
           <p class="body">No open {{ t.name }} findings on this resource.</p>
-          <p class="cap">Last {{ t.name }} scan of {{ connection }}: <span class="mono">{{ current.scanned[t.tool] }}</span></p>
+          <p class="cap">Last {{ t.name }} scan of {{ connection }}: <span class="mono">{{ full.scanned[t.tool] }}</span></p>
         </template>
         <p v-else class="body">Not covered: {{ t.name }} has not scanned {{ connection }}.</p>
       </template>
@@ -169,7 +183,7 @@ const vulns = computed(() => {
           See all {{ findings[t.tool].data.value!.total }} {{ t.name }} findings
         </RouterLink>
       </template>
-      <template v-if="t.tool === 'cloudfox' && current.scanned.cloudfox">
+      <template v-if="t.tool === 'cloudfox' && full?.scanned.cloudfox">
         <h4 class="lbl sub">Attacker view</h4>
         <p v-if="cloudfoxEdges.length === 0" class="cap">CloudFox found no connection for this resource.</p>
         <EdgeList v-else :edges="cloudfoxEdges" :resource-id="resourceId" :resource-link="resourceLink" />
@@ -245,8 +259,8 @@ const vulns = computed(() => {
 
     <section class="block" aria-labelledby="rd-edges">
       <h3 id="rd-edges" class="lbl">Connections</h3>
-      <p v-if="current.edges.length === 0" class="cap">No connections found for this resource.</p>
-      <EdgeList v-else :edges="current.edges" :resource-id="resourceId" :resource-link="resourceLink" />
+      <p v-if="listedEdges.length === 0" class="cap">No connections found for this resource.</p>
+      <EdgeList v-else :edges="listedEdges" :resource-id="resourceId" :resource-link="resourceLink" :new-tab="newTab" />
     </section>
 
     <section class="block" aria-labelledby="rd-tags">
@@ -263,7 +277,7 @@ const vulns = computed(() => {
       </table>
     </section>
 
-    <CommandsBlock v-if="current.commands.length" :commands="current.commands" />
+    <CommandsBlock v-if="full?.commands.length" :commands="full.commands" />
 
     <section class="block" aria-labelledby="rd-config">
       <h3 id="rd-config" class="lbl">Configuration</h3>

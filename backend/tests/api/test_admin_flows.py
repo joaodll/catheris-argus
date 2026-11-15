@@ -11,6 +11,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pytest
 from fastapi.testclient import TestClient
@@ -267,6 +268,61 @@ def _sweep_reports(
     assert not any(MARKERS.search(context) for context in setup.contexts)
 
 
+def _sweep_map(client: TestClient, connection_id: int, bodies: dict[str, str]) -> None:
+    """Both maps' three hops around every resource, on every layer, every group they can page,
+    and the Resource Map's plain start, search and panel for every resource."""
+    every = ("traffic", "identity", "network", "policy", "data")
+    layers = "&".join(f"layer={name}" for name in every)
+    listed = [
+        item
+        for path, body in list(bodies.items())
+        if path.startswith("/api/v1/resources?")
+        for item in json.loads(body)["items"]
+    ]
+    uids = {"internet"} | {item["resource_uid"] for item in listed}
+    groups = set()
+    for kind in ("resource", "security"):
+        for uid in sorted(uids):
+            query = urlencode({"focus": uid, "connection_id": connection_id, "map": kind})
+            path = f"/api/v1/map/graph?{query}&depth=3&{layers}"
+            response = client.get(path)
+            assert response.status_code == 200, (path, response.text)
+            bodies[path] = response.text
+            graph = response.json()
+            groups |= {
+                (kind, g["anchor_uid"], g["direction"], g["edge_type"], g["resource_type"])
+                for g in graph["groups"]
+            }
+            # A group read lists any anchor's members, whether or not the map grouped them.
+            groups |= {(kind, e["target_uid"], "in", e["type"], None) for e in graph["edges"]}
+    assert groups, "no map edge swept"
+    for kind, anchor, direction, edge_type, resource_type in sorted(groups, key=str):
+        query = urlencode(
+            {
+                "anchor": anchor,
+                "connection_id": connection_id,
+                "direction": direction,
+                "edge_type": edge_type,
+                "map": kind,
+                **({"resource_type": resource_type} if resource_type else {}),
+            }
+        )
+        path = f"/api/v1/map/group?{query}&limit=100"
+        response = client.get(path)
+        assert response.status_code == 200, (path, response.text)
+        bodies[path] = response.text
+    plain = [f"/api/v1/map/types?connection_id={connection_id}", "/api/v1/map/types"]
+    plain += [
+        f"/api/v1/map/resources?{urlencode({'type': t, 'connection_id': connection_id})}&limit=100"
+        for t in sorted({item["type"] for item in listed})
+    ]
+    plain += [f"/api/v1/map/resource/{item['id']}" for item in listed]
+    for path in plain:
+        response = client.get(path)
+        assert response.status_code == 200, (path, response.text)
+        bodies[path] = response.text
+
+
 def test_no_planted_secret_reaches_any_api_response_or_log(
     signed_in: TestClient,
     owner: Engine,
@@ -333,6 +389,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
                 path = f"/api/v1/resources/{item['id']}?as_of={day}"
                 bodies[path] = signed_in.get(path).text
         offset, total = offset + 200, page["total"]
+    _sweep_map(signed_in, target.connection_id, bodies)
     for listed in ("findings", "vulnerabilities"):  # every finding and CVE, each by its link too
         offset, total = 0, 1
         while offset < total:
@@ -363,6 +420,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
     }
     swept = {p.split("?")[0] for p in bodies}
     swept = {re.sub(r"/resources/\d+$", "/resources/{resource_id}", p) for p in swept}
+    swept = {re.sub(r"/map/resource/\d+$", "/map/resource/{resource_id}", p) for p in swept}
     swept = {re.sub(r"/findings/\d+$", "/findings/{finding_id}", p) for p in swept}
     swept = {re.sub(r"/connection-tests/\d+$", "/connection-tests/{test_id}", p) for p in swept}
     swept = {re.sub(r"/reports/\d+", "/reports/{report_id}", p) for p in swept}
