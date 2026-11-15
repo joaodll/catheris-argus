@@ -628,6 +628,22 @@ def _counted(dims: dict[str, float]) -> list[dict[str, Any]]:
     ]
 
 
+def _by_type(rows: dict[str, dict[str, float]]) -> list[dict[str, Any]]:
+    return [
+        {"type": item["value"], "count": item["total"]}
+        for item in _counted(rows.get(ASSETS_BY_TYPE, {}))
+    ]
+
+
+def asset_types(
+    conn: Connection, *, connection_id: int = ALL_CONNECTIONS, today: date
+) -> list[dict[str, Any]] | None:
+    """The inventory's assets by type, largest first, as the Resources summary counts them;
+    None before any Steampipe load. The Resource Map's start reads this alone: no risk count."""
+    read = _read(conn, ASSETS, connection_id, today, flow=False)
+    return None if read.day is None else _by_type(read.rows)
+
+
 def resource_summary(
     conn: Connection, *, connection_id: int = ALL_CONNECTIONS, today: date
 ) -> dict[str, Any]:
@@ -681,10 +697,7 @@ def resource_summary(
             "regions": len(regions),
         },
         "at_risk": at_risk,
-        "by_type": [
-            {"type": item["value"], "count": item["total"]}
-            for item in _counted(rows.get(ASSETS_BY_TYPE, {}))
-        ],
+        "by_type": _by_type(rows),
         "by_account": accounts and {"items": accounts["items"], "more": accounts["more"]},
         "by_region": {"items": regions[:TOP], "more": max(0, len(regions) - TOP)},
         **read.flow,

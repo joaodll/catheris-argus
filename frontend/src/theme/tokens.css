@@ -26,6 +26,7 @@
 
   /* Text */
   --text: #f6f7f8;
+  --text-strong: #ffffff; /* a lit line's word on the Resource map */
   --text-2: #b4b9c1;
   --text-3: #9297a0;
   --text-chip: #dadde2;
@@ -66,6 +67,15 @@
   --score-weak: #ffb067;
   --score-poor: #ff4d78;
 
+  /* Graph: existing values named for the Resource map; the canvas reads them once with
+     getComputedStyle. */
+  --graph-canvas: var(--surface-sunken);
+  --graph-node: var(--surface-raised);
+  --graph-lane: var(--tile); /* a group's card and another account's */
+  --graph-edge: var(--border-control);
+  --graph-dim: 0.3;
+  --graph-dot: rgb(255 255 255 / 7%); /* the map's dot grid */
+  --graph-ring: rgb(255 255 255 / 25%); /* the internet's rippling rings */
   --chart-band: rgb(255 255 255 / 2.5%); /* a chart's month bands */
   --chip-fill: rgb(255 255 255 / 5%); /* the neutral chip */
 
@@ -184,6 +194,7 @@
   --overlay: rgb(20 24 28 / 45%);
 
   --text: #14171a;
+  --text-strong: #000000;
   --text-2: #434a53;
   --text-3: #5b636d;
   --text-chip: #2a3037;
@@ -221,6 +232,8 @@
   --score-weak: #a8520b;
   --score-poor: #b51f43;
 
+  --graph-dot: rgb(0 0 0 / 10%);
+  --graph-ring: rgb(0 0 0 / 22%);
   --chart-band: rgb(0 0 0 / 3%);
   --chip-fill: rgb(0 0 0 / 5%);
 

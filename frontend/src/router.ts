@@ -49,6 +49,10 @@ export const router = createRouter({
         // A link or bookmark from before the split: a CVE's goes to Vulnerabilities.
         { path: 'findings', redirect: (to) => ({ name: findingsRedirect(to.query), query: to.query }) },
         { path: 'resources', name: 'resources', component: () => import('@/views/investigate/ResourcesView.vue'), meta: { title: 'Resources · Investigate' } },
+        // An open resource adds its name in front of the title (MapView).
+        { path: 'map', name: 'resource-map', component: () => import('@/views/investigate/map/MapView.vue'), props: { map: 'resource' }, meta: { title: 'Resource Map · Investigate' } },
+        // The same page with the security lines and each card's facts (ADR-0051, round 2).
+        { path: 'security-map', name: 'security-map', component: () => import('@/views/investigate/map/MapView.vue'), props: { map: 'security' }, meta: { title: 'Security Map · Investigate' } },
       ],
     },
     {

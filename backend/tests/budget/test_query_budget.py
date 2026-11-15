@@ -4,9 +4,10 @@ partitions. The dataset is generated in SQL from a fixed seed, never committed.
 
 Shape (the design's "large" scenario, 36 accounts): 300,000 resources, 300,000 open findings,
 180 days of metric_daily for 36 accounts plus the rollup, 36 x 3 x 180 scan runs.
-Edges (ADR-0033): about 940,000, two days of snapshots, with hubs: `internet` reaching 5,000
-resources of one account, a VPC holding 20,000, and an AWS-managed policy attached to 10,000
-principals across accounts.
+Edges (the Resource map, ADR-0051): about 960,000, two days of snapshots, with hubs: `internet`
+reaching 5,000 resources of one account, a VPC holding 20,000 and an AWS-managed policy attached
+to 10,000 principals across accounts (a map read is for one connection, which sees 1,666 of
+each), and one VPC whose 20,000 members are all read through connection 1.
 Compliance as real Prowler on AWS: 40 frameworks of 100 requirements, 180 days of scores and
 counts per account, and two days of requirement results per account plus their rollup.
 Vulnerabilities (ADR-0042, in AWS Inspector's shape): 50,000 CVE findings on connection 1's
@@ -39,6 +40,7 @@ from argus import (
     reports,
     scheduling,
 )
+from argus.api.routes import resource_map
 from argus.metrics.series import calendar_months
 from argus.reports import pdf as report_pdf
 
@@ -179,10 +181,13 @@ def _generate(conn: Connection) -> None:
     conn.execute(
         text("""
         INSERT INTO scan_run (run_uid, connection_id, tool, tool_version, source, snapshot_date,
-                              status, started_at, finished_at, raw_path)
+                              status, started_at, finished_at, ingested_at, raw_path)
         SELECT gen_random_uuid(), c, t, '1', 'synthetic', :d - day, 'complete',
-               (:d - day)::timestamptz, (:d - day)::timestamptz + interval '5 minutes', 'raw'
-        FROM generate_series(1, :n) c, unnest(ARRAY['steampipe','prowler','cloudfox']) t,
+               (:d - day)::timestamptz, (:d - day)::timestamptz + interval '5 minutes',
+               -- Ingested, so data_through() and the Security Map's facts see the tools as run.
+               (:d - day)::timestamptz + interval '10 minutes', 'raw'
+        FROM generate_series(1, :n) c,
+             unnest(ARRAY['steampipe','prowler','cloudfox','vulnerabilities']) t,
              generate_series(0, 179) day
     """),
         {"n": ACCOUNTS, "d": TODAY},
@@ -351,6 +356,13 @@ def _generate_vulnerabilities(conn: Connection) -> None:
 
 HUB_VPC = "arn:aws:ec2:us-east-1:200000000001:vpc/vpc-hub"
 HUB_POLICY = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+# The largest hub one map read can meet: 20,000 neighbours of one kind, in one connection.
+HUB_BIG_VPC = "arn:aws:ec2:us-east-1:200000000001:vpc/vpc-big"
+# Resource 30 (an instance of connection 31): one of the VPC hub's 20,000 members.
+MAP_FOCUS = "arn:aws:ec2:us-east-1:200000000031:instance/i-30"
+# Connection c holds account 2000000000cc: every map read is for one connection (ADR-0051).
+MAP_SCOPE = {"scope": relationships.MapScope(31, "200000000031")}
+HUB_SCOPE = {"scope": relationships.MapScope(1, "200000000001")}
 # Connection 1's instances (resource ids are the generator's g; g % 36 == 0, g % 5 == 0): one
 # page of the Resources list, each with 15 CVEs.
 VULNERABLE_PAGE = [180 * i for i in range(1, 21)]
@@ -399,6 +411,13 @@ def _generate_edges(conn: Connection) -> None:
                g, 'IN_NETWORK', 'rule:net@1', :d - 30, :d, 1 + g % :n
         FROM generate_series(1, 300000) g
         UNION ALL
+        -- 20,000 members of one VPC, every edge derived by connection 1. Most of them are other
+        -- accounts' resources, which the map draws without expanding; the hop reads them all
+        -- the same.
+        SELECT sha256(('big|' || g)::bytea), {RESOURCE_UID.format(g="g")}, :hub_big,
+               g, 'IN_NETWORK', 'rule:net@1', :d - 30, :d, 1
+        FROM generate_series(15, 300000, 15) g
+        UNION ALL
         SELECT sha256(('pol|' || g)::bytea), {RESOURCE_UID.format(g="g")}, :hub_policy,
                g, 'HAS_POLICY', 'rule:pol@1', :d - 30, :d, 1 + g % :n
         FROM generate_series(1, 300000, 30) g
@@ -414,13 +433,27 @@ def _generate_edges(conn: Connection) -> None:
                'admin:' || (200000000000 + 1), g, 'IS_ADMIN', 'cloudfox', :d - 30, :d, 1
         FROM generate_series(360, 300000, 360) g
     """),  # noqa: S608 - constant fragments
-        {**params, "hub_vpc": HUB_VPC, "hub_policy": HUB_POLICY},
+        {**params, "hub_vpc": HUB_VPC, "hub_policy": HUB_POLICY, "hub_big": HUB_BIG_VPC},
     )
     conn.execute(
         text("""
         UPDATE edge SET target_resource_id = substring(target_uid from '/i-([0-9]+)$')::bigint
         WHERE source_uid = 'internet'
     """)
+    )
+    # Every VPC the edges name is in the inventory, as Steampipe's aws_vpc table puts it there:
+    # the map draws a VPC and does not walk through it (relationships.STOP_TYPES).
+    conn.execute(
+        text("""
+        INSERT INTO resource (resource_uid, connection_id, region, type, native_id, name,
+                              first_seen, last_seen)
+        SELECT DISTINCT ON (e.target_uid) e.target_uid, e.connection_id, 'us-east-1', 'aws_vpc',
+               substring(e.target_uid from 'vpc/(.*)$'), substring(e.target_uid from 'vpc/(.*)$'),
+               CAST(:d AS date) - 30, :d
+        FROM edge e WHERE e.type = 'IN_NETWORK' AND e.target_uid ~ '[:]vpc/'
+        ORDER BY e.target_uid, e.connection_id
+    """),
+        params,
     )
     conn.execute(
         text("""
@@ -497,26 +530,6 @@ def _generate_compliance(conn: Connection) -> None:
     )
 
 
-@pytest.fixture(scope="module")
-def estate(migrated: Engine) -> Engine:
-    with migrated.begin() as conn:
-        conn.execute(
-            text(
-                "TRUNCATE connection, scan_run, resource, resource_config, edge, "
-                "audit_log, metric_daily, compliance_requirement, schedule, "
-                "platform_setting, report_request RESTART IDENTITY CASCADE"
-            )
-        )
-        _generate(conn)
-        _reports(conn)
-    # A steady-state database: the first reads of freshly inserted rows would otherwise pay
-    # for setting their hint bits and flushing the load, and time that instead of the query.
-    with migrated.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        conn.execute(text("VACUUM (ANALYZE)"))
-        conn.execute(text("CHECKPOINT"))
-    return migrated
-
-
 def _reports(conn: Connection) -> int:
     """Reports (ADR-0047): 20,000 requests over the estate's life, 2,000 of them one Operator's
     (the rest from users since deleted). Returns that Operator's id."""
@@ -562,6 +575,65 @@ MISCONFIGURATIONS = ("prowler", "cloudfox")
 SUMMARY_FILTERS = findings.FindingFilters(tools=MISCONFIGURATIONS, statuses=("FAIL",), muted="hide")
 # What every Vulnerabilities summary number counts: open, not suppressed.
 VULNERABILITY_SUMMARY_FILTERS = findings.FindingFilters(tools=("vulnerabilities",), muted="hide")
+
+
+def _with_facts(conn: Connection, found: dict[str, Any]) -> dict[int, Any]:
+    """The Security Map's cards over a walk's nodes (api/routes/resource_map.py)."""
+    return resource_map.node_facts(
+        conn, [resource_map.MapNode.model_validate(n) for n in found["nodes"]]
+    )
+
+
+# The Security Map's worst case: a full response of 500 inventoried resources, half with
+# misconfigurations (connection 2: connection 1's estate findings are all resolved) and half with
+# CVEs (connection 1, the only one with them). The walk beside the hubs meets mostly
+# pseudo-nodes and other accounts' resources, which carry no facts. The nodes are chosen on the
+# first run, which the p95 of the runs leaves out.
+_FACT_NODES = text("""
+    (SELECT r.id FROM resource r WHERE r.connection_id = 2 AND r.id IN (
+       SELECT f.resource_id FROM finding f WHERE f.connection_id = 2 AND f.tool = 'prowler')
+     ORDER BY r.id LIMIT 250)
+    UNION
+    (SELECT r.id FROM resource r WHERE r.connection_id = 1 AND r.id IN (
+       SELECT f.resource_id FROM finding f WHERE f.connection_id = 1
+         AND f.tool = 'vulnerabilities')
+     ORDER BY r.id LIMIT 250)
+""")
+
+
+_FACT_MAP_NODES: list[Any] = []  # chosen once: the timing is the facts' reads alone
+
+
+def _facts_for_500(conn: Connection) -> dict[int, Any]:
+    if not _FACT_MAP_NODES:
+        ids = [r.id for r in conn.execute(_FACT_NODES)]
+        uids = [
+            r.resource_uid
+            for r in conn.execute(
+                text("SELECT resource_uid FROM resource WHERE id = ANY(CAST(:i AS bigint[]))"),
+                {"i": ids},
+            )
+        ]
+        _FACT_MAP_NODES.extend(
+            resource_map.MapNode.model_validate(
+                {
+                    **n,
+                    "kind": "resource",
+                    "resource_id": n["id"],
+                    "expanded": False,
+                    "boundary": False,
+                }
+            )
+            for n in inventory.resource_nodes(conn, uids).values()
+        )
+    facts = resource_map.node_facts(conn, _FACT_MAP_NODES)
+    # The estate gives every read something to count, or the timing measures nothing.
+    assert len(facts) >= 400, len(facts)
+    assert sum(1 for f in facts.values() if f.misconfigurations and f.misconfigurations.open) > 100
+    assert sum(1 for f in facts.values() if f.vulnerabilities and f.vulnerabilities.open) > 100
+    assert any(f.internet_reachable for f in facts.values())  # i-1, connection 2
+    return facts
+
 
 QUERIES: dict[str, Callable[[Connection], Any]] = {
     "overview, all accounts": lambda c: metrics.build_overview(c, connection_id=0, as_of=TODAY),
@@ -802,6 +874,58 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
     ),
     "edges as of a day": lambda c: relationships.edges_at(
         c, resource_id=1234, connection_id=1234 % ACCOUNTS + 1, day=TODAY
+    ),
+    "map: a resource's hop": lambda c: relationships.neighbourhood(
+        c, focus=MAP_FOCUS, day=TODAY, **MAP_SCOPE
+    ),
+    "map: a resource's hop, every layer": lambda c: relationships.neighbourhood(
+        c,
+        focus=MAP_FOCUS,
+        **MAP_SCOPE,
+        day=TODAY,
+        layers=("traffic", "identity", "network", "policy", "data"),
+    ),
+    "map: three hops beside the hubs, every layer, Security Map": lambda c: (
+        relationships.neighbourhood(
+            c,
+            focus="arn:aws:ec2:us-east-1:200000000001:instance/i-36000",
+            **HUB_SCOPE,
+            day=TODAY,
+            depth=3,
+            layers=("traffic", "identity", "network", "policy", "data"),
+            kind="security",
+        )
+    ),
+    # The whole Security Map read the API makes: the walk, then each card's facts.
+    "map: three hops beside the hubs, every layer, Security Map, with facts": lambda c: _with_facts(
+        c,
+        relationships.neighbourhood(
+            c,
+            focus="arn:aws:ec2:us-east-1:200000000001:instance/i-36000",
+            **HUB_SCOPE,
+            day=TODAY,
+            depth=3,
+            layers=("traffic", "identity", "network", "policy", "data"),
+            kind="security",
+        ),
+    ),
+    "map: the Security Map's facts for 500 resources": _facts_for_500,
+    "map: the internet hub": lambda c: relationships.neighbourhood(
+        c, focus="internet", day=TODAY, **HUB_SCOPE
+    ),
+    "map: a hub of 20,000": lambda c: relationships.neighbourhood(
+        c, focus=HUB_BIG_VPC, day=TODAY, layers=("network",), **HUB_SCOPE
+    ),
+    "map: a group's first page": lambda c: relationships.group_members(
+        c,
+        anchor=HUB_VPC,
+        **HUB_SCOPE,
+        direction="in",
+        edge_type="IN_NETWORK",
+        resource_type="aws_ec2_instance",
+        day=TODAY,
+        limit=20,
+        offset=0,
     ),
     "resources: the Vulnerabilities cells of a page": _vulnerability_cells,
     "resources: with an exploitable CVE, one account": lambda c: inventory.list_resources(

@@ -6,6 +6,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, Field
+from sqlalchemy import Connection
 
 from argus import findings, ingest, inventory, metrics, relationships
 from argus.api.deps import Db, Viewer
@@ -78,6 +79,8 @@ class EdgeOut(BaseModel):
     type: str
     origin: str
     attributes: dict[str, Any]
+    # Which kind of connection it is (relationships.LAYER_CASE): the panels group lines by it.
+    layer: str | None = None
     first_seen: date
     last_seen: date
 
@@ -136,6 +139,9 @@ class ResourceDetail(ResourceOut):
     commands: list[CommandOut]
     # Null when no scanner scans this provider and type of resource.
     vulnerabilities: VulnerabilitySection | None
+    # Open misconfigurations (findings.OPEN_MISCONFIGURATION) per severity, as the
+    # Misconfigurations list counts them for this resource; only severities with any.
+    open_by_severity: dict[str, int]
 
 
 Facet = Annotated[str, Field(min_length=1, max_length=128)]
@@ -216,7 +222,7 @@ def list_resources(
     capped = bool(q) and total > SEARCH_COUNT_CAP
     ids = [r["id"] for r in rows]
     counts = findings.open_finding_counts(conn, ids)
-    vulns = _vulnerabilities(conn, rows)
+    vulns = vulnerability_summaries(conn, rows)
     return ResourcePage(
         items=[
             ResourceRow.model_validate(
@@ -237,9 +243,12 @@ def list_resources(
     )
 
 
-def _vulnerabilities(conn: Db, rows: list[dict[str, Any]]) -> dict[int, VulnerabilitySummary]:
-    """For one page of resources: the Vulnerabilities cell of those a scanner scans the provider
-    and type of, on connections with a vulnerabilities run."""
+def vulnerability_summaries(
+    conn: Connection, rows: list[dict[str, Any]]
+) -> dict[int, VulnerabilitySummary]:
+    """For one page of resources (id, provider, type, connection_id): the Vulnerabilities cell
+    of those a scanner scans the provider and type of, on connections with a vulnerabilities
+    run. The Resources list and the Security Map's cards share it, so they count alike."""
     scannable = [r for r in rows if findings.scanner_for(r["provider"], r["type"])]
     tool = [findings.VULNERABILITY_TOOL]
     collected = {
@@ -415,6 +424,7 @@ def resource(
     )
     ends = {e[k] for e in edges for k in ("source_resource_id", "target_resource_id") if e[k]}
     names = inventory.resource_names(conn, sorted(ends))
+    layers = relationships.edge_layers(conn, [e["id"] for e in edges])
     scanned = {
         tool: ingest.data_through(conn, connection_id=found["connection_id"], tools=[tool])
         for tool in ("steampipe", "prowler", "cloudfox", findings.VULNERABILITY_TOOL)
@@ -424,6 +434,7 @@ def resource(
             **found,
             "scanned": scanned,
             "vulnerabilities": _vulnerability_section(conn, found),
+            "open_by_severity": findings.open_finding_severities(conn, resource_id),
             "commands": [
                 vars(c)
                 for c in findings.commands_for_resource(
@@ -436,6 +447,7 @@ def resource(
                         **e,
                         "source_name": names.get(e["source_resource_id"]),
                         "target_name": names.get(e["target_resource_id"]),
+                        "layer": layers.get(e["id"]),
                     }
                 )
                 for e in edges

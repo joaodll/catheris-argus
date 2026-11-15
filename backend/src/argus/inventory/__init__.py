@@ -9,6 +9,7 @@ Public interface:
     RESOURCES_ON_DAY_SQL, RESOURCES_IN_REGIONS_SQL, CURRENT_ASSETS_SQL, TAGGED_RESOURCES_SQL,
     RESOURCE_TAGS_SQL, resource_id_sql(), uid_by_native_id()
                        for other modules' queries
+    RESOURCE_NODES_SQL, resource_nodes()   resources as Resource map nodes, by uid
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
                        (the Resources page, and a resource as of a day)
     is_asset()         whether a resource type counts as an asset (parts, settings and links
@@ -23,6 +24,7 @@ from argus.inventory.metrics import (
 )
 from argus.inventory.queries import (
     CURRENT_ASSETS_SQL,
+    RESOURCE_NODES_SQL,
     RESOURCE_TAGS_SQL,
     RESOURCES_IN_REGIONS_SQL,
     RESOURCES_ON_DAY_SQL,
@@ -36,6 +38,7 @@ from argus.inventory.queries import (
     resource_facets,
     resource_id_sql,
     resource_names,
+    resource_nodes,
     uid_by_native_id,
 )
 from argus.inventory.steampipe import (
@@ -51,6 +54,7 @@ __all__ = [
     "INVENTORY_METRICS",
     "RESOURCES_IN_REGIONS_SQL",
     "RESOURCES_ON_DAY_SQL",
+    "RESOURCE_NODES_SQL",
     "RESOURCE_TAGS_SQL",
     "SUPPORTED_VERSIONS",
     "TAGGED_RESOURCES_SQL",
@@ -70,6 +74,7 @@ __all__ = [
     "resource_facets",
     "resource_id_sql",
     "resource_names",
+    "resource_nodes",
     "rollup_inventory_metrics",
     "uid_by_native_id",
 ]

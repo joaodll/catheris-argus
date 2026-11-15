@@ -383,6 +383,37 @@ def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, 
     return {r.resource_id: (int(r.n), r.worst) for r in rows}
 
 
+def open_finding_severities(conn: Connection, resource_id: int) -> dict[str, int]:
+    """One resource's open misconfigurations (OPEN_MISCONFIGURATION) per severity, worst
+    first: the Security Map panel's summary, counted as the Misconfigurations list counts."""
+    rows = conn.execute(
+        text(f"""
+        SELECT f.severity, count(*) AS n FROM finding f
+        WHERE f.resource_id = :r AND {OPEN_MISCONFIGURATION}
+        GROUP BY f.severity ORDER BY min({_SEVERITY_RANK})
+    """),  # noqa: S608 - fixed fragments
+        {"r": resource_id},
+    )
+    return {r.severity: int(r.n) for r in rows}
+
+
+def confirmed_reach_resources(conn: Connection, resource_ids: list[int]) -> set[int]:
+    """Of these resources, those reachable from the internet as Argus's rules judged it
+    (ADR-0035): an open misconfiguration whose reach is confirmed, the definition of
+    INTERNET_REACHABLE_RESOURCES_SQL. Called with one map response (at most 500 ids)."""
+    if not resource_ids:
+        return set()
+    rows = conn.execute(
+        text(f"""
+        SELECT DISTINCT f.resource_id FROM finding f
+        WHERE f.resource_id = ANY(CAST(:ids AS bigint[])) AND {OPEN_MISCONFIGURATION}
+          AND f.reach = 'confirmed'
+    """),  # noqa: S608 - fixed fragments
+        {"ids": resource_ids},
+    )
+    return {r.resource_id for r in rows}
+
+
 # Exported SQL: the ids of resources with open misconfigurations (OPEN_MISCONFIGURATION), for
 # the Resources list's Misconfigurations and Internet reachable filters and the Resources
 # summary's counts. Parameter-free, so the inventory can embed them.

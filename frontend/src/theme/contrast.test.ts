@@ -98,6 +98,38 @@ describe.each([
     expect(failing).toEqual([])
   })
 
+  it("the Resource map's words read on its canvas and cards, and its glyphs on their disc", () => {
+    const pairs: [string, string, number][] = [
+      // A line's word on the canvas: at rest, hovered and lit.
+      ['text-2', 'graph-canvas', 4.5],
+      ['text', 'graph-canvas', 4.5],
+      ['text-strong', 'graph-canvas', 4.5],
+      ['text-3', 'graph-canvas', 4.5], // a column's name
+      // A card's name and its type.
+      ['text', 'graph-node', 4.5],
+      ['text-3', 'graph-node', 4.5],
+      // A type's glyph on its disc.
+      ['text-2', 'surface-sunken', 3],
+    ]
+    const failing = pairs.filter(([text, on, least]) => ratio(hex(theme, text), hex(theme, on)) < least).map(([text, on]) => `${text} on ${on}: ${ratio(hex(theme, text), hex(theme, on)).toFixed(2)}`)
+    expect(failing).toEqual([])
+  })
+
+  it("the Security Map's pill, marks and security lines (card B)", () => {
+    const failing = [
+      // The pill's count over its 12 % tint (the severity tag's), on a card and in the member table.
+      ...SEVERITIES.flatMap((sev) =>
+        ['graph-node', 'surface']
+          .filter((on) => ratio(hex(theme, `sev-${sev}-text`), mix(hex(theme, `sev-${sev}`), hex(theme, on), 0.12)) < 4.5)
+          .map((on) => `sev-${sev}-text over its 12 % tint on ${on}`),
+      ),
+      // The marks on a card, a security line on the canvas.
+      ...(['text-2', 'text'] as const).filter((t) => ratio(hex(theme, t), hex(theme, 'graph-node')) < 3).map((t) => `${t} mark on graph-node`),
+      ...(ratio(hex(theme, 'text-3'), hex(theme, 'graph-canvas')) < 3 ? ['text-3 security line on graph-canvas'] : []),
+    ]
+    expect(failing).toEqual([])
+  })
+
   it('text on the accent reaches 4.5:1', () => {
     expect(ratio(hex(theme, 'on-accent'), hex(theme, 'accent'))).toBeGreaterThanOrEqual(4.5)
   })

@@ -91,6 +91,66 @@ it can be reached from the internet, what it connects to, and its configuration.
 
 ![Resources](images/resources.png)
 
+### Investigate → Resource Map
+
+Choose a resource and see what it connects to, as a diagram. The start lists the resource types in
+your accounts with their counts; a type lists its resources, and a resource opens its map. You can
+also search by name, id or ARN, or use **Open in Resource Map** on any resource in **Resources**.
+The Resource Map shows no security finding and reads none, so you can use it as a network and
+architecture diagram. Security judgements, such as who can escalate to administrator, are on the
+Security Map (below).
+
+The chosen resource sits in the middle, with what leads to it on its left and what it leads to on
+its right. In each column the resources are grouped by the kind of line that reaches them
+(Traffic, Network, Identity, IAM policy, Data access), each group under its name, and sit beside
+what they connect to. An EC2 instance, for example, opens with its subnet and security groups
+under Network and its role under Identity. Each line says what it is in plain words ("routes to",
+"runs as"). **Depth** draws one, two or three hops around it at once. Open a resource and choose
+**Expand** to add its own neighbours; **Collapse** takes them away again. The map never walks
+past the internet, an account's administrator, another account's resource, a VPC or a subnet on
+its own; expand those yourself.
+
+**Connections** chooses which kinds of line are drawn. A map opens with every kind but Data
+access, which can reach many resources; **Select all** adds it and **Default** goes back. A solid
+line was found by Argus's own rules, a dashed one only by CloudFox (the Legend says so too).
+
+Choosing a resource opens its panel: a short summary first, then tabs. **Overview** says what it
+is and where, **Connections** lists its lines by kind, and **Config** holds its tags and
+configuration.
+
+- More than 25 neighbours of one kind are drawn as one group card. Open it to list its members
+  and add the ones you want.
+- The map draws at most 500 resources. Past that it says so: lower the depth, show fewer kinds of
+  connection, or Reset to start again from the chosen resource.
+- A resource of another account is drawn but not expanded. Make it the focus to explore it in its
+  own account.
+- The map shows each account's latest scan and says which day that is.
+
+The map shows what exists and how it connects. It carries no misconfiguration, vulnerability or
+reach verdict, so it can be handed to an auditor or used as an architecture diagram. Those facts
+are on the Security Map, **Misconfigurations**, **Vulnerabilities** and each resource in
+**Resources**.
+
+### Investigate → Security Map
+
+The same map, with what is wrong on it. It starts and grows like the Resource Map, and **Open in
+Security Map** is on every resource in **Resources**. It adds:
+
+- **Security lines**, drawn heavier than the connections: is administrator, can escalate to,
+  trusts an outside account, holds a credential, and CloudFox's "reaches" from the internet.
+- **On each card**, a count of its open misconfigurations in the colour of the worst severity,
+  and marks: a globe when Argus's rules confirm the internet can reach it, a bug for open
+  vulnerabilities, and a warning sign for a public exploit. A card shows nothing when there is
+  nothing, or when the tools have not scanned that account; its tooltip and the List view say
+  which.
+- **In the panel**, the summary is the resource's problems: open misconfigurations by severity,
+  internet reach and vulnerabilities, each a link to the list that counts it. A **Problems** tab
+  holds the tools' findings, its vulnerabilities, the door from the internet and CloudFox's
+  commands.
+
+The counts are the ones Resources and the lists show. The map finds no whole attack routes: it
+draws the lines one by one, and you follow them.
+
 ### Operate and Administration
 
 ![Runs](images/runs.png)

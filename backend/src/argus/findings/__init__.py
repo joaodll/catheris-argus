@@ -6,7 +6,8 @@ vulnerability_coverage, finding_tag_key, finding_tag_value.
 Public interface:
     parse_prowler()     the Prowler adapter: one run's raw files -> ProwlerBatch (pure)
     load_prowler()      lifecycle + day snapshots for one connection and day
-    list_findings(), finding_facets(), open_finding_counts()   the read side (Findings page)
+    list_findings(), finding_facets(), open_finding_counts(),
+    confirmed_reach_resources()   the read side (Findings page)
     iter_findings()     every finding matching the list's filters, in id batches (reports)
     tag_keys(), tag_values()   the Tag filter's options; refresh_tag_facets() rebuilds them after
                         an inventory load (ingest), as a findings load does itself
@@ -76,12 +77,14 @@ from argus.findings.queries import (
     MisconfigurationLevel,
     MutedFilter,
     check_texts,
+    confirmed_reach_resources,
     finding_facets,
     finding_groups,
     get_finding,
     iter_findings,
     list_findings,
     open_finding_counts,
+    open_finding_severities,
 )
 from argus.findings.repair import remove_compliance_items
 from argus.findings.tags import (
@@ -147,6 +150,7 @@ __all__ = [
     "carry_forward_compliance",
     "check_texts",
     "commands_for_resource",
+    "confirmed_reach_resources",
     "finding_facets",
     "finding_groups",
     "framework_catalog",
@@ -159,6 +163,7 @@ __all__ = [
     "load_tool_findings",
     "load_vulnerabilities",
     "open_finding_counts",
+    "open_finding_severities",
     "parse_prowler",
     "parse_vulnerabilities",
     "put_findings_metrics",
