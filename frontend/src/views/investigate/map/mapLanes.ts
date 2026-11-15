@@ -20,6 +20,15 @@ export const LANE_GAP = 168
 export const ROW = 96
 // How far above the highest card a column's name sits.
 export const LANE_NAME_RISE = 64
+// A kind's header inside a column (half a row), and the space before every group but the first.
+export const GROUP_HEADER = 48
+export const GROUP_GAP = 24
+
+/** The kinds a column groups its cards by, in this order (owner, 2026-11-14, decisions/52e3c4c5):
+ * the API's layers, then Other (pseudo-nodes, external hosts, a line of no layer). */
+export const KINDS = ['traffic', 'network', 'identity', 'policy', 'data', 'other'] as const
+export type Kind = (typeof KINDS)[number]
+export const KIND_LABEL: Record<Kind, string> = { traffic: 'Traffic', network: 'Network', identity: 'Identity', policy: 'IAM policy', data: 'Data access', other: 'Other' }
 
 export type NodeKind = 'resource' | 'internet' | 'admin' | 'external' | 'any' | 'group'
 
@@ -94,11 +103,15 @@ export interface Layout {
   positions: Map<string, Placed>
   // The columns that hold a node, left to right, each with its header and its band's left edge.
   lanes: { lane: string; label: string; x: number }[]
+  // Each kind's header in a column: its words and where its top-left sits.
+  headers: { key: string; label: string; x: number; y: number }[]
 }
 
 interface Link {
   source: string
   target: string
+  // The line's layer (the API's); a group of no layer goes under Other.
+  layer?: string | null
 }
 
 /**
@@ -154,11 +167,21 @@ export function hopLabel(col: number, focused: boolean): string {
   return `${n} ${n === 1 ? 'hop' : 'hops'} ${col < 0 ? 'in' : 'out'}`
 }
 
+/** A card's kind: the first, in KINDS order, of the layers of its lines to the column nearer the
+ * focus. A pseudo-node, an external host or a card with no such line is Other. */
+function kindOf(node: LaidNode, toward: Link[]): Kind {
+  if (node.kind !== 'resource' && node.kind !== 'group') return 'other'
+  const layers = new Set(toward.map((l) => l.layer ?? 'other'))
+  return KINDS.find((k) => layers.has(k)) ?? 'other'
+}
+
 /**
  * One column per hop (hopColumns), LANE_WIDTH wide with LANE_GAP between, empty columns hidden.
- * In a column, nodes ROW apart, by name: a card's place never depends on a security fact, so
- * the Infrastructure and Security views draw the same picture. The focus sits at y = 0 in the
- * middle of its column, every other column is centred on 0.
+ * The focus sits alone at y = 0 in its column. Every other column is laid out from the focus
+ * outwards: its cards in groups by kind (KINDS order, each under a header), and inside a group
+ * by the mean row of what they connect to in the column nearer the focus (barycentre), then by
+ * name, so a card sits beside what it connects to and lines cross less. A column is centred on
+ * 0 as a whole. A card's place never depends on a security fact.
  */
 export function layout(nodes: LaidNode[], edges: Link[], focus: string | null): Layout {
   const cols = hopColumns(
@@ -174,23 +197,58 @@ export function layout(nodes: LaidNode[], edges: Link[], focus: string | null): 
   }
   const shown = [...members.keys()].sort((a, b) => a - b)
   const lanes = shown.map((col, at) => ({ lane: `hop-${col}`, label: hopLabel(col, focused), x: at * (LANE_WIDTH + LANE_GAP) }))
+  const xOf = new Map(shown.map((col, at) => [col, at * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH / 2]))
   const positions = new Map<string, Placed>()
-  shown.forEach((col, at) => {
-    const list = [...members.get(col)!].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id))
-    const focusAt = list.findIndex((n) => n.id === focus)
-    let origin: number
-    if (focusAt >= 0) {
-      const [f] = list.splice(focusAt, 1)
-      const middle = Math.floor(list.length / 2)
-      list.splice(middle, 0, f!)
-      origin = middle
-    } else {
-      origin = (list.length - 1) / 2
+  const headers: Layout['headers'] = []
+  // A card's lines to its column's nearer neighbour (toward 0; column 0 has none).
+  const toward = (id: string, col: number): { other: string; link: Link }[] => {
+    const near = col > 0 ? col - 1 : col + 1
+    return edges.flatMap((l) => {
+      const other = l.source === id ? l.target : l.target === id ? l.source : null
+      return other != null && other !== id && cols.get(other) === near && col !== 0 ? [{ other, link: l }] : []
+    })
+  }
+  const byName = (a: LaidNode, b: LaidNode) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
+  // From the focus out: a column's order reads the rows of the column nearer the focus.
+  const order = [...shown].sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)
+  for (const col of order) {
+    const x = xOf.get(col)!
+    const lane = `hop-${col}`
+    const list = members.get(col)!
+    if (col === 0 && focused) {
+      const rest = list.filter((n) => n.id !== focus).sort(byName)
+      const all = [...rest.slice(0, Math.floor(rest.length / 2)), list.find((n) => n.id === focus)!, ...rest.slice(Math.floor(rest.length / 2))]
+      const origin = all.findIndex((n) => n.id === focus)
+      all.forEach((n, row) => positions.set(n.id, { x, y: (row - origin) * ROW, lane }))
+      continue
     }
-    const x = at * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH / 2
-    list.forEach((n, row) => positions.set(n.id, { x, y: (row - origin) * ROW, lane: `hop-${col}` }))
-  })
-  return { positions, lanes }
+    const placed = list.map((n) => {
+      const links = toward(n.id, col)
+      const ys = links.map((t) => positions.get(t.other)?.y).filter((y): y is number => y != null)
+      return { n, kind: kindOf(n, links.map((t) => t.link)), bary: ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0 }
+    })
+    const grouped = KINDS.map((k) => placed.filter((p) => p.kind === k).sort((a, b) => a.bary - b.bary || byName(a.n, b.n))).filter((g) => g.length)
+    // Headers only where the column has a nearer neighbour (a focused map's every column but 0).
+    const titled = col !== 0
+    let cursor = 0
+    const rows: { id: string; y: number }[] = []
+    const heads: { label: string; y: number }[] = []
+    grouped.forEach((group, at) => {
+      if (at > 0) cursor += GROUP_GAP
+      if (titled) {
+        heads.push({ label: KIND_LABEL[group[0]!.kind], y: cursor })
+        cursor += GROUP_HEADER
+      }
+      for (const p of group) {
+        rows.push({ id: p.n.id, y: cursor + ROW / 2 })
+        cursor += ROW
+      }
+    })
+    const shift = cursor / 2
+    for (const r of rows) positions.set(r.id, { x, y: r.y - shift, lane })
+    for (const h of heads) headers.push({ key: `${lane}|${h.label}`, label: h.label, x: x - LANE_WIDTH / 2, y: h.y - shift })
+  }
+  return { positions, lanes, headers }
 }
 
 export type Move = 'up' | 'down' | 'left' | 'right'

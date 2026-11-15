@@ -6,6 +6,11 @@
  * the Resource Map's panel, as `plain`: the Resource Map reads no security fact (ADR-0051, owner
  * 2026-11-13), so a plain body asks GET /map/resource/{id} instead, which returns only the
  * description, the lines the map draws, tags and configuration, and asks for no findings.
+ *
+ * The maps' panel shows it a part at a time, one per tab (`part`; spec frontend/d37cd13b):
+ * overview (what Steampipe describes), problems (the tools' findings, vulnerabilities, the door
+ * from the internet, commands), connections (grouped by kind) and configuration (tags and the
+ * JSON). Without `part` every block shows, in the sheet's order.
  */
 import { computed, ref, watch } from 'vue'
 import type { RouteLocationRaw } from 'vue-router'
@@ -26,6 +31,9 @@ import { coverageReason, epssPercent, lastScanned, packageLine } from './vulnera
 import { SEVERITIES } from '@/views/overview/severity'
 import { utc } from '@/format'
 import { scannerName } from '@/tools'
+import { KIND_LABEL, KINDS, type Kind } from './map/mapLanes'
+
+export type DetailPart = 'overview' | 'problems' | 'connections' | 'configuration'
 
 const props = defineProps<{
   resourceId: number
@@ -39,7 +47,10 @@ const props = defineProps<{
   plain?: boolean
   // Links to other resources open in a new tab (the map stays as it is).
   newTab?: boolean
+  // Only this part (a map panel's tab); every block when absent.
+  part?: DetailPart | null
 }>()
+const shows = (part: DetailPart): boolean => !props.part || props.part === part
 type Detail = Schemas['ResourceDetail'] | Schemas['MapResource']
 const emit = defineEmits<{ loaded: [resource: Detail | null] }>()
 
@@ -78,6 +89,10 @@ const connection = computed(() => (current.value ? props.connectionName(current.
 const cloudfoxEdges = computed(() => (full.value?.edges ?? []).filter((e) => e.origin === 'cloudfox'))
 // A plain read already holds only the lines the Resource Map draws.
 const listedEdges = computed(() => current.value?.edges ?? [])
+// The connections tab: the resource's lines by kind (the API's layer), in the canvas's order.
+const edgesByKind = computed(() =>
+  KINDS.map((kind) => ({ kind, edges: listedEdges.value.filter((e) => ((e.layer as Kind | null | undefined) ?? 'other') === kind) })).filter((g) => g.edges.length),
+)
 // The internet rules' verdict on this resource, when it faces the internet (ADR-0035): a badge,
 // a why-line and the evidence.
 const door = computed(() => {
@@ -131,7 +146,7 @@ const vulns = computed(() => {
     <div v-for="n in 4" :key="n" class="skeleton sk-48"></div>
   </div>
   <div v-else class="detail">
-    <section class="block" aria-labelledby="rd-steampipe">
+    <section v-if="shows('overview')" class="block" aria-labelledby="rd-steampipe">
       <h3 id="rd-steampipe" class="lbl tool-title">Steampipe <ToolChip tool="steampipe" /></h3>
       <dl class="facts">
         <div class="wide">
@@ -150,7 +165,7 @@ const vulns = computed(() => {
       <AlertBanner v-else kind="warn">Not in the inventory on {{ current.as_of }}. Shown as last recorded.</AlertBanner>
     </section>
 
-    <section v-for="t in shownTools" :key="t.tool" class="block" :aria-labelledby="`rd-${t.tool}`">
+    <section v-for="t in shows('problems') ? shownTools : []" :key="t.tool" class="block" :aria-labelledby="`rd-${t.tool}`">
       <h3 :id="`rd-${t.tool}`" class="lbl tool-title">{{ t.name }} <ToolChip :tool="t.tool" /></h3>
       <AlertBanner v-if="findings[t.tool].error.value" kind="fail">
         {{ t.name }} findings didn't load: {{ findings[t.tool].error.value }}
@@ -190,7 +205,7 @@ const vulns = computed(() => {
       </template>
     </section>
 
-    <section v-if="vulns" class="block" aria-labelledby="rd-vulnerabilities">
+    <section v-if="vulns && shows('problems')" class="block" aria-labelledby="rd-vulnerabilities">
       <h3 id="rd-vulnerabilities" class="lbl tool-title">Vulnerabilities <ToolChip tool="vulnerabilities" /></h3>
       <template v-if="!vulns.collected">
         <p class="body">Not covered: vulnerabilities are not collected for {{ connection }}.</p>
@@ -248,7 +263,7 @@ const vulns = computed(() => {
       </template>
     </section>
 
-    <section v-if="door" ref="doorBlock" class="block" aria-labelledby="rd-door">
+    <section v-if="door && shows('problems')" ref="doorBlock" class="block" aria-labelledby="rd-door">
       <h3 id="rd-door" class="lbl">From the internet</h3>
       <div class="door">
         <ReachBadge door :reach="door.reach" />
@@ -257,13 +272,21 @@ const vulns = computed(() => {
       <DoorEvidence v-if="door.network.length" :network="door.network" :state="door.state" />
     </section>
 
-    <section class="block" aria-labelledby="rd-edges">
+    <section v-if="shows('connections') && part" class="block" aria-labelledby="rd-edges">
+      <h3 id="rd-edges" class="sr-only">Connections</h3>
+      <p v-if="listedEdges.length === 0" class="cap">No connections found.</p>
+      <section v-for="g in edgesByKind" :key="g.kind" class="block" :aria-labelledby="`rd-kind-${g.kind}`">
+        <h4 :id="`rd-kind-${g.kind}`" class="lbl">{{ KIND_LABEL[g.kind] }} ({{ g.edges.length }})</h4>
+        <EdgeList :edges="g.edges" :resource-id="resourceId" :resource-link="resourceLink" :new-tab="newTab" />
+      </section>
+    </section>
+    <section v-else-if="shows('connections')" class="block" aria-labelledby="rd-edges">
       <h3 id="rd-edges" class="lbl">Connections</h3>
       <p v-if="listedEdges.length === 0" class="cap">No connections found for this resource.</p>
       <EdgeList v-else :edges="listedEdges" :resource-id="resourceId" :resource-link="resourceLink" :new-tab="newTab" />
     </section>
 
-    <section class="block" aria-labelledby="rd-tags">
+    <section v-if="shows('configuration')" class="block" aria-labelledby="rd-tags">
       <h3 id="rd-tags" class="lbl">Tags</h3>
       <p v-if="tags.length === 0" class="cap">No tags.</p>
       <table v-else class="tags">
@@ -277,9 +300,9 @@ const vulns = computed(() => {
       </table>
     </section>
 
-    <CommandsBlock v-if="full?.commands.length" :commands="full.commands" />
+    <CommandsBlock v-if="full?.commands.length && shows('problems')" :commands="full.commands" />
 
-    <section class="block" aria-labelledby="rd-config">
+    <section v-if="shows('configuration')" class="block" aria-labelledby="rd-config">
       <h3 id="rd-config" class="lbl">Configuration</h3>
       <p v-if="!configText" class="cap">No configuration recorded.</p>
       <template v-else>

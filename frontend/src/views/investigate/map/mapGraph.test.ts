@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { addMember, boundaryLabel, drawnEdges, emptyGraph, lineStyle, mergeGraph, nodeName, scanLine, traceOf, type MapEdge, type MapNode } from './mapGraph'
+import { addMember, boundaryLabel, drawnEdges, emptyGraph, lineStyle, mergeGraph, nodeName, replay, scanLine, traceOf, withoutExpand, type MapEdge, type MapNode, type Step } from './mapGraph'
 
 function node(uid: string, extra: Partial<MapNode> = {}): MapNode {
   return { uid, kind: 'resource', resource_id: 1, provider: 'aws', type: 'aws_lambda_function', name: uid, region: 'us-east-1', connection_id: 1, deleted_on: null, expanded: false, boundary: false, ...extra }
 }
 let next = 1
 function edge(source: string, target: string, origin = 'rule:x@1', type = 'ROUTES_TO'): MapEdge {
-  return { id: next++, source_uid: source, target_uid: target, type, origin, attributes: {}, first_seen: '2026-10-01', last_seen: '2026-10-08' }
+  return { id: next++, source_uid: source, target_uid: target, type, origin, attributes: {}, first_seen: '2026-10-01', last_seen: '2026-10-08', layer: 'traffic' }
 }
 
 describe('the date line', () => {
@@ -35,7 +35,7 @@ describe('Resource map graph state', () => {
     const merged = mergeGraph(emptyGraph(), {
       nodes: [node('a'), node('b'), node('c')],
       edges: [edge('a', 'b'), edge('a', 'c')],
-      groups: [{ id: 'g1', anchor_uid: 'c', direction: 'out', edge_type: 'IN_NETWORK', resource_type: 'aws_ec2_instance', count: 40 }],
+      groups: [{ id: 'g1', anchor_uid: 'c', direction: 'out', edge_type: 'IN_NETWORK', resource_type: 'aws_ec2_instance', count: 40, layer: 'network' }],
     }, 2)
     expect(merged.capped).toBe(true)
     expect([...merged.state.nodes.keys()]).toEqual(['a', 'b'])
@@ -54,7 +54,7 @@ describe('Resource map graph state', () => {
     const state = mergeGraph(emptyGraph(), {
       nodes: [node('internet', { kind: 'internet' }), node('lb'), node('role')],
       edges: [edge('internet', 'lb', 'cloudfox', 'INTERNET_REACHABLE'), edge('internet', 'lb', 'rule:internet-entry@1', 'INTERNET_REACHABLE'), edge('lb', 'role', 'cloudfox', 'RUNS_AS')],
-      groups: [{ id: 'g', anchor_uid: 'lb', direction: 'in', edge_type: 'MEMBER_OF', resource_type: null, count: 30 }],
+      groups: [{ id: 'g', anchor_uid: 'lb', direction: 'in', edge_type: 'MEMBER_OF', resource_type: null, count: 30, layer: 'network' }],
     }).state
     const lines = drawnEdges(state)
     const both = lines.find((l) => l.source === 'internet')!
@@ -105,3 +105,32 @@ describe('Tracing a node', () => {
     expect(trace.nodes.has('other')).toBe(false)
   })
 })
+
+describe('Collapse: the map drawn again without one Expand', () => {
+  const base = { nodes: [node('f', { expanded: true }), node('a')], edges: [edge('f', 'a')], groups: [] }
+  const expandA: Step = { kind: 'expand', uid: 'a', response: { nodes: [node('a', { expanded: true }), node('b'), node('f')], edges: [edge('a', 'b')], groups: [] } }
+  const expandB: Step = { kind: 'expand', uid: 'b', response: { nodes: [node('b', { expanded: true }), node('c')], edges: [edge('b', 'c')], groups: [] } }
+  const addToF: Step = { kind: 'add', anchor: 'f', member: { node: node('m'), edge: edge('f', 'm') } }
+
+  it('replays the first read and every step, in order', () => {
+    const { state, steps } = replay(base, [expandA, expandB, addToF])
+    expect([...state.nodes.keys()].sort()).toEqual(['a', 'b', 'c', 'f', 'm'])
+    expect(state.nodes.get('a')?.expanded).toBe(true)
+    expect(steps).toHaveLength(3)
+  })
+
+  it('removes what one Expand added and what grew from it, and keeps the rest', () => {
+    const { state, steps } = replay(base, withoutExpand([expandA, expandB, addToF], 'a'))
+    expect([...state.nodes.keys()].sort()).toEqual(['a', 'f', 'm'])
+    expect(state.nodes.get('a')?.expanded).toBe(false) // it can be expanded again
+    expect([...state.edges.values()].map((e) => `${e.source_uid}>${e.target_uid}`).sort()).toEqual(['f>a', 'f>m'])
+    expect(steps).toEqual([addToF]) // b's Expand went with b
+  })
+
+  it('keeps a card another step still reaches', () => {
+    const alsoB: Step = { kind: 'expand', uid: 'f', response: { nodes: [node('f', { expanded: true }), node('b')], edges: [edge('f', 'b')], groups: [] } }
+    const { state } = replay(base, withoutExpand([expandA, alsoB], 'a'))
+    expect(state.nodes.has('b')).toBe(true)
+  })
+})
+

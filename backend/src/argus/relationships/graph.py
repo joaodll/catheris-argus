@@ -7,8 +7,9 @@ estate.
     group_members()   a group's members, a page at a time
 
 A walk goes on only from resources of the connection: a pseudo-node (`internet`, an account's
-administrator, an external host, a wildcard grant), a boundary node or a group is drawn and
-never walked past, so a hub met on the way costs one count, not its thousands of neighbours.
+administrator, an external host, a wildcard grant), a boundary node, a group, a VPC or a subnet
+(STOP_TYPES) is drawn and never walked past, so a hub met on the way costs one count, not its
+thousands of neighbours.
 The screen expands those by hand (ADR-0051, amended 2026-11-14: three hops with every layer from
 a resource beside the hubs were 390 ms at p95 when the walk went through them).
 
@@ -44,9 +45,15 @@ Direction = Literal["out", "in"]
 Map = Literal["resource", "security"]
 
 MAX_DEPTH = 3  # hops one read walks (owner, 2026-11-13: "bring 3 hops back")
+# Network containers a multi-hop read draws but does not walk through: with the Network layer on
+# by default, walking a VPC or a subnet counted its thousands of members (owner, 2026-11-14,
+# "Stop walk at VPCs"). Opened or expanded by hand, they read their own hop as any resource.
+STOP_TYPES: frozenset[str] = frozenset({"aws_vpc", "aws_vpc_subnet"})
 MAX_NODES = MAX_EDGES  # a hop stops at 500 nodes, and the screen's map holds as many
 GROUP_OVER = 25  # more neighbours of one kind than this: one group node (ADR-0051)
-DEFAULT_LAYERS: tuple[Layer, ...] = ("traffic", "identity")
+# What a map opens with (owner, 2026-11-14, decisions/52e3c4c5): every kind but Data access,
+# so a resource shows its network, role and policies; Data access fans out to many resources.
+DEFAULT_LAYERS: tuple[Layer, ...] = ("traffic", "identity", "network", "policy")
 ORIGINS: tuple[Origin, ...] = ("rule", "cloudfox", "manual")
 # What a map edge shows of its attributes: the protocol and ports. The internet rules' evidence
 # (network, routes, reasons) stays on the edge row for the Resources sheet.
@@ -88,6 +95,11 @@ LAYER_SQL: dict[str, str] = {
     # What a role's policies let it use (ADR-0036).
     "data": "e.type = 'ACCESSES'",
 }
+# The layer of `edge e`, from the same fragments the layer filter uses: the screen groups cards and
+# a panel's lines by it, with no copy of these rules. Null for a line of no layer (a verdict).
+LAYER_CASE = (
+    "CASE " + " ".join(f"WHEN {LAYER_SQL[name]} THEN '{name}'" for name in LAYER_SQL) + " END"
+)
 ORIGIN_SQL: dict[str, str] = {
     "rule": "starts_with(e.origin, 'rule:')",
     "cloudfox": "e.origin = 'cloudfox'",
@@ -188,20 +200,23 @@ def _hop_sql(filters: str) -> str:
       FROM hop h LEFT JOIN {_OTHER}
     ),
     sizes AS (
-      SELECT anchor, direction, type, other_type, count(*) AS siblings
-      FROM (SELECT anchor, direction, type, other_type, other COLLATE "C" FROM typed
-            GROUP BY 1, 2, 3, 4, 5) x
+      SELECT anchor, direction, type, other_type, count(*) AS siblings, min(id) AS sample
+      FROM (SELECT anchor, direction, type, other_type, other COLLATE "C", min(id) AS id
+            FROM typed GROUP BY 1, 2, 3, 4, 5) x
       GROUP BY anchor, direction, type, other_type
     )
     SELECT t.anchor, t.direction, t.type, t.other_type, t.other_name, t.other, s.siblings,
-           e.id, e.source_uid, e.target_uid, e.origin, e.attributes, e.first_seen, e.last_seen
+           e.id, e.source_uid, e.target_uid, e.origin, e.attributes, e.first_seen, e.last_seen,
+           {LAYER_CASE} AS layer
     FROM sizes s
     JOIN typed t USING (anchor, direction, type)
     JOIN edge e ON e.id = t.id
     WHERE s.siblings <= :g AND t.other_type IS NOT DISTINCT FROM s.other_type
     UNION ALL
+    -- A group: its layer is its edges' (one type, one direction: one of them says it).
     SELECT anchor, direction, type, other_type, NULL, NULL, siblings,
-           NULL, NULL, NULL, NULL, NULL, NULL, NULL
+           NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+           (SELECT {LAYER_CASE} FROM edge e WHERE e.id = sizes.sample)
     FROM sizes WHERE siblings > :g
     ORDER BY anchor, direction, type, other_type NULLS FIRST, other_name NULLS LAST, other, id
     """  # noqa: S608 - fixed fragments; values are bound
@@ -274,8 +289,8 @@ def neighbourhood(
     when it has the resource; `expanded` when its neighbours were read; `boundary` for another
     connection's or account's resource, which is never expanded), edges, groups and
     `truncated` (the 500-node cap stopped the walk). A hop goes on only from the connection's
-    own resources: a pseudo-node or a boundary node is drawn and left for the screen to
-    expand."""
+    own resources: a pseudo-node, a boundary node, a VPC or a subnet is drawn and left for the
+    screen to expand."""
     depth = max(1, min(depth, MAX_DEPTH))
     sql = text(_hop_sql(_filters(layers, origins, kind)))
     params = {**_day_params(conn, day, [scope.connection_id]), "c": scope.connection_id}
@@ -307,6 +322,7 @@ def neighbourhood(
                         "edge_type": r.type,
                         "resource_type": r.other_type,
                         "count": int(r.siblings),
+                        "layer": r.layer,
                     },
                 )
                 continue
@@ -315,7 +331,13 @@ def neighbourhood(
                 found.append(r.other)
             edges[r.id] = _edge(r)
         walk.look_up(found)
-        frontier = [u for u in found if kind_of(u) == "resource" and not walk.boundary(u)]
+        frontier = [
+            u
+            for u in found
+            if kind_of(u) == "resource"
+            and not walk.boundary(u)
+            and walk.inventory.get(u, {}).get("type") not in STOP_TYPES
+        ]
     return {
         "nodes": walk.nodes(list(order), expanded),
         "edges": list(edges.values()),
@@ -333,15 +355,35 @@ def plain_attributes(attributes: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def edge_layers(conn: Connection, edge_ids: list[int]) -> dict[int, str | None]:
+    """Each of these edges' layer (LAYER_CASE). Called with one resource's edges (at most
+    MAX_EDGES), so the input is bounded."""
+    if not edge_ids:
+        return {}
+    rows = conn.execute(
+        text(
+            f"SELECT e.id, {LAYER_CASE} AS layer FROM edge e "  # noqa: S608 - fixed fragments
+            "WHERE e.id = ANY(CAST(:i AS bigint[]))"
+        ),
+        {"i": edge_ids},
+    )
+    return {r.id: r.layer for r in rows}
+
+
 def map_edges_at(
     conn: Connection, *, resource_id: int, connection_id: int, day: date, kind: Map
 ) -> list[dict[str, Any]]:
     """A resource's own edges as a map's panel lists them: only the lines that map draws, with
-    their plain attributes (the Resources sheet reads edges_at, evidence included)."""
-    return [
-        {**e, "attributes": plain_attributes(e["attributes"])}
+    their layer and plain attributes (the Resources sheet reads edges_at, evidence included)."""
+    edges = [
+        e
         for e in edges_at(conn, resource_id=resource_id, connection_id=connection_id, day=day)
         if on_map(e["type"], kind)
+    ]
+    layers = edge_layers(conn, [e["id"] for e in edges])
+    return [
+        {**e, "attributes": plain_attributes(e["attributes"]), "layer": layers.get(e["id"])}
+        for e in edges
     ]
 
 
@@ -356,6 +398,7 @@ def _edge(r: Any) -> dict[str, Any]:
         "attributes": plain_attributes(r.attributes),
         "first_seen": r.first_seen,
         "last_seen": r.last_seen,
+        "layer": r.layer,
     }
 
 
@@ -418,7 +461,7 @@ def group_members(
           ORDER BY lower(m.label), m.other
           LIMIT :l OFFSET :o
         )
-        SELECT page.other, page.total, {_EDGE_COLUMNS}
+        SELECT page.other, page.total, {_EDGE_COLUMNS}, {LAYER_CASE} AS layer
         FROM page JOIN edge e ON e.id = page.id
         ORDER BY lower(page.label), page.other
     """),  # noqa: S608 - fixed fragments; values are bound

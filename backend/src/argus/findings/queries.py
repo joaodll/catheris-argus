@@ -367,6 +367,20 @@ def open_finding_counts(conn: Connection, resource_ids: list[int]) -> dict[int, 
     return {r.resource_id: (int(r.n), r.worst) for r in rows}
 
 
+def open_finding_severities(conn: Connection, resource_id: int) -> dict[str, int]:
+    """One resource's open misconfigurations (OPEN_MISCONFIGURATION) per severity, worst
+    first: the Security Map panel's summary, counted as the Misconfigurations list counts."""
+    rows = conn.execute(
+        text(f"""
+        SELECT f.severity, count(*) AS n FROM finding f
+        WHERE f.resource_id = :r AND {OPEN_MISCONFIGURATION}
+        GROUP BY f.severity ORDER BY min({_SEVERITY_RANK})
+    """),  # noqa: S608 - fixed fragments
+        {"r": resource_id},
+    )
+    return {r.severity: int(r.n) for r in rows}
+
+
 def confirmed_reach_resources(conn: Connection, resource_ids: list[int]) -> set[int]:
     """Of these resources, those reachable from the internet as Argus's rules judged it
     (ADR-0035): an open misconfiguration whose reach is confirmed, the definition of

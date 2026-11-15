@@ -427,6 +427,20 @@ def _generate_edges(conn: Connection) -> None:
         WHERE source_uid = 'internet'
     """)
     )
+    # Every VPC the edges name is in the inventory, as Steampipe's aws_vpc table puts it there:
+    # the map draws a VPC and does not walk through it (relationships.STOP_TYPES).
+    conn.execute(
+        text("""
+        INSERT INTO resource (resource_uid, connection_id, region, type, native_id, name,
+                              first_seen, last_seen)
+        SELECT DISTINCT ON (e.target_uid) e.target_uid, e.connection_id, 'us-east-1', 'aws_vpc',
+               substring(e.target_uid from 'vpc/(.*)$'), substring(e.target_uid from 'vpc/(.*)$'),
+               CAST(:d AS date) - 30, :d
+        FROM edge e WHERE e.type = 'IN_NETWORK' AND e.target_uid ~ '[:]vpc/'
+        ORDER BY e.target_uid, e.connection_id
+    """),
+        params,
+    )
     conn.execute(
         text("""
         INSERT INTO edge_snapshot (snapshot_date, edge_id)

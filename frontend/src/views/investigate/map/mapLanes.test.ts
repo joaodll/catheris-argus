@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LANE_GAP, LANE_WIDTH, NODE_HEIGHT, ROW, cardGlyph, hopColumns, hopLabel, layout, moveSelection, typeLabel, type LaidNode } from './mapLanes'
+import { GROUP_HEADER, LANE_GAP, LANE_WIDTH, NODE_HEIGHT, ROW, cardGlyph, hopColumns, hopLabel, layout, moveSelection, typeLabel, type LaidNode } from './mapLanes'
 
 const n = (id: string, type: string | null, extra: Partial<LaidNode> = {}): LaidNode => ({ id, kind: 'resource', type, name: id, ...extra })
 
@@ -55,10 +55,48 @@ describe('Resource map columns', () => {
     const step = LANE_WIDTH + LANE_GAP
     expect(lanes.map((l) => l.x)).toEqual([0, step, 2 * step])
     expect(positions.get('focus')).toEqual({ x: step + LANE_WIDTH / 2, y: 0, lane: 'hop-0' })
-    // By name, ROW apart.
-    expect(positions.get('fn-a')!.y).toBe(-ROW)
-    expect(positions.get('fn-b')!.y).toBe(0)
-    expect(positions.get('role')!.y).toBe(ROW)
+    // One kind (no layer given: Other), under one header, by name, ROW apart, centred on 0.
+    const ys = ['fn-a', 'fn-b', 'role'].map((id) => positions.get(id)!.y)
+    expect(ys[1]! - ys[0]!).toBe(ROW)
+    expect(ys[2]! - ys[1]!).toBe(ROW)
+    expect(ys[0]! - ROW / 2 - GROUP_HEADER + ys[2]! + ROW / 2).toBe(0)
+  })
+
+  it('groups a column by kind, in a fixed order, each under its header', () => {
+    const nodes = [n('focus', 'aws_ec2_instance'), n('sg', 'aws_vpc_security_group'), n('subnet', 'aws_vpc_subnet'), n('role', 'aws_iam_role'), n('alb', 'aws_ec2_application_load_balancer'), n('internet', null, { kind: 'internet' })]
+    const edges = [
+      { source: 'focus', target: 'sg', layer: 'network' },
+      { source: 'focus', target: 'subnet', layer: 'network' },
+      { source: 'focus', target: 'role', layer: 'identity' },
+      { source: 'alb', target: 'focus', layer: 'traffic' },
+      { source: 'internet', target: 'focus', layer: 'traffic' },
+    ]
+    const { positions, headers } = layout(nodes, edges, 'focus')
+    const y = (id: string) => positions.get(id)!.y
+    // Out: Network (sg, subnet) above Identity (role); in: Traffic (alb) above Other (internet).
+    expect(y('sg')).toBeLessThan(y('subnet'))
+    expect(y('subnet')).toBeLessThan(y('role'))
+    expect(y('alb')).toBeLessThan(y('internet'))
+    expect(headers.map((h) => h.label).sort()).toEqual(['Identity', 'Network', 'Other', 'Traffic'])
+    // A header sits above its group's first card; the focus stays at 0 with no header.
+    const network = headers.find((h) => h.label === 'Network')!
+    expect(network.y).toBeLessThan(y('sg') - NODE_HEIGHT / 2)
+    expect(y('focus')).toBe(0)
+  })
+
+  it('puts a card beside what it connects to (barycentre), so lines cross less', () => {
+    // Two first-hop roles; their policies two hops out sit in the same order as the roles,
+    // whatever their names say.
+    const nodes = [n('focus', 'aws_lambda_function'), n('role-a', 'aws_iam_role'), n('role-b', 'aws_iam_role'), n('z-policy', 'aws_iam_policy'), n('a-policy', 'aws_iam_policy')]
+    const edges = [
+      { source: 'focus', target: 'role-a', layer: 'identity' },
+      { source: 'focus', target: 'role-b', layer: 'identity' },
+      { source: 'role-a', target: 'z-policy', layer: 'policy' },
+      { source: 'role-b', target: 'a-policy', layer: 'policy' },
+    ]
+    const { positions } = layout(nodes, edges, 'focus')
+    expect(positions.get('role-a')!.y).toBeLessThan(positions.get('role-b')!.y)
+    expect(positions.get('z-policy')!.y).toBeLessThan(positions.get('a-policy')!.y)
   })
 
   it('leaves the space the owner asked for (ADR-0051)', () => {

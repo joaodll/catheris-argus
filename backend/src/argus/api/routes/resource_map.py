@@ -67,6 +67,9 @@ class MapEdge(BaseModel):
     attributes: dict[str, Any]
     first_seen: date
     last_seen: date
+    # Which kind of connection it is (traffic, identity, network, policy, data), from the
+    # layer filter's own definitions; null for a line of no layer.
+    layer: str | None
 
 
 class MapGroup(BaseModel):
@@ -78,6 +81,8 @@ class MapGroup(BaseModel):
     edge_type: str
     resource_type: str | None
     count: int
+    # Its edges' layer (as MapEdge.layer).
+    layer: str | None
 
 
 class MapDays(BaseModel):

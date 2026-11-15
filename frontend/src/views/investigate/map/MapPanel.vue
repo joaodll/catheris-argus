@@ -16,7 +16,9 @@ import AppPagination from '@/components/AppPagination.vue'
 import { useResource } from '@/composables/useResource'
 import { originLabel, regionLabel } from '../labels'
 import { edgeTitle } from '../edgeWords'
-import ResourceDetail from '../ResourceDetail.vue'
+import ResourceDetail, { type DetailPart } from '../ResourceDetail.vue'
+import UnderlineTabs from '@/components/UnderlineTabs.vue'
+import { SEVERITIES, type Severity } from '@/views/overview/severity'
 import SeverityTag from '@/components/SeverityTag.vue'
 import ExploitMark from '../ExploitMark.vue'
 import CountPill from './CountPill.vue'
@@ -34,11 +36,17 @@ const props = defineProps<{
   // Shown as the sheet on a phone: the sheet has its own title and close button.
   framed?: boolean
   map?: 'resource' | 'security'
+  // The cards a person expanded: Collapse undoes them.
+  collapsible?: ReadonlySet<string>
+  // The resource's tab (the URL's ?tab=).
+  tab?: DetailPart
 }>()
 const security = computed(() => props.map === 'security')
 const emit = defineEmits<{
   close: []
   expand: [uid: string]
+  collapse: [uid: string]
+  tab: [tab: DetailPart]
   focusHere: [uid: string]
   add: [member: { node: MapNode; edge: MapEdge }]
   select: [selection: Selection]
@@ -68,7 +76,7 @@ const title = computed(() => {
 })
 const caption = computed(() => {
   const n = node.value
-  if (n?.kind === 'resource' && n.type) return `${n.type} · ${n.region ? regionLabel(n.region) : '—'} · ${n.connection_id ? props.connectionName(n.connection_id) : '—'}`
+  if (n?.kind === 'resource' && n.type) return `${typeLabel(n.type)} · ${n.region ? regionLabel(n.region) : '—'} · ${n.connection_id ? props.connectionName(n.connection_id) : '—'}`
   if (n?.kind === 'external') return 'Not in the inventory'
   if (n?.kind === 'any') return 'Wildcard grant (*)'
   if (group.value) {
@@ -113,6 +121,52 @@ const members = useResource(
 const facts = computed(() => (security.value ? factsOf(node.value) : null))
 const links = computed(() => (node.value?.resource_id != null ? factLinks(node.value.resource_id) : null))
 const nodeConnection = computed(() => (node.value?.connection_id != null ? props.connectionName(node.value.connection_id) : 'its account'))
+
+// ---- The resource: a summary, then tabs (spec frontend/d37cd13b, E).
+const loaded = ref<Schemas['ResourceDetail'] | Schemas['MapResource'] | null>(null)
+watch(() => node.value?.resource_id, () => (loaded.value = null))
+const tabs = computed(() =>
+  security.value
+    ? ([
+        { value: 'overview', label: 'Overview' },
+        { value: 'problems', label: 'Problems' },
+        { value: 'connections', label: 'Connections' },
+        { value: 'configuration', label: 'Config' },
+      ] as const)
+    : ([
+        { value: 'overview', label: 'Overview' },
+        { value: 'connections', label: 'Connections' },
+        { value: 'configuration', label: 'Config' },
+      ] as const),
+)
+// A tab the map has not (Problems on the Resource Map) shows the overview.
+const shownTab = computed<DetailPart>(() => (props.tab && tabs.value.some((t) => t.value === props.tab) ? props.tab : 'overview'))
+// Open misconfigurations per severity, worst first, as the Misconfigurations list counts them.
+const severities = computed(() => {
+  const by: Record<string, number> = loaded.value && 'open_by_severity' in loaded.value ? loaded.value.open_by_severity : {}
+  return SEVERITIES.flatMap((severity: Severity) => (by[severity] ? [{ severity, count: by[severity]! }] : []))
+})
+const clean = computed(() => {
+  const f = facts.value
+  if (!f || f.misconfigurations == null) return false
+  return f.misconfigurations.open === 0 && !f.internet_reachable && (f.vulnerabilities?.open ?? 0) === 0
+})
+// The Resource Map's "At a glance": what its own lines and row say (VPC, subnet, role, SGs).
+const glance = computed(() => {
+  const r = loaded.value
+  if (!r) return []
+  const own = r.edges.filter((e) => e.source_resource_id === r.id)
+  const name = (uid: string, n: string | null) => n ?? uid.split(/[:/]/).pop() ?? uid
+  const subnet = own.find((e) => e.type === 'IN_NETWORK' && e.target_uid.includes(':subnet/'))
+  const role = own.find((e) => e.type === 'RUNS_AS')
+  const groups = own.filter((e) => e.type === 'MEMBER_OF' && e.layer === 'network').length
+  return [
+    r.vpc_id ? { label: 'VPC', value: r.vpc_id, mono: true } : null,
+    subnet ? { label: 'Subnet', value: name(subnet.target_uid, subnet.target_name), mono: true } : null,
+    role ? { label: 'Runs as', value: name(role.target_uid, role.target_name), mono: false } : null,
+    groups ? { label: 'Security groups', value: String(groups), mono: true } : null,
+  ].filter((g): g is { label: string; value: string; mono: boolean } => g != null)
+})
 const memberPill = (m: Schemas['GroupMember'] | Schemas['SecurityGroupMember']) => {
   const f = factsOf(m.node as MapNode)
   const count = pillCount(f)
@@ -164,6 +218,9 @@ function ports(edge: MapEdge): string | null {
             <AppIcon name="expand" :size="16" />Expand
           </button>
         </span>
+        <button v-if="collapsible?.has(node.uid)" type="button" class="btn btn-secondary btn-sm" @click="emit('collapse', node.uid)">
+          <AppIcon name="minus" :size="16" />Collapse
+        </button>
         <button v-if="node.kind !== 'external' && node.kind !== 'any'" type="button" class="btn btn-secondary btn-sm" @click="emit('focusHere', node.uid)">
           <AppIcon name="graph" :size="16" />Focus here
         </button>
@@ -171,46 +228,55 @@ function ports(edge: MapEdge): string | null {
           Open in Resources<span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
         </RouterLink>
       </div>
-      <section v-if="security && node.resource_id != null && facts && links" class="sec-facts" aria-labelledby="mp-facts">
-        <h3 id="mp-facts" class="lbl">Security facts</h3>
-        <ul class="fact-rows">
-          <li>
-            <AppIcon name="flag" :size="16" class="glyph" />
-            <span v-if="facts.misconfigurations == null" class="cap">Misconfigurations: not covered (Prowler and CloudFox have not scanned {{ nodeConnection }})</span>
-            <span v-else-if="facts.misconfigurations.open === 0" class="body">No open misconfigurations</span>
-            <RouterLink v-else :to="links.misconfigurations" target="_blank" class="fact-link">
-              <SeverityTag v-if="facts.misconfigurations.worst" :severity="facts.misconfigurations.worst" compact />
-              <span><span class="mono">{{ facts.misconfigurations.open.toLocaleString('en-US') }}</span> open {{ facts.misconfigurations.open === 1 ? 'misconfiguration' : 'misconfigurations' }}</span>
+      <template v-if="node.resource_id != null">
+        <section class="summary" :aria-labelledby="security ? 'mp-problems' : 'mp-glance'">
+          <template v-if="security && facts && links">
+            <h3 id="mp-problems" class="eyebrow">Problems</h3>
+            <p v-if="facts.misconfigurations == null" class="cap">Misconfigurations: not covered (Prowler and CloudFox have not scanned {{ nodeConnection }})</p>
+            <RouterLink v-else-if="facts.misconfigurations.open > 0" :to="links.misconfigurations" target="_blank" class="fact-link">
+              <AppIcon name="flag" :size="16" class="glyph" />
+              <span v-if="severities.length" class="sev-counts">
+                <span v-for="c in severities" :key="c.severity" class="sev-count"><SeverityTag :severity="c.severity" /><span class="mono">{{ c.count.toLocaleString('en-US') }}</span></span>
+              </span>
+              <span v-else><span class="mono">{{ facts.misconfigurations.open.toLocaleString('en-US') }}</span> open {{ facts.misconfigurations.open === 1 ? 'misconfiguration' : 'misconfigurations' }}</span>
+              <span class="sr-only"> open misconfigurations (opens in a new tab)</span><span aria-hidden="true">↗</span>
+            </RouterLink>
+            <RouterLink v-if="facts.internet_reachable" :to="links.internet" target="_blank" class="fact-link">
+              <AppIcon name="globe" :size="16" class="glyph" /><span>Reachable from the internet</span>
               <span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
             </RouterLink>
-          </li>
-          <li v-if="facts.vulnerabilities">
-            <AppIcon name="bug" :size="16" class="glyph" />
-            <span v-if="!facts.vulnerabilities.scanned && facts.vulnerabilities.open === 0" class="cap">Not scanned for vulnerabilities</span>
-            <span v-else-if="facts.vulnerabilities.open === 0" class="body">No open vulnerabilities</span>
-            <RouterLink v-else :to="links.vulnerabilities" target="_blank" class="fact-link">
-              <span><span class="mono">{{ facts.vulnerabilities.open.toLocaleString('en-US') }}</span> open {{ facts.vulnerabilities.open === 1 ? 'vulnerability' : 'vulnerabilities' }}</span>
-              <ExploitMark v-if="facts.vulnerabilities.exploitable > 0" :count="facts.vulnerabilities.exploitable" />
-              <span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
-            </RouterLink>
-          </li>
-          <li v-if="facts.internet_reachable">
-            <AppIcon name="globe" :size="16" class="glyph" />
-            <RouterLink :to="links.internet" target="_blank" class="fact-link">
-              <span>Reachable from the internet</span>
-              <span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
-            </RouterLink>
-          </li>
-        </ul>
-      </section>
-      <ResourceDetail
-        v-if="node.resource_id != null"
-        :resource-id="node.resource_id"
-        :connection-name="connectionName"
-        :resource-link="resourceLink"
-        :plain="!security"
-        new-tab
-      />
+            <template v-if="facts.vulnerabilities">
+              <p v-if="!facts.vulnerabilities.scanned && facts.vulnerabilities.open === 0" class="cap">Not scanned for vulnerabilities</p>
+              <RouterLink v-else-if="facts.vulnerabilities.open > 0" :to="links.vulnerabilities" target="_blank" class="fact-link">
+                <AppIcon name="bug" :size="16" class="glyph" />
+                <span><span class="mono">{{ facts.vulnerabilities.open.toLocaleString('en-US') }}</span> open {{ facts.vulnerabilities.open === 1 ? 'vulnerability' : 'vulnerabilities' }}</span>
+                <ExploitMark v-if="facts.vulnerabilities.exploitable > 0" :count="facts.vulnerabilities.exploitable" />
+                <span class="sr-only"> (opens in a new tab)</span><span aria-hidden="true">↗</span>
+              </RouterLink>
+            </template>
+            <p v-if="clean" class="clean"><AppIcon name="check" :size="16" />No open problems found</p>
+          </template>
+          <template v-else-if="!security">
+            <h3 id="mp-glance" class="eyebrow">At a glance</h3>
+            <dl v-if="glance.length" class="glance">
+              <div v-for="g in glance" :key="g.label"><dt class="lbl">{{ g.label }}</dt><dd :class="{ mono: g.mono }">{{ g.value }}</dd></div>
+            </dl>
+            <p v-else class="cap">{{ caption }}</p>
+          </template>
+        </section>
+        <UnderlineTabs :model-value="shownTab" :tabs="tabs" label="Resource details" id-prefix="mp" compact @update:model-value="(t) => emit('tab', t)" />
+        <div :id="`mp-${shownTab}`" role="tabpanel" :aria-labelledby="`mp-tab-${shownTab}`" class="tab-body">
+          <ResourceDetail
+            :resource-id="node.resource_id"
+            :connection-name="connectionName"
+            :resource-link="resourceLink"
+            :plain="!security"
+            :part="shownTab"
+            new-tab
+            @loaded="(r) => (loaded = r)"
+          />
+        </div>
+      </template>
       <p v-else class="body">{{ pseudoText(node) }}</p>
     </template>
 
@@ -293,41 +359,66 @@ function ports(edge: MapEdge): string | null {
 </template>
 
 <style scoped>
-/* The Security Map's facts on the resource (spec frontend/4242ef35, 7). */
-.sec-facts {
+/* The summary card above the tabs (spec frontend/d37cd13b, E). */
+.summary {
   display: flex;
   flex-direction: column;
   gap: var(--s-8);
-}
-
-.sec-facts .lbl {
-  margin: 0;
-}
-
-.fact-rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: var(--s-8);
+  padding: var(--s-12) var(--s-14);
+  background: var(--tile);
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
   font-size: 13px;
 }
 
-.fact-rows li {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--s-8);
+.summary .eyebrow,
+.summary .cap {
+  margin: 0;
 }
 
-.fact-rows .glyph {
+.summary .glyph {
   flex: none;
-  margin-top: 2px;
   color: var(--text-2);
 }
 
-.fact-rows .cap,
-.fact-rows .body {
+.sev-counts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--s-8);
+}
+
+.sev-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.clean {
+  display: flex;
+  align-items: center;
+  gap: var(--s-6);
   margin: 0;
+  color: var(--text-2);
+}
+
+.clean :deep(svg) {
+  color: var(--pass);
+}
+
+.glance {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s-8) var(--s-16);
+  margin: 0;
+}
+
+.glance dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.tab-body {
+  padding-top: var(--s-4);
 }
 
 .fact-link {

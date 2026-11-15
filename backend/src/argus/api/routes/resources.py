@@ -79,6 +79,8 @@ class EdgeOut(BaseModel):
     type: str
     origin: str
     attributes: dict[str, Any]
+    # Which kind of connection it is (relationships.LAYER_CASE): the panels group lines by it.
+    layer: str | None = None
     first_seen: date
     last_seen: date
 
@@ -137,6 +139,9 @@ class ResourceDetail(ResourceOut):
     commands: list[CommandOut]
     # Null when no scanner scans this provider and type of resource.
     vulnerabilities: VulnerabilitySection | None
+    # Open misconfigurations (findings.OPEN_MISCONFIGURATION) per severity, as the
+    # Misconfigurations list counts them for this resource; only severities with any.
+    open_by_severity: dict[str, int]
 
 
 Facet = Annotated[str, Field(min_length=1, max_length=128)]
@@ -419,6 +424,7 @@ def resource(
     )
     ends = {e[k] for e in edges for k in ("source_resource_id", "target_resource_id") if e[k]}
     names = inventory.resource_names(conn, sorted(ends))
+    layers = relationships.edge_layers(conn, [e["id"] for e in edges])
     scanned = {
         tool: ingest.data_through(conn, connection_id=found["connection_id"], tools=[tool])
         for tool in ("steampipe", "prowler", "cloudfox", findings.VULNERABILITY_TOOL)
@@ -428,6 +434,7 @@ def resource(
             **found,
             "scanned": scanned,
             "vulnerabilities": _vulnerability_section(conn, found),
+            "open_by_severity": findings.open_finding_severities(conn, resource_id),
             "commands": [
                 vars(c)
                 for c in findings.commands_for_resource(
@@ -440,6 +447,7 @@ def resource(
                         **e,
                         "source_name": names.get(e["source_resource_id"]),
                         "target_name": names.get(e["target_resource_id"]),
+                        "layer": layers.get(e["id"]),
                     }
                 )
                 for e in edges

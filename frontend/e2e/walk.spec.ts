@@ -691,12 +691,22 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   await axe(page, 'map opened')
   await shot(page, '91b-map-opened')
   await canvas.locator('.node.focus').click()
-  // The panel: the inventory's description, connections, tags and configuration. No security fact.
+  // The panel: a summary, then tabs (owner, 2026-11-14): the inventory's description, its
+  // connections by kind, tags and configuration. No Problems tab, no security fact.
   const focusPanel = page.getByRole('complementary', { name: 'Resource panel' })
-  for (const block of ['Steampipe', 'Connections', 'Tags', 'Configuration']) {
-    await expect(focusPanel.getByRole('heading', { level: 3, name: new RegExp(`^${block}`) })).toBeVisible()
-  }
-  for (const block of ['Prowler', 'CloudFox', 'Vulnerabilities', 'From the internet', 'Commands']) {
+  const panelTabs = focusPanel.getByRole('tablist', { name: 'Resource details' })
+  await expect(panelTabs.getByRole('tab')).toHaveText(['Overview', 'Connections', 'Config'])
+  await expect(focusPanel.getByRole('region', { name: 'At a glance' })).toBeVisible()
+  await expect(focusPanel.getByRole('heading', { level: 3, name: /^Steampipe/ })).toBeVisible()
+  await panelTabs.getByRole('tab', { name: 'Connections' }).click()
+  await expect(page).toHaveURL(/tab=connections/)
+  await expect(focusPanel.getByRole('heading', { level: 4, name: /^(Traffic|Network|Identity|IAM policy) \(\d+\)$/ }).first()).toBeVisible()
+  await axe(page, 'map panel, connections')
+  await panelTabs.getByRole('tab', { name: 'Config' }).click()
+  await expect(focusPanel.getByRole('heading', { level: 3, name: 'Tags' })).toBeVisible()
+  await panelTabs.getByRole('tab', { name: 'Overview' }).click()
+  await expect(page).not.toHaveURL(/tab=/)
+  for (const block of ['Prowler', 'CloudFox', 'Vulnerabilities', 'From the internet', 'Commands', 'Problems']) {
     await expect(focusPanel.getByRole('heading', { name: new RegExp(`^${block}`) })).toHaveCount(0)
   }
   await page.waitForLoadState('networkidle')
@@ -742,11 +752,60 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   await expect(canvas).not.toHaveAttribute('aria-label', grows ?? '')
   await expect(canvas.locator('.node', { hasText: 'prod-orders-api' }).first()).toBeVisible()
   await shot(page, '91c-map-expanded')
+  // Collapse undoes that Expand: the map holds what it held before.
+  await page.getByRole('complementary', { name: 'Resource panel' }).getByRole('button', { name: 'Collapse' }).click()
+  await expect(canvas).toHaveAttribute('aria-label', grows ?? '')
+  await expect(canvas.locator('.node', { hasText: 'prod-orders-api' })).toHaveCount(0)
+  await expect(page.getByRole('complementary', { name: 'Resource panel' }).getByRole('button', { name: 'Collapse' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Reset' }).click()
   await expect(canvas.locator('.node', { hasText: 'prod-orders-api' })).toHaveCount(0)
   await expect(page.getByRole('complementary', { name: 'Resource panel' })).toHaveCount(0)
   await axe(page, 'map')
   await shot(page, '91-map')
+  // No Sources control: both sources are always drawn (owner, 2026-11-14).
+  await expect(page.getByRole('group', { name: 'Sources' })).toHaveCount(0)
+  // Cards sit under their kind's header in each column.
+  await expect(canvas.locator('.kind-name').first()).toBeVisible()
+  // Connections stays open while toggling, and offers Select all and Default. A card is open
+  // first: each toggle reloads the map and brings the selection back, which used to take the
+  // focus to the panel and close the menu (owner, 2026-11-14).
+  await canvas.locator('.node.focus').click()
+  await expect(page).toHaveURL(/open=/)
+  await expect(page.getByRole('complementary', { name: 'Resource panel' })).toBeVisible()
+  const kinds = page.locator('#map-layers')
+  await kinds.click()
+  const kindList = page.getByRole('listbox')
+  for (let i = 0; i < 3; i++) {
+    const reloaded = page.waitForResponse((r) => r.url().includes('/api/v1/map/graph') && r.status() === 200)
+    await kindList.getByRole('option', { name: 'Data access' }).click()
+    await reloaded
+    // The map is drawn again with the card open, and the focus is still in the menu.
+    await expect(canvas.locator('.node.focus')).toBeVisible()
+    await expect(page.getByRole('complementary', { name: 'Resource panel' })).toBeVisible()
+    await expect(kindList).toBeVisible()
+    expect(await page.evaluate(() => !!document.activeElement?.closest('.ms-panel'))).toBe(true)
+  }
+  await expect(page).toHaveURL(/layer=data/)
+  await page.locator('.ms-foot').getByRole('button', { name: 'Default' }).click()
+  await expect(page).not.toHaveURL(/layer=/)
+  await expect(kindList).toBeVisible()
+  await page.locator('.ms-foot').getByRole('button', { name: 'Select all' }).click()
+  await expect(kindList.getByRole('option', { selected: true })).toHaveCount(5)
+  await page.keyboard.press('Escape')
+  await kinds.click()
+  await page.locator('.ms-foot').getByRole('button', { name: 'Default' }).click()
+  await page.keyboard.press('Escape')
+  await expect(page).not.toHaveURL(/layer=/)
+  // An EC2 instance opens with its first-degree connections: its network and its role.
+  const ec2 = page.getByRole('combobox', { name: 'Find a resource' })
+  await ec2.fill('prod-web-0')
+  await page.getByRole('listbox', { name: 'Resources' }).getByRole('option').filter({ hasText: 'prod-web-0' }).first().click()
+  await expect(canvas.locator('.kind-name', { hasText: 'Network' }).first()).toBeVisible()
+  await expect(canvas.locator('.node', { hasText: 'Security group' }).first()).toBeVisible()
+  await expect(canvas.locator('.node', { hasText: 'Subnet' }).first()).toBeVisible()
+  await shot(page, '91e-map-ec2')
+  await page.goBack()
+  await expect(canvas).toBeVisible()
   // The keyboard: the arrow keys move between cards, Enter opens the panel, Expand adds that
   // card's own hop, which is one request for one hop.
   await canvas.focus()
@@ -851,12 +910,20 @@ test('security map: card B, the security lines and each fact linked to its list;
   const count = (await pilled.locator('.card-pill').innerText()).trim()
   await pilled.click()
   const panel = page.getByRole('complementary', { name: 'Resource panel' })
-  const facts = panel.getByRole('region', { name: 'Security facts' })
+  const facts = panel.getByRole('region', { name: 'Problems' })
   await expect(facts).toBeVisible()
-  // The panel is the whole resource on this map.
+  // The summary's counts per severity add up to the card's count.
+  const perSeverity = await facts.locator('.sev-count .mono').allInnerTexts()
+  expect(perSeverity.reduce((sum, n) => sum + Number(n.replace(/,/g, '')), 0)).toBe(Number(count.replace(/,/g, '')))
+  // The panel is the whole resource on this map: its Problems tab holds the tools' findings.
+  const secTabs = panel.getByRole('tablist', { name: 'Resource details' })
+  await expect(secTabs.getByRole('tab')).toHaveText(['Overview', 'Problems', 'Connections', 'Config'])
+  // The four tabs fit the 400 px panel: nothing cut off or scrolled sideways.
+  expect(await secTabs.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await secTabs.getByRole('tab', { name: 'Problems' }).click()
   await expect(panel.getByRole('heading', { level: 3, name: /^Prowler/ })).toBeVisible()
+  await secTabs.getByRole('tab', { name: 'Overview' }).click()
   const misLink = facts.getByRole('link', { name: /open misconfigurations?/ })
-  await expect(misLink).toContainText(count)
   await axe(page, 'security map panel')
   await shot(page, '94a-security-map-panel')
   const checked: string[] = []

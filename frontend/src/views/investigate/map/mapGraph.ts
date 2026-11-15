@@ -86,6 +86,36 @@ export function addMember(state: GraphState, member: { node: MapNode; edge: MapE
   return mergeGraph(state, { nodes: [member.node], edges: [member.edge] }, max)
 }
 
+export type GraphResponse = { nodes: MapNode[]; edges: MapEdge[]; groups?: MapGroup[] }
+
+/** What grew the map after its first read, in order: an Expand of a card, or a group member
+ * added from the panel. Collapse removes a step and the map is drawn again from the rest. */
+export type Step =
+  | { kind: 'expand'; uid: string; response: GraphResponse }
+  | { kind: 'add'; anchor: string; member: { node: MapNode; edge: MapEdge } }
+
+/** The map from its first read and the steps that grew it. A step whose card is no longer on the
+ * map (an Expand of a card a removed step had added) is dropped, so collapsing a card also
+ * collapses what grew from it. Returns the steps kept. */
+export function replay(base: GraphResponse, steps: Step[], max: number = MAX_NODES): { state: GraphState; steps: Step[]; capped: boolean } {
+  let merged = mergeGraph(emptyGraph(), base, max)
+  let capped = merged.capped
+  const kept: Step[] = []
+  for (const step of steps) {
+    const anchor = step.kind === 'expand' ? step.uid : step.anchor
+    if (!merged.state.nodes.has(anchor)) continue
+    merged = step.kind === 'expand' ? mergeGraph(merged.state, step.response, max) : addMember(merged.state, step.member, max)
+    capped ||= merged.capped
+    kept.push(step)
+  }
+  return { state: merged.state, steps: kept, capped }
+}
+
+/** The steps without the Expand of this card (Collapse). */
+export function withoutExpand(steps: Step[], uid: string): Step[] {
+  return steps.filter((s) => !(s.kind === 'expand' && s.uid === uid))
+}
+
 export const groupNodeId = (group: MapGroup): string => `group:${group.id}`
 
 export type Family = 'rule' | 'cloudfox' | 'manual' | 'probe'
@@ -115,6 +145,8 @@ export interface DrawnEdge {
   edges: MapEdge[]
   families: Family[]
   style: LineStyle
+  // Which kind of connection (the API's layer): the canvas groups cards by it.
+  layer: string | null
   // The line to a group node, which stands for the group's edges.
   group: MapGroup | null
 }
@@ -123,7 +155,7 @@ export function drawnEdges(state: GraphState): DrawnEdge[] {
   const lines = new Map<string, DrawnEdge>()
   for (const edge of state.edges.values()) {
     const key = `${edge.source_uid}|${edge.target_uid}|${edge.type}`
-    const line = lines.get(key) ?? { key, source: edge.source_uid, target: edge.target_uid, type: edge.type, edges: [], families: [], style: 'solid', group: null }
+    const line = lines.get(key) ?? { key, source: edge.source_uid, target: edge.target_uid, type: edge.type, edges: [], families: [], style: 'solid', layer: edge.layer ?? null, group: null }
     line.edges.push(edge)
     const f = family(edge.origin)
     if (!line.families.includes(f)) line.families.push(f)
@@ -137,7 +169,7 @@ export function drawnEdges(state: GraphState): DrawnEdge[] {
   for (const group of state.groups.values()) {
     const node = groupNodeId(group)
     const [source, target] = group.direction === 'out' ? [group.anchor_uid, node] : [node, group.anchor_uid]
-    lines.set(node, { key: node, source, target, type: group.edge_type, edges: [], families: [], style: 'solid', group })
+    lines.set(node, { key: node, source, target, type: group.edge_type, edges: [], families: [], style: 'solid', layer: group.layer ?? null, group })
   }
   return [...lines.values()]
 }

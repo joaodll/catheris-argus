@@ -553,3 +553,55 @@ def test_only_the_security_routes_carry_facts() -> None:
         assert "facts" in _field_names(model), model
     for model in (resource_map.MapGraph, resource_map.GroupPage):
         assert "facts" not in _field_names(model), model
+
+
+def test_each_map_line_says_its_layer_and_the_map_opens_with_four(
+    signed_in: TestClient, prod: int
+) -> None:
+    """A line's `layer` is the layer filter's own: asked for one layer, every line is of it. A map
+    opens with every kind but Data access (owner, 2026-11-14), so an instance shows its network."""
+    for layer in ("traffic", "identity", "network", "policy", "data"):
+        graph = _graph(signed_in, "internet", connection_id=prod, layer=[layer], depth=2)
+        assert {e["layer"] for e in graph["edges"]} <= {layer}, layer
+        assert {g["layer"] for g in graph["groups"]} <= {layer}, layer
+    instance = _resource(signed_in, "prod-web-0", connection_id=prod)
+    opened = _graph(signed_in, instance["resource_uid"])
+    assert {"network", "identity"} <= {e["layer"] for e in opened["edges"]}
+    assert "data" not in {e["layer"] for e in opened["edges"]}
+    panel = signed_in.get(f"/api/v1/map/resource/{instance['id']}").json()
+    assert panel["edges"] and all(e["layer"] for e in panel["edges"])
+
+
+def test_the_resource_panel_counts_open_misconfigurations_by_severity(
+    signed_in: TestClient, prod: int
+) -> None:
+    alb = _resource(signed_in, "edge-alb", connection_id=prod)
+    detail = signed_in.get(f"/api/v1/resources/{alb['id']}").json()
+    assert detail["open_by_severity"], detail["open_by_severity"]
+    for severity, count in detail["open_by_severity"].items():
+        listed = _total(
+            signed_in,
+            "/api/v1/findings",
+            resource_id=alb["id"],
+            status="FAIL",
+            muted="hide",
+            severity=severity,
+        )
+        assert count == listed, severity
+    assert all(e["layer"] or e["type"].startswith("PUBLIC_") for e in detail["edges"])
+
+
+def test_a_deeper_read_draws_a_vpc_but_does_not_walk_through_it(
+    signed_in: TestClient, prod: int
+) -> None:
+    """With the Network layer on, three hops from an instance draw its VPC and subnet, never
+    their other members (owner, 2026-11-14: "Stop walk at VPCs"): every line drawn was read from a
+    resource the walk went through, and a container is never one."""
+    instance = _resource(signed_in, "prod-web-0", connection_id=prod)
+    deep = _graph(signed_in, instance["resource_uid"], layer=["network"], depth=3)
+    containers = [n for n in deep["nodes"] if n["type"] in ("aws_vpc", "aws_vpc_subnet")]
+    assert containers and not any(n["expanded"] for n in containers)
+    walked = {n["uid"] for n in deep["nodes"] if n["expanded"]}
+    assert all(e["source_uid"] in walked or e["target_uid"] in walked for e in deep["edges"]), (
+        "an edge read from a container"
+    )
