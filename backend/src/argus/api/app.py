@@ -6,6 +6,7 @@ from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from argus.api.routes import (
+    attack_paths,
     auth,
     compliance,
     connection_tests,
@@ -119,6 +120,7 @@ def create_app() -> FastAPI:
         compliance.router,
         resources.router,
         resource_map.router,
+        attack_paths.router,
         reports.router,
         users.router,
     ):

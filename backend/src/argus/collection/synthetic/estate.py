@@ -559,8 +559,8 @@ class Estate:
                 "trusted": "ec2.amazonaws.com",
                 "admin": False,
                 # What CloudFox's escalation flag rests on, by permission name (privilege-
-                # escalation), and Systems Manager commands to the private peer (ssm-command;
-                # ADR-0037 second amendment, wave 3).
+                # escalation), Systems Manager commands to the private peer (ssm-command;
+                # ADR-0037 second amendment, wave 3), and the roles it may assume.
                 "inline": [
                     {
                         "PolicyName": "deploy",
@@ -576,6 +576,13 @@ class Estate:
                                     "Effect": "Allow",
                                     "Action": ["ssm:sendcommand"],
                                     "Resource": ["*"],
+                                },
+                                # The roles it may assume where their trust names this
+                                # account (assume-permission; ADR-0052 §6 A3).
+                                {
+                                    "Effect": "Allow",
+                                    "Action": ["sts:AssumeRole"],
+                                    "Resource": [self._arn("iam", "global", "role/deploy-*")],
                                 },
                             ],
                         },

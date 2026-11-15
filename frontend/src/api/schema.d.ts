@@ -4,6 +4,66 @@
  */
 
 export interface paths {
+    "/api/v1/attack-paths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Attack Paths
+         * @description One page of routes, worst first.
+         */
+        get: operations["list_attack_paths_api_v1_attack_paths_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attack-paths/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Attack Path Facets
+         * @description How many routes of each kind, severity and class, for the pickers.
+         */
+        get: operations["attack_path_facets_api_v1_attack_paths_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/attack-paths/{route_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Attack Path
+         * @description A route, its listed targets, and one target's steps (the worst by default).
+         */
+        get: operations["get_attack_path_api_v1_attack_paths__route_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/methods": {
         parameters: {
             query?: never;
@@ -1648,6 +1708,20 @@ export interface components {
             type: string;
         };
         /**
+         * EvaluationOut
+         * @description When routes were last worked out, and whether they are behind the scans (§9 M2).
+         */
+        EvaluationOut: {
+            /** Behind */
+            behind: boolean;
+            /** Covered Through */
+            covered_through: string | null;
+            /** Evaluated At */
+            evaluated_at: string | null;
+            /** Failed At */
+            failed_at: string | null;
+        };
+        /**
          * FindingDetail
          * @description One finding with what the tool says about it: about the check, the same for each of its
          *     findings (`detail`, about this resource, is in the list too).
@@ -2385,6 +2459,30 @@ export interface components {
             misconfigurations: components["schemas"]["MisconfigurationFacts"] | null;
             vulnerabilities: components["schemas"]["VulnerabilitySummary"] | null;
         };
+        /**
+         * NodeRef
+         * @description A resource on a route, or a pseudo-node (internet, an account's administrator, an
+         *     external host, every store of a service).
+         */
+        NodeRef: {
+            /** Connection Id */
+            connection_id: number | null;
+            /** Deleted On */
+            deleted_on: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "resource" | "internet" | "admin" | "external" | "any";
+            /** Name */
+            name: string | null;
+            /** Resource Id */
+            resource_id: number | null;
+            /** Type */
+            type: string | null;
+            /** Uid */
+            uid: string;
+        };
         /** Overview */
         Overview: {
             /**
@@ -2843,6 +2941,141 @@ export interface components {
             /** Role Arn */
             role_arn?: string | null;
         };
+        /** RouteDetail */
+        RouteDetail: {
+            /** Category */
+            category: string | null;
+            /** Connection Id */
+            connection_id: number;
+            /** Crossed Connection Ids */
+            crossed_connection_ids: number[];
+            /** Description */
+            description: string | null;
+            entry: components["schemas"]["NodeRef"];
+            /**
+             * First Seen
+             * Format: date
+             */
+            first_seen: string;
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Kind Name */
+            kind_name: string | null;
+            /**
+             * Last Seen
+             * Format: date
+             */
+            last_seen: string;
+            /** Listed Count */
+            listed_count: number;
+            /** Remediation */
+            remediation: string | null;
+            /** Resolved On */
+            resolved_on: string | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "critical" | "high" | "medium" | "low" | "informational";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "reopened" | "resolved";
+            /** Steps */
+            steps: components["schemas"]["StepOut"][];
+            /** Target */
+            target: number;
+            /** Target Count */
+            target_count: number;
+            /** Targets */
+            targets: components["schemas"]["TargetOut"][];
+            /** Technique */
+            technique: string | null;
+            /**
+             * Worst Class
+             * @enum {string}
+             */
+            worst_class: "confirmed" | "conditional" | "potential" | "unknown" | "blocked";
+            worst_target: components["schemas"]["NodeRef"];
+        };
+        /** RouteFacets */
+        RouteFacets: {
+            /** Cls */
+            cls: {
+                [key: string]: number;
+            };
+            /** Kind */
+            kind: {
+                [key: string]: number;
+            };
+            /** Kind Names */
+            kind_names: {
+                [key: string]: string;
+            };
+            /** Severity */
+            severity: {
+                [key: string]: number;
+            };
+        };
+        /** RouteOut */
+        RouteOut: {
+            /** Connection Id */
+            connection_id: number;
+            /** Crossed Connection Ids */
+            crossed_connection_ids: number[];
+            entry: components["schemas"]["NodeRef"];
+            /**
+             * First Seen
+             * Format: date
+             */
+            first_seen: string;
+            /** Id */
+            id: number;
+            /** Kind */
+            kind: string;
+            /** Kind Name */
+            kind_name: string | null;
+            /**
+             * Last Seen
+             * Format: date
+             */
+            last_seen: string;
+            /** Listed Count */
+            listed_count: number;
+            /** Resolved On */
+            resolved_on: string | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "critical" | "high" | "medium" | "low" | "informational";
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "open" | "reopened" | "resolved";
+            /** Target Count */
+            target_count: number;
+            /**
+             * Worst Class
+             * @enum {string}
+             */
+            worst_class: "confirmed" | "conditional" | "potential" | "unknown" | "blocked";
+            worst_target: components["schemas"]["NodeRef"];
+        };
+        /** RoutePage */
+        RoutePage: {
+            /** Data Through */
+            data_through: string | null;
+            evaluation: components["schemas"]["EvaluationOut"];
+            /** Items */
+            items: components["schemas"]["RouteOut"][];
+            /** Total */
+            total: number;
+        };
         /** RunNowIn */
         RunNowIn: {
             /** Connection Ids */
@@ -3218,6 +3451,36 @@ export interface components {
             /** Sso */
             sso: boolean;
         };
+        /** StepOut */
+        StepOut: {
+            /** Attributes */
+            attributes: {
+                [key: string]: unknown;
+            };
+            /** Connection Id */
+            connection_id: number | null;
+            /** Day */
+            day: string | null;
+            /** Edge Id */
+            edge_id: number | null;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "blocked" | "unknown" | "candidate" | "supported" | "confirmed";
+            /** N */
+            n: number;
+            /** Origin */
+            origin: string;
+            /** Reason */
+            reason: string;
+            /** Ref */
+            ref: string;
+            source: components["schemas"]["NodeRef"];
+            target: components["schemas"]["NodeRef"];
+            /** Type */
+            type: string;
+        };
         /** StripPoint */
         StripPoint: {
             /** Change */
@@ -3355,6 +3618,29 @@ export interface components {
             more: boolean;
             /** Values */
             values: string[];
+        };
+        /** TargetOut */
+        TargetOut: {
+            /**
+             * Cls
+             * @enum {string}
+             */
+            cls: "confirmed" | "conditional" | "potential" | "unknown" | "blocked";
+            /**
+             * Likelihood
+             * @enum {string}
+             */
+            likelihood: "higher" | "lower" | "unknown";
+            /** Seq */
+            seq: number;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "critical" | "high" | "medium" | "low" | "informational";
+            /** Steps */
+            steps: number;
+            target: components["schemas"]["NodeRef"];
         };
         /** TestOut */
         TestOut: {
@@ -3790,6 +4076,128 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_attack_paths_api_v1_attack_paths_get: {
+        parameters: {
+            query?: {
+                state?: "open" | "resolved";
+                connection_id?: number | null;
+                crossing?: boolean;
+                through?: number | null;
+                severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
+                kind?: string[];
+                cls?: ("confirmed" | "conditional" | "potential" | "unknown" | "blocked")[];
+                limit?: number;
+                offset?: number;
+                order?: "severity" | "last_seen";
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoutePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attack_path_facets_api_v1_attack_paths_facets_get: {
+        parameters: {
+            query?: {
+                state?: "open" | "resolved";
+                connection_id?: number | null;
+                crossing?: boolean;
+                through?: number | null;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteFacets"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_attack_path_api_v1_attack_paths__route_id__get: {
+        parameters: {
+            query?: {
+                target?: number;
+            };
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path: {
+                route_id: number;
+            };
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RouteDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     methods_api_v1_auth_methods_get: {
         parameters: {
             query?: never;

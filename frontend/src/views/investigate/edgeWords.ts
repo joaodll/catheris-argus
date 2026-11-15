@@ -26,6 +26,7 @@ const WORDS: Record<string, string> = {
   ALLOWS_INGRESS: 'admits',
   PROTECTED_BY: 'protected by',
   HAS_POLICY: 'has policy',
+  MAY_ASSUME: 'may assume roles',
   ACCESSES: 'accesses',
 }
 

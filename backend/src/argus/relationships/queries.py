@@ -8,6 +8,86 @@ from sqlalchemy import Connection, text
 
 MAX_EDGES = 500  # how many of a resource's edges its panel lists
 
+# Exported SQL: the view the attack-path kinds read as `e` (ADR-0052). One connection's
+# effective edges: each family's snapshot that stands (bind :rule_day and :cloudfox_day to its
+# latest loads), plus every manual edge.
+EFFECTIVE_EDGES_SQL = """
+  SELECT ed.id, ed.source_uid, ed.target_uid, ed.type, ed.origin, ed.attributes
+  FROM edge ed JOIN edge_snapshot es ON es.edge_id = ed.id
+  WHERE ed.connection_id = :connection_id
+    AND ((starts_with(ed.origin, 'rule:') AND es.snapshot_date = :rule_day)
+      OR (ed.origin = 'cloudfox' AND es.snapshot_date = :cloudfox_day))
+  UNION ALL
+  SELECT id, source_uid, target_uid, type, origin, attributes FROM edge WHERE origin = 'manual'
+"""
+
+
+@dataclass(frozen=True)
+class EdgeLoad:
+    """A connection's latest load of one edge family: its day and, for rules, the rule set."""
+
+    connection_id: int
+    family: str
+    day: date
+    ruleset: str | None
+
+
+def latest_loads(conn: Connection) -> list[EdgeLoad]:
+    """Every connection's latest load of each edge family, however old: the edges that stand
+    now, and what an attack-path evaluation is computed from (its loads digest)."""
+    rows = conn.execute(
+        text("""
+        SELECT DISTINCT ON (connection_id, family) connection_id, family, snapshot_date, ruleset
+        FROM edge_load ORDER BY connection_id, family, snapshot_date DESC
+    """)
+    )
+    return [EdgeLoad(r.connection_id, r.family, r.snapshot_date, r.ruleset) for r in rows]
+
+
+def standing_edges(
+    conn: Connection,
+    *,
+    loads: list[EdgeLoad],
+    types: tuple[str, ...],
+    attributes_of: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    """The standing edges of these types in every connection with a load, plus the manual ones,
+    each with its connection and the day of its family's load. Attributes are read only for the
+    types in `attributes_of` (the others come back empty), so a walk over every account holds
+    what it judges and no more. In edge id order, so a walk over the same edges finds the same
+    routes in the same order (an unchanged estate writes nothing)."""
+    days = [(ld.connection_id, ld.family, ld.day) for ld in loads]
+    rows = conn.execute(
+        text("""
+        WITH d AS (
+          SELECT * FROM unnest(CAST(:c AS bigint[]), CAST(:f AS text[]), CAST(:d AS date[]))
+            AS d(connection_id, family, day)
+        )
+        SELECT e.id, e.source_uid, e.target_uid, e.source_resource_id, e.target_resource_id,
+               e.type, e.origin, e.connection_id, d.day,
+               CASE WHEN e.type = ANY(CAST(:a AS text[])) THEN e.attributes END AS attributes
+        FROM d
+        JOIN edge_snapshot s ON s.snapshot_date = d.day
+        JOIN edge e ON e.id = s.edge_id AND e.connection_id = d.connection_id
+         AND (CASE WHEN e.origin = 'cloudfox' THEN 'cloudfox' ELSE 'rule' END) = d.family
+        WHERE e.type = ANY(CAST(:t AS text[]))
+        UNION ALL
+        SELECT e.id, e.source_uid, e.target_uid, e.source_resource_id, e.target_resource_id,
+               e.type, e.origin, e.connection_id, NULL,
+               CASE WHEN e.type = ANY(CAST(:a AS text[])) THEN e.attributes END
+        FROM edge e WHERE e.origin = 'manual' AND e.type = ANY(CAST(:t AS text[]))
+        ORDER BY 1
+    """),
+        {
+            "c": [x[0] for x in days],
+            "f": [x[1] for x in days],
+            "d": [x[2] for x in days],
+            "t": list(types),
+            "a": list(attributes_of),
+        },
+    )
+    return [dict(r._mapping) for r in rows]
+
 
 def effective_days(conn: Connection, *, connection_id: int, day: date) -> dict[str, date | None]:
     """Each edge family's latest load on or before `day`, however old (owner's decision,
@@ -106,6 +186,18 @@ def internet_reach(conn: Connection, *, connection_id: int, day: date) -> Intern
         {"c": connection_id, "rd": days["rule_day"]},
     )
     return InternetReach(days["rule_day"], {r.target_uid: Door(r.reach, r.reason) for r in rows})
+
+
+def edge_attributes(conn: Connection, edge_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """These edges' attributes, by id (an attack route's steps; the caller filters them to an
+    allow-list before showing any)."""
+    if not edge_ids:
+        return {}
+    rows = conn.execute(
+        text("SELECT id, attributes FROM edge WHERE id = ANY(CAST(:ids AS bigint[]))"),
+        {"ids": edge_ids},
+    )
+    return {r.id: r.attributes or {} for r in rows}
 
 
 def delete_loads_before(conn: Connection, *, cutoff: date) -> int:

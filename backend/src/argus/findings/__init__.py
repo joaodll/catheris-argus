@@ -22,6 +22,8 @@ Public interface:
                         each provider's scanner (AWS Inspector today; ADR-0042)
     scanner_for(), vulnerability_counts(), scanned_resources(), resource_vulnerabilities(),
     resource_coverage(), vulnerability_facts()   their read side (Resources, Findings)
+    FAILING_FINDINGS_SQL, failing_resources(), exploitable_resources()   what the attack-path
+                        kinds and steps read (ADR-0052)
     VULNERABLE_RESOURCES_SQL, MISCONFIGURED_RESOURCES_SQL, INTERNET_REACHABLE_RESOURCES_SQL
                         resource ids with open CVEs, open misconfigurations, or an open
                         misconfiguration reachable from the internet, for the Resources filters
@@ -66,6 +68,7 @@ from argus.findings.model import (
 from argus.findings.prowler import EXPOSURE_CHECKS as PROWLER_EXPOSURE_CHECKS
 from argus.findings.prowler import SUPPORTED_VERSIONS, ProwlerBatch, parse_prowler
 from argus.findings.queries import (
+    FAILING_FINDINGS_SQL,
     INTERNET_REACHABLE_RESOURCES_SQL,
     MISCONFIGURED_RESOURCES_SQL,
     FindingFacets,
@@ -78,6 +81,8 @@ from argus.findings.queries import (
     MutedFilter,
     check_texts,
     confirmed_reach_resources,
+    exploitable_resources,
+    failing_resources,
     finding_facets,
     finding_groups,
     get_finding,
@@ -114,6 +119,7 @@ from argus.findings.vulnerabilities import (
 __all__ = [
     "ANY_CHECK",
     "ANY_REGION",
+    "FAILING_FINDINGS_SQL",
     "FINDING_ADDITIVE_METRICS",
     "INTERNET_REACHABLE_RESOURCES_SQL",
     "MISCONFIGURATION_METRICS",
@@ -151,6 +157,8 @@ __all__ = [
     "check_texts",
     "commands_for_resource",
     "confirmed_reach_resources",
+    "exploitable_resources",
+    "failing_resources",
     "finding_facets",
     "finding_groups",
     "framework_catalog",

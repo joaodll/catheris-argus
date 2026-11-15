@@ -91,7 +91,8 @@ LAYER_SQL: dict[str, str] = {
         "e.type IN ('IN_NETWORK', 'ALLOWS_INGRESS', 'PROTECTED_BY', 'CAN_CONNECT_TO') "
         f"OR (e.type = 'MEMBER_OF' AND NOT {_IAM_GROUP})"
     ),
-    "policy": "e.type = 'HAS_POLICY'",
+    # MAY_ASSUME: a principal's sts:AssumeRole permission, to its account's root (ADR-0052).
+    "policy": "e.type IN ('HAS_POLICY', 'MAY_ASSUME')",
     # What a role's policies let it use (ADR-0036).
     "data": "e.type = 'ACCESSES'",
 }

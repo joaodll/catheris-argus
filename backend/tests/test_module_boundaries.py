@@ -45,6 +45,7 @@ OWNERS: dict[str, set[str]] = {
     "settings": {"platform_setting"},
     "auth": {"app_user", "user_session", "login_failure", "saml_assertion_seen"},
     "reports": {"report_request"},
+    "attackpaths": {"route", "route_target", "route_node", "route_evaluation"},
 }
 ALL_TABLES = set().union(*OWNERS.values())
 _SQL_TABLE_RE = re.compile(

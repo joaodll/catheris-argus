@@ -1,11 +1,11 @@
 import logging
 import shutil
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from sqlalchemy import Engine, text
 
-from argus import auth, ingest, inventory, relationships, reports
+from argus import attackpaths, auth, ingest, inventory, relationships, reports
 from argus.core.rawstore import FilesystemRawStore
 
 log = logging.getLogger("argus.retention")
@@ -18,6 +18,7 @@ class RetentionResult:
     demo_runs_pruned: int
     sign_in_rows_purged: int
     report_files_deleted: int = 0
+    routes_purged: int = 0
 
 
 def run_retention(
@@ -42,6 +43,9 @@ def run_retention(
         configs = inventory.delete_orphan_configs(conn)
         inventory.delete_loads_before(conn, cutoff=cutoff)
         relationships.delete_loads_before(conn, cutoff=cutoff)
+        # Fixed attack routes past the history kept, and old evaluations (ADR-0052 §9 L1).
+        routes_purged = attackpaths.purge_resolved(conn, cutoff=cutoff)
+        attackpaths.purge_evaluations(conn, before=datetime.combine(cutoff, time.min, tzinfo=UTC))
         sign_in_rows = auth.purge_old_sign_in_rows(conn)
         demo_paths = ingest.synthetic_raw_paths_before(
             conn, day=today - timedelta(days=demo_raw_days)
@@ -65,7 +69,7 @@ def run_retention(
             except (OSError, reports.ReportStoreError):
                 # Marked deleted already; the API refuses it by its expiry whatever stays.
                 log.warning("report file not deleted", extra={"storage_key": key})
-    result = RetentionResult(dropped, configs, pruned, sign_in_rows, report_files)
+    result = RetentionResult(dropped, configs, pruned, sign_in_rows, report_files, routes_purged)
     log.info(
         "retention",
         extra={
@@ -74,6 +78,7 @@ def run_retention(
             "demo_runs_pruned": pruned,
             "sign_in_rows_purged": sign_in_rows,
             "report_files_deleted": report_files,
+            "routes_purged": routes_purged,
         },
     )
     return result

@@ -24,6 +24,32 @@ RESOURCES_ON_DAY_SQL = """
 """
 
 
+# Exported SQL: the view the attack-path kinds read as `r` (ADR-0052): one connection's resources
+# on a day, their uid and type only. Never a configuration (ADR-0052 §9 L3).
+RESOURCE_TYPES_ON_DAY_SQL = """
+  SELECT res.resource_uid AS uid, res.type
+  FROM resource_snapshot s JOIN resource res ON res.id = s.resource_id
+  WHERE s.snapshot_date = :resource_day AND res.connection_id = :connection_id
+"""
+
+
+def latest_days(conn: Connection) -> dict[int, date]:
+    """Each connection's latest inventory load, however old (resource_load)."""
+    rows = conn.execute(
+        text("SELECT connection_id, max(snapshot_date) AS day FROM resource_load GROUP BY 1")
+    )
+    return {r.connection_id: r.day for r in rows}
+
+
+def resource_types(conn: Connection, resource_ids: list[int]) -> dict[int, str]:
+    """Each of these resources' type, by id."""
+    rows = conn.execute(
+        text("SELECT id, type FROM resource WHERE id = ANY(CAST(:ids AS bigint[]))"),
+        {"ids": resource_ids},
+    )
+    return {r.id: r.type for r in rows}
+
+
 # The ids of one connection's resources in the regions a run scanned: :c and :regions. A global
 # resource is reported from any region, so it is always among them.
 RESOURCES_IN_REGIONS_SQL = """

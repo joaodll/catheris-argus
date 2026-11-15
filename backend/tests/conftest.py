@@ -58,7 +58,7 @@ def owner(migrated: Engine) -> Engine:
             text(
                 "TRUNCATE connection, scan_run, resource, resource_config, edge, audit_log, "
                 "metric_daily, compliance_requirement, schedule, platform_setting, login_failure, "
-                "user_session, app_user, saml_assertion_seen "
+                "user_session, app_user, saml_assertion_seen, route_evaluation "
                 "RESTART IDENTITY CASCADE"
             )
         )
@@ -107,6 +107,23 @@ def reports_role(owner: Engine) -> Iterator[Engine]:
     def _as_reports(dbapi_conn, _record):  # type: ignore[no-untyped-def]
         with dbapi_conn.cursor() as cur:
             cur.execute("SET ROLE argus_reports")
+        # Committed: the pool resets a returned connection with a rollback, which would undo
+        # an uncommitted SET ROLE, and every later checkout would act as the owner.
+        dbapi_conn.commit()
+
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
+def paths_role(owner: Engine) -> Iterator[Engine]:
+    """An engine acting as argus_paths (migration 0052): the Kubernetes paths Job's role."""
+    engine = create_engine(get_settings().database_url(), connect_args=CONNECT_ARGS)
+
+    @event.listens_for(engine, "connect")
+    def _as_paths(dbapi_conn, _record):  # type: ignore[no-untyped-def]
+        with dbapi_conn.cursor() as cur:
+            cur.execute("SET ROLE argus_paths")
         # Committed: the pool resets a returned connection with a rollback, which would undo
         # an uncommitted SET ROLE, and every later checkout would act as the owner.
         dbapi_conn.commit()

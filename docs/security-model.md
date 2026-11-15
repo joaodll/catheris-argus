@@ -111,6 +111,12 @@ when their checks need it. Argus never stores such a value:
   its own `-report` account and IRSA role, which may only write `reports/`, logs in as
   `argus_reports`, which reads what a report reads and nothing sealed, and holds no keyring. A Job on
   `-run` with the report template, or on `-report` with a scan's, matches no template.
+- **Attack routes** ([ADR-0052](adr/0052-attack-paths-stored-routes.md)) are worked out from
+  the database alone. The database role `argus_paths` reads edges, resource ids, names and types,
+  runs, the findings a step reads and three columns of the connection directory, and writes only
+  the route tables; it can't read a configuration, a tag, a credential or the audit log. On Docker
+  Compose the worker's paths thread writes them as `argus_worker`. The scheduler learns only
+  whether routes are due, from a hash of their inputs.
 - **Who holds the cloud identity:** the scan Jobs hold the platform identity. On IRSA installs the
   API and the report Job each hold a role of their own for reports, and nothing else does. Every pod the chart creates meets Pod
   Security `restricted` (non-root, read-only root filesystem, no capabilities), and labelling the
@@ -215,6 +221,11 @@ when their checks need it. Argus never stores such a value:
 ## Known limits
 
 Argus is pre-1.0. These are known and accepted for now:
+
+- **Every role reads the attack routes** (owner, 2026-11-15). A stolen Viewer session reads a
+  worked-out map of how to reach administrators and data, and a wide SSO group map can make many
+  people Viewers. Revisit if roles gain per-connection scope: a route crossing accounts would then
+  need every one of them.
 
 - **The PDF renderer shares the worker's user on Docker Compose.** It holds no secret and fetches
   nothing, but a code-execution flaw in its PDF libraries, triggered by a name or tag from a scanned

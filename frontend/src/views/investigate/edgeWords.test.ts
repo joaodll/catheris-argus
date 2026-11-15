@@ -3,7 +3,7 @@ import { edgeTitle, edgeWord } from './edgeWords'
 
 describe('edge words', () => {
   it('names every connection the map draws in plain words', () => {
-    const drawn = ['ROUTES_TO', 'TRIGGERS', 'INTERNET_REACHABLE', 'RUNS_AS', 'CAN_ASSUME', 'IS_ADMIN', 'CAN_PRIVESC_TO', 'BELONGS_TO', 'OUTSIDER', 'HAS_CREDENTIAL', 'CAN_ESCALATE_TO', 'CAN_RUN_ON', 'MEMBER_OF', 'IN_NETWORK', 'ALLOWS_INGRESS', 'PROTECTED_BY', 'CAN_CONNECT_TO', 'HAS_POLICY', 'ACCESSES']
+    const drawn = ['ROUTES_TO', 'TRIGGERS', 'INTERNET_REACHABLE', 'RUNS_AS', 'CAN_ASSUME', 'IS_ADMIN', 'CAN_PRIVESC_TO', 'BELONGS_TO', 'OUTSIDER', 'HAS_CREDENTIAL', 'CAN_ESCALATE_TO', 'CAN_RUN_ON', 'MEMBER_OF', 'IN_NETWORK', 'ALLOWS_INGRESS', 'PROTECTED_BY', 'CAN_CONNECT_TO', 'HAS_POLICY', 'MAY_ASSUME', 'ACCESSES']
     for (const type of drawn) {
       const word = edgeWord(type)
       expect(word).toMatch(/^[a-z][a-z ]+$/) // words, never the raw type

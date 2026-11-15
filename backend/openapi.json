@@ -1150,6 +1150,59 @@
         "title": "EdgeOut",
         "type": "object"
       },
+      "EvaluationOut": {
+        "description": "When routes were last worked out, and whether they are behind the scans (§9 M2).",
+        "properties": {
+          "behind": {
+            "title": "Behind",
+            "type": "boolean"
+          },
+          "covered_through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covered Through"
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "failed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed At"
+          }
+        },
+        "required": [
+          "evaluated_at",
+          "covered_through",
+          "failed_at",
+          "behind"
+        ],
+        "title": "EvaluationOut",
+        "type": "object"
+      },
       "FindingDetail": {
         "description": "One finding with what the tool says about it: about the check, the same for each of its\nfindings (`detail`, about this resource, is in the list too).",
         "properties": {
@@ -3659,6 +3712,93 @@
         "title": "NodeFacts",
         "type": "object"
       },
+      "NodeRef": {
+        "description": "A resource on a route, or a pseudo-node (internet, an account's administrator, an\nexternal host, every store of a service).",
+        "properties": {
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "deleted_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted On"
+          },
+          "kind": {
+            "enum": [
+              "resource",
+              "internet",
+              "admin",
+              "external",
+              "any"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "uid": {
+            "title": "Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid",
+          "kind",
+          "resource_id",
+          "type",
+          "name",
+          "connection_id",
+          "deleted_on"
+        ],
+        "title": "NodeRef",
+        "type": "object"
+      },
       "Overview": {
         "properties": {
           "as_of": {
@@ -5058,6 +5198,393 @@
         "title": "RoleIn",
         "type": "object"
       },
+      "RouteDetail": {
+        "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "crossed_connection_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Crossed Connection Ids",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/NodeRef"
+          },
+          "first_seen": {
+            "format": "date",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "kind_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind Name"
+          },
+          "last_seen": {
+            "format": "date",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "listed_count": {
+            "title": "Listed Count",
+            "type": "integer"
+          },
+          "remediation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remediation"
+          },
+          "resolved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved On"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "informational"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "reopened",
+              "resolved"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepOut"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "target": {
+            "title": "Target",
+            "type": "integer"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetOut"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "technique": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Technique"
+          },
+          "worst_class": {
+            "enum": [
+              "confirmed",
+              "conditional",
+              "potential",
+              "unknown",
+              "blocked"
+            ],
+            "title": "Worst Class",
+            "type": "string"
+          },
+          "worst_target": {
+            "$ref": "#/components/schemas/NodeRef"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "kind_name",
+          "entry",
+          "connection_id",
+          "crossed_connection_ids",
+          "severity",
+          "worst_class",
+          "target_count",
+          "listed_count",
+          "worst_target",
+          "first_seen",
+          "last_seen",
+          "resolved_on",
+          "state",
+          "category",
+          "technique",
+          "description",
+          "remediation",
+          "targets",
+          "target",
+          "steps"
+        ],
+        "title": "RouteDetail",
+        "type": "object"
+      },
+      "RouteFacets": {
+        "properties": {
+          "cls": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Cls",
+            "type": "object"
+          },
+          "kind": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Kind",
+            "type": "object"
+          },
+          "kind_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Kind Names",
+            "type": "object"
+          },
+          "severity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Severity",
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "kind_names",
+          "severity",
+          "cls"
+        ],
+        "title": "RouteFacets",
+        "type": "object"
+      },
+      "RouteOut": {
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "integer"
+          },
+          "crossed_connection_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Crossed Connection Ids",
+            "type": "array"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/NodeRef"
+          },
+          "first_seen": {
+            "format": "date",
+            "title": "First Seen",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "kind_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind Name"
+          },
+          "last_seen": {
+            "format": "date",
+            "title": "Last Seen",
+            "type": "string"
+          },
+          "listed_count": {
+            "title": "Listed Count",
+            "type": "integer"
+          },
+          "resolved_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved On"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "informational"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "open",
+              "reopened",
+              "resolved"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "target_count": {
+            "title": "Target Count",
+            "type": "integer"
+          },
+          "worst_class": {
+            "enum": [
+              "confirmed",
+              "conditional",
+              "potential",
+              "unknown",
+              "blocked"
+            ],
+            "title": "Worst Class",
+            "type": "string"
+          },
+          "worst_target": {
+            "$ref": "#/components/schemas/NodeRef"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "kind_name",
+          "entry",
+          "connection_id",
+          "crossed_connection_ids",
+          "severity",
+          "worst_class",
+          "target_count",
+          "listed_count",
+          "worst_target",
+          "first_seen",
+          "last_seen",
+          "resolved_on",
+          "state"
+        ],
+        "title": "RouteOut",
+        "type": "object"
+      },
+      "RoutePage": {
+        "properties": {
+          "data_through": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data Through"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/EvaluationOut"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RouteOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "data_through",
+          "evaluation"
+        ],
+        "title": "RoutePage",
+        "type": "object"
+      },
       "RunNowIn": {
         "additionalProperties": false,
         "properties": {
@@ -6242,6 +6769,102 @@
         "title": "SignInOut",
         "type": "object"
       },
+      "StepOut": {
+        "properties": {
+          "attributes": {
+            "additionalProperties": true,
+            "title": "Attributes",
+            "type": "object"
+          },
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "day": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Day"
+          },
+          "edge_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Edge Id"
+          },
+          "level": {
+            "enum": [
+              "blocked",
+              "unknown",
+              "candidate",
+              "supported",
+              "confirmed"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "origin": {
+            "title": "Origin",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/NodeRef"
+          },
+          "target": {
+            "$ref": "#/components/schemas/NodeRef"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "n",
+          "type",
+          "source",
+          "target",
+          "edge_id",
+          "origin",
+          "connection_id",
+          "day",
+          "level",
+          "reason",
+          "ref",
+          "attributes"
+        ],
+        "title": "StepOut",
+        "type": "object"
+      },
       "StripPoint": {
         "properties": {
           "change": {
@@ -6609,6 +7232,62 @@
           "more"
         ],
         "title": "TagValues",
+        "type": "object"
+      },
+      "TargetOut": {
+        "properties": {
+          "cls": {
+            "enum": [
+              "confirmed",
+              "conditional",
+              "potential",
+              "unknown",
+              "blocked"
+            ],
+            "title": "Cls",
+            "type": "string"
+          },
+          "likelihood": {
+            "enum": [
+              "higher",
+              "lower",
+              "unknown"
+            ],
+            "title": "Likelihood",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "high",
+              "medium",
+              "low",
+              "informational"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "steps": {
+            "title": "Steps",
+            "type": "integer"
+          },
+          "target": {
+            "$ref": "#/components/schemas/NodeRef"
+          }
+        },
+        "required": [
+          "seq",
+          "target",
+          "severity",
+          "cls",
+          "likelihood",
+          "steps"
+        ],
+        "title": "TargetOut",
         "type": "object"
       },
       "TestOut": {
@@ -7898,6 +8577,476 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/attack-paths": {
+      "get": {
+        "description": "One page of routes, worst first.",
+        "operationId": "list_attack_paths_api_v1_attack_paths_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "enum": [
+                "open",
+                "resolved"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Connection Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "crossing",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Crossing",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "through",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Through"
+            }
+          },
+          {
+            "in": "query",
+            "name": "severity",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "critical",
+                  "high",
+                  "medium",
+                  "low",
+                  "informational"
+                ],
+                "type": "string"
+              },
+              "maxItems": 5,
+              "title": "Severity",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "items": {
+                "pattern": "^[a-z0-9][a-z0-9-]{0,63}$",
+                "type": "string"
+              },
+              "maxItems": 50,
+              "title": "Kind",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cls",
+            "required": false,
+            "schema": {
+              "items": {
+                "enum": [
+                  "confirmed",
+                  "conditional",
+                  "potential",
+                  "unknown",
+                  "blocked"
+                ],
+                "type": "string"
+              },
+              "maxItems": 5,
+              "title": "Cls",
+              "type": "array"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "severity",
+              "enum": [
+                "severity",
+                "last_seen"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoutePage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Attack Paths",
+        "tags": [
+          "attack-paths"
+        ]
+      }
+    },
+    "/api/v1/attack-paths/facets": {
+      "get": {
+        "description": "How many routes of each kind, severity and class, for the pickers.",
+        "operationId": "attack_path_facets_api_v1_attack_paths_facets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "open",
+              "enum": [
+                "open",
+                "resolved"
+              ],
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "connection_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Connection Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "crossing",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Crossing",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "through",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Through"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteFacets"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attack Path Facets",
+        "tags": [
+          "attack-paths"
+        ]
+      }
+    },
+    "/api/v1/attack-paths/{route_id}": {
+      "get": {
+        "description": "A route, its listed targets, and one target's steps (the worst by default).",
+        "operationId": "get_attack_path_api_v1_attack_paths__route_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "route_id",
+            "required": true,
+            "schema": {
+              "title": "Route Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Target",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Attack Path",
+        "tags": [
+          "attack-paths"
+        ]
+      }
+    },
     "/api/v1/auth/methods": {
       "get": {
         "operationId": "methods_api_v1_auth_methods_get",
