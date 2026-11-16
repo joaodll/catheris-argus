@@ -155,7 +155,7 @@ when their checks need it. Argus never stores such a value:
   them by it.
 - **Sessions:** HttpOnly, Secure, SameSite=Strict cookies, double-submit CSRF protection on every
   write, and limits of 30 minutes idle and 12 hours in total.
-- **What stays in the browser:** the Resource Map's "Recently opened" list keeps the names, types
+- **What stays in the browser:** the Map's "Recently opened" list keeps the names, types
   and identifiers (on AWS, ARNs) of the last 8 resources mapped, per user, in the tab's session
   storage. It goes when the tab closes, on sign-out, and when a request finds the session expired.
   Nothing else about scan data is stored in the browser.

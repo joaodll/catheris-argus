@@ -1,9 +1,9 @@
 <script setup lang="ts">
 /**
  * The map's docked panel (ADR-0051): the selected resource, a group's members to add, or one
- * connection in words, with where it was found and its ports. On the Resource Map the resource is
+ * connection in words, with where it was found and its ports. On the Infrastructure view the resource is
  * as the inventory describes it (ResourceDetail, plain: its description, connections, tags and
- * configuration, with no security fact). On the Security Map it leads with its facts, each linked
+ * configuration, with no security fact). On the Security view it leads with its facts, each linked
  * to the list that counts it (mapFacts.ts), then the whole resource: findings, vulnerabilities,
  * the door from the internet and commands; a group's members show their facts. Not modal: the map stays usable beside it. The page frames it (docked,
  * overlaid, or as the detail sheet on a phone).
@@ -109,7 +109,7 @@ const members = useResource(
       limit: PAGE,
       offset: (page.value - 1) * PAGE,
     }
-    // The Resource Map reads only its plain route; the Security Map's members carry facts.
+    // The Infrastructure view reads only its plain route; the Security view's members carry facts.
     return security.value
       ? await unwrap(api.GET('/api/v1/map/security/group', { params: { query } }))
       : await unwrap(api.GET('/api/v1/map/group', { params: { query } }))
@@ -117,7 +117,7 @@ const members = useResource(
   { watch: [group, page, () => props.connectionId, security] },
 )
 
-// ---- The Security Map's facts on the selected resource, each linked to the list counting it.
+// ---- The Security view's facts on the selected resource, each linked to the list counting it.
 const facts = computed(() => (security.value ? factsOf(node.value) : null))
 const links = computed(() => (node.value?.resource_id != null ? factLinks(node.value.resource_id) : null))
 const nodeConnection = computed(() => (node.value?.connection_id != null ? props.connectionName(node.value.connection_id) : 'its account'))
@@ -139,7 +139,7 @@ const tabs = computed(() =>
         { value: 'configuration', label: 'Config' },
       ] as const),
 )
-// A tab the map has not (Problems on the Resource Map) shows the overview.
+// A tab the map has not (Problems on the Infrastructure view) shows the overview.
 const shownTab = computed<DetailPart>(() => (props.tab && tabs.value.some((t) => t.value === props.tab) ? props.tab : 'overview'))
 // Open misconfigurations per severity, worst first, as the Misconfigurations list counts them.
 const severities = computed(() => {
@@ -151,7 +151,7 @@ const clean = computed(() => {
   if (!f || f.misconfigurations == null) return false
   return f.misconfigurations.open === 0 && !f.internet_reachable && (f.vulnerabilities?.open ?? 0) === 0
 })
-// The Resource Map's "At a glance": what its own lines and row say (VPC, subnet, role, SGs).
+// The Infrastructure view's "At a glance": what its own lines and row say (VPC, subnet, role, SGs).
 const glance = computed(() => {
   const r = loaded.value
   if (!r) return []

@@ -1,30 +1,28 @@
 /**
- * The Resource map's columns (ADR-0051): the chain in the order traffic and access follow it,
- * one column per hop, counted in hops from the chosen resource, sources to its left and targets
- * to its right. Positions are computed here and handed to Cytoscape's preset layout: the same
- * view always places a node in the same spot.
- *
- * The sizes are the spec's (palace, frontend/f3152e04): the owner asked for more space between
- * the cards than the first map had (178 x 46 cards, 120 between columns, 70 from row to row).
+ * The map's columns (ADR-0051, as amended 2026-11-15 by the owner, palace decisions/97db351b): the
+ * chain in the order traffic and access follow it, one column per hop counted from the chosen
+ * resource, what leads to it on the left and what it leads to on the right. There is no grouping
+ * by type: a card sits beside what it connects to. Subnets and VPCs are ordinary cards. Positions
+ * are computed here and handed to Cytoscape's preset layout: the same view always places a node in
+ * the same spot, and a security line never moves a card, so the view switch moves nothing.
  */
 import type { IconName } from '@/components/icons'
 import { resourceGlyph } from '../resourceGlyph'
+import { SECURITY_EDGE_TYPES } from './mapFacts'
 
 export const NODE_WIDTH = 208
-export const NODE_HEIGHT = 56
-export const LANE_WIDTH = NODE_WIDTH
+export const NODE_HEIGHT = 64
 // Room for a line's word at its midpoint, clear of the cards on both sides. The longest word,
 // "is administrator", is about 90 px.
 export const LANE_GAP = 168
-// From one card's middle to the next: 40 px between cards.
-export const ROW = 96
+// From one card's middle to the next in a column: 40 px between cards.
+export const ROW = NODE_HEIGHT + 40
+// A tall column wraps into sub-columns this far apart.
+export const SUB_GAP = 48
 // How far above the highest card a column's name sits.
 export const LANE_NAME_RISE = 64
-// A kind's header inside a column (half a row), and the space before every group but the first.
-export const GROUP_HEADER = 48
-export const GROUP_GAP = 24
 
-/** The kinds a column groups its cards by, in this order (owner, 2026-11-14, decisions/52e3c4c5):
+/** The kinds the panel's Connections tab groups lines by (owner, 2026-11-14, decisions/52e3c4c5):
  * the API's layers, then Other (pseudo-nodes, external hosts, a line of no layer). */
 export const KINDS = ['traffic', 'network', 'identity', 'policy', 'data', 'other'] as const
 export type Kind = (typeof KINDS)[number]
@@ -85,6 +83,8 @@ export function typeLabel(type: string | null): string {
   return type.replace(/^aws_/, '').replace(/_/g, ' ')
 }
 
+// ---- Layout.
+
 export interface LaidNode {
   id: string
   kind: NodeKind
@@ -101,17 +101,18 @@ export interface Placed {
 
 export interface Layout {
   positions: Map<string, Placed>
-  // The columns that hold a node, left to right, each with its header and its band's left edge.
-  lanes: { lane: string; label: string; x: number }[]
-  // Each kind's header in a column: its words and where its top-left sits.
-  headers: { key: string; label: string; x: number; y: number }[]
+  // The hop columns that hold a card, left to right: the name, and the left edge and width of
+  // the column's band (a tall column wraps into several sub-columns side by side).
+  lanes: { lane: string; label: string; x: number; width: number }[]
 }
 
-interface Link {
+export interface Link {
   source: string
   target: string
   // The line's layer (the API's); a group of no layer goes under Other.
   layer?: string | null
+  // The edge type: a security line never moves a card.
+  type?: string | null
 }
 
 /**
@@ -167,28 +168,86 @@ export function hopLabel(col: number, focused: boolean): string {
   return `${n} ${n === 1 ? 'hop' : 'hops'} ${col < 0 ? 'in' : 'out'}`
 }
 
-/** A card's kind: the first, in KINDS order, of the layers of its lines to the column nearer the
- * focus. A pseudo-node, an external host or a card with no such line is Other. */
-function kindOf(node: LaidNode, toward: Link[]): Kind {
-  if (node.kind !== 'resource' && node.kind !== 'group') return 'other'
-  const layers = new Set(toward.map((l) => l.layer ?? 'other'))
-  return KINDS.find((k) => layers.has(k)) ?? 'other'
+
+const isSecurity = (e: Link) => !!e.type && SECURITY_EDGE_TYPES.has(e.type)
+
+/**
+ * The columns from the lines both views draw, and the cards only a security line reaches (the
+ * internet on CloudFox's reach, an administrator): `late`. A late card takes the column beside the
+ * card it is linked to and goes below that column's other cards, so the Security view never moves
+ * a card the Infrastructure view also draws.
+ */
+function columnsOf(ids: string[], edges: Link[], focus: string | null): { cols: Map<string, number>; late: Set<string> } {
+  const plain = edges.filter((e) => !isSecurity(e))
+  const linked = new Set(plain.flatMap((e) => (e.source === e.target ? [] : [e.source, e.target])))
+  if (focus != null) linked.add(focus)
+  const cols = hopColumns(ids.filter((id) => linked.has(id)), plain, focus)
+  const late = new Set(ids.filter((id) => !cols.has(id)))
+  const rest = [...late].sort()
+  for (let pass = 0; pass < 4 && rest.some((id) => !cols.has(id)); pass++) {
+    for (const id of rest) {
+      if (cols.has(id)) continue
+      const near = edges
+        .filter(isSecurity)
+        .flatMap((e) => (e.source === id && cols.has(e.target) ? [cols.get(e.target)! - 1] : e.target === id && cols.has(e.source) ? [cols.get(e.source)! + 1] : []))
+      if (near.length) cols.set(id, near.sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)[0]!)
+    }
+  }
+  const left = rest.filter((id) => !cols.has(id))
+  for (const [id, col] of hopColumns(left, edges, null)) cols.set(id, col)
+  return { cols, late }
 }
 
 /**
- * One column per hop (hopColumns), LANE_WIDTH wide with LANE_GAP between, empty columns hidden.
- * The focus sits alone at y = 0 in its column. Every other column is laid out from the focus
- * outwards: its cards in groups by kind (KINDS order, each under a header), and inside a group
- * by the mean row of what they connect to in the column nearer the focus (barycentre), then by
- * name, so a card sits beside what it connects to and lines cross less. A column is centred on
- * 0 as a whole. A card's place never depends on a security fact.
+ * One column per hop (columnsOf), the chosen resource's column at x = 0, what leads to it to the
+ * left and what it leads to to the right; empty columns hidden. The focus sits in the middle of its
+ * column at y = 0. Every other column is laid out from the focus outwards, its cards ordered by the
+ * mean row of what they connect to in the column nearer the focus (barycentre), then by name, so a
+ * card sits beside what it connects to and lines cross less. A column taller than `rows` cards
+ * wraps into sub-columns side by side; `rows` is chosen so the drawing's shape comes closest to
+ * the canvas's (`aspect`, width / height). A card's place never depends on a security fact or a
+ * security line: the late cards (columnsOf) are left out of every choice and go last.
  */
-export function layout(nodes: LaidNode[], edges: Link[], focus: string | null): Layout {
-  const cols = hopColumns(
-    nodes.map((n) => n.id),
+export function layout(nodes: LaidNode[], edges: Link[], focus: string | null, aspect = 16 / 9): Layout {
+  const sorted = [...nodes].sort((a, b) => a.id.localeCompare(b.id))
+  const { cols, late } = columnsOf(
+    sorted.map((n) => n.id),
     edges,
     focus,
   )
+  const counts = new Map<number, number>()
+  for (const [id, c] of cols) if (!late.has(id)) counts.set(c, (counts.get(c) ?? 0) + 1)
+  const tallest = Math.max(1, ...counts.values())
+  let best: Layout | null = null
+  let bestScore = Infinity
+  for (const rows of new Set([3, 4, 5, 6, 8, 10, 12, 15, 20, tallest].filter((r) => r <= tallest))) {
+    const candidate = layoutWith(sorted, edges, focus, cols, late, rows)
+    const box = bounds(candidate, late)
+    const score = Math.abs(Math.log(Math.max(box.w, 1) / Math.max(box.h, 1) / aspect))
+    if (score < bestScore - 1e-9) {
+      best = candidate
+      bestScore = score
+    }
+  }
+  return best ?? layoutWith(sorted, edges, focus, cols, late, tallest)
+}
+
+function bounds(l: Layout, skip: Set<string>): { w: number; h: number } {
+  let x1 = Infinity
+  let x2 = -Infinity
+  let y1 = Infinity
+  let y2 = -Infinity
+  for (const [id, p] of l.positions) {
+    if (skip.has(id)) continue
+    x1 = Math.min(x1, p.x - NODE_WIDTH / 2)
+    x2 = Math.max(x2, p.x + NODE_WIDTH / 2)
+    y1 = Math.min(y1, p.y - NODE_HEIGHT / 2)
+    y2 = Math.max(y2, p.y + NODE_HEIGHT / 2)
+  }
+  return Number.isFinite(x1) ? { w: x2 - x1, h: y2 - y1 } : { w: 0, h: 0 }
+}
+
+function layoutWith(nodes: LaidNode[], edges: Link[], focus: string | null, cols: Map<string, number>, late: Set<string>, rows: number): Layout {
   const focused = focus != null && cols.has(focus)
   const members = new Map<number, LaidNode[]>()
   for (const n of nodes) {
@@ -196,65 +255,90 @@ export function layout(nodes: LaidNode[], edges: Link[], focus: string | null): 
     members.set(col, [...(members.get(col) ?? []), n])
   }
   const shown = [...members.keys()].sort((a, b) => a - b)
-  const lanes = shown.map((col, at) => ({ lane: `hop-${col}`, label: hopLabel(col, focused), x: at * (LANE_WIDTH + LANE_GAP) }))
-  const xOf = new Map(shown.map((col, at) => [col, at * (LANE_WIDTH + LANE_GAP) + LANE_WIDTH / 2]))
+  const plain = edges.filter((e) => !isSecurity(e))
   const positions = new Map<string, Placed>()
-  const headers: Layout['headers'] = []
-  // A card's lines to its column's nearer neighbour (toward 0; column 0 has none).
-  const toward = (id: string, col: number): { other: string; link: Link }[] => {
-    const near = col > 0 ? col - 1 : col + 1
-    return edges.flatMap((l) => {
-      const other = l.source === id ? l.target : l.target === id ? l.source : null
-      return other != null && other !== id && cols.get(other) === near && col !== 0 ? [{ other, link: l }] : []
-    })
-  }
   const byName = (a: LaidNode, b: LaidNode) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
-  // From the focus out: a column's order reads the rows of the column nearer the focus.
-  const order = [...shown].sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)
-  for (const col of order) {
-    const x = xOf.get(col)!
-    const lane = `hop-${col}`
-    const list = members.get(col)!
-    if (col === 0 && focused) {
+  // Each column's cards in order, from the focus outwards: a column reads the rows of the
+  // column nearer the focus, already placed. Late cards are not in `order`.
+  const ordered = new Map<number, LaidNode[]>()
+  const rowOf = new Map<string, number>()
+  for (const col of [...shown].sort((a, b) => Math.abs(a) - Math.abs(b) || a - b)) {
+    const list = members.get(col)!.filter((n) => !late.has(n.id))
+    let order: LaidNode[]
+    if (col === 0 || !focused) {
       const rest = list.filter((n) => n.id !== focus).sort(byName)
-      const all = [...rest.slice(0, Math.floor(rest.length / 2)), list.find((n) => n.id === focus)!, ...rest.slice(Math.floor(rest.length / 2))]
-      const origin = all.findIndex((n) => n.id === focus)
-      all.forEach((n, row) => positions.set(n.id, { x, y: (row - origin) * ROW, lane }))
-      continue
+      const f = list.find((n) => n.id === focus)
+      order = f ? [...rest.slice(0, Math.floor(rest.length / 2)), f, ...rest.slice(Math.floor(rest.length / 2))] : rest
+    } else {
+      const near = col > 0 ? col - 1 : col + 1
+      const bary = (n: LaidNode): number => {
+        const ys = plain.flatMap((l) => {
+          const other = l.source === n.id ? l.target : l.target === n.id ? l.source : null
+          return other != null && other !== n.id && cols.get(other) === near && rowOf.has(other) ? [rowOf.get(other)!] : []
+        })
+        return ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0
+      }
+      order = list.map((n) => ({ n, b: bary(n) })).sort((a, b) => a.b - b.b || byName(a.n, b.n)).map((x) => x.n)
     }
-    const placed = list.map((n) => {
-      const links = toward(n.id, col)
-      const ys = links.map((t) => positions.get(t.other)?.y).filter((y): y is number => y != null)
-      return { n, kind: kindOf(n, links.map((t) => t.link)), bary: ys.length ? ys.reduce((a, b) => a + b, 0) / ys.length : 0 }
-    })
-    const grouped = KINDS.map((k) => placed.filter((p) => p.kind === k).sort((a, b) => a.bary - b.bary || byName(a.n, b.n))).filter((g) => g.length)
-    // Headers only where the column has a nearer neighbour (a focused map's every column but 0).
-    const titled = col !== 0
-    let cursor = 0
-    const rows: { id: string; y: number }[] = []
-    const heads: { label: string; y: number }[] = []
-    grouped.forEach((group, at) => {
-      if (at > 0) cursor += GROUP_GAP
-      if (titled) {
-        heads.push({ label: KIND_LABEL[group[0]!.kind], y: cursor })
-        cursor += GROUP_HEADER
-      }
-      for (const p of group) {
-        rows.push({ id: p.n.id, y: cursor + ROW / 2 })
-        cursor += ROW
-      }
-    })
-    const shift = cursor / 2
-    for (const r of rows) positions.set(r.id, { x, y: r.y - shift, lane })
-    for (const h of heads) headers.push({ key: `${lane}|${h.label}`, label: h.label, x: x - LANE_WIDTH / 2, y: h.y - shift })
+    ordered.set(col, order)
+    // A row's height is the same in every column: the rows are centred on 0.
+    order.forEach((n, i) => rowOf.set(n.id, (i % rows) - (Math.min(rows, order.length) - 1) / 2))
   }
-  return { positions, lanes, headers }
+  // Column bands, from the chosen resource's column outwards, so a column only late cards fill
+  // (at either end) never shifts the others.
+  const widthOf = (col: number) => {
+    const subs = Math.max(1, Math.ceil(ordered.get(col)!.length / rows))
+    return subs * NODE_WIDTH + (subs - 1) * SUB_GAP
+  }
+  const anchor = shown.includes(0) ? 0 : shown[0]!
+  const left = new Map<number, number>([[anchor, 0]])
+  for (let c = anchor + 1, x = widthOf(anchor) + LANE_GAP; shown.includes(c); x += widthOf(c) + LANE_GAP, c++) left.set(c, x)
+  for (let c = anchor - 1, x = 0; shown.includes(c); c--) {
+    x -= widthOf(c) + LANE_GAP
+    left.set(c, x)
+  }
+  const lanes: Layout['lanes'] = []
+  for (const col of shown) {
+    const order = ordered.get(col)!
+    const lane = `hop-${col}`
+    const x = left.get(col) ?? 0
+    lanes.push({ lane, label: hopLabel(col, focused), x, width: widthOf(col) })
+    order.forEach((n, i) => {
+      const sub = Math.floor(i / rows)
+      const inSub = Math.min(rows, order.length - sub * rows)
+      positions.set(n.id, { x: x + sub * (NODE_WIDTH + SUB_GAP) + NODE_WIDTH / 2, y: ((i % rows) - (inSub - 1) / 2) * ROW, lane })
+    })
+  }
+  // The focus stays at y = 0 (its column is centred on it).
+  if (focus && positions.has(focus)) {
+    const f = positions.get(focus)!
+    if (f.y !== 0) for (const [id, p] of positions) if (p.lane === f.lane) positions.set(id, { ...p, y: p.y - f.y })
+  }
+  // Late cards: below the last card of their column's last sub-column, by name.
+  for (const col of shown) {
+    const lates = members.get(col)!.filter((n) => late.has(n.id)).sort(byName)
+    if (!lates.length) continue
+    const lane = `hop-${col}`
+    const placed = [...positions.values()].filter((p) => p.lane === lane)
+    const x = placed.length ? Math.max(...placed.map((p) => p.x)) : (left.get(col) ?? 0) + NODE_WIDTH / 2
+    const bottom = placed.filter((p) => p.x === x).reduce((m, p) => Math.max(m, p.y), -ROW)
+    lates.forEach((n, i) => positions.set(n.id, { x, y: bottom + (i + 1) * ROW, lane }))
+  }
+  return { positions, lanes }
+}
+
+/** Where the canvas's camera stands, carried across a view switch: the zoom, and where the focus
+ * card was in map coordinates, so it stays at the same place on screen. */
+export interface Viewport {
+  zoom: number
+  pan: { x: number; y: number }
+  anchor: { id: string; x: number; y: number } | null
 }
 
 export type Move = 'up' | 'down' | 'left' | 'right'
 
-/** The arrow keys on the canvas: up and down within a lane, left and right to the nearest node
- * of the next lane that has one. With nothing selected, the focus (or the first node). */
+/** The arrow keys on the canvas: up and down within a column, left and right to the nearest node
+ * of the next column that has one. With nothing selected, the focus (or the first node). */
 export function moveSelection(positions: Map<string, Placed>, from: string | null, move: Move, focus: string | null): string | null {
   const all = [...positions.entries()]
   if (all.length === 0) return null

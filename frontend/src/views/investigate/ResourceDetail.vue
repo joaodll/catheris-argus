@@ -3,7 +3,7 @@
  * One resource, read-only, a block per tool (docs/ui/screens.md, E11, Resource panel): what
  * Steampipe describes, what Prowler checks, what CloudFox shows an attacker could use, then its
  * connections, tags and configuration. The Resources sheet (E8) shows this body, and so does
- * the Resource Map's panel, as `plain`: the Resource Map reads no security fact (ADR-0051, owner
+ * the Infrastructure view's panel, as `plain`: the Infrastructure view reads no security fact (ADR-0051, owner
  * 2026-11-13), so a plain body asks GET /map/resource/{id} instead, which returns only the
  * description, the lines the map draws, tags and configuration, and asks for no findings.
  *
@@ -43,7 +43,7 @@ const props = defineProps<{
   // A block to bring into view once it shows: a finding's See the evidence opens the sheet at
   // From the internet (ADR-0035, sixth amendment).
   at?: 'from-internet' | null
-  // The Resource Map: the plain read only, no findings, vulnerabilities, reach or loot commands.
+  // The Infrastructure view: the plain read only, no findings, vulnerabilities, reach or loot commands.
   plain?: boolean
   // Links to other resources open in a new tab (the map stays as it is).
   newTab?: boolean
@@ -87,7 +87,7 @@ watch(current, (r) => emit('loaded', r), { immediate: true })
 
 const connection = computed(() => (current.value ? props.connectionName(current.value.connection_id) : ''))
 const cloudfoxEdges = computed(() => (full.value?.edges ?? []).filter((e) => e.origin === 'cloudfox'))
-// A plain read already holds only the lines the Resource Map draws.
+// A plain read already holds only the lines the Infrastructure view draws.
 const listedEdges = computed(() => current.value?.edges ?? [])
 // The connections tab: the resource's lines by kind (the API's layer), in the canvas's order.
 const edgesByKind = computed(() =>

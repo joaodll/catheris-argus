@@ -14,6 +14,7 @@ describe('Map state in the URL', () => {
       type: null,
       page: 1,
       tab: 'overview',
+      mode: 'resource',
     })
     expect(Object.values(mapQueryToUrl(state)).filter((v) => v !== undefined)).toEqual([])
   })
@@ -24,6 +25,14 @@ describe('Map state in the URL', () => {
     expect(mapQueryToUrl(state)).toMatchObject({ type: 'aws_s3_bucket', page: '3' })
     expect(mapQueryToUrl({ ...state, page: 1 }).page).toBeUndefined()
     expect(mapQueryToUrl({ ...state, type: null }).page).toBeUndefined()
+  })
+
+  it('keeps the view mode: Security in the URL, Infrastructure the default left out', () => {
+    expect(parseMapQuery({ mode: 'security' }).mode).toBe('security')
+    expect(parseMapQuery({ mode: 'infrastructure' }).mode).toBe('resource')
+    expect(parseMapQuery({ mode: 'other' }).mode).toBe('resource')
+    expect(mapQueryToUrl(parseMapQuery({ mode: 'security', focus: 'x' }))).toMatchObject({ mode: 'security', focus: 'x' })
+    expect(mapQueryToUrl(parseMapQuery({ focus: 'x' })).mode).toBeUndefined()
   })
 
   it('ignores a type or a page it cannot use', () => {

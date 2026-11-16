@@ -91,28 +91,44 @@ it can be reached from the internet, what it connects to, and its configuration.
 
 ![Resources](images/resources.png)
 
-### Investigate → Resource Map
+### Investigate → Map
 
 Choose a resource and see what it connects to, as a diagram. The start lists the resource types in
 your accounts with their counts; a type lists its resources, and a resource opens its map. You can
-also search by name, id or ARN, or use **Open in Resource Map** on any resource in **Resources**.
-The Resource Map shows no security finding and reads none, so you can use it as a network and
-architecture diagram. Security judgements, such as who can escalate to administrator, are on the
-Security Map (below).
+also search by name, id or ARN, or use **Open on Map** on any resource in **Resources**.
+
+The **View** switch at the top right shows the same map two ways:
+
+- **Infrastructure** (the default) shows what exists and how it connects. It shows no security
+  finding and reads none, so it can be handed to an auditor or used as a network and architecture
+  diagram.
+- **Security** adds what is wrong on it (below). **Open on Map, Security view** on a resource in
+  **Resources** opens it there directly.
+
+Switching keeps the chosen resource, the depth, the kinds of line and the open panel, and the
+chosen resource stays where it is on screen.
+
+#### The diagram
 
 The chosen resource sits in the middle, with what leads to it on its left and what it leads to on
-its right. In each column the resources are grouped by the kind of line that reaches them
-(Traffic, Network, Identity, IAM policy, Data access), each group under its name, and sit beside
-what they connect to. An EC2 instance, for example, opens with its subnet and security groups
-under Network and its role under Identity. Each line says what it is in plain words ("routes to",
-"runs as"). **Depth** draws one, two or three hops around it at once. Open a resource and choose
-**Expand** to add its own neighbours; **Collapse** takes them away again. The map never walks
-past the internet, an account's administrator, another account's resource, a VPC or a subnet on
-its own; expand those yourself.
+its right, one column per hop. In each column a resource sits beside what it connects to; a very
+tall column wraps into a few columns side by side so the map fills the screen. Subnets and VPCs are
+ordinary resources: an EC2 instance, for example, opens with its subnet, its security groups and
+its role one hop out. Each line says what it is in plain words ("routes to", "runs as", "in
+network").
 
-**Connections** chooses which kinds of line are drawn. A map opens with every kind but Data
-access, which can reach many resources; **Select all** adds it and **Default** goes back. A solid
-line was found by Argus's own rules, a dashed one only by CloudFox (the Legend says so too).
+**Depth** draws one, two or three hops around the chosen resource at once. Open a resource and
+choose **Expand** to add its own neighbours; **Collapse** takes them away again. The map never
+walks past the internet, an account's administrator, another account's resource, a VPC or a
+subnet on its own; expand those yourself.
+
+The map opens fitted to the canvas when the cards stay readable, otherwise zoomed on the chosen
+resource. A resource you choose near the edge moves to the centre. The zoom readout next to
+**Fit** sets 100 %.
+
+**Filters** chooses which kinds of line are drawn. A map opens with every kind but Data access,
+which can reach many resources; **Select all** adds it and **Default** goes back. A solid line was
+found by Argus's own rules, a dashed one only by CloudFox (the Legend says so too).
 
 Choosing a resource opens its panel: a short summary first, then tabs. **Overview** says what it
 is and where, **Connections** lists its lines by kind, and **Config** holds its tags and
@@ -126,22 +142,17 @@ configuration.
   own account.
 - The map shows each account's latest scan and says which day that is.
 
-The map shows what exists and how it connects. It carries no misconfiguration, vulnerability or
-reach verdict, so it can be handed to an auditor or used as an architecture diagram. Those facts
-are on the Security Map, **Misconfigurations**, **Vulnerabilities** and each resource in
-**Resources**.
+#### The Security view
 
-### Investigate → Security Map
-
-The same map, with what is wrong on it. It starts and grows like the Resource Map, and **Open in
-Security Map** is on every resource in **Resources**. It adds:
+The same map, with what is wrong on it. It adds:
 
 - **Security lines**, drawn heavier than the connections: is administrator, can escalate to,
   trusts an outside account, holds a credential, and CloudFox's "reaches" from the internet.
-- **On each card**, a count of its open misconfigurations in the colour of the worst severity,
-  and marks: a globe when Argus's rules confirm the internet can reach it, a bug for open
-  vulnerabilities, and a warning sign for a public exploit. A card shows nothing when there is
-  nothing, or when the tools have not scanned that account; its tooltip and the List view say
+- **On each card**, a count of its open misconfigurations in the colour of the worst severity.
+  A Critical or High one also gives the card a border in that colour, with the word on it.
+- **Marks on each card:** a globe when Argus's rules confirm the internet can reach it, a bug for
+  open vulnerabilities, and a warning sign for a public exploit. A card shows nothing when there
+  is nothing, or when the tools have not scanned that account; its tooltip and the List view say
   which.
 - **In the panel**, the summary is the resource's problems: open misconfigurations by severity,
   internet reach and vulnerabilities, each a link to the list that counts it. A **Problems** tab
@@ -151,11 +162,11 @@ Security Map** is on every resource in **Resources**. It adds:
 The counts are the ones Resources and the lists show. The map draws the lines one by one, and
 you follow them; whole routes are on **Attack paths**.
 
-### Investigate → Attack paths
+### Investigate → Map → Attack paths
 
-After each ingested scan, Argus walks from every way in (a door the internet reaches, a principal
-outside the scanned accounts, a leaked credential) through the lines its rules and CloudFox
-found, and keeps each route that ends at something that matters: an administrator, a data store,
+The Map's second tab. After each ingested scan, Argus walks from every way in (a door the internet
+reaches, a principal outside the scanned accounts, a leaked credential) through the lines its
+rules and CloudFox found, and keeps each route that ends at something that matters: an administrator, a data store,
 a secret in a workload's environment, a neighbour, or the exposure itself. The page reads what
 was kept; nothing is worked out while you look.
 

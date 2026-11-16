@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { GROUP_HEADER, LANE_GAP, LANE_WIDTH, NODE_HEIGHT, ROW, cardGlyph, hopColumns, hopLabel, layout, moveSelection, typeLabel, type LaidNode } from './mapLanes'
+import { LANE_GAP, NODE_HEIGHT, NODE_WIDTH, ROW, cardGlyph, hopColumns, hopLabel, layout, moveSelection, typeLabel, type LaidNode, type Link } from './mapLanes'
 
 const n = (id: string, type: string | null, extra: Partial<LaidNode> = {}): LaidNode => ({ id, kind: 'resource', type, name: id, ...extra })
 
-describe('Resource map columns', () => {
+describe('the map columns', () => {
   it('labels types briefly', () => {
     expect(typeLabel('aws_lambda_function')).toBe('Lambda')
     expect(typeLabel('aws_ec2_target_group')).toBe('Target group')
@@ -38,74 +38,6 @@ describe('Resource map columns', () => {
     expect(hopLabel(0, false)).toBe('Step 1')
   })
 
-  it('places columns left to right, hides empty ones, and centres the focus', () => {
-    const nodes = [n('internet', null, { kind: 'internet' }), n('fn-b', 'aws_lambda_function'), n('fn-a', 'aws_lambda_function'), n('focus', 'aws_lambda_function'), n('role', 'aws_iam_role')]
-    const edges = [
-      { source: 'internet', target: 'focus' },
-      { source: 'focus', target: 'fn-a' },
-      { source: 'focus', target: 'fn-b' },
-      { source: 'focus', target: 'role' },
-    ]
-    const { positions, lanes } = layout(nodes, edges, 'focus')
-    expect(lanes.map((l) => [l.lane, l.label])).toEqual([
-      ['hop--1', '1 hop in'],
-      ['hop-0', 'Selected'],
-      ['hop-1', '1 hop out'],
-    ])
-    const step = LANE_WIDTH + LANE_GAP
-    expect(lanes.map((l) => l.x)).toEqual([0, step, 2 * step])
-    expect(positions.get('focus')).toEqual({ x: step + LANE_WIDTH / 2, y: 0, lane: 'hop-0' })
-    // One kind (no layer given: Other), under one header, by name, ROW apart, centred on 0.
-    const ys = ['fn-a', 'fn-b', 'role'].map((id) => positions.get(id)!.y)
-    expect(ys[1]! - ys[0]!).toBe(ROW)
-    expect(ys[2]! - ys[1]!).toBe(ROW)
-    expect(ys[0]! - ROW / 2 - GROUP_HEADER + ys[2]! + ROW / 2).toBe(0)
-  })
-
-  it('groups a column by kind, in a fixed order, each under its header', () => {
-    const nodes = [n('focus', 'aws_ec2_instance'), n('sg', 'aws_vpc_security_group'), n('subnet', 'aws_vpc_subnet'), n('role', 'aws_iam_role'), n('alb', 'aws_ec2_application_load_balancer'), n('internet', null, { kind: 'internet' })]
-    const edges = [
-      { source: 'focus', target: 'sg', layer: 'network' },
-      { source: 'focus', target: 'subnet', layer: 'network' },
-      { source: 'focus', target: 'role', layer: 'identity' },
-      { source: 'alb', target: 'focus', layer: 'traffic' },
-      { source: 'internet', target: 'focus', layer: 'traffic' },
-    ]
-    const { positions, headers } = layout(nodes, edges, 'focus')
-    const y = (id: string) => positions.get(id)!.y
-    // Out: Network (sg, subnet) above Identity (role); in: Traffic (alb) above Other (internet).
-    expect(y('sg')).toBeLessThan(y('subnet'))
-    expect(y('subnet')).toBeLessThan(y('role'))
-    expect(y('alb')).toBeLessThan(y('internet'))
-    expect(headers.map((h) => h.label).sort()).toEqual(['Identity', 'Network', 'Other', 'Traffic'])
-    // A header sits above its group's first card; the focus stays at 0 with no header.
-    const network = headers.find((h) => h.label === 'Network')!
-    expect(network.y).toBeLessThan(y('sg') - NODE_HEIGHT / 2)
-    expect(y('focus')).toBe(0)
-  })
-
-  it('puts a card beside what it connects to (barycentre), so lines cross less', () => {
-    // Two first-hop roles; their policies two hops out sit in the same order as the roles,
-    // whatever their names say.
-    const nodes = [n('focus', 'aws_lambda_function'), n('role-a', 'aws_iam_role'), n('role-b', 'aws_iam_role'), n('z-policy', 'aws_iam_policy'), n('a-policy', 'aws_iam_policy')]
-    const edges = [
-      { source: 'focus', target: 'role-a', layer: 'identity' },
-      { source: 'focus', target: 'role-b', layer: 'identity' },
-      { source: 'role-a', target: 'z-policy', layer: 'policy' },
-      { source: 'role-b', target: 'a-policy', layer: 'policy' },
-    ]
-    const { positions } = layout(nodes, edges, 'focus')
-    expect(positions.get('role-a')!.y).toBeLessThan(positions.get('role-b')!.y)
-    expect(positions.get('z-policy')!.y).toBeLessThan(positions.get('a-policy')!.y)
-  })
-
-  it('leaves the space the owner asked for (ADR-0051)', () => {
-    // A line's word between two columns ("is administrator" is about 90 px), with room to spare.
-    expect(LANE_GAP).toBeGreaterThanOrEqual(90 + 2 * 32)
-    // More between two cards than the first map's 24 px.
-    expect(ROW - NODE_HEIGHT).toBeGreaterThanOrEqual(40)
-  })
-
   it("draws a card's glyph from its kind, then its type", () => {
     expect(cardGlyph('internet', null)).toBe('globe')
     expect(cardGlyph('external', null)).toBe('external')
@@ -113,6 +45,91 @@ describe('Resource map columns', () => {
     expect(cardGlyph('resource', 'aws_lambda_function')).toBe('lambda')
     expect(cardGlyph('group', 'aws_s3_bucket')).toBe('bucket')
     expect(cardGlyph('resource', null)).toBe('cube')
+  })
+
+  it('places columns left to right, hides empty ones, and keeps the focus at 0', () => {
+    const nodes = [n('internet', null, { kind: 'internet' }), n('fn-b', 'aws_lambda_function'), n('fn-a', 'aws_lambda_function'), n('focus', 'aws_lambda_function'), n('role', 'aws_iam_role')]
+    const edges = [
+      { source: 'internet', target: 'focus' },
+      { source: 'focus', target: 'fn-a' },
+      { source: 'focus', target: 'fn-b' },
+      { source: 'focus', target: 'role' },
+    ]
+    const { positions, lanes } = layout(nodes, edges, 'focus', 1)
+    expect(lanes.map((l) => [l.lane, l.label])).toEqual([
+      ['hop--1', '1 hop in'],
+      ['hop-0', 'Selected'],
+      ['hop-1', '1 hop out'],
+    ])
+    const step = NODE_WIDTH + LANE_GAP
+    // The chosen resource's column is at x = 0; the others are laid outwards from it.
+    expect(lanes.map((l) => l.x)).toEqual([-step, 0, step])
+    expect(positions.get('focus')).toEqual({ x: NODE_WIDTH / 2, y: 0, lane: 'hop-0' })
+    // No grouping by type: by name, ROW apart, centred on 0.
+    const ys = ['fn-a', 'fn-b', 'role'].map((id) => positions.get(id)!.y)
+    expect(ys).toEqual([-ROW, 0, ROW])
+  })
+
+  it('treats a subnet and a VPC as ordinary cards with their lines', () => {
+    const nodes = [n('i', 'aws_ec2_instance'), n('sn', 'aws_vpc_subnet'), n('vpc', 'aws_vpc')]
+    const edges: Link[] = [
+      { source: 'i', target: 'sn', type: 'IN_NETWORK' },
+      { source: 'sn', target: 'vpc', type: 'IN_NETWORK' },
+    ]
+    const { positions } = layout(nodes, edges, 'i')
+    expect(positions.get('sn')!.lane).toBe('hop-1')
+    expect(positions.get('vpc')!.lane).toBe('hop-2')
+  })
+
+  it('puts a card beside what it connects to (barycentre), so lines cross less', () => {
+    const nodes = [n('focus', 'aws_lambda_function'), n('role-a', 'aws_iam_role'), n('role-b', 'aws_iam_role'), n('z-policy', 'aws_iam_policy'), n('a-policy', 'aws_iam_policy')]
+    const edges = [
+      { source: 'focus', target: 'role-a' },
+      { source: 'focus', target: 'role-b' },
+      { source: 'role-a', target: 'z-policy' },
+      { source: 'role-b', target: 'a-policy' },
+    ]
+    const { positions } = layout(nodes, edges, 'focus', 1)
+    expect(positions.get('role-a')!.y).toBeLessThan(positions.get('role-b')!.y)
+    expect(positions.get('z-policy')!.y).toBeLessThan(positions.get('a-policy')!.y)
+  })
+
+  it('never moves a card for a security line, and puts a card only a security line reaches beside it', () => {
+    const nodes = [n('fn', 'aws_lambda_function'), n('role-a', 'aws_iam_role'), n('role-b', 'aws_iam_role'), n('bucket', 'aws_s3_bucket')]
+    const plain: Link[] = [
+      { source: 'fn', target: 'role-b' },
+      { source: 'fn', target: 'role-a' },
+      { source: 'role-a', target: 'bucket' },
+    ]
+    // The Security view: a shortcut line, and an administrator only IS_ADMIN reaches.
+    const security: Link[] = [...plain, { source: 'fn', target: 'bucket', type: 'CAN_ESCALATE_TO' }, { source: 'role-b', target: 'admin:1', type: 'IS_ADMIN' }]
+    const before = layout(nodes, plain, 'fn', 1).positions
+    const after = layout([...nodes, n('admin:1', null, { kind: 'admin' })], security, 'fn', 1).positions
+    for (const [id, p] of before) expect(after.get(id)).toEqual(p)
+    expect(after.get('admin:1')!.lane).toBe('hop-2')
+  })
+
+  it('wraps a tall column into sub-columns on a wide canvas, without overlapping cards', () => {
+    const nodes = [n('focus', 'aws_iam_role'), ...Array.from({ length: 24 }, (_, i) => n(`fn-${String(i).padStart(2, '0')}`, 'aws_lambda_function'))]
+    const edges = nodes.slice(1).map((f) => ({ source: f.id, target: 'focus' }))
+    const wide = layout(nodes, edges, 'focus', 3)
+    const tall = layout(nodes, edges, 'focus', 0.3)
+    const columns = (l: ReturnType<typeof layout>) => new Set([...l.positions.values()].map((p) => p.x)).size
+    expect(columns(wide)).toBeGreaterThan(columns(tall))
+    for (const l of [wide, tall]) {
+      const all = [...l.positions.values()]
+      for (let i = 0; i < all.length; i++)
+        for (let j = i + 1; j < all.length; j++) {
+          const a = all[i]!
+          const b = all[j]!
+          expect(Math.abs(a.x - b.x) >= NODE_WIDTH || Math.abs(a.y - b.y) >= NODE_HEIGHT).toBe(true)
+        }
+    }
+  })
+
+  it('leaves the space the owner asked for', () => {
+    expect(LANE_GAP).toBeGreaterThanOrEqual(90 + 2 * 32)
+    expect(ROW - NODE_HEIGHT).toBeGreaterThanOrEqual(40)
   })
 
   it('is the same every time for the same view', () => {
@@ -128,12 +145,27 @@ describe('Resource map columns', () => {
       { source: 'internet', target: 'f2' },
       { source: 'f1', target: 'role' },
     ]
-    const { positions } = layout(nodes, edges, 'internet')
+    const { positions } = layout(nodes, edges, 'internet', 1)
     expect(moveSelection(positions, null, 'down', 'f1')).toBe('f1')
     expect(moveSelection(positions, 'f1', 'down', 'f1')).toBe('f2')
     expect(moveSelection(positions, 'f2', 'down', 'f1')).toBe('f2')
     expect(moveSelection(positions, 'f1', 'left', 'f1')).toBe('internet')
     expect(moveSelection(positions, 'f1', 'right', 'f1')).toBe('role')
     expect(moveSelection(positions, 'role', 'right', 'f1')).toBe('role')
+  })
+
+  it('lays out 500 cards with a hub quickly enough to redraw on Expand', () => {
+    const nodes: LaidNode[] = [n('hub', 'aws_iam_role')]
+    const edges: Link[] = []
+    const types = ['aws_ec2_instance', 'aws_lambda_function', 'aws_iam_role', 'aws_s3_bucket', 'aws_vpc_security_group']
+    for (let i = 0; nodes.length < 500; i++) {
+      const id = `r-${String(i).padStart(3, '0')}`
+      nodes.push(n(id, types[i % types.length]!))
+      edges.push(i % 3 ? { source: id, target: 'hub' } : { source: `r-${String(Math.floor(i / 3)).padStart(3, '0')}`, target: id })
+    }
+    const started = performance.now()
+    const result = layout(nodes, edges, 'hub')
+    expect(result.positions.size).toBe(500)
+    expect(performance.now() - started).toBeLessThan(1500)
   })
 })
