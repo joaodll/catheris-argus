@@ -286,13 +286,27 @@ class SecurityGroupPage(GroupPage):
 def node_facts(conn: Connection, nodes: list[MapNode]) -> dict[int, NodeFacts]:
     """The facts of these nodes' inventoried resources, by resource id: a fixed number of
     reads over their ids (a response holds at most 500 nodes)."""
-    rows: list[dict[str, Any]] = [
-        {"id": n.resource_id, "provider": n.provider, "type": n.type, "connection_id": c}
-        for n in nodes
-        if n.resource_id is not None
-        and n.provider is not None
-        and n.type is not None
-        and (c := n.connection_id) is not None
+    return resource_facts(
+        conn,
+        [
+            {
+                "id": n.resource_id,
+                "provider": n.provider,
+                "type": n.type,
+                "connection_id": n.connection_id,
+            }
+            for n in nodes
+        ],
+    )
+
+
+def resource_facts(conn: Connection, resources: list[dict[str, Any]]) -> dict[int, NodeFacts]:
+    """The facts of these inventoried resources (each with id, provider, type and connection_id;
+    one without any of them is left out), by resource id. Also an attack path's steps."""
+    rows = [
+        r
+        for r in resources
+        if all(r.get(k) is not None for k in ("id", "provider", "type", "connection_id"))
     ]
     if not rows:
         return {}

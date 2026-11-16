@@ -1150,6 +1150,70 @@
         "title": "EdgeOut",
         "type": "object"
       },
+      "EvaluationDetail": {
+        "properties": {
+          "behind": {
+            "title": "Behind",
+            "type": "boolean"
+          },
+          "covered_through": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Covered Through"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "failed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failed At"
+          }
+        },
+        "required": [
+          "evaluated_at",
+          "covered_through",
+          "failed_at",
+          "behind",
+          "error"
+        ],
+        "title": "EvaluationDetail",
+        "type": "object"
+      },
       "EvaluationOut": {
         "description": "When routes were last worked out, and whether they are behind the scans (§9 M2).",
         "properties": {
@@ -6769,6 +6833,103 @@
         "title": "SignInOut",
         "type": "object"
       },
+      "StepNode": {
+        "properties": {
+          "connection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection Id"
+          },
+          "deleted_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted On"
+          },
+          "facts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NodeFacts"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "enum": [
+              "resource",
+              "internet",
+              "admin",
+              "external",
+              "any"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Type"
+          },
+          "uid": {
+            "title": "Uid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "uid",
+          "kind",
+          "resource_id",
+          "type",
+          "name",
+          "connection_id",
+          "deleted_on",
+          "facts"
+        ],
+        "title": "StepNode",
+        "type": "object"
+      },
       "StepOut": {
         "properties": {
           "attributes": {
@@ -6838,10 +6999,10 @@
             "type": "string"
           },
           "source": {
-            "$ref": "#/components/schemas/NodeRef"
+            "$ref": "#/components/schemas/StepNode"
           },
           "target": {
-            "$ref": "#/components/schemas/NodeRef"
+            "$ref": "#/components/schemas/StepNode"
           },
           "type": {
             "title": "Type",
@@ -8801,6 +8962,88 @@
           }
         },
         "summary": "List Attack Paths",
+        "tags": [
+          "attack-paths"
+        ]
+      }
+    },
+    "/api/v1/attack-paths/evaluation": {
+      "get": {
+        "description": "When routes were last worked out, and the last evaluation's redacted error when it\nfailed (the Runs line, §9 M2).",
+        "operationId": "attack_path_evaluation_api_v1_attack_paths_evaluation_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvaluationDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Attack Path Evaluation",
         "tags": [
           "attack-paths"
         ]

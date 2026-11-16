@@ -1,6 +1,8 @@
 /** The icon names AppIcon draws. */
 export type IconName =
   | 'shield'
+  // Investigate -> Attack paths.
+  | 'route'
   | 'overview'
   | 'admin'
   | 'plus'

@@ -24,6 +24,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/attack-paths/evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Attack Path Evaluation
+         * @description When routes were last worked out, and the last evaluation's redacted error when it
+         *     failed (the Runs line, §9 M2).
+         */
+        get: operations["attack_path_evaluation_api_v1_attack_paths_evaluation_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/attack-paths/facets": {
         parameters: {
             query?: never;
@@ -1706,6 +1727,19 @@ export interface components {
             target_uid: string;
             /** Type */
             type: string;
+        };
+        /** EvaluationDetail */
+        EvaluationDetail: {
+            /** Behind */
+            behind: boolean;
+            /** Covered Through */
+            covered_through: string | null;
+            /** Error */
+            error: string | null;
+            /** Evaluated At */
+            evaluated_at: string | null;
+            /** Failed At */
+            failed_at: string | null;
         };
         /**
          * EvaluationOut
@@ -3451,6 +3485,27 @@ export interface components {
             /** Sso */
             sso: boolean;
         };
+        /** StepNode */
+        StepNode: {
+            /** Connection Id */
+            connection_id: number | null;
+            /** Deleted On */
+            deleted_on: string | null;
+            facts: components["schemas"]["NodeFacts"] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "resource" | "internet" | "admin" | "external" | "any";
+            /** Name */
+            name: string | null;
+            /** Resource Id */
+            resource_id: number | null;
+            /** Type */
+            type: string | null;
+            /** Uid */
+            uid: string;
+        };
         /** StepOut */
         StepOut: {
             /** Attributes */
@@ -3476,8 +3531,8 @@ export interface components {
             reason: string;
             /** Ref */
             ref: string;
-            source: components["schemas"]["NodeRef"];
-            target: components["schemas"]["NodeRef"];
+            source: components["schemas"]["StepNode"];
+            target: components["schemas"]["StepNode"];
             /** Type */
             type: string;
         };
@@ -4108,6 +4163,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RoutePage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    attack_path_evaluation_api_v1_attack_paths_evaluation_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvaluationDetail"];
                 };
             };
             /** @description Validation Error */

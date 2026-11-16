@@ -13,6 +13,7 @@ from sqlalchemy import Engine, text
 from tests.conftest import RULES_DIR
 from tests.ingest.conftest import make_demo, run_tool
 
+from argus import attackpaths
 from argus.attackpaths import ROUTE_STEP_ATTRIBUTES
 from argus.collection import TOOL_ORDER
 from argus.core.rawstore import FilesystemRawStore
@@ -127,7 +128,8 @@ def test_routes_say_when_they_are_behind_the_scans(
 
 
 def test_signing_in_is_required(client: TestClient) -> None:
-    assert client.get("/api/v1/attack-paths").status_code == 401
+    for path in ("", "/facets", "/evaluation", "/1"):
+        assert client.get(f"/api/v1/attack-paths{path}").status_code == 401, path
 
 
 def test_a_target_past_the_listed_ones_is_not_found(signed_in: TestClient, evaluated: int) -> None:
@@ -136,3 +138,51 @@ def test_a_target_past_the_listed_ones_is_not_found(signed_in: TestClient, evalu
         f"/api/v1/attack-paths/{route['id']}", params={"target": route["listed_count"] + 1}
     )
     assert over.status_code == 404
+
+
+def test_a_step_shows_the_facts_its_resource_has_on_the_security_map(
+    signed_in: TestClient, evaluated: int
+) -> None:
+    seen = 0
+    for route in _page(signed_in, **EVERY)["items"]:
+        detail = signed_in.get(f"/api/v1/attack-paths/{route['id']}").json()
+        for step in detail["steps"]:
+            for node in (step["source"], step["target"]):
+                if node["resource_id"] is None:
+                    assert node["facts"] is None, node
+                    continue
+                facts = node["facts"]
+                assert facts is not None and facts["misconfigurations"] is not None, node
+                sheet = signed_in.get(f"/api/v1/resources/{node['resource_id']}").json()
+                assert facts["misconfigurations"]["open"] == sum(sheet["open_by_severity"].values())
+                seen += 1
+    assert seen
+
+
+def test_data_through_is_over_the_chosen_connection(signed_in: TestClient, evaluated: int) -> None:
+    assert _page(signed_in, connection_id=evaluated)["data_through"] is not None
+    assert _page(signed_in, connection_id=evaluated + 99)["data_through"] is None
+
+
+def test_the_evaluation_says_when_the_last_one_failed_and_why(
+    signed_in: TestClient, evaluated: int, owner: Engine
+) -> None:
+    done = signed_in.get("/api/v1/attack-paths/evaluation").json()
+    assert done["evaluated_at"] is not None and done["failed_at"] is None and done["error"] is None
+    with owner.begin() as conn:
+        eid = attackpaths.start(conn, digest=b"x", newest_load_at=None)
+        attackpaths.fail(conn, eid, "boom: password=hunter2")
+    failed = signed_in.get("/api/v1/attack-paths/evaluation").json()
+    assert failed["failed_at"] is not None and failed["evaluated_at"] == done["evaluated_at"]
+    assert failed["error"].startswith("boom") and "hunter2" not in failed["error"]
+    # The list carries the same state, without the error.
+    listed = _page(signed_in)["evaluation"]
+    assert listed["failed_at"] == failed["failed_at"] and "error" not in listed
+
+
+def test_the_evaluation_before_any_is_empty(signed_in: TestClient, estate: int) -> None:
+    body = signed_in.get("/api/v1/attack-paths/evaluation").json()
+    assert body == {
+        "evaluated_at": None, "covered_through": None, "failed_at": None, "behind": False,
+        "error": None,
+    }  # fmt: skip
