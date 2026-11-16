@@ -3093,6 +3093,10 @@ export interface components {
             state: "open" | "reopened" | "resolved";
             /** Target Count */
             target_count: number;
+            /** Through Step */
+            through_step?: number | null;
+            /** Through Target */
+            through_target?: number | null;
             /**
              * Worst Class
              * @enum {string}

@@ -47,7 +47,9 @@ class StepNode(NodeRef):
     facts: NodeFacts | None
 
 
-class RouteOut(BaseModel):
+class _Route(BaseModel):
+    """What a route's list row and its page share."""
+
     id: int
     kind: str
     kind_name: str | None  # null when this release has no file for the kind
@@ -65,6 +67,13 @@ class RouteOut(BaseModel):
     last_seen: date
     resolved_on: date | None
     state: Literal["open", "reopened", "resolved"]
+
+
+class RouteOut(_Route):
+    # With `through`: the first listed target whose steps touch that resource, and the first
+    # such step, where the Map's Attack Path view opens. Null without `through`.
+    through_target: int | None = None
+    through_step: int | None = None
 
 
 class EvaluationOut(BaseModel):
@@ -120,7 +129,7 @@ class TargetOut(BaseModel):
     steps: int
 
 
-class RouteDetail(RouteOut):
+class RouteDetail(_Route):
     category: str | None
     technique: str | None
     description: str | None
@@ -207,6 +216,8 @@ def _route(row: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> dict[str, A
         "last_seen": row["last_seen"],
         "resolved_on": row["resolved_on"],
         "state": row["state"],
+        "through_target": row.get("through_target"),
+        "through_step": row.get("through_step"),
     }
 
 

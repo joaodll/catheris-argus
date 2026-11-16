@@ -969,8 +969,8 @@ test('map, Security view: card B, the security lines and each fact linked to its
   expect(perSeverity.reduce((sum, n) => sum + Number(n.replace(/,/g, '')), 0)).toBe(Number(count.replace(/,/g, '')))
   // The panel is the whole resource on this map: its Problems tab holds the tools' findings.
   const secTabs = panel.getByRole('tablist', { name: 'Resource details' })
-  await expect(secTabs.getByRole('tab')).toHaveText(['Overview', 'Problems', 'Connections', 'Config'])
-  // The four tabs fit the 400 px panel: nothing cut off or scrolled sideways.
+  await expect(secTabs.getByRole('tab')).toHaveText(['Overview', 'Problems', 'Routes', 'Links', 'Config'])
+  // The five tabs (Routes since round A, W6 §11.7) fit the 400 px panel: nothing cut off or scrolled sideways.
   expect(await secTabs.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   await secTabs.getByRole('tab', { name: 'Problems' }).click()
   await expect(panel.getByRole('heading', { level: 3, name: /^Prowler/ })).toBeVisible()
@@ -1213,6 +1213,162 @@ test('attack paths: the list, a route and its targets, every state; both themes,
   await steps.getByRole('button', { name: 'Evidence and fix' }).first().click()
   await axe(page, 'phone attack path')
   await shot(page, 'P96a-attack-path')
+})
+
+test('map, Attack Path view: a stored route played on the map, its Routes tab, every state; both themes, phone width', async ({ page }) => {
+  test.setTimeout(180_000)
+  await signIn(page)
+  const view = page.getByRole('group', { name: 'View' })
+  const attackSegment = view.getByRole('button', { name: 'Attack Path' })
+  // No route open: the third segment says how to light it, and does nothing.
+  await page.goto('/investigate/map')
+  await expect(attackSegment).toHaveAttribute('aria-disabled', 'true')
+  // Playwright won't click an aria-disabled button: forced, it must still change nothing.
+  await attackSegment.click({ force: true })
+  await expect(page).toHaveURL(/\/investigate\/map$/)
+  // The Infrastructure view ignores ?route=.
+  await page.goto('/investigate/map?route=1&step=2')
+  await expect(attackSegment).toHaveAttribute('aria-disabled', 'true')
+  await expect(page.getByRole('region', { name: 'Route player' })).toHaveCount(0)
+
+  // From a route's page: a route that crosses accounts, "Show on map".
+  await page.goto('/investigate/map/attack-paths')
+  const rows = page.getByRole('table').locator('tbody tr')
+  await rows.filter({ hasText: '+ crosses' }).first().getByRole('link').first().click()
+  await expect(page).toHaveURL(/route=\d+/)
+  await page.getByRole('link', { name: 'Show on map' }).click()
+  await expect(page).toHaveURL(/\/investigate\/map\?.*mode=attack/)
+  await expect(page).toHaveURL(/route=\d+/)
+  await expect(attackSegment).toHaveAttribute('aria-pressed', 'true')
+  const player = page.getByRole('region', { name: 'Route player' })
+  const count = player.locator('.count')
+  const total = Number((await count.innerText()).match(/of (\d+)/)![1])
+  expect(total).toBeGreaterThan(1)
+  // Opens paused, at step 1, with the canvas named for the route.
+  await expect(count).toHaveText(`Step 1 of ${total}`)
+  await expect(player.getByRole('button', { name: 'Play the route' })).toBeVisible()
+  await expect(page.getByRole('application', { name: /^Map, Attack Path view: / })).toBeVisible()
+  const list = page.getByRole('complementary', { name: 'Steps' })
+  await expect(list.locator('li[aria-current="step"]')).toContainText('Step 1:')
+  const live = page.locator('p[role="status"][aria-live="polite"]')
+  await expect(live).toHaveText(/^Step 1 of \d+\. /)
+  // The two reds' lines carry their words; a crossing says which account it goes into.
+  await expect(page.locator('.line-word', { hasText: 'into ' }).first()).toBeVisible()
+  await expect(list.locator('.chip', { hasText: /^into / }).first()).toBeVisible()
+  await expect(page.locator('.world .step-badge.current')).toHaveText('1')
+  // Red advancing on grey (owner, 2026-11-16): at step 1 every later line is the map's grey.
+  const lineWords = page.locator('.world .line-word')
+  const lineCount = await lineWords.count()
+  expect(lineCount).toBeGreaterThan(1)
+  await expect(page.locator('.world .line-word.ahead')).toHaveCount(lineCount - 1)
+  // A card names its account in the Attack Path view.
+  await expect(page.locator('.node.kind-resource .line2').first()).toContainText(' · ')
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'attack path view')
+  await shot(page, '97-attack-path-view')
+
+  // Keys in the player: next, last, first; Esc is checked at the end.
+  await player.getByRole('button', { name: 'Next step' }).focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(page).toHaveURL(/step=2/)
+  await expect(count).toHaveText(`Step 2 of ${total}`)
+  await expect(live).toHaveText(new RegExp(`^Step 2 of ${total}\\. `))
+  await page.keyboard.press('End')
+  await expect(count).toHaveText(`Step ${total} of ${total}`)
+  await expect(page.locator('.world .line-word.ahead')).toHaveCount(0)
+  await page.keyboard.press('Home')
+  await expect(page).not.toHaveURL(/step=/)
+  // A card click moves to the first step that ends there.
+  await page.locator('.node.kind-resource').last().click()
+  await expect(count).not.toHaveText(`Step 1 of ${total}`)
+  await page.keyboard.press('Home')
+  await player.getByRole('button', { name: 'First step' }).click()
+  await expect(count).toHaveText(`Step 1 of ${total}`)
+  // Play: a step every 2.5 s, stopping at the last one with Replay.
+  await player.getByRole('button', { name: 'Play the route' }).click()
+  await expect(player.getByRole('button', { name: 'Pause' })).toBeVisible()
+  await expect(player.getByRole('button', { name: 'Replay the route' })).toBeVisible({ timeout: total * 2500 + 5000 })
+  await expect(count).toHaveText(`Step ${total} of ${total}`)
+  const attackUrl = page.url()
+  // Back leaves the route: every step change replaced the history entry, so Back is the route's
+  // page; Forward returns at the step left. Details opens the same page.
+  await page.goBack()
+  await expect(page).toHaveURL(/\/investigate\/map\/attack-paths\?route=\d+/)
+  await page.goForward()
+  await expect(count).toHaveText(`Step ${total} of ${total}`)
+  await player.getByRole('link', { name: 'Details of this route' }).click()
+  await expect(page).toHaveURL(/\/investigate\/map\/attack-paths\?route=\d+/)
+  await page.goto(attackUrl)
+
+  // Reduced motion: nothing moves, Play still advances.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.goto(attackUrl.replace(/&?step=\d+/, ''))
+  await expect(count).toHaveText(`Step 1 of ${total}`)
+  await player.getByRole('button', { name: 'Play the route' }).click()
+  await expect(count).toHaveText(`Step 2 of ${total}`, { timeout: 5000 })
+  await player.getByRole('button', { name: 'Pause' }).click()
+  await page.emulateMedia({ reducedMotion: 'no-preference' })
+
+  // A route with a foothold: the tab over the card it stands on, no line.
+  await page.goto('/investigate/map/attack-paths')
+  await rows.filter({ hasText: 'From the internet to a data store:' }).first().getByRole('link').first().click()
+  await page.getByRole('link', { name: 'Show on map' }).click()
+  await expect(page.locator('.foot-tab').first()).toContainText(/Foothold · /)
+  await expect(page.locator('.line-word').first()).toBeVisible()
+  await shot(page, '97a-attack-path-foothold')
+
+  // Leave route (Esc in the player): the Security view, focused on the step's resource.
+  await player.getByRole('button', { name: 'Next step' }).focus()
+  await page.keyboard.press('Escape')
+  await expect(page).toHaveURL(/mode=security/)
+  await expect(page).not.toHaveURL(/route=/)
+  await expect(page).toHaveURL(/focus=/)
+  await expect(attackSegment).toHaveAttribute('aria-disabled', 'true')
+  // The Security panel's Routes tab: the routes through it, and Play opens the Attack Path view.
+  await page.goto(`${page.url()}&tab=routes`)
+  const panel = page.getByRole('complementary', { name: 'Resource panel' })
+  await expect(panel.getByText(/^On \d+ open routes?'s? listed steps\.$/)).toBeVisible()
+  await expect(panel.getByRole('link', { name: 'See all in Attack paths' })).toHaveAttribute('href', /through=\d+/)
+  await axe(page, 'security panel routes tab')
+  await shot(page, '97b-security-routes-tab')
+  await panel.getByRole('button', { name: /^Play .* on the map$/ }).first().click()
+  await expect(page).toHaveURL(/mode=attack/)
+  await expect(page.locator('.world .step-badge.current, .world .foot-tab.current')).toHaveCount(1)
+  // The switch leaves the route too.
+  await view.getByRole('button', { name: 'Infrastructure' }).click()
+  await expect(page).not.toHaveURL(/mode=/)
+  await expect(page).not.toHaveURL(/route=/)
+
+  // States from the stored route with its answer changed: fixed; and a route not stored any more.
+  await page.route(/\/api\/v1\/attack-paths\/\d+(\?.*)?$/, async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.state = 'resolved'
+    body.resolved_on = '2026-11-14'
+    await route.fulfill({ response, json: body })
+  })
+  await page.goto(attackUrl)
+  await expect(page.getByText('Fixed on 2026-11-14. The steps are shown as last found.')).toBeVisible()
+  await page.unroute(/\/api\/v1\/attack-paths\/\d+(\?.*)?$/)
+  allowed.push(/404 .*\/api\/v1\/attack-paths\/999999/, /status of 404/)
+  await page.goto('/investigate/map?mode=attack&route=999999')
+  await expect(page.getByText('This route is not stored any more.')).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Back to Attack paths' })).toBeVisible()
+
+  // The light theme and phone width: the canvas, then the step list below it.
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto(attackUrl)
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await expect(count).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'light attack path view')
+  await shot(page, 'L97-attack-path-view')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto(attackUrl)
+  await expect(count).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'phone attack path view')
+  await shot(page, 'P97-attack-path-view')
 })
 
 test('posture: compliance frameworks and one framework, read-only', async ({ page }) => {

@@ -135,6 +135,25 @@ describe.each([
     expect(failing).toEqual([])
   })
 
+  it("the Attack Path view's lines, badges and foothold tab (W6 §6, §11.8)", () => {
+    const pairs: [string, string, number][] = [
+      // The two reds, on the canvas and where a line meets a card.
+      ['route-entry', 'graph-canvas', 3],
+      ['route-lateral', 'graph-canvas', 3],
+      ['route-entry', 'graph-node', 3],
+      ['route-lateral', 'graph-node', 3],
+      // The current step's underlay colour, as a line.
+      ['accent', 'graph-canvas', 3],
+      // A step's number on its badge, the current one's, and the foothold tab's word and border.
+      ['text', 'graph-node', 4.5],
+      ['text-strong', 'graph-node', 4.5],
+      ['text-2', 'graph-node', 4.5],
+      ['text-3', 'graph-node', 3],
+    ]
+    const failing = pairs.filter(([fg, on, least]) => ratio(hex(theme, fg), hex(theme, on)) < least).map(([fg, on]) => `${fg} on ${on}: ${ratio(hex(theme, fg), hex(theme, on)).toFixed(2)}`)
+    expect(failing).toEqual([])
+  })
+
   it("Attack paths' chosen target reads on its accent wash (8 % over the card)", () => {
     const wash = mix(hex(theme, 'accent'), hex(theme, 'surface'), 0.08)
     const failing = ['text', 'text-2', 'link'].filter((t) => ratio(hex(theme, t), wash) < 4.5).map((t) => `${t} on the accent wash: ${ratio(hex(theme, t), wash).toFixed(2)}`)

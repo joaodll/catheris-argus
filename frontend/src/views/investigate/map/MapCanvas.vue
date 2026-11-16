@@ -24,6 +24,12 @@
  * wins, then a lit trace, then lines touching the focus, then reading order; a hidden one
  * shows when hovered.
  *
+ * The Attack Path view (`route`; W6 §11) draws one stored route's chosen target and nothing else:
+ * its cards in walk order (routeMap.ts), every move in one of the two reds (the way in from
+ * outside, or a lateral move; the origin keeps its dash), a numbered badge at each line's middle
+ * and its words below it, a tab over a card a foothold or a login stands on, and the player's
+ * current step lit. A card click moves the player (MapView), it opens no panel.
+ *
  * The canvas is one focusable region: the arrow keys move a keyboard position between nodes,
  * Enter selects, E expands, C collapses, F makes the focus, Esc clears. The List view is the accessible
  * equivalent of the whole picture.
@@ -40,6 +46,7 @@ import type { Severity } from '@/views/overview/severity'
 import type { MapKind } from './mapQuery'
 import { boundaryLabel, drawnEdges, groupNodeId, nodeName, traceOf, type GraphState, type MapGroup, type MapNode, type Selection } from './mapGraph'
 import { LANE_NAME_RISE, NODE_HEIGHT, NODE_WIDTH, cardGlyph, layout, moveSelection, typeLabel, type LaidNode, type Move, type NodeKind, type Viewport } from './mapLanes'
+import { lineKey, routeBend, routeLayout, type RouteDrawing, type RouteLine } from './routeMap'
 import { SEVERITY_LABEL } from '@/views/overview/severity'
 import { resolvedTheme } from '@/composables/useTheme'
 
@@ -53,9 +60,16 @@ const props = defineProps<{
   collapsible?: ReadonlySet<string>
   // The camera to open at instead of the first view (a view switch on the same focus).
   initialViewport?: Viewport | null
+  // The Attack Path view: the route's drawing, the player's step (n) and the route's title.
+  route?: { drawing: RouteDrawing; current: number; title: string } | null
 }>()
 const emit = defineEmits<{ select: [selection: Selection | null]; expand: [uid: string]; collapse: [uid: string]; focusHere: [uid: string] }>()
 const security = computed(() => props.map === 'security')
+const routed = computed(() => props.route != null)
+// The drawing alone: a step change gives a new `route` with the same drawing, and must not redraw
+// the lines (the current step's line fades in on its own element).
+const routeDraw = computed(() => props.route?.drawing ?? null)
+const routeLines = computed(() => new Map((routeDraw.value?.lines ?? []).map((l) => [l.key, l])))
 
 /** One card on the canvas: a node of the graph, or a group standing for many. */
 interface Card {
@@ -109,7 +123,9 @@ const cards = computed<Card[]>(() => {
       group: null,
       name: nodeName(node),
       type: node.type,
-      typeLabel: node.deleted_on ? `${what} · removed ${node.deleted_on}` : what,
+      typeLabel: [what, routeDraw.value?.accounts.get(node.uid) ?? null, node.deleted_on ? `removed ${node.deleted_on}` : null]
+        .filter(Boolean)
+        .join(' · '),
       icon: cardGlyph(kind, node.type),
       w,
       h,
@@ -140,12 +156,20 @@ const cards = computed<Card[]>(() => {
   return out
 })
 const byId = computed(() => new Map(cards.value.map((c) => [c.id, c])))
-const lines = computed(() => drawnEdges(props.graph))
+// The Attack Path view's lines are the route's moves, never the graph's edges.
+const lines = computed(() =>
+  routeDraw.value
+    ? routeDraw.value.lines.map((l: RouteLine) => ({ key: l.key, source: l.source, target: l.target, type: '', edges: [], families: [], style: l.style, layer: null, group: null }))
+    : drawnEdges(props.graph),
+)
 
 // The canvas's shape when the graph was laid out: a resize re-fits, it never lays out again, so
 // the cards stay where they are (spec §3.2).
 const aspect = ref(16 / 9)
+const width = ref(1200)
 const laid = computed(() => {
+  // A route: walk order, in the rows that draw it largest on this canvas (§11.4).
+  if (routed.value) return routeLayout(cards.value.map((c) => c.id), width.value, width.value / aspect.value)
   const laidNodes = cards.value.map<LaidNode>((c) => ({ id: c.id, kind: c.kind, type: c.type, name: c.name }))
   return layout(
     laidNodes,
@@ -156,7 +180,10 @@ const laid = computed(() => {
 })
 function measureAspect(): void {
   const el = region.value
-  if (el && el.clientWidth > 0 && el.clientHeight > 0) aspect.value = el.clientWidth / el.clientHeight
+  if (el && el.clientWidth > 0 && el.clientHeight > 0) {
+    aspect.value = el.clientWidth / el.clientHeight
+    width.value = el.clientWidth
+  }
 }
 function sizeOf(card: Card): [number, number] {
   return [card.w, card.h]
@@ -174,6 +201,13 @@ function frameOf(card: Card): 'critical' | 'high' | null {
 const selectedNode = computed(() => (props.selection?.kind === 'node' ? props.selection.id : props.selection?.kind === 'group' ? `group:${props.selection.id}` : null))
 const hovered = ref<string | null>(null)
 const lit = computed<{ nodes: Set<string>; lines: Set<string> } | null>(() => {
+  // The Attack Path view lights the player's step only: its line, or the card it stands on.
+  if (props.route) {
+    const line = routeLines.value.get(lineKey(props.route.current))
+    if (line) return { nodes: new Set([line.source, line.target]), lines: new Set([line.key]) }
+    const self = props.route.drawing.selfSteps.find((x) => x.n === props.route!.current)
+    return self ? { nodes: new Set([self.on]), lines: new Set() } : null
+  }
   const sel = props.selection
   if (sel?.kind === 'edge') {
     const line = lines.value.find((l) => l.key === sel.key)
@@ -184,6 +218,8 @@ const lit = computed<{ nodes: Set<string>; lines: Set<string> } | null>(() => {
   return null
 })
 function dimmed(id: string): boolean {
+  // Every card of a route stays in full: the whole route is the attacker's path.
+  if (routed.value) return false
   return lit.value != null && !lit.value.nodes.has(id) && id !== props.focus
 }
 
@@ -251,8 +287,12 @@ interface LineWord {
   tone: 'rest' | 'hover' | 'lit'
   // A security line's word (the Security view): stronger at rest.
   sec: boolean
+  // A route line not reached yet (the Attack Path view).
+  ahead?: boolean
 }
 const words = shallowRef<LineWord[]>([])
+// A route line's words sit this far below its badge.
+const ROUTE_WORDS_BELOW = 20
 function elements(): ElementDefinition[] {
   const positions = laid.value.positions
   const nodes: ElementDefinition[] = cards.value.map((c) => {
@@ -266,6 +306,17 @@ function elements(): ElementDefinition[] {
   const edges: ElementDefinition[] = lines.value
     .filter((l) => positions.has(l.source) && positions.has(l.target) && l.source !== l.target)
     .map((l) => {
+      const routeLine = routeLines.value.get(l.key)
+      if (routeLine) {
+        // The badge at the middle, the words below it (§11.4).
+        const a = positions.get(l.source)!
+        const b = positions.get(l.target)!
+        const { weights, distances, mid } = routeBend(a, b)
+        // Down a column the words sit beside the badge, to its right; elsewhere below it.
+        const side = Math.abs(a.x - b.x) < 1 ? 1 : 0
+        const words = side ? { x: mid.x + 16, y: mid.y } : { x: mid.x, y: mid.y + ROUTE_WORDS_BELOW }
+        return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: routeLine.words, line: l.style, sec: 0, role: routeLine.role, side, weights, distances, mx: words.x, my: words.y, alts: [] } }
+      }
       const { weights, distances, mid, alts } = bend(positions.get(l.source)!, positions.get(l.target)!)
       const sec = security.value && SECURITY_EDGE_TYPES.has(l.type) ? 1 : 0
       return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: edgeWord(l.type, l.target), line: l.style, sec, weights, distances, mx: mid.x, my: mid.y, alts } }
@@ -279,6 +330,9 @@ function style(): cytoscape.StylesheetJson {
   const text2 = token('--text-2')
   const text3 = token('--text-3')
   const dim = Number(token('--graph-dim')) || 0.3
+  const entry = token('--route-entry')
+  const lateral = token('--route-lateral')
+  const step = reduced ? 0 : parseFloat(token('--motion-route-step')) || 0
   return [
     {
       selector: 'node',
@@ -318,7 +372,27 @@ function style(): cytoscape.StylesheetJson {
       style: { width: 2.4, 'line-color': accent, 'target-arrow-color': accent, 'underlay-opacity': 0.14 } as never,
     },
     { selector: 'edge.dim', style: { opacity: dim } },
+    // The Attack Path view (§11.2, owner 2026-11-16: red advancing on grey): a step the player has
+    // reached is in its red, told apart by width and arrowhead as well; one not reached yet is the
+    // map's own grey line; the current step is heavier with the lit underlay. A step turns red
+    // over --motion-route-step. Hover changes nothing on a route.
+    { selector: 'edge[role]', style: { 'transition-duration': step } as never },
+    { selector: 'edge[role = "entry"]', style: { width: 3.2, 'line-color': entry, 'target-arrow-color': entry, 'arrow-scale': 1.3 } },
+    { selector: 'edge[role = "lateral"]', style: { width: 2.4, 'line-color': lateral, 'target-arrow-color': lateral, 'arrow-scale': 0.9 } },
+    { selector: 'edge[role].ahead', style: { width: 1.6, 'line-color': edge, 'target-arrow-color': edge, 'arrow-scale': 0.9 } },
+    {
+      selector: 'edge[role].current',
+      style: { 'underlay-opacity': 0.22, 'underlay-padding': 6, 'transition-duration': step } as never,
+    },
+    { selector: 'edge[role = "entry"].current', style: { width: 4 } },
+    { selector: 'edge[role = "lateral"].current', style: { width: 3.2 } },
   ]
+}
+
+/** A route line the player has not reached yet. */
+function isAhead(key: string): boolean {
+  const n = routeLines.value.get(key)?.n
+  return props.route != null && n != null && n > props.route.current
 }
 
 function paint(): void {
@@ -328,6 +402,11 @@ function paint(): void {
     c.edges().forEach((e: EdgeSingular) => {
       const key = e.id()
       const isLit = lit.value?.lines.has(key) ?? false
+      if (routed.value) {
+        e.toggleClass('current', isLit)
+        e.toggleClass('ahead', isAhead(key))
+        return
+      }
       e.toggleClass('lit', isLit)
       e.toggleClass('dim', lit.value != null && !isLit)
     })
@@ -345,8 +424,9 @@ function placeLabels(): void {
   const c = cy.value
   if (!c) return
   const z = c.zoom()
+  // Every route line keeps its words (at most 12): they are drawn as a lit line's.
   const rank = (e: EdgeSingular): number =>
-    e.hasClass('hover') ? 0 : e.hasClass('lit') ? 1 : e.data('source') === props.focus || e.data('target') === props.focus ? 2 : 3
+    routed.value ? 1 : e.hasClass('hover') ? 0 : e.hasClass('lit') ? 1 : e.data('source') === props.focus || e.data('target') === props.focus ? 2 : 3
   const candidates = c
     .edges()
     .toArray()
@@ -363,7 +443,9 @@ function placeLabels(): void {
     const w = (String(e.data('label')).length * CHAR_PX + 2 * LABEL_PAD + 4) / z
     const h = (LABEL_PX + 2 * LABEL_PAD + 2) / z
     // The middle first, then a quarter of the way from either end.
-    const spots: { x: number; y: number }[] = [{ x: e.data('mx'), y: e.data('my') }, ...((e.data('alts') as { x: number; y: number }[] | undefined) ?? [])]
+    // A route line down a column: its words start beside the line (mx is their left edge).
+    const first = e.data('side') === 1 ? { x: e.data('mx') + w / 2, y: e.data('my') } : { x: e.data('mx'), y: e.data('my') }
+    const spots: { x: number; y: number }[] = [first, ...((e.data('alts') as { x: number; y: number }[] | undefined) ?? [])]
     const r = rank(e)
     const spot = spots.find((at) => {
       const box = { x1: at.x - w / 2, x2: at.x + w / 2, y1: at.y - h / 2, y2: at.y + h / 2 }
@@ -372,7 +454,9 @@ function placeLabels(): void {
     })
     if (!spot) continue
     placed.push({ x1: spot.x - w / 2, x2: spot.x + w / 2, y1: spot.y - h / 2, y2: spot.y + h / 2 })
-    shown.push({ key: e.id(), text: e.data('label'), x: spot.x, y: spot.y, tone: r === 0 ? 'hover' : r === 1 ? 'lit' : 'rest', sec: e.data('sec') === 1 })
+    const tone = routed.value ? (e.hasClass('current') ? 'lit' : 'rest') : r === 0 ? 'hover' : r === 1 ? 'lit' : 'rest'
+    const ahead = routed.value && isAhead(e.id())
+    shown.push({ key: e.id(), text: e.data('label'), x: spot.x, y: spot.y, tone, sec: (routed.value && !ahead) || e.data('sec') === 1, ahead })
   }
   words.value = shown
 }
@@ -439,6 +523,11 @@ function firstView(): void {
     // The focus card stays where it was on screen, even if the other view added a row above it.
     const shift = now && anchor ? { x: (anchor.x - now.x) * z, y: (anchor.y - now.y) * z } : { x: 0, y: 0 }
     c.viewport({ zoom: z, pan: { x: p.x + shift.x, y: p.y + shift.y } })
+    return
+  }
+  // A route opens whole (§11.4): at most 150 %, and the map's minimum zoom, below which it pans.
+  if (routed.value) {
+    fit()
     return
   }
   const box = drawingBox(c)
@@ -606,6 +695,45 @@ watch([cards, lines], () => {
   if (outside) fit(eles, true)
 })
 watch(lit, paint)
+// The Attack Path view: a step change brings its line into view when either end is outside it,
+// over --motion-route-pan (none under reduced motion). The zoom never changes.
+watch(
+  () => props.route?.current,
+  (n) => {
+    const c = cy.value
+    if (n == null || !c || !lit.value) return
+    const ends = collect([...lit.value.nodes])
+    if (!ends || ends.empty()) return
+    const extent = c.extent()
+    const box = ends.boundingBox()
+    if (box.x1 >= extent.x1 && box.x2 <= extent.x2 && box.y1 >= extent.y1 && box.y2 <= extent.y2) return
+    const viewport = { zoom: c.zoom(), pan: { x: c.width() / 2 - (box.x1 + box.w / 2) * c.zoom(), y: c.height() / 2 - (box.y1 + box.h / 2) * c.zoom() } }
+    const duration = reduced ? 0 : parseFloat(token('--motion-route-pan')) || 0
+    if (duration) c.animate(viewport, { duration, easing: 'ease-out' })
+    else c.viewport(viewport)
+  },
+)
+// A step's number at each route line's middle, and the tab over a card a foothold or a login
+// stands on (§4.3): HTML, with the cards.
+const badges = computed(() => {
+  if (!props.route) return []
+  const positions = laid.value.positions
+  return props.route.drawing.lines.flatMap((l) => {
+    const a = positions.get(l.source)
+    const b = positions.get(l.target)
+    if (!a || !b) return []
+    const { mid } = routeBend(a, b)
+    return [{ n: l.n, x: mid.x, y: mid.y, current: l.n === props.route!.current }]
+  })
+})
+const footTabs = computed(() => {
+  if (!props.route) return []
+  return props.route.drawing.selfSteps.flatMap((x) => {
+    const p = laid.value.positions.get(x.on)
+    const card = byId.value.get(x.on)
+    return p && card ? [{ n: x.n, text: x.tab, x: p.x, y: p.y - card.h / 2 - 6, current: x.n === props.route!.current }] : []
+  })
+})
 // A card chosen at the edge (a click, the keyboard, the List view) comes to the centre.
 watch(selectedNode, (id) => {
   if (id) void nextTick(() => centreIfAside(id))
@@ -734,7 +862,11 @@ const announcement = computed(() => {
   const facts = card.kind === 'group' ? [] : card.facts.map((f) => `, ${f}`)
   return `${card.name}, ${card.typeLabel}${where}${card.kind === 'group' ? `, ${card.group?.count} resources` : ''}${facts.join('')}.`
 })
-const regionLabelText = computed(() => `Map, ${security.value ? 'Security' : 'Infrastructure'} view, ${props.graph.nodes.size} resources. The List view shows the same resources as a table.`)
+const regionLabelText = computed(() =>
+  props.route
+    ? `Map, Attack Path view: ${props.route.title}. The step list beside the map holds the same steps.`
+    : `Map, ${security.value ? 'Security' : 'Infrastructure'} view, ${props.graph.nodes.size} resources. The List view shows the same resources as a table.`,
+)
 
 // ---- Legend: a popover from its button, closed by default and remembered per browser.
 const LEGEND_KEY = 'argus.map.legend'
@@ -850,7 +982,9 @@ defineExpose({ fit, viewport })
     <div ref="container" class="cy"></div>
     <div class="world" :class="{ far }" :style="worldStyle" aria-hidden="true" @wheel="onWheel">
       <span v-for="col in columnNames" :key="col.lane" class="eyebrow col-name" :style="{ left: `${col.left}px`, top: `${col.top}px` }">{{ col.label }}</span>
-      <span v-for="w in words" :key="w.key" class="line-word" :class="[w.tone, { sec: w.sec }]" :style="{ left: `${w.x}px`, top: `${w.y}px` }">{{ w.text }}</span>
+      <span v-for="w in words" :key="w.key" class="line-word" :class="[w.tone, { sec: w.sec, ahead: w.ahead }]" :style="{ left: `${w.x}px`, top: `${w.y}px` }">{{ w.text }}</span>
+      <span v-for="b in badges" :key="`b${b.n}`" class="step-badge mono" :class="{ current: b.current }" :style="{ left: `${b.x}px`, top: `${b.y}px` }">{{ b.n }}</span>
+      <span v-for="t in footTabs" :key="`t${t.n}`" class="foot-tab" :class="{ current: t.current }" :style="{ left: `${t.x}px`, top: `${t.y}px` }"><span class="mono">{{ t.n }}</span> {{ t.text }}</span>
       <div
         v-for="card in cards"
         :key="card.id"
@@ -860,7 +994,7 @@ defineExpose({ fit, viewport })
           frameOf(card) ? `frame-${frameOf(card)}` : '',
           {
             focus: card.id === focus,
-            selected: card.id === selectedNode,
+            selected: card.id === selectedNode || (routed && !!lit?.nodes.has(card.id)),
             active: focused && card.id === active,
             faded: dimmed(card.id),
             boundary: card.node?.boundary,
@@ -922,23 +1056,33 @@ defineExpose({ fit, viewport })
 
     <div ref="controlsRef" class="controls" @keydown.esc.stop="legendOpen = false">
       <dl v-show="legendOpen" id="map-legend" class="legend-body">
-        <div><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l solid" /></svg></dt><dd>Argus rule</dd></div>
-        <div><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l dashed" /></svg></dt><dd>CloudFox only</dd></div>
-        <div><dt><span class="sw node-sw"></span></dt><dd>Resource</dd></div>
-        <div><dt><span class="sw group-sw"></span></dt><dd>Group of resources</dd></div>
-        <div><dt><span class="sw ext-sw"></span></dt><dd>Not in the inventory</dd></div>
-        <div><dt><span class="sw boundary-sw"></span></dt><dd>Other connection or account</dd></div>
+        <template v-if="routed">
+          <div class="wide"><dt><svg width="28" height="10" aria-hidden="true"><line x1="0" y1="5" x2="22" y2="5" class="l entry" /><path d="M21 1l7 4-7 4z" class="arrow entry" /></svg></dt><dd>Internet entry: the way in from outside</dd></div>
+          <div class="wide"><dt><svg width="28" height="10" aria-hidden="true"><line x1="0" y1="5" x2="23" y2="5" class="l lateral" /><path d="M23 2l5 3-5 3z" class="arrow lateral" /></svg></dt><dd>Lateral move: resource to resource, account to account</dd></div>
+          <div class="wide"><dt><span class="step-badge mono legend-badge current">3</span></dt><dd>The current step: its line lit, both cards ringed</dd></div>
+          <div class="wide"><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l solid" /></svg></dt><dd>A step not reached yet: grey until the player gets there</dd></div>
+          <div class="wide"><dd>Dashed: found by CloudFox only. Dotted: added by hand.</dd></div>
+        </template>
+        <template v-else>
+          <div><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l solid" /></svg></dt><dd>Argus rule</dd></div>
+          <div><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l dashed" /></svg></dt><dd>CloudFox only</dd></div>
+          <div><dt><span class="sw node-sw"></span></dt><dd>Resource</dd></div>
+          <div><dt><span class="sw group-sw"></span></dt><dd>Group of resources</dd></div>
+          <div><dt><span class="sw ext-sw"></span></dt><dd>Not in the inventory</dd></div>
+          <div><dt><span class="sw boundary-sw"></span></dt><dd>Other connection or account</dd></div>
+        </template>
         <template v-if="security">
           <div class="wide"><dt><span class="sw frame-sw"></span></dt><dd>A Critical or High misconfiguration: the border in its colour, its word on the border</dd></div>
-          <div class="wide"><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l sec" /></svg></dt><dd>Security line: what an identity can do, or the internet reaching a resource</dd></div>
+          <div v-if="!routed" class="wide"><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l sec" /></svg></dt><dd>Security line: what an identity can do, or the internet reaching a resource</dd></div>
           <div class="wide"><dt><CountPill count="3" severity="high" /></dt><dd>Open misconfigurations, in the worst severity's colour</dd></div>
           <div class="wide"><dt><AppIcon name="globe" :size="14" :stroke="1.8" /></dt><dd>Reachable from the internet (Argus's rules confirm it)</dd></div>
           <div><dt><AppIcon name="bug" :size="14" :stroke="1.8" /></dt><dd>Open vulnerabilities</dd></div>
           <div><dt><AppIcon name="warning" :size="14" :stroke="1.8" class="exploit" /></dt><dd>A public exploit</dd></div>
         </template>
         <div class="wide"><dt><span class="sw-tile"><AppIcon name="server" :size="12" /></span></dt><dd>Icon: the type of resource</dd></div>
-        <div class="wide"><dd>Data access is what a role's policies allow, not observed traffic.</dd></div>
+        <div v-if="!routed" class="wide"><dd>Data access is what a role's policies allow, not observed traffic.</dd></div>
         <div v-if="security" class="wide"><dd>A line from the internet that CloudFox found is CloudFox's claim; the globe is Argus's confirmed verdict.</dd></div>
+        <div v-if="routed" class="wide"><dd>Every line's words say how sure Argus is of it; the step list has each step's level.</dd></div>
       </dl>
       <div class="buttons">
         <button type="button" class="btn btn-secondary btn-sm legend-btn" :aria-expanded="legendOpen" aria-controls="map-legend" @click.stop="legendOpen = !legendOpen">
@@ -1020,6 +1164,59 @@ defineExpose({ fit, viewport })
 
 /* Lit: the strongest text colour (accent text would fail contrast). */
 .line-word.lit {
+  color: var(--text-strong);
+}
+
+/* The Attack Path view (W6 §4.3, §11.2): a step's number at its line's middle, one size on
+   screen; the current one's border is the accent. Order never rests on colour. */
+.step-badge {
+  position: absolute;
+  z-index: 2;
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%) scale(var(--word-scale));
+  border: 1px solid var(--graph-edge);
+  border-radius: 50%;
+  background: var(--graph-node);
+  color: var(--text);
+  font-size: 11px;
+  transition: border-color var(--ease), color var(--ease);
+}
+
+.step-badge.current {
+  border: 2px solid var(--accent);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+
+.legend-badge {
+  position: static;
+  transform: none;
+}
+
+/* A foothold or a login: an assumption, not a line. A dashed tab over the card it stands on. */
+.foot-tab {
+  position: absolute;
+  z-index: 2;
+  height: 20px;
+  padding: 0 var(--s-8);
+  transform: translate(-50%, -100%) scale(var(--word-scale));
+  transform-origin: 50% 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-4);
+  border: 1px dashed var(--text-3);
+  border-radius: var(--r-tile) var(--r-tile) 0 0;
+  background: var(--graph-node);
+  color: var(--text-2);
+  font: 500 11px/1 var(--font-sans);
+  white-space: nowrap;
+}
+
+.foot-tab.current {
+  border: 2px solid var(--accent);
   color: var(--text-strong);
 }
 
@@ -1416,6 +1613,24 @@ defineExpose({ fit, viewport })
 .l {
   stroke: var(--graph-edge);
   stroke-width: 1.6;
+}
+
+.l.entry {
+  stroke: var(--route-entry);
+  stroke-width: 3.2;
+}
+
+.l.lateral {
+  stroke: var(--route-lateral);
+  stroke-width: 2.4;
+}
+
+.arrow.entry {
+  fill: var(--route-entry);
+}
+
+.arrow.lateral {
+  fill: var(--route-lateral);
 }
 
 .l.dashed {

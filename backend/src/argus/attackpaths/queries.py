@@ -87,6 +87,21 @@ def _where(f: RouteFilters) -> tuple[str, dict[str, Any]]:
     return " AND ".join(parts), params
 
 
+# Where a listed route passes through the `through` resource: the first listed target whose
+# steps touch it, and the first such step (n counts from 1, as the detail's steps do). Read only
+# for the page's rows: at most LIST_N targets of at most 16 steps each.
+_THROUGH_JOIN = """
+        LEFT JOIN LATERAL (
+          SELECT x.seq AS through_target, s.n AS through_step
+          FROM route_target x,
+               unnest(x.step_source_id, x.step_target_id) WITH ORDINALITY AS s(src, tgt, n)
+          WHERE x.route_id = r.id AND (s.src = :t OR s.tgt = :t)
+          ORDER BY x.seq, s.n LIMIT 1
+        ) th ON true"""
+_THROUGH_COLUMNS = "th.through_target, th.through_step"
+_NO_THROUGH_COLUMNS = "NULL::smallint AS through_target, NULL::bigint AS through_step"
+
+
 def list_routes(
     conn: Connection, f: RouteFilters, *, order: RouteOrder, limit: int, offset: int
 ) -> tuple[list[dict[str, Any]], int]:
@@ -104,8 +119,10 @@ def list_routes(
                r.crossed_connection_ids AS crossed, r.severity, r.worst_class, r.target_count,
                r.listed_count, r.first_seen, r.last_seen, r.resolved_on, r.state,
                t.target_uid, t.target_resource_id,
-               t.step_connection_id[cardinality(t.step_connection_id)] AS target_connection_id
+               t.step_connection_id[cardinality(t.step_connection_id)] AS target_connection_id,
+               {_THROUGH_COLUMNS if f.through is not None else _NO_THROUGH_COLUMNS}
         FROM route r JOIN route_target t ON t.route_id = r.id AND t.seq = 1
+        {_THROUGH_JOIN if f.through is not None else ""}
         WHERE {where}
         ORDER BY {by} LIMIT :limit OFFSET :offset
     """),  # noqa: S608 - fixed fragments, parameters only

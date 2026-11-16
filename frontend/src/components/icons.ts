@@ -86,3 +86,7 @@ export type IconName =
   | 'sun'
   | 'moon'
   | 'monitor'
+  // The Attack Path view's player (W6 §11.5): First, Previous / Next (chevron), Play, Pause.
+  | 'first'
+  | 'play'
+  | 'pause'
