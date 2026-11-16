@@ -611,10 +611,10 @@ test('investigate: misconfigurations, vulnerabilities and resources, read-only',
   await expect(page).toHaveURL(/\/investigate\/misconfigurations$/)
 })
 
-test('resource map: the start, a map as a diagram, the panel and the list; both themes, phone width', async ({ page }) => {
+test('map, Infrastructure view: the start, a map as a diagram, the panel and the list; both themes, phone width', async ({ page }) => {
   test.setTimeout(120_000)
   await signIn(page)
-  // The Resource Map reads no security fact (ADR-0051, owner 2026-11-13): every request it makes
+  // The Infrastructure view reads no security fact (ADR-0051, owner 2026-11-13): every request it makes
   // is seen, and none goes to a route that carries one.
   const asked: string[] = []
   const everything: string[] = []
@@ -624,9 +624,9 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
       if (new URL(page.url()).pathname.startsWith('/investigate/map')) everything.push(new URL(r.url()).pathname)
     }
   })
-  await navLink(page, 'Resource Map')
+  await navLink(page, 'Map')
   await expect(page).toHaveURL(/\/investigate\/map/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Resource Map' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Map' })).toBeVisible()
   // The start: find a resource, reopen a recent one, or see what is here. No name needed.
   await expect(page.getByRole('heading', { level: 2, name: 'Map a resource' })).toBeVisible()
   await expect(page.getByLabel('Account')).toHaveValue('')
@@ -649,7 +649,7 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   await aRow.click()
   await expect(page).toHaveURL(/focus=/)
   await expect(page).toHaveURL(/type=aws_iam_role/)
-  await expect(page.getByRole('application', { name: /^Resource Map, \d+ resources/ })).toBeVisible()
+  await expect(page.getByRole('application', { name: /^Map, Infrastructure view, \d+ resources/ })).toBeVisible()
   // Back returns to the same type and page.
   await page.goBack()
   await expect(page.getByRole('heading', { level: 3, name: 'IAM role' })).toBeVisible()
@@ -676,7 +676,7 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   const answered = page.waitForResponse((r) => r.url().includes('/api/v1/map/graph') && r.status() === 200)
   await found.filter({ hasText: 'edge-alb' }).first().click()
   await expect(page).toHaveURL(/focus=/)
-  const canvas = page.getByRole('application', { name: /^Resource Map, \d+ resources/ })
+  const canvas = page.getByRole('application', { name: /^Map, Infrastructure view, \d+ resources/ })
   await expect(canvas).toBeVisible()
   // The map says which scan it shows.
   await expect(page.getByText(/^(Scanned \d{4}-\d{2}-\d{2}|Argus rules \d{4}-\d{2}-\d{2} · CloudFox \d{4}-\d{2}-\d{2})$/)).toBeVisible()
@@ -688,6 +688,27 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   }
   // A map opens at the canvas's full width; the panel comes when a card is chosen.
   await expect(page.getByRole('complementary', { name: 'Resource panel' })).toHaveCount(0)
+  // The opening view fills the canvas (round M: the fit may zoom past 100 %, up to 150 %): the
+  // drawing spans at least 60 % of its width or height.
+  await page.waitForTimeout(300)
+  const fill = await canvas.evaluate((el) => {
+    const box = el.getBoundingClientRect()
+    let x1 = Infinity
+    let y1 = Infinity
+    let x2 = -Infinity
+    let y2 = -Infinity
+    for (const n of Array.from(el.querySelectorAll('.node'))) {
+      const r = n.getBoundingClientRect()
+      if (!r.width) continue
+      x1 = Math.min(x1, r.left)
+      y1 = Math.min(y1, r.top)
+      x2 = Math.max(x2, r.right)
+      y2 = Math.max(y2, r.bottom)
+    }
+    return Math.max((x2 - x1) / box.width, (y2 - y1) / box.height)
+  })
+  expect(fill).toBeGreaterThanOrEqual(0.6)
+  await expect(canvas.getByRole('button', { name: /^Zoom \d+ %, set to 100 %$/ })).toBeVisible()
   await axe(page, 'map opened')
   await shot(page, '91b-map-opened')
   await canvas.locator('.node.focus').click()
@@ -713,11 +734,11 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   expect(asked.filter((path) => /\/(findings|vulnerabilities|risk)\b/.test(path))).toEqual([])
   // A line says what it is, in words drawn above the lines; every card has its type's glyph.
   await expect(page.locator('.line-word', { hasText: 'routes to' }).first()).toBeVisible()
-  await expect(canvas.locator('.node .disc svg').first()).toBeVisible()
+  await expect(canvas.locator('.node .tile svg').first()).toBeVisible()
   await axe(page, 'map focus')
   await shot(page, '91a-map-focus')
   // Back to the start from the menu: the resource is in Recently opened, and reopens.
-  await navLink(page, 'Resource Map')
+  await navLink(page, 'Map')
   await expect(page).not.toHaveURL(/focus=/)
   const recent = page.getByRole('link', { name: /edge-alb/ }).first()
   await expect(recent).toBeVisible()
@@ -764,8 +785,8 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   await shot(page, '91-map')
   // No Sources control: both sources are always drawn (owner, 2026-11-14).
   await expect(page.getByRole('group', { name: 'Sources' })).toHaveCount(0)
-  // Cards sit under their kind's header in each column.
-  await expect(canvas.locator('.kind-name').first()).toBeVisible()
+  // Cards sit in one column per hop, each column named above it; no grouping by type (owner, 2026-11-15).
+  await expect(canvas.locator('.col-name').first()).toBeVisible()
   // Connections stays open while toggling, and offers Select all and Default. A card is open
   // first: each toggle reloads the map and brings the selection back, which used to take the
   // focus to the panel and close the menu (owner, 2026-11-14).
@@ -800,10 +821,38 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   const ec2 = page.getByRole('combobox', { name: 'Find a resource' })
   await ec2.fill('prod-web-0')
   await page.getByRole('listbox', { name: 'Resources' }).getByRole('option').filter({ hasText: 'prod-web-0' }).first().click()
-  await expect(canvas.locator('.kind-name', { hasText: 'Network' }).first()).toBeVisible()
+  await expect(canvas.locator('.col-name', { hasText: 'Selected' }).first()).toBeVisible()
   await expect(canvas.locator('.node', { hasText: 'Security group' }).first()).toBeVisible()
+  // Its subnet is an ordinary card, one hop out (owner, 2026-11-15: no boxes).
   await expect(canvas.locator('.node', { hasText: 'Subnet' }).first()).toBeVisible()
+  await expect(canvas.locator('.box-subnet')).toHaveCount(0)
   await shot(page, '91e-map-ec2')
+  // A card chosen at the edge comes to the middle of the canvas.
+  const edgeCard = await canvas.evaluate((el) => {
+    const box = el.getBoundingClientRect()
+    let far: { text: string; d: number } | null = null
+    for (const n of Array.from(el.querySelectorAll<HTMLElement>('.node:not(.tab):not(.focus)'))) {
+      const r = n.getBoundingClientRect()
+      if (!r.width || r.left < box.left || r.right > box.right || r.top < box.top || r.bottom > box.bottom) continue
+      const d = Math.abs(r.left + r.width / 2 - (box.left + box.width / 2)) + Math.abs(r.top + r.height / 2 - (box.top + box.height / 2))
+      if (!far || d > far.d) far = { text: n.innerText.split('\n')[0] ?? '', d }
+    }
+    return far?.text ?? null
+  })
+  if (edgeCard) {
+    await canvas.locator('.node', { hasText: edgeCard }).first().click()
+    await page.waitForTimeout(800)
+    const centred = await canvas.evaluate((el, name) => {
+      const box = el.getBoundingClientRect()
+      const card = Array.from(el.querySelectorAll<HTMLElement>('.node.selected')).find((n) => n.innerText.includes(name))
+      if (!card) return false
+      const r = card.getBoundingClientRect()
+      const cx = r.left + r.width / 2 - box.left
+      const cy = r.top + r.height / 2 - box.top
+      return cx >= box.width * 0.2 && cx <= box.width * 0.8 && cy >= box.height * 0.2 && cy <= box.height * 0.8
+    }, edgeCard)
+    expect(centred).toBe(true)
+  }
   await page.goBack()
   await expect(canvas).toBeVisible()
   // The keyboard: the arrow keys move between cards, Enter opens the panel, Expand adds that
@@ -830,16 +879,16 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   await axe(page, 'map list view')
   await shot(page, '93-map-list')
   const mapUrl = page.url().replace(/[?&]view=list/, '')
-  // Nothing on the Resource Map read a route that carries a security fact.
+  // Nothing on the Infrastructure view read a route that carries a security fact.
   expect(everything.filter((path) => /^\/api\/v1\/(resources|findings|vulnerabilities|risk|map\/security)\b/.test(path))).toEqual([])
 
-  // Resources has Open in Resource Map on every resource.
+  // Resources has Open on Map on every resource.
   await page.goto('/investigate/resources?tab=list')
   await page.getByRole('table').locator('tbody tr').first().getByRole('link').click()
   await expect(page).toHaveURL(/open=\d+/)
-  await page.getByRole('dialog').getByRole('link', { name: 'Open in Resource Map' }).click()
+  await page.getByRole('dialog').getByRole('link', { name: 'Open on Map', exact: true }).click()
   await expect(page).toHaveURL(/\/investigate\/map\?.*focus=/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Resource Map' })).toBeVisible()
+  await expect(page.getByRole('heading', { level: 1, name: 'Map' })).toBeVisible()
 
   // The light theme: the start and the map.
   await page.emulateMedia({ colorScheme: 'light' })
@@ -867,17 +916,18 @@ test('resource map: the start, a map as a diagram, the panel and the list; both 
   await shot(page, 'P91-map')
 })
 
-test('security map: card B, the security lines and each fact linked to its list; both themes, phone width', async ({ page }) => {
+test('map, Security view: card B, the security lines and each fact linked to its list; both themes, phone width', async ({ page }) => {
   test.setTimeout(150_000)
   await signIn(page)
   const graphs: string[] = []
   page.on('request', (r) => {
     if (r.url().includes('/api/v1/map/')) graphs.push(new URL(r.url()).pathname)
   })
-  await navLink(page, 'Security Map')
-  await expect(page).toHaveURL(/\/investigate\/security-map/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Security Map' })).toBeVisible()
-  await expect(page.getByText('also has Open in Security Map.')).toBeVisible()
+  await navLink(page, 'Map')
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Security' }).click()
+  await expect(page).toHaveURL(/\/investigate\/map\?mode=security/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Map' })).toBeVisible()
+  await expect(page.getByText('also has Open on Map.')).toBeVisible()
   await axe(page, 'security map start')
   // The front door, two hops deep: the internet's lines, the ALB's findings and the function.
   await page.getByLabel('Account').selectOption({ label: 'demo-prod' })
@@ -885,7 +935,7 @@ test('security map: card B, the security lines and each fact linked to its list;
   await find.fill('edge-alb')
   const answered = page.waitForResponse((r) => r.url().includes('/api/v1/map/security/graph') && r.status() === 200)
   await page.getByRole('listbox', { name: 'Resources' }).getByRole('option').filter({ hasText: 'edge-alb' }).first().click()
-  const canvas = page.getByRole('application', { name: /^Security Map, \d+ resources/ })
+  const canvas = page.getByRole('application', { name: /^Map, Security view, \d+ resources/ })
   await expect(canvas).toBeVisible()
   // Each node of the answer carries its facts (null outside the inventory).
   const graph = (await (await answered).json()) as { nodes: { resource_id: number | null; facts: unknown }[] }
@@ -904,6 +954,8 @@ test('security map: card B, the security lines and each fact linked to its list;
   await expect(page.locator('#map-legend')).toContainText("the globe is Argus's confirmed verdict")
   await axe(page, 'security map')
   await shot(page, '94-security-map')
+  await page.getByRole('button', { name: /Legend/ }).click()
+  await expect(page.locator('#map-legend')).toBeHidden()
 
   // A card's count equals the list its link opens: Misconfigurations, then Vulnerabilities and
   // the internet, on whichever cards carry them.
@@ -961,15 +1013,52 @@ test('security map: card B, the security lines and each fact linked to its list;
   await axe(page, 'security map list')
   await shot(page, '94b-security-map-list')
   const listUrl = page.url().replace(/([?&])open=[^&]*&?/, '$1').replace(/[?&]$/, '')
-  // The Security Map read only its own routes and the plain start; never the Resource Map's graph.
+  // The Security view read only its own routes and the plain start; never the plain graph.
   expect(graphs.filter((p) => p === '/api/v1/map/graph' || p === '/api/v1/map/group')).toEqual([])
 
-  // Resources has Open in Security Map.
+  // The View switch (round M): Infrastructure at the same focus reads the plain graph and keeps the
+  // focus card where it was on screen; back to Security, the facts return.
+  await page.goto(listUrl.replace(/[?&]view=list/, ''))
+  await expect(canvas).toBeVisible()
+  const focusCard = canvas.locator('.node.focus')
+  const where = async (card = focusCard) => card.evaluate((el) => {
+    const r = el.getBoundingClientRect()
+    return { x: r.left, y: r.top }
+  })
+  const near = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) <= 2 && Math.abs(a.y - b.y) <= 2
+  // With another card open (its panel docked), the switch still keeps the camera.
+  await canvas.locator('.node.kind-resource:not(.focus):not(.tab)').first().click()
+  await expect(page).toHaveURL(/open=/)
+  await page.waitForTimeout(800)
+  const placed = await where()
+  const plain = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/v1/map/graph' && r.status() === 200)
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Infrastructure' }).click()
+  await plain
+  await expect(page).not.toHaveURL(/mode=/)
+  const infra = page.getByRole('application', { name: /^Map, Infrastructure view, \d+ resources/ })
+  await expect(infra).toBeVisible()
+  await expect(infra.locator('.card-pill')).toHaveCount(0)
+  expect(near(await where(infra.locator('.node.focus')), placed)).toBe(true)
+  await expect(page).toHaveURL(/open=/)
+  await expect(page.getByRole('complementary', { name: 'Resource panel' })).toBeVisible()
+  await page.getByRole('group', { name: 'View' }).getByRole('button', { name: 'Security' }).click()
+  await expect(canvas).toBeVisible()
+  expect(near(await where(), placed)).toBe(true)
+  // A Critical or High card is framed, with its word on the frame.
+  for (const word of await canvas.locator('.frame-word').allInnerTexts()) expect(word.trim().toLowerCase()).toMatch(/^(critical|high)$/)
+  // A link to the old Security Map opens the Map's Security view.
+  const oldFocus = new URL(listUrl, 'http://x').searchParams.get('focus') ?? ''
+  await page.goto(`/investigate/security-map?focus=${encodeURIComponent(oldFocus)}`)
+  await expect(page).toHaveURL(/\/investigate\/map\?.*mode=security/)
+  await expect(canvas).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('focus')).toBe(oldFocus)
+
+  // Resources has Open on Map, Security view.
   await page.goto('/investigate/resources?tab=list')
   await page.getByRole('table').locator('tbody tr').first().getByRole('link').click()
-  await page.getByRole('dialog').getByRole('link', { name: 'Open in Security Map' }).click()
-  await expect(page).toHaveURL(/\/investigate\/security-map\?.*focus=/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Security Map' })).toBeVisible()
+  await page.getByRole('dialog').getByRole('link', { name: 'Open on Map, Security view' }).click()
+  await expect(page).toHaveURL(/\/investigate\/map\?.*mode=security/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Map' })).toBeVisible()
 
   // The light theme and phone width.
   await page.emulateMedia({ colorScheme: 'light' })
@@ -989,9 +1078,15 @@ test('security map: card B, the security lines and each fact linked to its list;
 test('attack paths: the list, a route and its targets, every state; both themes, phone width', async ({ page }) => {
   test.setTimeout(150_000)
   await signIn(page)
-  await navLink(page, 'Attack paths')
-  await expect(page).toHaveURL(/\/investigate\/attack-paths$/)
-  await expect(page.getByRole('heading', { level: 1, name: 'Attack paths' })).toBeVisible()
+  // Attack paths are the Map's second tab (owner, 2026-11-15); the old address still opens them.
+  await navLink(page, 'Map')
+  await page.getByRole('navigation', { name: 'Map views' }).getByRole('link', { name: 'Attack paths' }).click()
+  await expect(page).toHaveURL(/\/investigate\/map\/attack-paths$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Map' })).toBeVisible()
+  await expect(page.getByRole('navigation', { name: 'Map views' }).getByRole('link', { name: 'Attack paths' })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Map', exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.goto('/investigate/attack-paths')
+  await expect(page).toHaveURL(/\/investigate\/map\/attack-paths$/)
   await expect(page.getByText(/^Data through/)).toBeVisible()
   const rows = page.getByRole('table').locator('tbody tr')
   await expect(rows.first()).toBeVisible()
@@ -1009,7 +1104,7 @@ test('attack paths: the list, a route and its targets, every state; both themes,
   expect(classes.length).toBeGreaterThan(0)
   expect(new Set(classes.map((c) => c.split(':')[0]!.trim()))).toEqual(new Set(['Latent']))
   await page.getByRole('button', { name: 'Clear filters' }).first().click()
-  await expect(page).toHaveURL(/\/investigate\/attack-paths$/)
+  await expect(page).toHaveURL(/\/investigate\/map\/attack-paths$/)
 
   // A route with several targets: from the internet to a data store, the Demo estate's widest.
   const many = rows.filter({ hasText: /Worst: .* · \d+ targets/ }).filter({ hasText: 'From the internet to a data store:' }).first()
@@ -1500,7 +1595,7 @@ test('light theme: every screen passes axe, and the toggle cycles', async ({ pag
     ['/investigate/vulnerabilities?tab=list', 'Vulnerabilities', 'L75-vulnerabilities'],
     ['/investigate/resources', 'Resources', 'L71a-resources-summary'],
     ['/investigate/resources?tab=list', 'Resources', 'L72-resources'],
-    ['/investigate/attack-paths', 'Attack paths', 'L96-attack-paths'],
+    ['/investigate/map/attack-paths', 'Map', 'L96-attack-paths'],
     ['/scans/schedules', 'Schedules', 'L30-schedules'],
     ['/scans/runs', 'Runs', 'L40-runs'],
     ['/admin/connections', 'Connections', 'L20-connections'],
@@ -1590,8 +1685,9 @@ test('users and roles: a viewer and an operator, each limited to their role', as
     // Reports carry the estate's weak points out of Argus: an Operator's and an Admin's only.
     await expect(nav.getByRole('link', { name: 'Reports', exact: true })).toHaveCount(canOperate ? 1 : 0)
     // Attack paths: every role reads the stored routes (owner, 2026-11-15).
-    await navLink(page, 'Attack paths')
-    await expect(page.getByRole('heading', { level: 1, name: 'Attack paths' })).toBeVisible()
+    await navLink(page, 'Map')
+    await page.getByRole('navigation', { name: 'Map views' }).getByRole('link', { name: 'Attack paths' }).click()
+    await expect(page).toHaveURL(/\/investigate\/map\/attack-paths$/)
     await expect(page.getByRole('table').locator('tbody tr').first()).toBeVisible()
     if (!canOperate) {
       await page.goto('/scans/reports')

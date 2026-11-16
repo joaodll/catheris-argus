@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Card B's count pill (the Security Map; spec frontend/4242ef35): open misconfigurations, tinted
+ * Card B's count pill (the Security view; spec frontend/4242ef35): open misconfigurations, tinted
  * in the worst severity's colour, with its square. The words (count and severity) are in the
  * card's tooltip, the List and the panel, so the pill is never the only carrier. `base` is the
  * surface it sits on (a card on the canvas by default).

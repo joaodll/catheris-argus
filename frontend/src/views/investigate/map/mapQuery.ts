@@ -19,7 +19,9 @@ export const LAYER_LABEL: Record<Layer, string> = { traffic: 'Traffic', identity
 export const DEPTHS = [1, 2, 3] as const
 export type Depth = (typeof DEPTHS)[number]
 
-// Which map: the Resource Map draws no security line; the Security Map does (ADR-0051).
+// The Map's view mode (round M, owner 2026-11-15, decisions/0faa077c): Infrastructure ('resource')
+// draws no security line or fact and reads only the plain routes; Security does (ADR-0051). In the
+// URL as mode=security; Infrastructure is the default and left out.
 export type MapKind = 'resource' | 'security'
 
 export type View = 'map' | 'list'
@@ -43,6 +45,7 @@ export interface MapState {
   type: string | null
   page: number
   tab: PanelTab
+  mode: MapKind
 }
 
 const UID_MAX = 2048 // as the API
@@ -89,6 +92,7 @@ export function parseMapQuery(query: LocationQuery, defaultView: View = 'map'): 
     // A page belongs to a type's list.
     page: type ? (id(query.page) ?? 1) : 1,
     tab: (PANEL_TABS as readonly string[]).includes(one(query.tab) ?? '') ? (one(query.tab) as PanelTab) : 'overview',
+    mode: one(query.mode) === 'security' ? 'security' : 'resource',
   }
 }
 
@@ -105,6 +109,7 @@ export function mapQueryToUrl(s: MapState, defaultView: View = 'map'): LocationQ
     type: s.type ?? undefined,
     page: s.type == null || s.page === 1 ? undefined : String(s.page),
     tab: s.tab === 'overview' ? undefined : s.tab,
+    mode: s.mode === 'security' ? 'security' : undefined,
   }
 }
 

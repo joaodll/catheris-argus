@@ -21,7 +21,7 @@ const props = defineProps<{
 }>()
 
 // The Resources Summary's stored counts, read through the map's own plain route (no risk count
-// reaches the Resource Map): every asset type of one account or of all, so the screens agree.
+// reaches the Infrastructure view): every asset type of one account or of all, so the screens agree.
 const types = useResource(
   () => unwrap(api.GET('/api/v1/map/types', { params: { query: { connection_id: props.connection ?? 0 } } })),
   { watch: [() => props.connection] },

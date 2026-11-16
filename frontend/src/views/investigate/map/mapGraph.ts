@@ -6,7 +6,7 @@
  */
 import type { Schemas } from '@/api/client'
 
-// A Security Map node also carries its facts (mapFacts.ts); a Resource Map node never does.
+// A Security view node also carries its facts (mapFacts.ts); a Infrastructure view node never does.
 export type MapNode = Schemas['MapNode'] & { facts?: Schemas['NodeFacts'] | null }
 export type MapEdge = Schemas['MapEdge']
 export type MapGroup = Schemas['MapGroup']

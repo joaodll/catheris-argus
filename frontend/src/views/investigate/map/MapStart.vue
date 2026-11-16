@@ -17,7 +17,7 @@ import ResourceSearch from './ResourceSearch.vue'
 import { typeLabel } from './mapLanes'
 
 const props = defineProps<{
-  // Which map the start opens (the Security Map shares it): only its hint names the map.
+  // Which map the start opens (the Security view shares it): only its hint names the map.
   map?: 'resource' | 'security'
   connections: Schemas['ConnectionOut'][] | null
   connectionsFailed: boolean
@@ -117,7 +117,7 @@ const account = (r: RecentResource) =>
       />
       <MapStartTypes v-else :connection="connection" :type-link="typeLink" :take-focus="moved" />
 
-      <p class="cap hint">Every resource on <RouterLink to="/investigate/resources">Resources</RouterLink> also has Open in {{ map === 'security' ? 'Security Map' : 'Resource Map' }}.</p>
+      <p class="cap hint">Every resource on <RouterLink to="/investigate/resources">Resources</RouterLink> also has Open on Map.</p>
     </div>
   </div>
 </template>
@@ -134,7 +134,8 @@ const account = (r: RecentResource) =>
   flex-direction: column;
   gap: var(--s-20);
   width: 100%;
-  max-width: 720px;
+  /* The canvas card's width (round M, spec §8): What's here fills a wide screen in columns. */
+  max-width: var(--content-max);
 }
 
 .titles {
@@ -154,6 +155,7 @@ const account = (r: RecentResource) =>
   display: flex;
   align-items: flex-end;
   gap: var(--s-12);
+  max-width: 720px;
 }
 
 .account {

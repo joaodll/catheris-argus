@@ -49,11 +49,15 @@ export const router = createRouter({
         // A link or bookmark from before the split: a CVE's goes to Vulnerabilities.
         { path: 'findings', redirect: (to) => ({ name: findingsRedirect(to.query), query: to.query }) },
         { path: 'resources', name: 'resources', component: () => import('@/views/investigate/ResourcesView.vue'), meta: { title: 'Resources · Investigate' } },
-        // An open resource adds its name in front of the title (MapView).
-        { path: 'map', name: 'resource-map', component: () => import('@/views/investigate/map/MapView.vue'), props: { map: 'resource' }, meta: { title: 'Resource Map · Investigate' } },
-        // The same page with the security lines and each card's facts (ADR-0051, round 2).
-        { path: 'security-map', name: 'security-map', component: () => import('@/views/investigate/map/MapView.vue'), props: { map: 'security' }, meta: { title: 'Security Map · Investigate' } },
-        { path: 'attack-paths', name: 'attack-paths', component: () => import('@/views/investigate/paths/AttackPathsView.vue'), meta: { title: 'Attack paths · Investigate' } },
+        // One Map, two view modes in the URL (round M, owner 2026-11-15, decisions/0faa077c). An
+        // open resource adds its name in front of the title (MapView).
+        { path: 'map', name: 'map', component: () => import('@/views/investigate/map/MapView.vue'), meta: { title: 'Map · Investigate' } },
+        // The Security Map was its own menu item: its links open the Map's Security view.
+        { path: 'security-map', redirect: (to) => ({ name: 'map', query: { ...to.query, mode: 'security' } }) },
+        // Attack paths are the Map's second tab (owner, 2026-11-15, decisions/97db351b); the old path
+        // keeps working.
+        { path: 'map/attack-paths', name: 'attack-paths', component: () => import('@/views/investigate/paths/AttackPathsView.vue'), meta: { title: 'Attack paths · Map · Investigate', navItem: 'map' } },
+        { path: 'attack-paths', redirect: (to) => ({ name: 'attack-paths', query: to.query }) },
       ],
     },
     {

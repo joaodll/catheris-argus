@@ -8,7 +8,7 @@ const covered = (over: Partial<NodeFacts> = {}): NodeFacts => ({
   ...over,
 })
 
-describe('the Security Map card facts', () => {
+describe('the Security view card facts', () => {
   it('counts open misconfigurations in the pill, never a zero', () => {
     expect(pillCount(covered())).toBe('3')
     expect(pillCount(covered({ misconfigurations: { open: 1200, worst: 'low' } }))).toBe('999+')

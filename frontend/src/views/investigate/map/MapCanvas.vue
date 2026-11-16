@@ -1,20 +1,21 @@
 <script setup lang="ts">
 /**
- * The Resource map's canvas (ADR-0051; spec in the palace, frontend/f3152e04).
+ * The Map's canvas (ADR-0051; specs in the palace, frontend/f3152e04, round M frontend/4f5295ad).
  *
- * Cytoscape.js draws the edges and handles pan, zoom and edge hits. The cards and the column
- * names are an HTML layer that follows its viewport: a card needs a glyph disc, two type sizes
- * and the design tokens, which a canvas label cannot hold. A dot grid moves with the map,
- * hovering a card traces what reaches it and what it reaches, and an overview sits in the
- * corner. Positions come from mapLanes (Cytoscape's preset layout), so the same view always
- * places a card in the same spot.
+ * Cytoscape.js draws the edges and handles pan, zoom and edge hits. The cards and the column names
+ * are an HTML layer that follows its viewport: a card needs an icon tile, two type sizes and the
+ * design tokens, which a canvas label cannot hold. A dot grid moves with the map, hovering a card
+ * traces what reaches it and what it reaches, and an overview sits in the corner. Positions come
+ * from mapLanes (one column per hop, left to right; Cytoscape's preset layout), so the same view
+ * always places a card in the same spot.
  *
- * On the Resource Map a card says what a resource is and where, never a security fact: the map
- * as a network and architecture diagram. On the Security Map (`map`, card B; spec
+ * In the Infrastructure view a card says what a resource is and where, never a security fact:
+ * the map as a network and architecture diagram. In the Security view (`map`, card B; spec
  * frontend/4242ef35) a card also carries a count pill of open misconfigurations in the worst
- * severity's colour and marks for internet reachable, open vulnerabilities and a public
- * exploit (mapFacts.ts), and the security lines are heavier than the connections. Positions
- * never depend on a fact.
+ * severity's colour, a frame and its word for Critical or High, and marks for internet
+ * reachable, open vulnerabilities and a public exploit (mapFacts.ts), and the security lines are
+ * heavier than the connections. Positions never depend on a fact; a view switch keeps the focus
+ * card where it is on screen (a card only a security line reaches can add a row).
  *
  * Each line says what it is in plain words (edgeWords.ts) at its midpoint, in the gap between
  * columns, at one size on screen whatever the zoom. The words are in the HTML layer too:
@@ -38,7 +39,8 @@ import { SECURITY_EDGE_TYPES, factLines, factsOf, marksOf, pillCount, worstOf, t
 import type { Severity } from '@/views/overview/severity'
 import type { MapKind } from './mapQuery'
 import { boundaryLabel, drawnEdges, groupNodeId, nodeName, traceOf, type GraphState, type MapGroup, type MapNode, type Selection } from './mapGraph'
-import { LANE_NAME_RISE, LANE_WIDTH, NODE_HEIGHT, NODE_WIDTH, cardGlyph, layout, moveSelection, typeLabel, type LaidNode, type Move, type NodeKind } from './mapLanes'
+import { LANE_NAME_RISE, NODE_HEIGHT, NODE_WIDTH, cardGlyph, layout, moveSelection, typeLabel, type LaidNode, type Move, type NodeKind, type Viewport } from './mapLanes'
+import { SEVERITY_LABEL } from '@/views/overview/severity'
 import { resolvedTheme } from '@/composables/useTheme'
 
 const props = defineProps<{
@@ -49,6 +51,8 @@ const props = defineProps<{
   map?: MapKind
   // The cards a person expanded (Collapse undoes them).
   collapsible?: ReadonlySet<string>
+  // The camera to open at instead of the first view (a view switch on the same focus).
+  initialViewport?: Viewport | null
 }>()
 const emit = defineEmits<{ select: [selection: Selection | null]; expand: [uid: string]; collapse: [uid: string]; focusHere: [uid: string] }>()
 const security = computed(() => props.map === 'security')
@@ -62,12 +66,12 @@ interface Card {
   name: string
   type: string | null
   typeLabel: string
-  // The glyph on its disc: the resource type's.
+  // The glyph on its tile: the resource type's.
   icon: IconName
   w: number
   h: number
-  // The Security Map's card B: the pill's count and its severity's token, the marks, the facts
-  // in words (tooltip, announcement). Null or empty on the Resource Map and on pseudo-nodes.
+  // The Security view's card B: the pill's count and its severity's token, the marks, the facts
+  // in words (tooltip, announcement). Null or empty on the Infrastructure view and on pseudo-nodes.
   pill: { count: string; severity: Severity } | null
   marks: Marks | null
   facts: string[]
@@ -138,15 +142,32 @@ const cards = computed<Card[]>(() => {
 const byId = computed(() => new Map(cards.value.map((c) => [c.id, c])))
 const lines = computed(() => drawnEdges(props.graph))
 
+// The canvas's shape when the graph was laid out: a resize re-fits, it never lays out again, so
+// the cards stay where they are (spec §3.2).
+const aspect = ref(16 / 9)
 const laid = computed(() => {
   const laidNodes = cards.value.map<LaidNode>((c) => ({ id: c.id, kind: c.kind, type: c.type, name: c.name }))
   return layout(
     laidNodes,
-    lines.value.map((l) => ({ source: l.source, target: l.target, layer: l.layer })),
+    lines.value.map((l) => ({ source: l.source, target: l.target, layer: l.layer, type: l.type })),
     props.focus,
+    aspect.value,
   )
 })
+function measureAspect(): void {
+  const el = region.value
+  if (el && el.clientWidth > 0 && el.clientHeight > 0) aspect.value = el.clientWidth / el.clientHeight
+}
+function sizeOf(card: Card): [number, number] {
+  return [card.w, card.h]
+}
 const laneLabel = computed(() => new Map(laid.value.lanes.map((l) => [l.lane, l.label])))
+// Security view: a Critical or High worst misconfiguration frames the card in its colour, with
+// its word on the frame (never the colour alone).
+function frameOf(card: Card): 'critical' | 'high' | null {
+  const s = card.pill?.severity
+  return s === 'critical' || s === 'high' ? s : null
+}
 
 // ---- What is lit: the selection's trace (what reaches it and what it reaches) or, with
 // nothing selected, the hovered card's trace.
@@ -181,19 +202,22 @@ function token(name: string): string {
 }
 
 /** Control points for a curve between two points: an S that leaves and enters horizontally
- * between lanes, an arc to the right within a lane. Cytoscape takes them as weights along the
+ * between columns, an arc to the right within one. Cytoscape takes them as weights along the
  * source-target line and distances along its normal (-dy, dx) / length. */
 interface Bend {
   weights: number[]
   distances: number[]
-  // Where Cytoscape puts the label: the middle of the S between lanes, the arc's apex in a lane.
+  // Where the word goes: the middle of the S between columns, the arc's apex in a column.
   mid: { x: number; y: number }
+  // Where it goes if the middle is taken (a card, another word): on the S's horizontal parts, a
+  // quarter of the way from each end. None for an arc.
+  alts: { x: number; y: number }[]
 }
 function bend(s: { x: number; y: number }, t: { x: number; y: number }): Bend {
   const dx = t.x - s.x
   const dy = t.y - s.y
   const length2 = dx * dx + dy * dy
-  if (length2 === 0) return { weights: [0.5], distances: [0], mid: { ...s } }
+  if (length2 === 0) return { weights: [0.5], distances: [0], mid: { ...s }, alts: [] }
   const length = Math.sqrt(length2)
   const arc = Math.abs(dx) < 1
   const points = arc
@@ -207,6 +231,10 @@ function bend(s: { x: number; y: number }, t: { x: number; y: number }): Bend {
     weights: points.map((p) => ((p.x - s.x) * dx + (p.y - s.y) * dy) / length2),
     distances: points.map((p) => ((p.x - s.x) * -dy + (p.y - s.y) * dx) / length),
     mid,
+    alts: arc ? [] : [
+      { x: s.x + dx * 0.25, y: s.y },
+      { x: s.x + dx * 0.75, y: t.y },
+    ],
   }
 }
 
@@ -221,23 +249,26 @@ interface LineWord {
   x: number
   y: number
   tone: 'rest' | 'hover' | 'lit'
-  // A security line's word (the Security Map): stronger at rest.
+  // A security line's word (the Security view): stronger at rest.
   sec: boolean
 }
 const words = shallowRef<LineWord[]>([])
 function elements(): ElementDefinition[] {
   const positions = laid.value.positions
-  const nodes: ElementDefinition[] = cards.value.map((c) => ({
-    group: 'nodes',
-    data: { id: c.id, w: c.w, h: c.h, shape: c.kind === 'internet' ? 'ellipse' : c.kind === 'admin' ? 'diamond' : 'round-rectangle' },
-    position: { x: positions.get(c.id)!.x, y: positions.get(c.id)!.y },
-  }))
+  const nodes: ElementDefinition[] = cards.value.map((c) => {
+    const [w, h] = sizeOf(c)
+    return {
+      group: 'nodes',
+      data: { id: c.id, w, h, shape: c.kind === 'internet' ? 'ellipse' : c.kind === 'admin' ? 'diamond' : 'round-rectangle' },
+      position: { x: positions.get(c.id)!.x, y: positions.get(c.id)!.y },
+    }
+  })
   const edges: ElementDefinition[] = lines.value
     .filter((l) => positions.has(l.source) && positions.has(l.target) && l.source !== l.target)
     .map((l) => {
-      const { weights, distances, mid } = bend(positions.get(l.source)!, positions.get(l.target)!)
+      const { weights, distances, mid, alts } = bend(positions.get(l.source)!, positions.get(l.target)!)
       const sec = security.value && SECURITY_EDGE_TYPES.has(l.type) ? 1 : 0
-      return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: edgeWord(l.type, l.target), line: l.style, sec, weights, distances, mx: mid.x, my: mid.y } }
+      return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: edgeWord(l.type, l.target), line: l.style, sec, weights, distances, mx: mid.x, my: mid.y, alts } }
     })
   return [...nodes, ...edges]
 }
@@ -277,7 +308,7 @@ function style(): cytoscape.StylesheetJson {
       } as never,
     },
     { selector: 'edge[line = "dotted"]', style: { 'line-dash-pattern': [1.5, 3] } },
-    // A security line (the Security Map): heavier and lighter in tone than a connection; hover
+    // A security line (the Security view): heavier and lighter in tone than a connection; hover
     // and lit below still win.
     { selector: 'edge[sec = 1]', style: { width: 2.2, 'line-color': text3, 'target-arrow-color': text3 } },
     { selector: 'edge.hover', style: { 'line-color': text2, 'target-arrow-color': text2 } },
@@ -325,17 +356,23 @@ function placeLabels(): void {
   const shown: LineWord[] = []
   const blocks = cards.value.flatMap((card) => {
     const p = laid.value.positions.get(card.id)
-    return p ? [{ x1: p.x - card.w / 2, x2: p.x + card.w / 2, y1: p.y - card.h / 2, y2: p.y + card.h / 2 }] : []
+    const [w, h] = sizeOf(card)
+    return p ? [{ x1: p.x - w / 2, x2: p.x + w / 2, y1: p.y - h / 2, y2: p.y + h / 2 }] : []
   })
   for (const e of candidates) {
     const w = (String(e.data('label')).length * CHAR_PX + 2 * LABEL_PAD + 4) / z
     const h = (LABEL_PX + 2 * LABEL_PAD + 2) / z
-    const box = { x1: e.data('mx') - w / 2, x2: e.data('mx') + w / 2, y1: e.data('my') - h / 2, y2: e.data('my') + h / 2 }
-    const touches = (p: typeof box) => box.x1 < p.x2 && p.x1 < box.x2 && box.y1 < p.y2 && p.y1 < box.y2
-    if (placed.some(touches) || (rank(e) > 1 && blocks.some(touches))) continue
-    placed.push(box)
+    // The middle first, then a quarter of the way from either end.
+    const spots: { x: number; y: number }[] = [{ x: e.data('mx'), y: e.data('my') }, ...((e.data('alts') as { x: number; y: number }[] | undefined) ?? [])]
     const r = rank(e)
-    shown.push({ key: e.id(), text: e.data('label'), x: e.data('mx'), y: e.data('my'), tone: r === 0 ? 'hover' : r === 1 ? 'lit' : 'rest', sec: e.data('sec') === 1 })
+    const spot = spots.find((at) => {
+      const box = { x1: at.x - w / 2, x2: at.x + w / 2, y1: at.y - h / 2, y2: at.y + h / 2 }
+      const touches = (p: typeof box) => box.x1 < p.x2 && p.x1 < box.x2 && box.y1 < p.y2 && p.y1 < box.y2
+      return !placed.some(touches) && !(r > 1 && blocks.some(touches))
+    })
+    if (!spot) continue
+    placed.push({ x1: spot.x - w / 2, x2: spot.x + w / 2, y1: spot.y - h / 2, y2: spot.y + h / 2 })
+    shown.push({ key: e.id(), text: e.data('label'), x: spot.x, y: spot.y, tone: r === 0 ? 'hover' : r === 1 ? 'lit' : 'rest', sec: e.data('sec') === 1 })
   }
   words.value = shown
 }
@@ -361,15 +398,26 @@ function rebuild(): void {
   paint()
 }
 
-const MAX_FIT_ZOOM = 1
+// A small map fills the canvas (round M, spec §4: capping the fit at 100% left it small in the
+// middle of a wide screen).
+const MAX_FIT_ZOOM = 1.5
 const FIT_PADDING = 56
-/** Fits these elements (all by default), never above 100%: the zoom is worked out first, so an
- * animation ends where it should (capping it after its first frame let it zoom past 100%). */
+/** The whole drawing in map coordinates: the cards and lines, and the column names above them,
+ * so a fit never cuts any of them. */
+function drawingBox(c: Core): { x1: number; y1: number; x2: number; y2: number; w: number; h: number } {
+  const b = c.elements().boundingBox()
+  const { x1, x2, y2 } = b
+  let { y1 } = b
+  for (const col of columnNames.value) y1 = Math.min(y1, col.top - 8)
+  return { x1, y1, x2, y2, w: x2 - x1, h: y2 - y1 }
+}
+
+/** Fits these elements (the whole drawing by default), never above MAX_FIT_ZOOM: the zoom is worked
+ * out first, so an animation ends where it should. */
 function fit(eles?: cytoscape.CollectionArgument, animate = false): void {
   const c = cy.value
   if (!c || c.elements().length === 0) return
-  const target = c.collection().union(eles ?? c.elements())
-  const box = target.boundingBox()
+  const box = eles ? c.collection().union(eles).boundingBox() : drawingBox(c)
   const level = Math.max(c.minZoom(), Math.min(MAX_FIT_ZOOM, (c.width() - 2 * FIT_PADDING) / Math.max(box.w, 1), (c.height() - 2 * FIT_PADDING) / Math.max(box.h, 1)))
   const viewport = { zoom: level, pan: { x: c.width() / 2 - (box.x1 + box.w / 2) * level, y: c.height() / 2 - (box.y1 + box.h / 2) * level } }
   if (animate && !reduced) c.animate(viewport, { duration: 200, easing: 'ease-out' })
@@ -384,15 +432,38 @@ const OPEN_ZOOM = 0.8
 function firstView(): void {
   const c = cy.value
   if (!c || c.elements().length === 0) return
-  const box = c.elements().boundingBox()
+  // A view switch on the same focus keeps the camera: the cards are where they were.
+  if (props.initialViewport) {
+    const { zoom: z, pan: p, anchor } = props.initialViewport
+    const now = anchor ? laid.value.positions.get(anchor.id) : undefined
+    // The focus card stays where it was on screen, even if the other view added a row above it.
+    const shift = now && anchor ? { x: (anchor.x - now.x) * z, y: (anchor.y - now.y) * z } : { x: 0, y: 0 }
+    c.viewport({ zoom: z, pan: { x: p.x + shift.x, y: p.y + shift.y } })
+    return
+  }
+  const box = drawingBox(c)
   const level = Math.min(MAX_FIT_ZOOM, (c.width() - 2 * FIT_PADDING) / Math.max(box.w, 1), (c.height() - 2 * FIT_PADDING) / Math.max(box.h, 1))
   const focusEl = props.focus ? c.getElementById(props.focus) : null
   if (level >= OPEN_ZOOM || !focusEl || focusEl.empty()) {
     fit()
     return
   }
+  // Centred on the focus, but never past the drawing's edge: no empty band where the drawing
+  // could be (map_idea.txt: "a great deal of empty space").
   const p = focusEl.position()
-  c.viewport({ zoom: OPEN_ZOOM, pan: { x: c.width() / 2 - p.x * OPEN_ZOOM, y: c.height() / 2 - p.y * OPEN_ZOOM } })
+  const z = OPEN_ZOOM
+  const clamp = (pan: number, lo: number, hi: number, size: number): number => {
+    const min = size - FIT_PADDING - hi * z // the far edge reaches the canvas's far side
+    const max = FIT_PADDING - lo * z // the near edge reaches the canvas's near side
+    return min > max ? (min + max) / 2 : Math.min(max, Math.max(min, pan))
+  }
+  c.viewport({
+    zoom: z,
+    pan: {
+      x: clamp(c.width() / 2 - p.x * z, box.x1, box.x2, c.width()),
+      y: clamp(c.height() / 2 - p.y * z, box.y1, box.y2, c.height()),
+    },
+  })
 }
 
 /** The drawn elements with these ids (an id no longer drawn is skipped). */
@@ -412,6 +483,35 @@ function zoomBy(factor: number): void {
   if (!c) return
   const level = Math.min(c.maxZoom(), Math.max(c.minZoom(), c.zoom() * factor))
   c.zoom({ level, renderedPosition: { x: c.width() / 2, y: c.height() / 2 } })
+}
+/** The zoom readout's click: 100 % about the canvas's centre. */
+function zoomActual(): void {
+  const c = cy.value
+  if (c) c.zoom({ level: 1, renderedPosition: { x: c.width() / 2, y: c.height() / 2 } })
+}
+const zoomPercent = computed(() => `${Math.round(zoom.value * 100)} %`)
+
+/** Brings a card to the canvas's centre when it lies outside the middle 60 % (spec §4). The
+ * zoom never changes. */
+function centreIfAside(id: string): void {
+  const c = cy.value
+  const el = c?.getElementById(id)
+  if (!c || !el || el.empty()) return
+  const p = el.renderedPosition()
+  const mx = c.width() * 0.2
+  const my = c.height() * 0.2
+  if (p.x >= mx && p.x <= c.width() - mx && p.y >= my && p.y <= c.height() - my) return
+  const viewport = { zoom: c.zoom(), pan: { x: c.width() / 2 - el.position('x') * c.zoom(), y: c.height() / 2 - el.position('y') * c.zoom() } }
+  if (reduced) c.viewport(viewport)
+  else c.animate(viewport, { duration: 300, easing: 'ease-out' })
+}
+
+/** The camera, for MapView to carry across a view switch. */
+function viewport(): Viewport | null {
+  const c = cy.value
+  if (!c) return null
+  const at = props.focus ? laid.value.positions.get(props.focus) : undefined
+  return { zoom: c.zoom(), pan: { ...c.pan() }, anchor: at && props.focus ? { id: props.focus, x: at.x, y: at.y } : null }
 }
 
 function track(instance: Core): void {
@@ -452,29 +552,29 @@ onMounted(() => {
   })
   cy.value = instance
   known = new Set(cards.value.map((c) => c.id))
+  measureAspect()
   rebuild()
   firstView()
   track(instance)
 })
 // The canvas narrows when the panel docks (and on window resizes): Cytoscape is told, and the
-// selection is brought back into view if the new edge hides it.
+// selection comes back to the middle if the new edge pushed it aside (the same rule as a click).
 let resizeObserver: ResizeObserver | null = null
 onMounted(() => {
   if (!region.value || typeof ResizeObserver === 'undefined') return
+  // Only a real change of size moves the camera: the observer also fires once when it starts,
+  // and the camera carried across a view switch must stay where it was put.
+  let seen = { w: region.value.clientWidth, h: region.value.clientHeight }
   resizeObserver = new ResizeObserver(() => {
     const c = cy.value
-    if (!c) return
+    const el = region.value
+    if (!c || !el) return
     c.resize()
     track(c)
-    const el = selectedNode.value ? c.getElementById(selectedNode.value) : null
-    if (!el || el.empty()) return
-    const p = el.renderedPosition()
-    const half = el.renderedWidth() / 2
-    if (p.x - half < 0 || p.x + half > c.width() || p.y < 0 || p.y > c.height()) {
-      const viewport = { zoom: c.zoom(), pan: { x: c.width() / 2 - el.position('x') * c.zoom(), y: c.height() / 2 - el.position('y') * c.zoom() } }
-      if (reduced) c.viewport(viewport)
-      else c.animate(viewport, { duration: 200, easing: 'ease-out' })
-    }
+    const now = { w: el.clientWidth, h: el.clientHeight }
+    if (now.w === seen.w && now.h === seen.h) return
+    seen = now
+    if (selectedNode.value) centreIfAside(selectedNode.value)
   })
   resizeObserver.observe(region.value)
 })
@@ -487,6 +587,8 @@ onBeforeUnmount(() => {
 watch([cards, lines], () => {
   const before = known
   known = new Set(cards.value.map((c) => c.id))
+  // A new neighbourhood is laid out for the canvas as it is now; an Expand keeps the shape.
+  if (before.size === 0) measureAspect()
   rebuild()
   const added = [...known].filter((id) => !before.has(id))
   const c = cy.value
@@ -504,6 +606,10 @@ watch([cards, lines], () => {
   if (outside) fit(eles, true)
 })
 watch(lit, paint)
+// A card chosen at the edge (a click, the keyboard, the List view) comes to the centre.
+watch(selectedNode, (id) => {
+  if (id) void nextTick(() => centreIfAside(id))
+})
 // The canvas reads the tokens once: a theme change restyles it with the new values.
 watch(resolvedTheme, () => {
   void nextTick(() => {
@@ -518,20 +624,19 @@ const far = computed(() => zoom.value < 0.55)
 const GRID = 22
 // The dot grid moves and scales with the map.
 const regionStyle = computed(() => ({ backgroundSize: `${GRID * zoom.value}px ${GRID * zoom.value}px`, backgroundPosition: `${pan.value.x}px ${pan.value.y}px` }))
-// One row of column names, above the highest card.
-const columnNames = computed(() => {
-  let top = Infinity
-  for (const p of laid.value.positions.values()) top = Math.min(top, p.y)
-  // A kind's header sits above its first card: the column names go above the highest header.
-  for (const h of laid.value.headers) top = Math.min(top, h.y + NODE_HEIGHT / 2)
-  if (!Number.isFinite(top)) return []
-  return laid.value.lanes.map((l) => ({ lane: l.lane, label: l.label, left: l.x + LANE_WIDTH / 2, top: top - LANE_NAME_RISE }))
-})
 function cardStyle(card: Card): Record<string, string> {
   const p = laid.value.positions.get(card.id)
   if (!p) return { display: 'none' }
-  return { left: `${p.x - card.w / 2}px`, top: `${p.y - card.h / 2}px`, width: `${card.w}px`, height: `${card.h}px` }
+  const [w, h] = sizeOf(card)
+  return { left: `${p.x - w / 2}px`, top: `${p.y - h / 2}px`, width: `${w}px`, height: `${h}px` }
 }
+// One row of column names, above the highest card.
+const columnNames = computed(() => {
+  let top = Infinity
+  for (const p of laid.value.positions.values()) top = Math.min(top, p.y - NODE_HEIGHT / 2)
+  if (!Number.isFinite(top)) return []
+  return laid.value.lanes.map((l) => ({ lane: l.lane, label: l.label, left: l.x + l.width / 2, top: top - LANE_NAME_RISE + NODE_HEIGHT / 2 }))
+})
 
 // Cards sit above the canvas: a wheel over one still zooms the map.
 function onWheel(event: WheelEvent): void {
@@ -569,7 +674,7 @@ function hover(card: Card, event: MouseEvent): void {
   const box = region.value?.getBoundingClientRect()
   const target = (event.currentTarget as HTMLElement).getBoundingClientRect()
   tipTimer = window.setTimeout(() => {
-    // Kept inside the canvas: a docked panel narrows it, and the Security Map's tooltip is wider.
+    // Kept inside the canvas: a docked panel narrows it, and the Security view's tooltip is wider.
     if (box) tip.value = { card, x: Math.max(8, Math.min(target.left - box.left, box.width - TIP_WIDTH - 8)), y: target.bottom - box.top + 6 }
   }, 300)
 }
@@ -629,7 +734,7 @@ const announcement = computed(() => {
   const facts = card.kind === 'group' ? [] : card.facts.map((f) => `, ${f}`)
   return `${card.name}, ${card.typeLabel}${where}${card.kind === 'group' ? `, ${card.group?.count} resources` : ''}${facts.join('')}.`
 })
-const regionLabelText = computed(() => `${security.value ? 'Security Map' : 'Resource Map'}, ${props.graph.nodes.size} resources. The List view shows the same resources as a table.`)
+const regionLabelText = computed(() => `Map, ${security.value ? 'Security' : 'Infrastructure'} view, ${props.graph.nodes.size} resources. The List view shows the same resources as a table.`)
 
 // ---- Legend: a popover from its button, closed by default and remembered per browser.
 const LEGEND_KEY = 'argus.map.legend'
@@ -666,10 +771,11 @@ const overview = computed(() => {
   for (const card of cards.value) {
     const p = pos.get(card.id)
     if (!p) continue
-    x1 = Math.min(x1, p.x - card.w / 2)
-    x2 = Math.max(x2, p.x + card.w / 2)
-    y1 = Math.min(y1, p.y - card.h / 2)
-    y2 = Math.max(y2, p.y + card.h / 2)
+    const [w, h] = sizeOf(card)
+    x1 = Math.min(x1, p.x - w / 2)
+    x2 = Math.max(x2, p.x + w / 2)
+    y1 = Math.min(y1, p.y - h / 2)
+    y2 = Math.max(y2, p.y + h / 2)
   }
   if (!Number.isFinite(x1)) return null
   const room = { w: OV.w - 2 * OV.pad, h: OV.h - OV.top - OV.pad }
@@ -678,7 +784,8 @@ const overview = computed(() => {
   const oy = OV.top + (room.h - (y2 - y1) * scale) / 2 - y1 * scale
   const blocks = cards.value.flatMap((card) => {
     const p = pos.get(card.id)
-    return p ? [{ id: card.id, x: ox + (p.x - card.w / 2) * scale, y: oy + (p.y - card.h / 2) * scale, w: card.w * scale, h: card.h * scale }] : []
+    const [w, h] = sizeOf(card)
+    return p ? [{ id: card.id, x: ox + (p.x - w / 2) * scale, y: oy + (p.y - h / 2) * scale, w: w * scale, h: h * scale }] : []
   })
   const segments = lines.value.flatMap((l) => {
     const a = pos.get(l.source)
@@ -721,7 +828,7 @@ function overviewUp(): void {
   dragging = false
 }
 
-defineExpose({ fit })
+defineExpose({ fit, viewport })
 </script>
 
 <template>
@@ -743,7 +850,6 @@ defineExpose({ fit })
     <div ref="container" class="cy"></div>
     <div class="world" :class="{ far }" :style="worldStyle" aria-hidden="true" @wheel="onWheel">
       <span v-for="col in columnNames" :key="col.lane" class="eyebrow col-name" :style="{ left: `${col.left}px`, top: `${col.top}px` }">{{ col.label }}</span>
-      <span v-for="h in laid.headers" :key="h.key" class="eyebrow kind-name" :style="{ left: `${h.x}px`, top: `${h.y}px` }">{{ h.label }}</span>
       <span v-for="w in words" :key="w.key" class="line-word" :class="[w.tone, { sec: w.sec }]" :style="{ left: `${w.x}px`, top: `${w.y}px` }">{{ w.text }}</span>
       <div
         v-for="card in cards"
@@ -751,6 +857,7 @@ defineExpose({ fit })
         class="node"
         :class="[
           `kind-${card.kind}`,
+          frameOf(card) ? `frame-${frameOf(card)}` : '',
           {
             focus: card.id === focus,
             selected: card.id === selectedNode,
@@ -776,8 +883,9 @@ defineExpose({ fit })
         </template>
         <template v-else>
           <span v-if="card.kind === 'group'" class="back"></span>
+          <span v-if="frameOf(card)" class="frame-word">{{ SEVERITY_LABEL[frameOf(card)!] }}</span>
           <span class="face">
-            <span class="disc"><AppIcon :name="card.icon" :size="18" :stroke="1.6" /></span>
+            <span class="tile"><AppIcon :name="card.icon" :size="20" :stroke="1.6" /></span>
             <span class="lines">
               <span class="line1" :class="{ mono: card.kind === 'external' }">
                 <template v-if="card.kind === 'group'"><span class="mono">{{ card.group?.count }}</span> {{ card.name }}</template>
@@ -821,13 +929,14 @@ defineExpose({ fit })
         <div><dt><span class="sw ext-sw"></span></dt><dd>Not in the inventory</dd></div>
         <div><dt><span class="sw boundary-sw"></span></dt><dd>Other connection or account</dd></div>
         <template v-if="security">
+          <div class="wide"><dt><span class="sw frame-sw"></span></dt><dd>A Critical or High misconfiguration: the border in its colour, its word on the border</dd></div>
           <div class="wide"><dt><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" class="l sec" /></svg></dt><dd>Security line: what an identity can do, or the internet reaching a resource</dd></div>
           <div class="wide"><dt><CountPill count="3" severity="high" /></dt><dd>Open misconfigurations, in the worst severity's colour</dd></div>
           <div class="wide"><dt><AppIcon name="globe" :size="14" :stroke="1.8" /></dt><dd>Reachable from the internet (Argus's rules confirm it)</dd></div>
           <div><dt><AppIcon name="bug" :size="14" :stroke="1.8" /></dt><dd>Open vulnerabilities</dd></div>
           <div><dt><AppIcon name="warning" :size="14" :stroke="1.8" class="exploit" /></dt><dd>A public exploit</dd></div>
         </template>
-        <div class="wide"><dt><span class="sw-disc"><AppIcon name="server" :size="12" /></span></dt><dd>Icon: the type of resource</dd></div>
+        <div class="wide"><dt><span class="sw-tile"><AppIcon name="server" :size="12" /></span></dt><dd>Icon: the type of resource</dd></div>
         <div class="wide"><dd>Data access is what a role's policies allow, not observed traffic.</dd></div>
         <div v-if="security" class="wide"><dd>A line from the internet that CloudFox found is CloudFox's claim; the globe is Argus's confirmed verdict.</dd></div>
       </dl>
@@ -838,6 +947,7 @@ defineExpose({ fit })
         <button type="button" class="btn btn-secondary icon-only" aria-label="Zoom in" title="Zoom in" @click.stop="zoomBy(1.25)"><AppIcon name="plus" :size="16" /></button>
         <button type="button" class="btn btn-secondary icon-only" aria-label="Zoom out" title="Zoom out" @click.stop="zoomBy(0.8)"><AppIcon name="minus" :size="16" /></button>
         <button type="button" class="btn btn-secondary icon-only" aria-label="Fit" title="Fit" @click.stop="fit()"><AppIcon name="fit" :size="16" /></button>
+        <button type="button" class="btn btn-secondary zoom-readout mono" :aria-label="`Zoom ${zoomPercent}, set to 100 %`" title="Set to 100 %" @click.stop="zoomActual">{{ zoomPercent }}</button>
       </div>
     </div>
 
@@ -888,19 +998,6 @@ defineExpose({ fit })
   color: var(--text-3);
 }
 
-/* A kind's header inside a column (spec frontend/d37cd13b, A): the word carries the kind. */
-.kind-name {
-  position: absolute;
-  padding-top: 18px;
-  white-space: nowrap;
-  letter-spacing: 0.12em;
-  color: var(--text-3);
-}
-
-.world.far .kind-name {
-  visibility: hidden;
-}
-
 .line-word {
   position: absolute;
   z-index: 1;
@@ -943,14 +1040,15 @@ defineExpose({ fit })
 .back {
   position: absolute;
   inset: 0;
-  border-radius: 28px;
+  border-radius: var(--r-tile);
 }
 
+/* Round M's card (spec §5): a rectangle with a square icon tile, then the name and the type. */
 .face {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0 14px 0 8px;
+  gap: 12px;
+  padding: 0 12px;
   background: var(--graph-node);
   border: 1px solid var(--border-strong);
   transition:
@@ -958,18 +1056,57 @@ defineExpose({ fit })
     box-shadow 160ms;
 }
 
-.disc {
+.tile {
   flex: none;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-control);
   /* One colour for every type: the glyph and the second line tell types apart. */
   color: var(--text-2);
-  background: var(--surface-sunken);
-  border: 1px solid var(--border-strong);
+  background: var(--tile);
+  border: 1px solid var(--tile-border);
   transition: opacity 160ms;
+}
+
+/* Security view: a Critical or High worst misconfiguration frames the card, its word on the
+   frame so the colour is never the only cue. */
+.node.frame-critical .face {
+  border: 1.5px solid var(--sev-critical);
+}
+
+.node.frame-high .face {
+  border: 1.5px solid var(--sev-high);
+}
+
+.frame-word {
+  position: absolute;
+  z-index: 1;
+  top: -9px;
+  right: 12px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--graph-node);
+  border-radius: var(--r-chip);
+}
+
+.frame-critical .frame-word {
+  color: var(--sev-critical-text);
+  border: 1px solid var(--sev-critical);
+}
+
+.frame-high .frame-word {
+  color: var(--sev-high-text);
+  border: 1px solid var(--sev-high);
+}
+
+.world.far .frame-word {
+  visibility: hidden;
 }
 
 .lines {
@@ -1003,7 +1140,7 @@ defineExpose({ fit })
   text-overflow: ellipsis;
 }
 
-/* Line 2 and the Security Map's marks after it: the type gives way first. */
+/* Line 2 and the Security view's marks after it: the type gives way first. */
 .line2-row {
   display: flex;
   align-items: center;
@@ -1046,7 +1183,7 @@ defineExpose({ fit })
   color: var(--text-2);
 }
 
-.node.faded .disc,
+.node.faded .tile,
 .node.faded .back,
 .node.faded .ring,
 .node.faded .card-pill,
@@ -1158,7 +1295,7 @@ defineExpose({ fit })
 .node.active {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
-  border-radius: 32px;
+  border-radius: calc(var(--r-tile) + 4px);
 }
 
 .world.far .lines,
@@ -1314,15 +1451,26 @@ defineExpose({ fit })
   border: 1.5px dotted var(--text-3);
 }
 
-.sw-disc {
+.sw-tile {
   display: grid;
   place-items: center;
   width: 20px;
   height: 20px;
-  border-radius: 50%;
+  border-radius: var(--r-chip);
   color: var(--text-2);
-  background: var(--surface-sunken);
-  border: 1px solid var(--border-strong);
+  background: var(--tile);
+  border: 1px solid var(--tile-border);
+}
+
+.frame-sw {
+  border: 1.5px solid var(--sev-critical);
+}
+
+.zoom-readout {
+  height: 32px;
+  min-width: 64px;
+  padding: 0 var(--s-8);
+  font-size: 12px;
 }
 
 .icon-only {
@@ -1387,7 +1535,7 @@ defineExpose({ fit })
   }
 
   .face,
-  .disc,
+  .tile,
   .line1,
   .circle {
     transition: none;

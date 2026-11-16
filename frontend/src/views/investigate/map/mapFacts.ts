@@ -1,9 +1,9 @@
 /**
- * The Security Map's facts on a card (ADR-0051, card B; spec in the palace, frontend/4242ef35):
+ * The Security view's facts on a card (ADR-0051, card B; spec in the palace, frontend/4242ef35):
  * open misconfigurations with the worst severity, open vulnerabilities and a public exploit, and
  * reachable from the internet as Argus's rules confirm it. The API counts them as the Resources
  * list does (GET /map/security/graph), so each link here opens a list with the same count. A
- * missing fact is "not covered", never a zero. The Resource Map has none of this.
+ * missing fact is "not covered", never a zero. The Infrastructure view has none of this.
  */
 import type { RouteLocationRaw } from 'vue-router'
 import type { Schemas } from '@/api/client'
@@ -12,7 +12,7 @@ import { SEVERITY_LABEL, SEVERITIES, type Severity } from '@/views/overview/seve
 export type NodeFacts = Schemas['NodeFacts']
 
 // The lines that are security judgements (relationships.SECURITY_EDGE_TYPES in the API): drawn
-// on the Security Map only, heavier than a connection.
+// on the Security view only, heavier than a connection.
 export const SECURITY_EDGE_TYPES: ReadonlySet<string> = new Set([
   'IS_ADMIN',
   'CAN_PRIVESC_TO',
@@ -22,7 +22,7 @@ export const SECURITY_EDGE_TYPES: ReadonlySet<string> = new Set([
   'INTERNET_REACHABLE',
 ])
 
-/** The node's facts, when the response carried them (only the Security Map's does). */
+/** The node's facts, when the response carried them (only the Security view's does). */
 export function factsOf(node: { facts?: NodeFacts | null } | null | undefined): NodeFacts | null {
   return node?.facts ?? null
 }

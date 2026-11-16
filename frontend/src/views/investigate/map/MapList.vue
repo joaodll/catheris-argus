@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * The map as tables (ADR-0051): the same resources and connections as the canvas, and its
- * accessible equivalent. Choosing a name selects it and opens the panel. On the Security Map a
+ * accessible equivalent. Choosing a name selects it and opens the panel. On the Security view a
  * resource's name has its facts in words under it (mapFacts.factSub), as the card's pill and
  * marks show them.
  */

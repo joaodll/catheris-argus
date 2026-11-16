@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Find a resource (the Resource Map's toolbar and start): a combobox over the inventory search
+ * Find a resource (the Infrastructure view's toolbar and start): a combobox over the inventory search
  * (GET /map/resources?q=, the plain read: no security field), in one connection when `connectionId` is set. Each option shows the name,
  * the type and the connection; choosing one emits its uid and its connection. The ARIA 1.2
  * combobox pattern: focus stays in the input, the arrow keys move the active option, Enter

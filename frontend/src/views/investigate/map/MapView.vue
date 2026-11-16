@@ -1,13 +1,17 @@
 <script setup lang="ts">
 /**
- * Investigate -> Resource Map (ADR-0051): what a resource connects to, as a diagram. It starts
+ * Investigate -> Map (ADR-0051; round M, owner 2026-11-15, decisions/0faa077c): one page, two view
+ * modes in the URL (`mode`): Infrastructure (the plain map) and Security. The old Resource Map and
+ * Security Map menu items are this page; /investigate/security-map redirects to mode=security.
+ *
+ * What a resource connects to, as a diagram. It starts
  * from a type, a search or a recently opened resource (MapStart). It opens with the resource and
  * its neighbourhood at the chosen depth (1 to 3 hops; the API walks on only from the account's
  * own resources) and grows one hop per click (Expand, group members), at most 500 nodes. Never a
  * whole account.
- * The Resource Map draws the resources and how they connect, with no security fact on a card or
+ * The Infrastructure view draws the resources and how they connect, with no security fact on a card or
  * in the panel, and reads none (the /map/* plain routes), so it also serves as a network and
- * architecture diagram. The Security Map is the same page on its own route (`map`): it reads
+ * architecture diagram. The Security view reads the same page's sibling routes (`mode=security`): it reads
  * /map/security/*, which adds the security lines and each card's facts (card B, mapFacts.ts),
  * and its panel is the whole resource. Everything except expansions lives in the URL (mapQuery).
  */
@@ -15,6 +19,7 @@ import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
+import AppIcon from '@/components/AppIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import MultiSelect from '@/components/MultiSelect.vue'
 import PageHeader from '@/components/PageHeader.vue'
@@ -26,18 +31,19 @@ import MapCanvas from './MapCanvas.vue'
 import MapList from './MapList.vue'
 import MapPanel from './MapPanel.vue'
 import MapStart from './MapStart.vue'
+import MapTabs from './MapTabs.vue'
 import ResourceSearch from './ResourceSearch.vue'
 import { addMember, emptyGraph, MAX_NODES, mergeGraph, nodeName, replay, scanLine, withoutExpand, type GraphResponse, type GraphState, type MapEdge, type MapNode, type Selection, type Step } from './mapGraph'
 import { DEFAULT_LAYERS, DEPTHS, LAYER_LABEL, LAYERS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapKind, type MapState } from './mapQuery'
+import type { Viewport } from './mapLanes'
 
-const props = withDefaults(defineProps<{ map?: MapKind }>(), { map: 'resource' })
 const route = useRoute()
 const router = useRouter()
-const title = computed(() => (props.map === 'security' ? 'Security Map' : 'Resource Map'))
+const title = 'Map'
 
-/** One graph read on this page's map: the Resource Map only ever asks the plain route. */
+/** One graph read in the chosen view: Infrastructure only ever asks the plain route. */
 function readGraph(query: ReturnType<typeof graphParams>) {
-  return props.map === 'security'
+  return map.value === 'security'
     ? unwrap(api.GET('/api/v1/map/security/graph', { params: { query } }))
     : unwrap(api.GET('/api/v1/map/graph', { params: { query } }))
 }
@@ -46,6 +52,8 @@ function readGraph(query: ReturnType<typeof graphParams>) {
 const phone = window.matchMedia?.('(max-width: 600px)').matches ?? false
 const defaultView = phone ? 'list' : 'map'
 const state = computed(() => parseMapQuery(route.query, defaultView))
+// The view mode: 'resource' is Infrastructure.
+const map = computed<MapKind>(() => state.value.mode)
 // A focus is on the canvas; else the start shows.
 const started = computed(() => state.value.focus != null)
 
@@ -78,11 +86,26 @@ let generation = 0
 // The selected group or edge (a node's selection is ?open=; see Selection below).
 const localSelection = ref<Selection | null>(null)
 
-// The map is in the key: the two maps' routes share this component instance, so Back from the
-// Security Map to the Resource Map at the same focus must read the plain graph again.
+// The view is in the key: switching it at the same focus reads the other route.
 const neighbourhoodKey = computed(() =>
-  JSON.stringify([props.map, state.value.focus, state.value.connection, state.value.depth, state.value.layers]),
+  JSON.stringify([map.value, state.value.focus, state.value.connection, state.value.depth, state.value.layers]),
 )
+
+// ---- The view switch (spec §2): a replace that keeps everything else, and the camera.
+const canvas = ref<InstanceType<typeof MapCanvas> | null>(null)
+const carried = ref<Viewport | null>(null)
+let switching = false
+const modeNote = ref('')
+function setMode(mode: MapKind): void {
+  if (mode === map.value) return
+  carried.value = canvas.value?.viewport() ?? null
+  switching = true
+  modeNote.value =
+    mode === 'security'
+      ? 'Security view: the map now shows misconfigurations, vulnerabilities and security lines.'
+      : 'Infrastructure view: resources and how they connect, no security facts.'
+  navigate({ mode }, 'replace')
+}
 
 /** "Recently opened": the focus, once the map has drawn it (it is in the inventory). */
 function remember(focus: string, connectionId: number): void {
@@ -100,6 +123,9 @@ function remember(focus: string, connectionId: number): void {
 async function load(): Promise<void> {
   const s = state.value
   const mine = ++generation
+  // Only a view switch keeps the camera; any other reload opens at the first view.
+  if (!switching) carried.value = null
+  switching = false
   graph.value = emptyGraph()
   base = { nodes: [], edges: [] }
   steps.value = []
@@ -278,15 +304,31 @@ const banner = computed(() => {
   return null
 })
 const groupCount = computed(() => graph.value.groups.size)
-// The loading skeleton's column headers: hop columns, as the canvas draws them (mapLanes.ts).
-const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops out']
+// The loading skeleton's rows: tiers, as the canvas draws them (mapLanes.ts).
+const skeletonTiers = ['Entry', 'Workloads', 'Data']
+const MODES: { mode: MapKind; label: string; icon: 'graph' | 'shield' }[] = [
+  { mode: 'resource', label: 'Infrastructure', icon: 'graph' },
+  { mode: 'security', label: 'Security', icon: 'shield' },
+]
 </script>
 
 <template>
   <PageHeader :title="title">
     <!-- The map's day, so only with a map: the start says its own under "What's here". -->
     <template v-if="started && !loading && !notFound && !error">{{ scanLine(days, dataThrough) }}</template>
+    <template #actions>
+      <div class="field view-mode">
+        <span id="map-mode" class="lbl">View</span>
+        <div class="segmented" role="group" aria-labelledby="map-mode">
+          <button v-for="m in MODES" :key="m.mode" type="button" :aria-pressed="map === m.mode" @click="setMode(m.mode)">
+            <AppIcon :name="m.icon" :size="16" class="mode-icon" />{{ m.label }}
+          </button>
+        </div>
+      </div>
+    </template>
   </PageHeader>
+  <p class="sr-only" role="status">{{ modeNote }}</p>
+  <MapTabs current="map" />
 
   <section v-if="started" class="card toolbar" aria-label="Map controls">
     <ResourceSearch :connection-name="connectionName" @choose="(uid) => navigate({ focus: uid, open: null, connection: null })" />
@@ -297,7 +339,7 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
       </div>
     </div>
     <div class="field">
-      <MultiSelect id="map-layers" label="Connections" :options="layerOptions" :model-value="state.layers" select-all :reset-to="DEFAULT_LAYERS" @update:model-value="setLayers" />
+      <MultiSelect id="map-layers" label="Filters" :options="layerOptions" :model-value="state.layers" select-all :reset-to="DEFAULT_LAYERS" @update:model-value="setLayers" />
     </div>
     <div class="field">
       <span id="map-view" class="lbl">Show as</span>
@@ -343,9 +385,9 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
         <RouterLink class="btn btn-secondary" :to="startLink">Find another resource</RouterLink>
       </EmptyState>
       <div v-else-if="loading && graph.nodes.size === 0" class="skeleton-map" aria-busy="true" aria-label="Loading the map">
-        <div v-for="(lane, i) in canvasLanes" :key="lane" class="sk-lane">
-          <span class="eyebrow">{{ lane }}</span>
-          <template v-if="i >= 1 && i <= 3"><div v-for="n in 3" :key="n" class="sk-node"></div></template>
+        <div v-for="tier in skeletonTiers" :key="tier" class="sk-tier">
+          <span class="eyebrow">{{ tier }}</span>
+          <div v-for="n in 3" :key="n" class="sk-node"></div>
         </div>
       </div>
       <MapList
@@ -358,12 +400,14 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
       />
       <MapCanvas
         v-else
+        ref="canvas"
         :map="map"
         :graph="graph"
         :focus="state.focus"
         :selection="selection"
         :connection-name="connectionName"
         :collapsible="collapsible"
+        :initial-viewport="carried"
         @select="select"
         @expand="expand"
         @collapse="collapse"
@@ -508,42 +552,63 @@ const canvasLanes = ['2 hops in', '1 hop in', 'Selected', '1 hop out', '2 hops o
   }
 }
 
+/* The View switch (round M, spec §2): on the header's right, on the start too. */
+.view-mode .segmented button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-6);
+}
+
+@media (max-width: 599px) {
+  .view-mode,
+  .view-mode .segmented {
+    width: 100%;
+  }
+
+  .view-mode .segmented button {
+    flex: 1;
+    justify-content: center;
+  }
+
+  .mode-icon {
+    display: none;
+  }
+}
+
+/* The loading skeleton: tier rows, as the canvas draws them (mapLanes.ts, 208 x 64 cards). */
 .skeleton-map {
   display: flex;
-  justify-content: center;
-  gap: 28px;
+  flex-direction: column;
+  align-items: center;
+  gap: 64px;
   flex: 1;
   min-height: 600px;
   padding-top: var(--s-48);
+  overflow: hidden;
   background-color: var(--graph-canvas);
   background-image: radial-gradient(circle, var(--graph-dot) 1px, transparent 1.2px);
   background-size: 22px 22px;
 }
 
-.sk-lane {
+.sk-tier {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 24px;
-  width: 178px;
+  gap: 40px;
 }
 
-.sk-lane .eyebrow {
+.sk-tier .eyebrow {
+  position: absolute;
+  right: calc(100% + 32px);
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--text-3);
   letter-spacing: 0.12em;
-  margin-bottom: var(--s-24);
 }
 
 .sk-node {
-  width: 178px;
-  height: 46px;
-  border-radius: 23px;
+  width: 208px;
+  height: 64px;
+  border-radius: var(--r-tile);
   background: var(--surface-raised);
-}
-
-@media (max-width: 899px) {
-  .skeleton-map {
-    overflow: hidden;
-  }
 }
 </style>

@@ -16,6 +16,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import FilterBar from '@/components/FilterBar.vue'
 import MultiSelect, { type MultiOption } from '@/components/MultiSelect.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import MapTabs from '../map/MapTabs.vue'
 import SeverityTag from '@/components/SeverityTag.vue'
 import SortHeader from '@/components/SortHeader.vue'
 import { useResource } from '@/composables/useResource'
@@ -153,9 +154,10 @@ watch(
   </template>
 
   <template v-else>
-    <PageHeader title="Attack paths">
+    <PageHeader title="Map">
       <template v-if="dataThrough">Data through <span class="mono strong">{{ dataThrough }}</span></template>
     </PageHeader>
+    <MapTabs current="attack-paths" />
     <FilterBar :active="filtered" label="Filters" @clear="clearFilters">
       <MultiSelect id="ap-sev" label="Severity" :options="severityOptions" :model-value="filters.severity" @update:model-value="set('severity', $event as Severity[])" />
       <MultiSelect id="ap-kind" label="Kind" :options="kindOptions" :status="facetStatus" :model-value="filters.kind" @update:model-value="set('kind', $event)" />
