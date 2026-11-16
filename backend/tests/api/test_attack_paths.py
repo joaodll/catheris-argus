@@ -84,6 +84,42 @@ def test_filters_by_connection_kind_and_resource_on_a_route(
     if entry is not None:
         through = _page(signed_in, through=entry, **EVERY)["items"]
         assert route["id"] in {r["id"] for r in through}
+    assert {(r["through_target"], r["through_step"]) for r in by_kind["items"]} == {(None, None)}
+
+
+def test_through_says_where_a_route_first_touches_the_resource(
+    signed_in: TestClient, evaluated: int
+) -> None:
+    """Play from the Map's Routes tab opens the first listed target and step that touch the
+    resource: compared with each target's own steps, read through the detail."""
+    seen, later = 0, 0
+    routes = _page(signed_in, **EVERY)["items"]
+    # Routes with several listed targets first: their later targets end on resources the
+    # first target never touches.
+    for route in sorted(routes, key=lambda r: -r["listed_count"])[:8]:
+        rid_ = route["id"]
+        for seq in range(1, min(route["listed_count"], 3) + 1):
+            steps = signed_in.get(f"/api/v1/attack-paths/{rid_}", params={"target": seq}).json()
+            for n, step in enumerate(steps["steps"], start=1):
+                for rid in {step["source"]["resource_id"], step["target"]["resource_id"]} - {None}:
+                    row = next(
+                        r
+                        for r in _page(signed_in, through=rid, **EVERY)["items"]
+                        if r["id"] == rid_
+                    )
+                    at, first = row["through_target"], row["through_step"]
+                    # Never later than where this loop found it, and that step touches it.
+                    assert (at, first) <= (seq, n)
+                    touched = signed_in.get(
+                        f"/api/v1/attack-paths/{rid_}", params={"target": at}
+                    ).json()["steps"][first - 1]
+                    assert rid in {
+                        touched["source"]["resource_id"],
+                        touched["target"]["resource_id"],
+                    }
+                    seen += 1
+                    later += at > 1
+    assert seen and later, "the estate should have a resource first met on a later target"
 
 
 def test_a_route_shows_its_targets_and_steps(signed_in: TestClient, evaluated: int) -> None:

@@ -14,6 +14,11 @@
  * architecture diagram. The Security view reads the same page's sibling routes (`mode=security`): it reads
  * /map/security/*, which adds the security lines and each card's facts (card B, mapFacts.ts),
  * and its panel is the whole resource. Everything except expansions lives in the URL (mapQuery).
+ *
+ * The third mode, Attack Path (`mode=attack&route=`; W6 §11), is lit only while a route is open:
+ * it draws that stored route's steps and nothing else (AttackView). It is entered from a route's
+ * page ("Show on map") or the Security panel's Routes tab (Play); Infrastructure, Security or
+ * Leave route return to the map, whose depth, connections and filters stayed in the URL.
  */
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
@@ -34,7 +39,10 @@ import MapStart from './MapStart.vue'
 import MapTabs from './MapTabs.vue'
 import ResourceSearch from './ResourceSearch.vue'
 import { addMember, emptyGraph, MAX_NODES, mergeGraph, nodeName, replay, scanLine, withoutExpand, type GraphResponse, type GraphState, type MapEdge, type MapNode, type Selection, type Step } from './mapGraph'
-import { DEFAULT_LAYERS, DEPTHS, LAYER_LABEL, LAYERS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapKind, type MapState } from './mapQuery'
+import { DEFAULT_LAYERS, DEPTHS, LAYER_LABEL, LAYERS, chosenLayers, graphParams, mapQueryToUrl, parseMapQuery, type MapKind, type MapState, type ViewMode } from './mapQuery'
+import AttackView from './AttackView.vue'
+import type { Names } from '../paths/routeWords'
+import type { Accounts } from './routeMap'
 import type { Viewport } from './mapLanes'
 
 const route = useRoute()
@@ -52,8 +60,10 @@ function readGraph(query: ReturnType<typeof graphParams>) {
 const phone = window.matchMedia?.('(max-width: 600px)').matches ?? false
 const defaultView = phone ? 'list' : 'map'
 const state = computed(() => parseMapQuery(route.query, defaultView))
-// The view mode: 'resource' is Infrastructure.
-const map = computed<MapKind>(() => state.value.mode)
+// The view mode: 'resource' is Infrastructure. The Attack Path view's cards are the Security
+// view's, so the canvas and the panel see 'security' there.
+const map = computed<MapKind>(() => (state.value.mode === 'resource' ? 'resource' : 'security'))
+const attack = computed(() => state.value.mode === 'attack' && state.value.route != null)
 // A focus is on the canvas; else the start shows.
 const started = computed(() => state.value.focus != null)
 
@@ -64,6 +74,17 @@ function navigate(next: Partial<MapState>, how: 'push' | 'replace' = 'push'): vo
 const connections = useResource(() => unwrap(api.GET('/api/v1/connections')))
 function connectionName(id: number): string {
   return connections.data.value?.find((c) => c.id === id)?.name ?? `Connection ${id}`
+}
+// Route titles and accounts (the Attack Path view, the Routes tab).
+const names: Names = {
+  connection: connectionName,
+  ofAccount: (account) => connections.data.value?.find((c) => c.account_id === account)?.name ?? null,
+}
+// The Attack Path view's accounts: where each card is, and which moves cross accounts.
+const accounts: Accounts = {
+  accountOf: (id) => connections.data.value?.find((c) => c.id === id)?.account_id ?? null,
+  connectionOf: (account) => connections.data.value?.find((c) => c.account_id === account)?.id ?? null,
+  name: connectionName,
 }
 
 // ---- The graph: the focus neighbourhood, then what Expand and group members add.
@@ -86,9 +107,10 @@ let generation = 0
 // The selected group or edge (a node's selection is ?open=; see Selection below).
 const localSelection = ref<Selection | null>(null)
 
-// The view is in the key: switching it at the same focus reads the other route.
+// The view is in the key: switching it at the same focus reads the other route. The Attack Path
+// view reads no neighbourhood.
 const neighbourhoodKey = computed(() =>
-  JSON.stringify([map.value, state.value.focus, state.value.connection, state.value.depth, state.value.layers]),
+  JSON.stringify([attack.value ? 'attack' : map.value, state.value.focus, state.value.connection, state.value.depth, state.value.layers]),
 )
 
 // ---- The view switch (spec §2): a replace that keeps everything else, and the camera.
@@ -96,8 +118,16 @@ const canvas = ref<InstanceType<typeof MapCanvas> | null>(null)
 const carried = ref<Viewport | null>(null)
 let switching = false
 const modeNote = ref('')
-function setMode(mode: MapKind): void {
-  if (mode === map.value) return
+function setMode(mode: ViewMode): void {
+  if (mode === state.value.mode) return
+  // Attack Path is lit only by opening a route (§11.1).
+  if (mode === 'attack') return
+  // Leaving a route: back to the map as it was. A history push, as Leave route: Back returns to
+  // the route.
+  if (attack.value) {
+    leaveRoute(attackView.value?.leaveTo() ?? null, mode)
+    return
+  }
   carried.value = canvas.value?.viewport() ?? null
   switching = true
   modeNote.value =
@@ -105,6 +135,21 @@ function setMode(mode: MapKind): void {
       ? 'Security view: the map now shows misconfigurations, vulnerabilities and security lines.'
       : 'Infrastructure view: resources and how they connect, no security facts.'
   navigate({ mode }, 'replace')
+}
+
+// ---- The Attack Path view (§11.1): entering pushes, a step or target change replaces.
+const attackView = ref<InstanceType<typeof AttackView> | null>(null)
+function playRoute(at: { route: number; target: number; step: number }): void {
+  navigate({ mode: 'attack', ...at })
+}
+function moveRoute(at: { target?: number; step: number }): void {
+  navigate({ ...at }, 'replace')
+}
+/** Leave route: the Security view (or the chosen one), focused on the step's resource when there
+ * is one; with none, the map as it was before the route. */
+function leaveRoute(focus: string | null, mode: MapKind = 'security'): void {
+  modeNote.value = 'Left the route.'
+  navigate({ mode, route: null, target: 1, step: 1, ...(focus ? { focus, open: focus, connection: null } : {}) })
 }
 
 /** "Recently opened": the focus, once the map has drawn it (it is in the inventory). */
@@ -134,7 +179,7 @@ async function load(): Promise<void> {
   capped.value = false
   notFound.value = false
   error.value = null
-  if (!s.focus) return
+  if (!s.focus || attack.value) return
   loading.value = true
   try {
     const result = await readGraph(graphParams(s, s.focus))
@@ -306,123 +351,173 @@ const banner = computed(() => {
 const groupCount = computed(() => graph.value.groups.size)
 // The loading skeleton's rows: tiers, as the canvas draws them (mapLanes.ts).
 const skeletonTiers = ['Entry', 'Workloads', 'Data']
-const MODES: { mode: MapKind; label: string; icon: 'graph' | 'shield' }[] = [
+const MODES: { mode: ViewMode; label: string; icon: 'graph' | 'shield' | 'route' }[] = [
   { mode: 'resource', label: 'Infrastructure', icon: 'graph' },
   { mode: 'security', label: 'Security', icon: 'shield' },
+  { mode: 'attack', label: 'Attack Path', icon: 'route' },
 ]
 </script>
 
 <template>
   <PageHeader :title="title">
     <!-- The map's day, so only with a map: the start says its own under "What's here". -->
-    <template v-if="started && !loading && !notFound && !error">{{ scanLine(days, dataThrough) }}</template>
+    <template v-if="started && !attack && !loading && !notFound && !error">{{ scanLine(days, dataThrough) }}</template>
     <template #actions>
       <div class="field view-mode">
         <span id="map-mode" class="lbl">View</span>
         <div class="segmented" role="group" aria-labelledby="map-mode">
-          <button v-for="m in MODES" :key="m.mode" type="button" :aria-pressed="map === m.mode" @click="setMode(m.mode)">
+          <button
+            v-for="m in MODES"
+            :key="m.mode"
+            type="button"
+            :aria-pressed="state.mode === m.mode"
+            :aria-disabled="m.mode === 'attack' && !attack ? 'true' : undefined"
+            :aria-describedby="m.mode === 'attack' && !attack ? 'map-attack-hint' : undefined"
+            :title="m.mode === 'attack' && !attack ? 'Open a route from Attack paths to see it here' : undefined"
+            :class="{ off: m.mode === 'attack' && !attack }"
+            @click="setMode(m.mode)"
+          >
             <AppIcon :name="m.icon" :size="16" class="mode-icon" />{{ m.label }}
           </button>
         </div>
+        <span id="map-attack-hint" class="sr-only">Open a route from Attack paths to see it here.</span>
       </div>
     </template>
   </PageHeader>
   <p class="sr-only" role="status">{{ modeNote }}</p>
   <MapTabs current="map" />
 
-  <section v-if="started" class="card toolbar" aria-label="Map controls">
-    <ResourceSearch :connection-name="connectionName" @choose="(uid) => navigate({ focus: uid, open: null, connection: null })" />
-    <div class="field">
-      <span id="map-depth" class="lbl">Depth</span>
-      <div class="segmented" role="group" aria-labelledby="map-depth">
-        <button v-for="d in DEPTHS" :key="d" type="button" :aria-pressed="state.depth === d" :aria-label="`${d} ${d === 1 ? 'hop' : 'hops'}`" @click="navigate({ depth: d })">{{ d }}</button>
-      </div>
-    </div>
-    <div class="field">
-      <MultiSelect id="map-layers" label="Filters" :options="layerOptions" :model-value="state.layers" select-all :reset-to="DEFAULT_LAYERS" @update:model-value="setLayers" />
-    </div>
-    <div class="field">
-      <span id="map-view" class="lbl">Show as</span>
-      <div class="segmented" role="group" aria-labelledby="map-view">
-        <button type="button" :aria-pressed="state.view === 'map'" @click="navigate({ view: 'map' }, 'replace')">Map</button>
-        <button type="button" :aria-pressed="state.view === 'list'" @click="navigate({ view: 'list' }, 'replace')">List</button>
-      </div>
-    </div>
-    <button type="button" class="btn btn-ghost reset" @click="reset">Reset</button>
-  </section>
+  <AttackView
+    v-if="attack"
+    ref="attackView"
+    :route-id="state.route!"
+    :target="state.target"
+    :step="state.step"
+    :names="names"
+    :accounts="accounts"
+    @move="moveRoute"
+    @leave="leaveRoute"
+  />
 
-  <AlertBanner v-if="banner" kind="warn">{{ banner }}</AlertBanner>
-  <AlertBanner v-if="alone" kind="info">
-    No connections found for this resource on the chosen kinds of connection.
-    <template v-if="!everyLayer" #action><button type="button" class="btn btn-secondary btn-sm" @click="setLayers([])">Show every connection</button></template>
-  </AlertBanner>
-  <p v-if="groupCount" class="sr-only" role="status">{{ groupCount }} groups stand for resources not drawn one by one.</p>
-  <p class="sr-only" role="status">{{ collapsedNote }}</p>
-
-  <div class="work" :class="{ 'has-panel': started && !narrow && !!selection }">
-    <section class="card canvas-card" :class="{ 'is-map': started && state.view === 'map' }" :aria-label="title">
-      <MapStart
-        v-if="!started"
-        :map="map"
-        :connections="connections.data.value ?? null"
-        :connections-failed="!!connections.error.value"
-        :connection="state.connection"
-        :connection-name="connectionName"
-        :recent-link="recentLink"
-        :type="state.type"
-        :page="state.page"
-        :type-link="typeLink"
-        :resource-link="resourceLink"
-        @choose="(uid, cid) => navigate({ focus: uid, open: null, connection: state.connection != null ? cid : null })"
-        @account="(cid) => navigate({ connection: cid, page: 1 }, 'replace')"
-        @page="(p) => navigate({ page: p }, 'replace')"
-      />
-      <AlertBanner v-else-if="error" kind="fail" class="in-card">
-        The map didn't load: {{ error }}
-        <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load">Retry</button></template>
-      </AlertBanner>
-      <EmptyState v-else-if="notFound" icon="graph" title="This resource is not in the inventory or on any connection." :text="state.focus ?? undefined">
-        <RouterLink class="btn btn-secondary" :to="startLink">Find another resource</RouterLink>
-      </EmptyState>
-      <div v-else-if="loading && graph.nodes.size === 0" class="skeleton-map" aria-busy="true" aria-label="Loading the map">
-        <div v-for="tier in skeletonTiers" :key="tier" class="sk-tier">
-          <span class="eyebrow">{{ tier }}</span>
-          <div v-for="n in 3" :key="n" class="sk-node"></div>
+  <template v-else>
+    <section v-if="started" class="card toolbar" aria-label="Map controls">
+      <ResourceSearch :connection-name="connectionName" @choose="(uid) => navigate({ focus: uid, open: null, connection: null })" />
+      <div class="field">
+        <span id="map-depth" class="lbl">Depth</span>
+        <div class="segmented" role="group" aria-labelledby="map-depth">
+          <button v-for="d in DEPTHS" :key="d" type="button" :aria-pressed="state.depth === d" :aria-label="`${d} ${d === 1 ? 'hop' : 'hops'}`" @click="navigate({ depth: d })">{{ d }}</button>
         </div>
       </div>
-      <MapList
-        v-else-if="state.view === 'list'"
-        :map="map"
-        :graph="graph"
-        :selection="selection"
-        :focus="state.focus"
-        @select="select"
-      />
-      <MapCanvas
-        v-else
-        ref="canvas"
-        :map="map"
-        :graph="graph"
-        :focus="state.focus"
-        :selection="selection"
-        :connection-name="connectionName"
-        :collapsible="collapsible"
-        :initial-viewport="carried"
-        @select="select"
-        @expand="expand"
-        @collapse="collapse"
-        @focus-here="focusHere"
-      >
-        <template #overlay>
-          <p v-if="!everSelected" class="pill hint">Click a resource to open it · Expand adds what it connects to</p>
-        </template>
-      </MapCanvas>
+      <div class="field">
+        <MultiSelect id="map-layers" label="Filters" :options="layerOptions" :model-value="state.layers" select-all :reset-to="DEFAULT_LAYERS" @update:model-value="setLayers" />
+      </div>
+      <div class="field">
+        <span id="map-view" class="lbl">Show as</span>
+        <div class="segmented" role="group" aria-labelledby="map-view">
+          <button type="button" :aria-pressed="state.view === 'map'" @click="navigate({ view: 'map' }, 'replace')">Map</button>
+          <button type="button" :aria-pressed="state.view === 'list'" @click="navigate({ view: 'list' }, 'replace')">List</button>
+        </div>
+      </div>
+      <button type="button" class="btn btn-ghost reset" @click="reset">Reset</button>
     </section>
 
-    <aside v-if="started && !narrow && selection" ref="panelRef" class="card panel" aria-label="Resource panel">
+    <AlertBanner v-if="banner" kind="warn">{{ banner }}</AlertBanner>
+    <AlertBanner v-if="alone" kind="info">
+      No connections found for this resource on the chosen kinds of connection.
+      <template v-if="!everyLayer" #action><button type="button" class="btn btn-secondary btn-sm" @click="setLayers([])">Show every connection</button></template>
+    </AlertBanner>
+    <p v-if="groupCount" class="sr-only" role="status">{{ groupCount }} groups stand for resources not drawn one by one.</p>
+    <p class="sr-only" role="status">{{ collapsedNote }}</p>
+
+    <div class="work" :class="{ 'has-panel': started && !narrow && !!selection }">
+      <section class="card canvas-card" :class="{ 'is-map': started && state.view === 'map' }" :aria-label="title">
+        <MapStart
+          v-if="!started"
+          :map="map"
+          :connections="connections.data.value ?? null"
+          :connections-failed="!!connections.error.value"
+          :connection="state.connection"
+          :connection-name="connectionName"
+          :recent-link="recentLink"
+          :type="state.type"
+          :page="state.page"
+          :type-link="typeLink"
+          :resource-link="resourceLink"
+          @choose="(uid, cid) => navigate({ focus: uid, open: null, connection: state.connection != null ? cid : null })"
+          @account="(cid) => navigate({ connection: cid, page: 1 }, 'replace')"
+          @page="(p) => navigate({ page: p }, 'replace')"
+        />
+        <AlertBanner v-else-if="error" kind="fail" class="in-card">
+          The map didn't load: {{ error }}
+          <template #action><button type="button" class="btn btn-secondary btn-sm" @click="load">Retry</button></template>
+        </AlertBanner>
+        <EmptyState v-else-if="notFound" icon="graph" title="This resource is not in the inventory or on any connection." :text="state.focus ?? undefined">
+          <RouterLink class="btn btn-secondary" :to="startLink">Find another resource</RouterLink>
+        </EmptyState>
+        <div v-else-if="loading && graph.nodes.size === 0" class="skeleton-map" aria-busy="true" aria-label="Loading the map">
+          <div v-for="tier in skeletonTiers" :key="tier" class="sk-tier">
+            <span class="eyebrow">{{ tier }}</span>
+            <div v-for="n in 3" :key="n" class="sk-node"></div>
+          </div>
+        </div>
+        <MapList
+          v-else-if="state.view === 'list'"
+          :map="map"
+          :graph="graph"
+          :selection="selection"
+          :focus="state.focus"
+          @select="select"
+        />
+        <MapCanvas
+          v-else
+          ref="canvas"
+          :map="map"
+          :graph="graph"
+          :focus="state.focus"
+          :selection="selection"
+          :connection-name="connectionName"
+          :collapsible="collapsible"
+          :initial-viewport="carried"
+          @select="select"
+          @expand="expand"
+          @collapse="collapse"
+          @focus-here="focusHere"
+        >
+          <template #overlay>
+            <p v-if="!everSelected" class="pill hint">Click a resource to open it · Expand adds what it connects to</p>
+          </template>
+        </MapCanvas>
+      </section>
+
+      <aside v-if="started && !narrow && selection" ref="panelRef" class="card panel" aria-label="Resource panel">
+        <MapPanel
+          ref="panel"
+          :map="map"
+          :graph="graph"
+          :selection="selection"
+          :full="full"
+          :collapsible="collapsible"
+          :tab="state.tab"
+          :connection-name="connectionName"
+          :connection-id="walked"
+          :names="names"
+          @tab="(t) => navigate({ tab: t }, 'replace')"
+          @close="select(null)"
+          @collapse="collapse"
+          @expand="expand"
+          @focus-here="focusHere"
+          @add="add"
+          @select="select"
+          @play="playRoute"
+        />
+      </aside>
+    </div>
+
+    <SideSheet v-if="narrow && selection" :title="sheetTitle" :description="sheetCaption" @close="select(null)">
       <MapPanel
         ref="panel"
         :map="map"
+        framed
         :graph="graph"
         :selection="selection"
         :full="full"
@@ -430,6 +525,7 @@ const MODES: { mode: MapKind; label: string; icon: 'graph' | 'shield' }[] = [
         :tab="state.tab"
         :connection-name="connectionName"
         :connection-id="walked"
+        :names="names"
         @tab="(t) => navigate({ tab: t }, 'replace')"
         @close="select(null)"
         @collapse="collapse"
@@ -437,31 +533,10 @@ const MODES: { mode: MapKind; label: string; icon: 'graph' | 'shield' }[] = [
         @focus-here="focusHere"
         @add="add"
         @select="select"
+        @play="playRoute"
       />
-    </aside>
-  </div>
-
-  <SideSheet v-if="narrow && selection" :title="sheetTitle" :description="sheetCaption" @close="select(null)">
-    <MapPanel
-      ref="panel"
-      :map="map"
-      framed
-      :graph="graph"
-      :selection="selection"
-      :full="full"
-      :collapsible="collapsible"
-      :tab="state.tab"
-      :connection-name="connectionName"
-      :connection-id="walked"
-      @tab="(t) => navigate({ tab: t }, 'replace')"
-      @close="select(null)"
-      @collapse="collapse"
-      @expand="expand"
-      @focus-here="focusHere"
-      @add="add"
-      @select="select"
-    />
-  </SideSheet>
+    </SideSheet>
+  </template>
 </template>
 
 <style scoped>
@@ -557,6 +632,12 @@ const MODES: { mode: MapKind; label: string; icon: 'graph' | 'shield' }[] = [
   display: inline-flex;
   align-items: center;
   gap: var(--s-6);
+}
+
+/* Attack Path with no route open: it says how to light it (title, hint), and does nothing. */
+.view-mode .segmented button.off {
+  color: var(--text-3);
+  cursor: not-allowed;
 }
 
 @media (max-width: 599px) {

@@ -23,11 +23,15 @@ export type Depth = (typeof DEPTHS)[number]
 // draws no security line or fact and reads only the plain routes; Security does (ADR-0051). In the
 // URL as mode=security; Infrastructure is the default and left out.
 export type MapKind = 'resource' | 'security'
+// The View switch's three segments: the two maps, and the Attack Path view (W6 §11.1), lit only
+// while a route is open (mode=attack&route=<id>), which draws one stored route's steps and
+// nothing else. Its cards are the Security view's.
+export type ViewMode = MapKind | 'attack'
 
 export type View = 'map' | 'list'
 
 // The open resource's tab in the panel (spec frontend/d37cd13b); Overview is left out of the URL.
-export const PANEL_TABS = ['overview', 'problems', 'connections', 'configuration'] as const
+export const PANEL_TABS = ['overview', 'problems', 'routes', 'connections', 'configuration'] as const
 export type PanelTab = (typeof PANEL_TABS)[number]
 
 export interface MapState {
@@ -45,7 +49,12 @@ export interface MapState {
   type: string | null
   page: number
   tab: PanelTab
-  mode: MapKind
+  mode: ViewMode
+  // The Attack Path view's route, its listed target (1 is the worst) and the player's step.
+  // Null and 1 in the other views: a route belongs to the Attack Path view only.
+  route: number | null
+  target: number
+  step: number
 }
 
 const UID_MAX = 2048 // as the API
@@ -92,8 +101,16 @@ export function parseMapQuery(query: LocationQuery, defaultView: View = 'map'): 
     // A page belongs to a type's list.
     page: type ? (id(query.page) ?? 1) : 1,
     tab: (PANEL_TABS as readonly string[]).includes(one(query.tab) ?? '') ? (one(query.tab) as PanelTab) : 'overview',
-    mode: one(query.mode) === 'security' ? 'security' : 'resource',
+    ...viewMode(query),
   }
+}
+
+/** mode=attack needs a readable route; without one it is the Security view (§11.1). */
+function viewMode(query: LocationQuery): Pick<MapState, 'mode' | 'route' | 'target' | 'step'> {
+  const mode = one(query.mode)
+  const route = id(query.route)
+  if (mode === 'attack' && route != null) return { mode, route, target: id(query.target) ?? 1, step: id(query.step) ?? 1 }
+  return { mode: mode === 'security' || mode === 'attack' ? 'security' : 'resource', route: null, target: 1, step: 1 }
 }
 
 export function mapQueryToUrl(s: MapState, defaultView: View = 'map'): LocationQueryRaw {
@@ -109,7 +126,10 @@ export function mapQueryToUrl(s: MapState, defaultView: View = 'map'): LocationQ
     type: s.type ?? undefined,
     page: s.type == null || s.page === 1 ? undefined : String(s.page),
     tab: s.tab === 'overview' ? undefined : s.tab,
-    mode: s.mode === 'security' ? 'security' : undefined,
+    mode: s.mode === 'resource' ? undefined : s.mode,
+    ...(s.mode === 'attack' && s.route != null
+      ? { route: String(s.route), target: s.target === 1 ? undefined : String(s.target), step: s.step === 1 ? undefined : String(s.step) }
+      : {}),
   }
 }
 

@@ -17,6 +17,8 @@ import { useResource } from '@/composables/useResource'
 import { originLabel, regionLabel } from '../labels'
 import { edgeTitle } from '../edgeWords'
 import ResourceDetail, { type DetailPart } from '../ResourceDetail.vue'
+import type { Names } from '../paths/routeWords'
+import MapRoutes from './MapRoutes.vue'
 import UnderlineTabs from '@/components/UnderlineTabs.vue'
 import { SEVERITIES, type Severity } from '@/views/overview/severity'
 import SeverityTag from '@/components/SeverityTag.vue'
@@ -39,14 +41,19 @@ const props = defineProps<{
   // The cards a person expanded: Collapse undoes them.
   collapsible?: ReadonlySet<string>
   // The resource's tab (the URL's ?tab=).
-  tab?: DetailPart
+  tab?: PanelPart
+  // Names for route titles (the Security view's Routes tab).
+  names?: Names
 }>()
+// A resource's panel tabs: its detail's parts, and the Security view's Routes (W6 §11.7).
+type PanelPart = DetailPart | 'routes'
 const security = computed(() => props.map === 'security')
 const emit = defineEmits<{
   close: []
   expand: [uid: string]
   collapse: [uid: string]
-  tab: [tab: DetailPart]
+  tab: [tab: PanelPart]
+  play: [at: { route: number; target: number; step: number }]
   focusHere: [uid: string]
   add: [member: { node: MapNode; edge: MapEdge }]
   select: [selection: Selection]
@@ -130,7 +137,9 @@ const tabs = computed(() =>
     ? ([
         { value: 'overview', label: 'Overview' },
         { value: 'problems', label: 'Problems' },
-        { value: 'connections', label: 'Connections' },
+        { value: 'routes', label: 'Routes' },
+        // Five tabs in a 400 px panel: the short word (W6 §5).
+        { value: 'connections', label: 'Links' },
         { value: 'configuration', label: 'Config' },
       ] as const)
     : ([
@@ -140,7 +149,7 @@ const tabs = computed(() =>
       ] as const),
 )
 // A tab the map has not (Problems on the Infrastructure view) shows the overview.
-const shownTab = computed<DetailPart>(() => (props.tab && tabs.value.some((t) => t.value === props.tab) ? props.tab : 'overview'))
+const shownTab = computed<PanelPart>(() => (props.tab && tabs.value.some((t) => t.value === props.tab) ? props.tab : 'overview'))
 // Open misconfigurations per severity, worst first, as the Misconfigurations list counts them.
 const severities = computed(() => {
   const by: Record<string, number> = loaded.value && 'open_by_severity' in loaded.value ? loaded.value.open_by_severity : {}
@@ -266,12 +275,14 @@ function ports(edge: MapEdge): string | null {
         </section>
         <UnderlineTabs :model-value="shownTab" :tabs="tabs" label="Resource details" id-prefix="mp" compact @update:model-value="(t) => emit('tab', t)" />
         <div :id="`mp-${shownTab}`" role="tabpanel" :aria-labelledby="`mp-tab-${shownTab}`" class="tab-body">
+          <MapRoutes v-if="shownTab === 'routes' && names" :resource-id="node.resource_id" :names="names" @play="(at) => emit('play', at)" />
           <ResourceDetail
+            v-else
             :resource-id="node.resource_id"
             :connection-name="connectionName"
             :resource-link="resourceLink"
             :plain="!security"
-            :part="shownTab"
+            :part="shownTab === 'routes' ? 'overview' : shownTab"
             new-tab
             @loaded="(r) => (loaded = r)"
           />

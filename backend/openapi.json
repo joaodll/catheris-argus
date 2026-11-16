@@ -5576,6 +5576,28 @@
             "title": "Target Count",
             "type": "integer"
           },
+          "through_step": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Through Step"
+          },
+          "through_target": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Through Target"
+          },
           "worst_class": {
             "enum": [
               "confirmed",

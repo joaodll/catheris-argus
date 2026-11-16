@@ -10,28 +10,24 @@ import { computed, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
+import AppIcon from '@/components/AppIcon.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import SeverityTag from '@/components/SeverityTag.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useResource } from '@/composables/useResource'
-import DoorEvidence from '../DoorEvidence.vue'
-import { doorOfEdge, doorWhy } from '../doorWhy'
 import { originLabel } from '../labels'
 import CountPill from '../map/CountPill.vue'
 import { factLines, factSub, pillCount, worstOf } from '../map/mapFacts'
 import ResourceSheet from '../ResourceSheet.vue'
 import { LEVEL_LABEL, LEVEL_MEANING, LIKELIHOOD_LINE, confidenceLine, type StepLevel } from './routeClass'
 import RouteClassBadge from './RouteClassBadge.vue'
+import StepEvidence from './StepEvidence.vue'
 import { parseTarget } from './routeFilters'
 import {
   accountName,
-  breakLink,
   chainItems,
-  factsOf,
-  footholdCve,
   moveWords,
   nodeLabel,
-  reasonLine,
   routeTitle,
   selfStepTitle,
   type Names,
@@ -108,18 +104,14 @@ function otherAccount(node: StepNode): string | null {
 // "Evidence and fix": one step's evidence at a time, under its link.
 const openStep = ref<number | null>(null)
 watch([() => props.routeId, target], () => (openStep.value = null))
-const opened = computed(() => {
-  const step = found.value?.steps.find((s) => s.n === openStep.value)
-  if (!step) return null
-  const door = step.source.uid === 'internet' ? doorOfEdge(step) : null
-  return { move: moveWords(step), door, doorLine: door ? doorWhy(door) : null, facts: factsOf(step), fix: breakLink(step) }
-})
 const level = (s: StepOut) => s.level as StepLevel
 
 // A resource step opens its sheet in place.
 const sheet = ref<{ id: number; name: string } | null>(null)
 type RouteDetailOut = Schemas['RouteDetail']
 const kindLabel = (r: RouteDetailOut) => r.kind_name ?? r.kind
+// The Map's Attack Path view at this target, step 1 (W6 §11.1).
+const mapLink = computed(() => ({ name: 'map', query: { mode: 'attack', route: String(props.routeId), target: target.value > 1 ? String(target.value) : undefined } }))
 </script>
 
 <template>
@@ -145,6 +137,9 @@ const kindLabel = (r: RouteDetailOut) => r.kind_name ?? r.kind
           <StatusBadge v-if="found.resolved_on" status="resolved" :label="`Fixed ${found.resolved_on}`" />
           <StatusBadge v-else-if="found.state === 'reopened'" status="reopened" />
         </span>
+        <RouterLink class="btn btn-secondary show-on-map" :to="mapLink">
+          <AppIcon name="graph" :size="16" />Show on map
+        </RouterLink>
       </div>
       <dl class="detail-facts">
         <div>
@@ -240,11 +235,7 @@ const kindLabel = (r: RouteDetailOut) => r.kind_name ?? r.kind
             <div class="self-body">
               <span class="self-title"><span class="sr-only">Step {{ item.step.n }}: </span>{{ selfStepTitle(item.step, label(item.step.target).name) }}</span>
               <span class="level" :title="LEVEL_MEANING[level(item.step)]">{{ LEVEL_LABEL[level(item.step)] }}</span>
-              <span class="reason">
-                {{ reasonLine(item.step) }}
-                <RouterLink v-if="footholdCve(item.step) && item.step.target.resource_id != null" :to="{ name: 'vulnerabilities', query: { q: footholdCve(item.step)!, resource: String(item.step.target.resource_id) } }">See it in Vulnerabilities</RouterLink>
-              </span>
-              <span class="small">Fix: {{ breakLink(item.step) }}</span>
+              <StepEvidence :step="item.step" />
             </div>
           </div>
 
@@ -267,29 +258,8 @@ const kindLabel = (r: RouteDetailOut) => r.kind_name ?? r.kind
                   Evidence and fix
                 </button>
               </span>
-              <div v-if="openStep === item.step.n && opened" :id="`evidence-${item.step.n}`" class="break" role="region" :aria-label="`Evidence and fix for step ${item.step.n}`">
-                <p class="sentence">{{ opened.move.sentence }}</p>
-                <p class="body"><span class="level">{{ LEVEL_LABEL[level(item.step)] }}</span> {{ reasonLine(item.step) }}</p>
-                <template v-if="opened.door">
-                  <p v-if="opened.doorLine" class="body">{{ opened.doorLine }}</p>
-                  <DoorEvidence v-if="opened.door.network.length || opened.door.state" :network="opened.door.network" :state="opened.door.state" />
-                </template>
-                <dl v-if="opened.facts.length || item.step.day" class="attrs">
-                  <div v-if="item.step.day"><dt class="lbl">Seen</dt><dd class="mono">{{ item.step.day }}</dd></div>
-                  <div v-for="f in opened.facts" :key="f.label">
-                    <dt class="lbl">{{ f.label }}</dt>
-                    <dd :class="{ mono: f.mono }" :title="f.title">{{ f.value }}</dd>
-                  </div>
-                </dl>
-                <p class="body"><strong>Break this link:</strong> {{ opened.fix }}</p>
-                <details class="tech">
-                  <summary>Technical details</summary>
-                  <dl class="attrs">
-                    <div><dt class="lbl">Link type</dt><dd class="mono">{{ item.step.type }}</dd></div>
-                    <div><dt class="lbl">Source</dt><dd class="mono">{{ item.step.origin }}</dd></div>
-                    <div><dt class="lbl">Reason</dt><dd class="mono">{{ item.step.reason }}</dd></div>
-                  </dl>
-                </details>
+              <div v-if="openStep === item.step.n" :id="`evidence-${item.step.n}`" role="region" :aria-label="`Evidence and fix for step ${item.step.n}`">
+                <StepEvidence :step="item.step" />
               </div>
             </div>
           </div>
@@ -308,6 +278,14 @@ const kindLabel = (r: RouteDetailOut) => r.kind_name ?? r.kind
 </template>
 
 <style scoped>
+/* The Map's Attack Path view (W6 §11.1): on the title row's right. */
+.show-on-map {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-6);
+}
+
 .loading {
   display: flex;
   flex-direction: column;
@@ -554,14 +532,6 @@ const kindLabel = (r: RouteDetailOut) => r.kind_name ?? r.kind
   overflow-wrap: anywhere;
 }
 
-.reason {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--s-4) var(--s-8);
-  font-size: 12px;
-  color: var(--text-2);
-}
-
 /* A step's level: the word only, small caps, so it is never read as the route's class badge. */
 .level {
   font-size: 11px;
@@ -587,49 +557,4 @@ const kindLabel = (r: RouteDetailOut) => r.kind_name ?? r.kind
   text-decoration: underline;
 }
 
-.break {
-  display: flex;
-  flex-direction: column;
-  gap: var(--s-8);
-  padding: var(--s-12) var(--s-14);
-  background: var(--surface-sunken);
-  border-radius: var(--r-tile);
-}
-
-.break p {
-  margin: 0;
-}
-
-.sentence {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text);
-}
-
-.attrs {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: var(--s-8) var(--s-16);
-  font-size: 12px;
-}
-
-.attrs dd {
-  margin: 2px 0 0;
-  overflow-wrap: anywhere;
-}
-
-.tech summary {
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-3);
-}
-
-.tech summary:hover {
-  color: var(--link);
-}
-
-.tech .attrs {
-  margin-top: var(--s-8);
-}
 </style>

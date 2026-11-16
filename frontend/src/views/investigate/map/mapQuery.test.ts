@@ -15,6 +15,9 @@ describe('Map state in the URL', () => {
       page: 1,
       tab: 'overview',
       mode: 'resource',
+      route: null,
+      target: 1,
+      step: 1,
     })
     expect(Object.values(mapQueryToUrl(state)).filter((v) => v !== undefined)).toEqual([])
   })
@@ -33,6 +36,23 @@ describe('Map state in the URL', () => {
     expect(parseMapQuery({ mode: 'other' }).mode).toBe('resource')
     expect(mapQueryToUrl(parseMapQuery({ mode: 'security', focus: 'x' }))).toMatchObject({ mode: 'security', focus: 'x' })
     expect(mapQueryToUrl(parseMapQuery({ focus: 'x' })).mode).toBeUndefined()
+  })
+
+  it('opens the Attack Path view only with a route, and drops the route in the other views', () => {
+    const state = parseMapQuery({ mode: 'attack', route: '12', target: '3', step: '4', focus: 'x' })
+    expect(state).toMatchObject({ mode: 'attack', route: 12, target: 3, step: 4 })
+    expect(mapQueryToUrl(state)).toMatchObject({ mode: 'attack', route: '12', target: '3', step: '4', focus: 'x' })
+    const first = mapQueryToUrl({ ...state, target: 1, step: 1 })
+    expect([first.target, first.step]).toEqual([undefined, undefined])
+    // No readable route: the Security view.
+    expect(parseMapQuery({ mode: 'attack' })).toMatchObject({ mode: 'security', route: null })
+    expect(parseMapQuery({ mode: 'attack', route: 'x' }).mode).toBe('security')
+    // The Infrastructure view ignores ?route=.
+    expect(parseMapQuery({ route: '12', step: '2' })).toMatchObject({ mode: 'resource', route: null, step: 1 })
+    const security = mapQueryToUrl({ ...state, mode: 'security' })
+    expect(security.mode).toBe('security')
+    expect(security).not.toHaveProperty('route')
+    expect(security).not.toHaveProperty('step')
   })
 
   it('ignores a type or a page it cannot use', () => {

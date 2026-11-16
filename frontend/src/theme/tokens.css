@@ -76,6 +76,10 @@
   --graph-dim: 0.3;
   --graph-dot: rgb(255 255 255 / 7%); /* the map's dot grid */
   --graph-ring: rgb(255 255 255 / 25%); /* the internet's rippling rings */
+  /* The Map's Attack Path view only (W6 §11.2): the way in from outside, and every move after
+     it. Never a severity colour, never used anywhere else. */
+  --route-entry: #ff5a3c;
+  --route-lateral: #e5484d;
   --chart-band: rgb(255 255 255 / 2.5%); /* a chart's month bands */
   --chip-fill: rgb(255 255 255 / 5%); /* the neutral chip */
 
@@ -159,6 +163,16 @@
   --drawer-w: 280px;
 
   --ease: 150ms ease;
+  /* The Attack Path view's player (W6 §11.6): the current step's line, and the camera. */
+  --motion-route-step: 400ms;
+  --motion-route-pan: 300ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-route-step: 0ms;
+    --motion-route-pan: 0ms;
+  }
 }
 
 @media (max-width: 767px) {
@@ -234,6 +248,8 @@
 
   --graph-dot: rgb(0 0 0 / 10%);
   --graph-ring: rgb(0 0 0 / 22%);
+  --route-entry: #cc3314;
+  --route-lateral: #a8202e;
   --chart-band: rgb(0 0 0 / 3%);
   --chip-fill: rgb(0 0 0 / 5%);
 
