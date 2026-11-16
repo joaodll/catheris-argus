@@ -29,6 +29,13 @@ const missingPermissions = ref(false)
 
 // A run becomes a row below only when it ends; until then it is a claimed request.
 const queue = useResource(() => unwrap(api.GET('/api/v1/run-requests')), { refreshMs: 10_000 })
+// The last attack-path evaluation, for one line when it failed (ADR-0052 §9 M2; spec W6 §10.8).
+const routes = useResource(() => unwrap(api.GET('/api/v1/attack-paths/evaluation')))
+/** An error's first line, cut at 300 characters: the whole (redacted) error is in the title. */
+function firstLine(error: string): string {
+  const line = error.split('\n', 1)[0]!.trim()
+  return line.length > 300 ? `${line.slice(0, 299)}…` : line
+}
 const running = computed(() =>
   (queue.data.value?.items ?? []).filter(
     (r) =>
@@ -155,7 +162,7 @@ function clearFilters(): void {
 
 // The runs shown and what is running now, on demand.
 function refresh(): Promise<unknown> {
-  return Promise.all([load(page.value), queue.reload()])
+  return Promise.all([load(page.value), queue.reload(), routes.reload()])
 }
 
 function fromSelect(value: string): string | null {
@@ -168,6 +175,12 @@ function fromSelect(value: string): string | null {
     Partial and failed runs never resolve findings.
     <template #actions><LiveIndicator :count="runningCount" /><RefreshButton :reload="refresh" /></template>
   </PageHeader>
+  <AlertBanner v-if="routes.data.value?.failed_at" kind="warn" class="routes-failed">
+    The last attack-path evaluation failed at {{ utc(routes.data.value.failed_at) }}<template v-if="routes.data.value.error">: <span class="routes-error" :title="routes.data.value.error">{{ firstLine(routes.data.value.error) }}</span></template>.
+    <template v-if="routes.data.value.evaluated_at">Attack paths shows the routes from {{ utc(routes.data.value.evaluated_at) }}.</template>
+    <template v-else>Attack paths has no routes yet.</template>
+    <template #action><RouterLink class="btn btn-secondary btn-sm" :to="{ name: 'attack-paths' }">See Attack paths</RouterLink></template>
+  </AlertBanner>
   <section v-if="showRunning && running.length" class="card running-card" aria-labelledby="running-h">
     <div class="card-head">
       <h2 id="running-h" class="h2">Running now <span class="mono count">{{ running.length }}</span></h2>
@@ -524,6 +537,10 @@ td.right .sub {
   gap: var(--s-6);
   align-items: center;
   flex-wrap: wrap;
+}
+
+.routes-error {
+  overflow-wrap: anywhere;
 }
 
 .running-card {

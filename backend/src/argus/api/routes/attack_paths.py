@@ -16,6 +16,7 @@ from sqlalchemy import Connection
 
 from argus import attackpaths, ingest, inventory, relationships
 from argus.api.deps import Db, Viewer
+from argus.api.routes.resource_map import NodeFacts, resource_facts
 from argus.core.config import get_settings
 
 router = APIRouter(tags=["attack-paths"])
@@ -38,6 +39,12 @@ class NodeRef(BaseModel):
     name: str | None
     connection_id: int | None
     deleted_on: date | None
+
+
+class StepNode(NodeRef):
+    # The Security Map's facts on the resource (open misconfigurations, vulnerabilities, a
+    # confirmed reach), as the Security Map shows them; null for a pseudo-node.
+    facts: NodeFacts | None
 
 
 class RouteOut(BaseModel):
@@ -72,6 +79,11 @@ class EvaluationOut(BaseModel):
     behind: bool
 
 
+class EvaluationDetail(EvaluationOut):
+    # The last evaluation's error when it failed, redacted when it was recorded.
+    error: str | None
+
+
 class RoutePage(BaseModel):
     items: list[RouteOut]
     total: int
@@ -85,8 +97,8 @@ class StepOut(BaseModel):
     # An edge type, or a step the walk made: FOOTHOLD (takes control of a resource) or
     # AUTHENTICATES (logs in to a database).
     type: str
-    source: NodeRef
-    target: NodeRef
+    source: StepNode
+    target: StepNode
     edge_id: int | None
     origin: str
     connection_id: int | None
@@ -198,17 +210,24 @@ def _route(row: dict[str, Any], nodes: dict[str, dict[str, Any]]) -> dict[str, A
     }
 
 
-def evaluation(conn: Connection) -> EvaluationOut:
+def evaluation(conn: Connection) -> EvaluationDetail:
     state = attackpaths.evaluation_state(conn)
     last, done = state.get("last"), state.get("complete")
     newest = max((r.ingested_at for r in ingest.newest_runs(conn).values()), default=None)
     covered = done["newest_load_at"] if done else None
-    return EvaluationOut(
+    failed = last is not None and last["status"] == "failed"
+    return EvaluationDetail(
         evaluated_at=done["finished_at"] if done else None,
         covered_through=covered,
-        failed_at=last["finished_at"] if last and last["status"] == "failed" else None,
+        failed_at=last["finished_at"] if last and failed else None,
         behind=done is not None and newest is not None and (covered is None or newest > covered),
+        error=last["error"] if last and failed else None,
     )
+
+
+def _step_node(ref: NodeRef, facts: dict[int, NodeFacts]) -> StepNode:
+    found = facts.get(ref.resource_id) if ref.resource_id is not None else None
+    return StepNode(**ref.model_dump(), facts=found)
 
 
 @router.get("/attack-paths")
@@ -229,9 +248,17 @@ def list_attack_paths(conn: Db, _user: Viewer, query: Annotated[RouteQuery, Quer
             RouteOut(**_route(i, nodes), worst_target=_ref(i["target_uid"], nodes)) for i in items
         ],
         total=total,
-        data_through=ingest.data_through(conn, tools=TOOLS),
-        evaluation=evaluation(conn),
+        # Over the chosen connection, so the screen can say it is not covered.
+        data_through=ingest.data_through(conn, connection_id=query.connection_id, tools=TOOLS),
+        evaluation=EvaluationOut(**evaluation(conn).model_dump(exclude={"error"})),
     )
+
+
+@router.get("/attack-paths/evaluation")
+def attack_path_evaluation(conn: Db, _user: Viewer) -> EvaluationDetail:
+    """When routes were last worked out, and the last evaluation's redacted error when it
+    failed (the Runs line, §9 M2)."""
+    return evaluation(conn)
 
 
 @router.get("/attack-paths/facets")
@@ -264,6 +291,8 @@ def get_attack_path(
     uids = {found["entry_uid"]} | {t["target_uid"] for t in found["targets"]}
     uids |= {s["source_uid"] for s in steps} | {s["target_uid"] for s in steps}
     nodes = _nodes(conn, uids)
+    on_steps = {s["source_uid"] for s in steps} | {s["target_uid"] for s in steps}
+    facts = resource_facts(conn, [nodes[u] for u in sorted(on_steps) if u in nodes])
     kind = _kinds().get(found["kind"])
     worst = found["targets"][0]["target_uid"] if found["targets"] else found["entry_uid"]
     return RouteDetail(
@@ -289,8 +318,8 @@ def get_attack_path(
             StepOut(
                 n=s["n"],
                 type=s["type"],
-                source=_ref(s["source_uid"], nodes),
-                target=_ref(s["target_uid"], nodes),
+                source=_step_node(_ref(s["source_uid"], nodes), facts),
+                target=_step_node(_ref(s["target_uid"], nodes), facts),
                 edge_id=s["edge_id"],
                 origin=s["origin"],
                 connection_id=s["connection_id"],

@@ -337,6 +337,7 @@ def _sweep_paths(client: TestClient, worker: Engine, bodies: dict[str, str]) -> 
         f"/api/v1/attack-paths?limit=200&{classes}",
         f"/api/v1/attack-paths?limit=200&state=resolved&{classes}",
         "/api/v1/attack-paths/facets",
+        "/api/v1/attack-paths/evaluation",
     ):
         response = client.get(path)
         assert response.status_code == 200, (path, response.text)

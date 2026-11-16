@@ -60,6 +60,7 @@ const props = withDefaults(defineProps<{ name: IconName; size?: number; stroke?:
     <template v-else-if="props.name === 'sun'"><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" /></template>
     <template v-else-if="props.name === 'moon'"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z" /></template>
     <template v-else-if="props.name === 'monitor'"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></template>
+    <template v-else-if="props.name === 'route'"><circle cx="5" cy="19" r="2" fill="currentColor" /><path d="M5 17V9a3 3 0 0 1 3-3h11" /><path d="M16 3l3 3-3 3" /></template>
     <template v-else-if="props.name === 'graph'"><circle cx="5" cy="16" r="2.5" /><circle cx="12" cy="7" r="2.5" /><circle cx="19" cy="16" r="2.5" /><path d="M6.4 13.9l4.2-4.8M13.4 9.1l4.2 4.8" /></template>
     <template v-else-if="props.name === 'expand'"><path d="M13 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" /><path d="M15 3h6v6M21 3l-8 8" /></template>
     <template v-else-if="props.name === 'minus'"><path d="M5 12h14" /></template>

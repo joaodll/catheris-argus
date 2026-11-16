@@ -184,13 +184,14 @@ def get_route(conn: Connection, route_id: int, *, target: int = 1) -> dict[str, 
 
 
 def evaluation_state(conn: Connection) -> dict[str, Any]:
-    """The last evaluation that finished, and the last one, for the screen's banners."""
+    """The last evaluation that finished, and the last one (with its redacted error), for the
+    screen's banners and the Runs line."""
     rows = conn.execute(
         text("""
-        (SELECT 'last' AS which, started_at, finished_at, status, newest_load_at
+        (SELECT 'last' AS which, started_at, finished_at, status, newest_load_at, error
          FROM route_evaluation ORDER BY started_at DESC, id DESC LIMIT 1)
         UNION ALL
-        (SELECT 'complete', started_at, finished_at, status, newest_load_at
+        (SELECT 'complete', started_at, finished_at, status, newest_load_at, NULL
          FROM route_evaluation WHERE status = 'complete' ORDER BY started_at DESC, id DESC LIMIT 1)
     """)
     )

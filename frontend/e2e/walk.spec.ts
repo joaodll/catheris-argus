@@ -986,6 +986,140 @@ test('security map: card B, the security lines and each fact linked to its list;
   await shot(page, 'P94-security-map')
 })
 
+test('attack paths: the list, a route and its targets, every state; both themes, phone width', async ({ page }) => {
+  test.setTimeout(150_000)
+  await signIn(page)
+  await navLink(page, 'Attack paths')
+  await expect(page).toHaveURL(/\/investigate\/attack-paths$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Attack paths' })).toBeVisible()
+  await expect(page.getByText(/^Data through/)).toBeVisible()
+  const rows = page.getByRole('table').locator('tbody tr')
+  await expect(rows.first()).toBeVisible()
+  // Latent routes are hidden until asked for; a row's confidence is never Latent then.
+  await expect(page.getByText('Latent routes are hidden')).toBeVisible()
+  await expect(rows.locator('.route-class', { hasText: 'Latent' })).toHaveCount(0)
+  await axe(page, 'attack paths')
+  await shot(page, '96-attack-paths')
+  // A filter round-trips through the URL: show the latent ones, reload, still latent.
+  await page.getByRole('button', { name: 'Show latent routes' }).click()
+  await expect(page).toHaveURL(/confidence=blocked/)
+  await page.reload()
+  await expect(rows.first()).toBeVisible()
+  const classes = await rows.locator('.route-class').allInnerTexts()
+  expect(classes.length).toBeGreaterThan(0)
+  expect(new Set(classes.map((c) => c.split(':')[0]!.trim()))).toEqual(new Set(['Latent']))
+  await page.getByRole('button', { name: 'Clear filters' }).first().click()
+  await expect(page).toHaveURL(/\/investigate\/attack-paths$/)
+
+  // A route with several targets: from the internet to a data store, the Demo estate's widest.
+  const many = rows.filter({ hasText: /Worst: .* · \d+ targets/ }).filter({ hasText: 'From the internet to a data store:' }).first()
+  await many.getByRole('link').click()
+  await expect(page).toHaveURL(/route=\d+/)
+  const title = page.getByRole('heading', { level: 1 })
+  await expect(title).toHaveText(/^From the internet to a data store: /)
+  await expect(title).toBeFocused()
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Attack paths')
+  const targets = page.getByRole('region', { name: 'Targets' }).getByRole('button')
+  expect(await targets.count()).toBeGreaterThan(1)
+  await expect(targets.first()).toHaveAttribute('aria-pressed', 'true')
+  // Switch targets: the steps follow, and the URL says which.
+  const second = (await targets.nth(1).locator('.t-name').innerText()).trim()
+  await targets.nth(1).click()
+  await expect(page).toHaveURL(/target=2/)
+  await expect(targets.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  const steps = page.getByRole('region', { name: /^Steps/ })
+  await expect(steps.getByRole('heading', { level: 2 })).toHaveText(`Steps to ${second}`)
+  // A foothold is its own step, in words, with its level.
+  await expect(steps.locator('.self-title', { hasText: 'Takes control of' }).first()).toBeVisible()
+  await expect(steps.locator('.self .level').first()).toHaveText('Assumed')
+  await expect(steps.locator('.self .reason').first()).toContainText(/A public exploit|IMDSv1 is on|Assumed: no evidence/)
+  // Evidence and fix on the first link: the move in a sentence, why its level, how to break it.
+  const disclosure = steps.getByRole('button', { name: 'Evidence and fix' }).first()
+  await disclosure.click()
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'true')
+  const evidence = steps.getByRole('region', { name: /^Evidence and fix for step \d+$/ })
+  await expect(evidence).toContainText('Break this link:')
+  // A step's resource carries the Security Map's facts.
+  await expect(steps.locator('.node .fact-words').first()).toBeVisible()
+  await axe(page, 'attack path')
+  await shot(page, '96a-attack-path')
+  const detailUrl = page.url()
+
+  // States the Demo estate has none of, from the stored route with its answer changed: more
+  // targets than listed, and fixed.
+  await page.route(/\/api\/v1\/attack-paths\/\d+(\?.*)?$/, async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.target_count = body.listed_count + 275
+    body.state = 'resolved'
+    body.resolved_on = '2026-11-14'
+    await route.fulfill({ response, json: body })
+  })
+  await page.reload()
+  await expect(page.getByText('275 more targets, not listed. Argus keeps the')).toBeVisible()
+  await expect(page.getByText('This route was fixed on 2026-11-14. Its steps are shown as last found.')).toBeVisible()
+  await expect(page.locator('.detail-badges')).toContainText('Fixed 2026-11-14')
+  await axe(page, 'attack path fixed, more targets')
+  await page.unroute(/\/api\/v1\/attack-paths\/\d+(\?.*)?$/)
+  // An old link to a target past the list falls back to the worst one.
+  allowed.push(/404 .*\/api\/v1\/attack-paths\/\d+\?target=99$/, /status of 404/)
+  await page.goto(detailUrl.replace(/target=\d+/, 'target=99'))
+  await expect(page).not.toHaveURL(/target=/)
+  await expect(targets.first()).toHaveAttribute('aria-pressed', 'true')
+
+  // The list's banners: behind the scans, and the last evaluation failed.
+  await page.route(/\/api\/v1\/attack-paths(\?.*)?$/, async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    body.evaluation = { ...body.evaluation, behind: true, failed_at: '2026-11-15T10:00:00Z' }
+    await route.fulfill({ response, json: body })
+  })
+  await page.goto('/investigate/attack-paths')
+  await expect(page.getByText(/Routes are behind the scans: they were worked out at/)).toBeVisible()
+  await expect(page.getByText(/The last route evaluation failed at/)).toBeVisible()
+  await expect(page.getByRole('link', { name: 'See Runs' })).toBeVisible()
+  await axe(page, 'attack paths behind and failed')
+  await shot(page, '96b-attack-paths-banners')
+  await page.unroute(/\/api\/v1\/attack-paths(\?.*)?$/)
+  // Never worked out.
+  await page.route(/\/api\/v1\/attack-paths(\?.*)?$/, (route) =>
+    route.fulfill({ json: { items: [], total: 0, data_through: null, evaluation: { evaluated_at: null, covered_through: null, failed_at: null, behind: false } } }),
+  )
+  await page.goto('/investigate/attack-paths')
+  await expect(page.getByText("Routes haven't been worked out yet.")).toBeVisible()
+  await page.unroute(/\/api\/v1\/attack-paths(\?.*)?$/)
+  // Runs says so too, with the redacted error.
+  await page.route(/\/api\/v1\/attack-paths\/evaluation$/, (route) =>
+    route.fulfill({ json: { evaluated_at: '2026-11-15T09:00:00Z', covered_through: null, failed_at: '2026-11-15T10:00:00Z', behind: false, error: `OperationalError: statement timeout\n${'SELECT … '.repeat(120)}` } }),
+  )
+  await page.goto('/scans/runs')
+  // A long, multi-line error shows its first line; the whole of it is in the title.
+  await expect(page.getByText(/The last attack-path evaluation failed at .*: OperationalError: statement timeout\./)).toBeVisible()
+  await expect(page.getByText('SELECT …')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'See Attack paths' })).toBeVisible()
+  await axe(page, 'runs with a failed evaluation')
+  await page.unroute(/\/api\/v1\/attack-paths\/evaluation$/)
+
+  // The light theme and phone width: the list and the route, nothing sideways.
+  await page.emulateMedia({ colorScheme: 'light' })
+  await page.goto(detailUrl)
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await expect(title).toBeVisible()
+  await page.waitForLoadState('networkidle')
+  await axe(page, 'light attack path')
+  await shot(page, 'L96a-attack-path')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/investigate/attack-paths')
+  await expect(rows.first()).toBeVisible()
+  await axe(page, 'phone attack paths')
+  await shot(page, 'P96-attack-paths')
+  await page.goto(detailUrl)
+  await expect(title).toBeVisible()
+  await steps.getByRole('button', { name: 'Evidence and fix' }).first().click()
+  await axe(page, 'phone attack path')
+  await shot(page, 'P96a-attack-path')
+})
+
 test('posture: compliance frameworks and one framework, read-only', async ({ page }) => {
   await signIn(page)
   await navLink(page, 'Compliance')
@@ -1366,6 +1500,7 @@ test('light theme: every screen passes axe, and the toggle cycles', async ({ pag
     ['/investigate/vulnerabilities?tab=list', 'Vulnerabilities', 'L75-vulnerabilities'],
     ['/investigate/resources', 'Resources', 'L71a-resources-summary'],
     ['/investigate/resources?tab=list', 'Resources', 'L72-resources'],
+    ['/investigate/attack-paths', 'Attack paths', 'L96-attack-paths'],
     ['/scans/schedules', 'Schedules', 'L30-schedules'],
     ['/scans/runs', 'Runs', 'L40-runs'],
     ['/admin/connections', 'Connections', 'L20-connections'],
@@ -1454,6 +1589,10 @@ test('users and roles: a viewer and an operator, each limited to their role', as
     await expect(page.getByRole('heading', { level: 2, name: 'Run now' })).toHaveCount(canOperate ? 1 : 0)
     // Reports carry the estate's weak points out of Argus: an Operator's and an Admin's only.
     await expect(nav.getByRole('link', { name: 'Reports', exact: true })).toHaveCount(canOperate ? 1 : 0)
+    // Attack paths: every role reads the stored routes (owner, 2026-11-15).
+    await navLink(page, 'Attack paths')
+    await expect(page.getByRole('heading', { level: 1, name: 'Attack paths' })).toBeVisible()
+    await expect(page.getByRole('table').locator('tbody tr').first()).toBeVisible()
     if (!canOperate) {
       await page.goto('/scans/reports')
       await expect(page.getByRole('heading', { level: 1, name: 'Overview', exact: true })).toBeVisible()

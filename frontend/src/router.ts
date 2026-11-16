@@ -53,6 +53,7 @@ export const router = createRouter({
         { path: 'map', name: 'resource-map', component: () => import('@/views/investigate/map/MapView.vue'), props: { map: 'resource' }, meta: { title: 'Resource Map · Investigate' } },
         // The same page with the security lines and each card's facts (ADR-0051, round 2).
         { path: 'security-map', name: 'security-map', component: () => import('@/views/investigate/map/MapView.vue'), props: { map: 'security' }, meta: { title: 'Security Map · Investigate' } },
+        { path: 'attack-paths', name: 'attack-paths', component: () => import('@/views/investigate/paths/AttackPathsView.vue'), meta: { title: 'Attack paths · Investigate' } },
       ],
     },
     {

@@ -130,6 +130,12 @@ describe.each([
     expect(failing).toEqual([])
   })
 
+  it("Attack paths' chosen target reads on its accent wash (8 % over the card)", () => {
+    const wash = mix(hex(theme, 'accent'), hex(theme, 'surface'), 0.08)
+    const failing = ['text', 'text-2', 'link'].filter((t) => ratio(hex(theme, t), wash) < 4.5).map((t) => `${t} on the accent wash: ${ratio(hex(theme, t), wash).toFixed(2)}`)
+    expect(failing).toEqual([])
+  })
+
   it('text on the accent reaches 4.5:1', () => {
     expect(ratio(hex(theme, 'on-accent'), hex(theme, 'accent'))).toBeGreaterThanOrEqual(4.5)
   })

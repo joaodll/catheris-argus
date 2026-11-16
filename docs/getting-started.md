@@ -148,8 +148,34 @@ Security Map** is on every resource in **Resources**. It adds:
   holds the tools' findings, its vulnerabilities, the door from the internet and CloudFox's
   commands.
 
-The counts are the ones Resources and the lists show. The map finds no whole attack routes: it
-draws the lines one by one, and you follow them.
+The counts are the ones Resources and the lists show. The map draws the lines one by one, and
+you follow them; whole routes are on **Attack paths**.
+
+### Investigate → Attack paths
+
+After each ingested scan, Argus walks from every way in (a door the internet reaches, a principal
+outside the scanned accounts, a leaked credential) through the lines its rules and CloudFox
+found, and keeps each route that ends at something that matters: an administrator, a data store,
+a secret in a workload's environment, a neighbour, or the exposure itself. The page reads what
+was kept; nothing is worked out while you look.
+
+- **One row per way in and kind of route**, titled "<kind>: <way in>", with its worst target and
+  how many targets it has. Severity is the kind's; **Confidence** is how sure Argus is of its
+  surest target (each target is as sure as its weakest step): Confirmed, Conditional (one assumption, such as a foothold), Potential (two or
+  more, or a foothold with no evidence) or Not enough data. **Latent** routes, closed by one
+  control today, are hidden until you ask for them.
+- **Filters** (severity, kind, confidence, connection, routes that cross a connection, Open or
+  Fixed) live in the URL, so a filtered list can be shared as a link.
+- **A route's page** lists its worst targets (up to 25; the rest are counted) and the chosen
+  target's steps, in order. Each step says how sure Argus is of it (Checked, Configured, Assumed,
+  Missing data, Closed), and **Evidence and fix** says why, and which change breaks that link. A
+  foothold ("Takes control of …") is its own step, with its evidence: a public exploit, IMDSv1,
+  or none.
+- When routes are behind the scans, or the last evaluation failed, the list says so; **Runs**
+  also shows a failed evaluation, with its error.
+
+A route is fixed only when every account it crosses was scanned completely, so a scan that timed
+out never reads as a fix.
 
 ### Operate and Administration
 
