@@ -139,6 +139,34 @@ def test_a_test_job_answers_a_test_and_never_scans(
     assert _status(owner, scan) != "queued"
 
 
+def test_a_paths_job_works_out_routes_once_as_its_own_role(
+    paths_role: Engine, tmp_path: Path
+) -> None:
+    """The `paths` work (ADR-0052 §9 M1) is the Compose thread's evaluation, as argus_paths: it
+    needs no keyring and no tool, and a second Job with nothing due does nothing."""
+    check_work("paths")
+    done = run_job(
+        paths_role,
+        work="paths",
+        store=FilesystemRawStore(tmp_path / "raw"),
+        rules_dir=RULES_DIR,
+        worker_id="paths-1",
+        max_runs=1,
+        scratch=tmp_path / "scratch",
+    )
+    assert done == "paths"
+    again = run_job(
+        paths_role,
+        work="paths",
+        store=FilesystemRawStore(tmp_path / "raw"),
+        rules_dir=RULES_DIR,
+        worker_id="paths-2",
+        max_runs=1,
+        scratch=tmp_path / "scratch",
+    )
+    assert again == "nothing"
+
+
 @pytest.mark.parametrize(
     ("work", "match"),
     [("", "must be one of"), ("all", "must be one of"), ("prowler", "does not carry prowler")],

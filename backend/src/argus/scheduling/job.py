@@ -10,6 +10,9 @@ work from the queue, with the code the Compose worker uses, and does one unit of
 - `report`: one queued report (ADR-0047 round 5), on the reports image, with its own database
   role and IRSA role and no keyring. It first fails reports abandoned by a stopped Job, then
   builds the oldest queued one into the reports/ folder of the bucket recorded on it.
+- `paths`: one attack-route evaluation when one is due (ADR-0052 §1, §9 M1), on the runtime
+  image, as `argus_paths`, with no keyring and no cloud identity: the code the Compose worker's
+  paths thread runs, under the same advisory lock.
 
 Then it exits. Its credentials, its AWS profile and its staged raw output, which can hold secret
 values, die with the pod. A Job that finds nothing to claim exits at once: the scheduler may
@@ -25,13 +28,14 @@ from sqlalchemy import Engine
 from argus import reports
 from argus.collection import missing_tools
 from argus.core.rawstore import FilesystemRawStore
-from argus.scheduling import connection_checks
+from argus.scheduling import connection_checks, paths
 from argus.scheduling.runner import run_once
 
 log = logging.getLogger("argus.job")
-Done = Literal["test", "scan", "report", "nothing"]
+Done = Literal["test", "scan", "report", "paths", "nothing"]
 TEST = "test"
 REPORT = "report"
+PATHS = "paths"
 # Each scan Job's work and the tools it may claim, one image each. The Vulnerabilities tool runs
 # the Steampipe export binary (ADR-0042), so it shares Steampipe's image.
 SCAN_WORK: dict[str, tuple[str, ...]] = {
@@ -39,7 +43,7 @@ SCAN_WORK: dict[str, tuple[str, ...]] = {
     "prowler": ("prowler",),
     "cloudfox": ("cloudfox",),
 }
-WORK = (TEST, *SCAN_WORK, REPORT)
+WORK = (TEST, *SCAN_WORK, REPORT, PATHS)
 # A report Job's connections: claim, read and record, one at a time (the chart's pools.reportJob).
 REPORT_CONNECTIONS = 1
 
@@ -82,6 +86,8 @@ def run_job(
     written before its upload."""
     if work == TEST:
         return "test" if connection_checks.run_pending(engine) else "nothing"
+    if work == PATHS:
+        return "paths" if paths.run_pending(engine, rules_dir=rules_dir) else "nothing"
     if work == REPORT:
         with engine.begin() as conn:
             stale = reports.fail_stale(conn)

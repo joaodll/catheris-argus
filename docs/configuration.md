@@ -94,7 +94,7 @@ Secret ([runbook](runbook-kubernetes.md#the-secret)). Each process reads only wh
 | `ARGUS_SECRET_KEYS` | The keyring that seals stored credentials, `k2:<base64>,k1:<base64>`: `docker compose run --rm admin-tools new-secret-key` |
 | `ARGUS_SECRET_KEY_ID` | The keyring entry new secrets are sealed with, for example `k1` |
 | `ARGUS_DB_PASSWORD` | The database password of the process's own role |
-| `ARGUS_API_DB_PASSWORD`, `ARGUS_WORKER_DB_PASSWORD`, `ARGUS_SCHEDULER_DB_PASSWORD`, `ARGUS_REPORTS_DB_PASSWORD` | Read by the migration step only: it gives each application role its password (the last on Kubernetes IRSA installs, for the report Job) |
+| `ARGUS_API_DB_PASSWORD`, `ARGUS_WORKER_DB_PASSWORD`, `ARGUS_SCHEDULER_DB_PASSWORD`, `ARGUS_PATHS_DB_PASSWORD`, `ARGUS_REPORTS_DB_PASSWORD` | Read by the migration step only: it gives each application role its password. `ARGUS_PATHS_DB_PASSWORD` is for the Kubernetes paths Job (Compose works routes out as `argus_worker`); `ARGUS_REPORTS_DB_PASSWORD` for the report Job on Kubernetes IRSA installs |
 
 **The database**
 

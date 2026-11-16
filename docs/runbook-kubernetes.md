@@ -6,7 +6,7 @@ newer. Verified end to end on kind (Kubernetes 1.34 and 1.36) with Helm 4.3.1, n
 ([gates/kubernetes-exit.md](gates/kubernetes-exit.md)). Compose is in the [runbook](runbook.md).
 
 On Kubernetes, Argus runs as an `api` Deployment, a `web` Deployment, one `scheduler` replica that
-starts scan Jobs from four fixed templates, a migrate Job and a rederive Job per release, a daily
+starts Jobs from five fixed templates (four for scans and connection tests, one that works out attack routes; a sixth builds reports on IRSA installs), a migrate Job and a rederive Job per release, a daily
 retention CronJob, and Postgres in the chart or outside it. A scan Job answers one connection test
 or runs one AWS scan of one tool, then exits. Each tool's Jobs run on that tool's own image, and
 connection tests on the runtime image ([ADR-0046](adr/0046-one-image-per-tool.md)), so a Job pulls
@@ -105,6 +105,7 @@ keys it needs.
 | `ARGUS_WORKER_DB_PASSWORD` | Role `argus_worker`: scan Jobs, rederive and retention |
 | `ARGUS_SCHEDULER_DB_PASSWORD` | Role `argus_scheduler` |
 | `ARGUS_REPORTS_DB_PASSWORD` | IRSA installs: role `argus_reports`, the report Job's. It reads what a report reads and writes its own report rows |
+| `ARGUS_PATHS_DB_PASSWORD` | Role `argus_paths`, the paths Job's ([ADR-0052](adr/0052-attack-paths-stored-routes.md)). It reads the edges, the inventory's ids, names and types, the runs and the findings a route step needs, never a configuration or a credential, and writes the route tables only |
 | `ARGUS_SECRET_KEYS` | The credential keyring, `k1:<base64 of 32 bytes>` |
 | `ARGUS_SECRET_KEY_ID` | The current key's id, `k1` |
 | `ARGUS_BOOTSTRAP_ADMIN_PASSWORD` or `ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH` | First start only: the first admin's password, or its argon2id hash. The migrate Job creates `admin.username` with it while no active admin exists ([ADR-0041](adr/0041-users-and-roles.md)). Remove the key after the first sign-in |
@@ -130,7 +131,7 @@ rm argus-secrets.env
 ```
 
 **From AWS Secrets Manager instead:** with the External Secrets Operator installed, store the
-seven keys (eight on an IRSA install) as one JSON secret and set `externalSecret.enabled: true`,
+eight keys (nine on an IRSA install) as one JSON secret and set `externalSecret.enabled: true`,
 `externalSecret.secretStoreRef.name` and `externalSecret.remoteKey`. For the first start, add the
 bootstrap key to that JSON and name it in `externalSecret.bootstrapKeys`. The chart's
 ExternalSecret copies those keys and nothing else into `secrets.existingSecret`.
@@ -159,13 +160,22 @@ Also review:
 - `scanJobs`: the scan Jobs, one template per work: `test` answers a connection test, and
   `steampipe` (also Vulnerabilities), `prowler` and `cloudfox` each run one AWS scan of their tool.
   `report` (IRSA installs) builds one report. `scheduler.maxReportJobs` (1, at most 3): reports
-  built at once; a PDF at every cap peaked at 1.37 GiB.
+  built at once; a PDF at every cap peaked at 1.37 GiB. `paths` works out the attack routes
+  after scans are ingested ([ADR-0052](adr/0052-attack-paths-stored-routes.md)): one Job at a
+  time, on the runtime image, as `argus_paths`, with no cloud identity and no keyring, and no
+  route out of the cluster. The scheduler asks every 30 seconds whether routes are due, and starts one at least 5 minutes
+  after the last one started, so ingests close together are worked out together and finished
+  paths Jobs never hold more than three places in the Job quota. At
+  300,000 resources, run as the Job runs, the first evaluation (every route written) took 5.4
+  minutes and peaked at 2.33 GiB, and one with nothing new 3.6 minutes and 1.2 GiB (2026-11-16),
+  so `scanJobs.work.paths.resources` requests 3 Gi and limits it to 3 Gi. It shares the scan Jobs'
+  placement.
   `scanJobs.activeDeadlineSeconds` (6 hours): a scan past it is lost and counted.
   `scanJobs.scratch.size` (20 Gi): the node disk a scan's raw output may use.
   `scanJobs.work.<work>.resources`: each template's pod size. A connection test needs far less
   than a scan. The admission policy pins these sizes, so change them here, never on a Job.
 - `scheduler.maxRunJobs`: how many AWS scans run at once, a bound below the UI's **Max parallel
-  runs**. `scheduler.maxTestJobs`: how many more Jobs may start while connection tests wait, so
+  runs**. There is no bound to set for the paths Job: it is one, fixed. `scheduler.maxTestJobs`: how many more Jobs may start while connection tests wait, so
   a test never waits behind a long scan.
 - `retention.schedule`: the daily CronJob that drops history older than the UI's **History**
   setting, unused configurations, old rule loads, and sign-in failures and ended sessions past 30
@@ -354,6 +364,16 @@ fail.
 then upgrade: migrate gives `argus_reports` its password, and the API restarts on its new
 `-api` account.
 
+**To a chart with the paths Job** (2026-11-16, ADR-0052 round 3): every install gains a `paths`
+Job template, its `-paths` account, and the key `ARGUS_PATHS_DB_PASSWORD`. Add the key to the
+Secret first (and to the Secrets Manager JSON with External Secrets), or migrate and the paths
+Job can't start. Then upgrade: migrate gives `argus_paths` its password, and the scheduler starts
+the first paths Job on its next pass. With no new migration in the release, the scheduler may
+start that Job before migrate has given `argus_paths` its login: the Job then fails once, and no
+other paths Job starts until Kubernetes deletes it (10 minutes), after which routes are worked
+out as usual. On Compose nothing changes: the worker's paths thread
+works the routes out as `argus_worker`.
+
 **From a chart before ADR-0046** (one `images.worker`): the schema refuses `images.worker` and
 `scanJobs.resources`. Replace them with `images.workerSteampipe`, `images.workerProwler` and
 `images.workerCloudfox` (one digest each), and `scanJobs.work.<work>.resources`. Scan Jobs still
@@ -396,7 +416,7 @@ kubectl -n argus logs deploy/argus-api --all-containers | grep '"audit": true'
 
 | Line | Meaning |
 | --- | --- |
-| `job created` | A scan Job started: its name, the AWS connections with claimable scans and the queued connection tests |
+| `job created` | A Job started: its name and work, the AWS connections with claimable scans, the queued connection tests and reports, and whether attack routes were due |
 | `job not running` | A Job has had no running pod for 5 minutes: an image it cannot pull, no node that fits. The log names its `work`. It waits until its deadline, and while it does no other Job of that work starts, so one missing image holds one slot and the other tools keep running. Mirror that work's image and fix its digest |
 | `job failed` | A scan Job failed. `job refused its work` in its own log means its image does not carry its tool: a digest under the wrong `images.worker*` key. No other Job of that work starts until Kubernetes deletes the failed one (`scanJobs.ttlSecondsAfterFinished`, 10 minutes); its requests stay queued. Fix the digest and upgrade |
 | `kubernetes refused` | The API refused a Job: the admission policy (a template edited outside Helm), the quota, or RBAC. It retries every 30 seconds and runs wait in **Schedules → Queue** |
@@ -415,8 +435,8 @@ Keyring rotation keeps the old key, as in
 with its old password fails, and is retried. The database only keeps a hash, so keep each password
 in your vault or Secrets Manager.
 
-For `argus_api`, `argus_worker`, `argus_scheduler` or `argus_reports` (IRSA installs), the Secret
-comes first, because migrate reads the new value from it:
+For `argus_api`, `argus_worker`, `argus_scheduler`, `argus_paths` or `argus_reports` (IRSA
+installs), the Secret comes first, because migrate reads the new value from it:
 
 1. Change the key in the Secret. With External Secrets, change it in Secrets Manager, then check that
    the Secret has the new value. It refreshes every `externalSecret.refreshInterval`, or at once with

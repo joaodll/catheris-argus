@@ -100,8 +100,8 @@ when their checks need it. Argus never stores such a value:
 - **What a scan Job can be:** the scheduler is the only pod with a Kubernetes token, and may only
   create Jobs. An admission policy rejects any Job from it whose image, command, service account,
   environment, resources, volumes and mounts, security context, placement, probes or hooks differ
-  from one of the chart's fixed templates, one per work: four, and a fifth for reports on IRSA
-  installs. A Job is checked whole against the
+  from one of the chart's fixed templates, one per work: five (the paths Job's among them, with no
+  cloud identity and no keyring, ADR-0052), and a sixth for reports on IRSA installs. A Job is checked whole against the
   template its name prefix names, so one tool's work on another tool's image matches none
   ([ADR-0046](adr/0046-one-image-per-tool.md)). A quota bounds how many pods and Jobs can exist.
 - **What a scan Job carries:** only its own tool. Connection tests run on the runtime image with

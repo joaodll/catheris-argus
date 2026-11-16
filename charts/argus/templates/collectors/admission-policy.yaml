@@ -3,7 +3,8 @@ The scheduler may create a Job only exactly as the chart rendered one of its tem
 ADR-0046): this policy pins what makes "create jobs" dangerous in a namespace. The expected
 values are read from the same helper that renders the scan Job templates (argus.scanJob), so the
 two cannot drift.
-- One template per work: four, and a fifth (report) on IRSA installs (ADR-0047 round 5). What
+- One template per work: five (the paths Job's, ADR-0052, among them), and a sixth (report) on
+  IRSA installs (ADR-0047 round 5). What
   differs between them (the name prefix, the labels, the service account, the image, the
   environment, the resources) is held per template, keyed by name prefix: a Job is checked whole
   against the one template its prefix names, so one template's work on another's image, account

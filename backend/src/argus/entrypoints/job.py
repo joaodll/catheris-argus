@@ -1,7 +1,8 @@
 """A Kubernetes scan Job (ADR-0039): `python -m argus.entrypoints.job`.
 
 The scheduler starts it from one of the chart's fixed templates (ADR-0046), which sets its work: a
-connection test, one AWS scan of one tool, or one report (scheduling/job.py). A Job without a
+connection test, one AWS scan of one tool, one report, or one attack-route evaluation
+(scheduling/job.py). A Job without a
 known work, or on an image without its tool, fails before it claims anything. A scan or report
 that fails is recorded as failed, so the Job itself still succeeds: Kubernetes never retries it
 (backoffLimit 0), and the queue's own retries apply. Only an error outside the work (the database
@@ -23,7 +24,8 @@ from argus.core.db import get_engine, require_pool
 from argus.core.logging import configure_logging
 from argus.core.process import hide_from_children
 from argus.core.rawstore import FilesystemRawStore
-from argus.scheduling.job import REPORT, REPORT_CONNECTIONS, WorkError, check_work, run_job
+from argus.scheduling.job import PATHS, REPORT, REPORT_CONNECTIONS, WorkError, check_work, run_job
+from argus.scheduling.paths import PATHS_CONNECTIONS
 from argus.scheduling.runner import RUN_CONNECTIONS
 
 log = logging.getLogger("argus.job")
@@ -33,8 +35,11 @@ def main() -> int:
     hide_from_children()
     settings = get_settings()
     configure_logging(settings.log_level)
-    # A test or a report needs one; a scan, a run's peak.
-    needed = REPORT_CONNECTIONS if settings.job_work == REPORT else RUN_CONNECTIONS
+    # A test or a report needs one; an evaluation its lock and its transaction; a scan, a run's
+    # peak.
+    needed = {REPORT: REPORT_CONNECTIONS, PATHS: PATHS_CONNECTIONS}.get(
+        settings.job_work, RUN_CONNECTIONS
+    )
     require_pool(needed, process=f"{settings.job_work or 'scan'} job")
     try:
         check_work(settings.job_work)

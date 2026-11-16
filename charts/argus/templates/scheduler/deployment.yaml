@@ -1,6 +1,6 @@
 {{- /* The scheduler (ADR-0039): one replica, never two at once, never runs work, no cloud
 identity, no Service. The only pod with a Kubernetes token: it creates Jobs (rbac.yaml), scan
-and test Jobs, and report Jobs on IRSA installs. */ -}}
+and test Jobs, the paths Job (ADR-0052), and report Jobs on IRSA installs. */ -}}
 {{- define "argus.scheduler.env" -}}
 - name: ARGUS_MAX_RUN_JOBS
   value: {{ .Values.scheduler.maxRunJobs | quote }}

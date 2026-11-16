@@ -43,7 +43,8 @@ private addresses only, so this is not a route out of the network. */}}
 {{- if .Values.networkPolicy.enabled }}
 {{- $np := .Values.networkPolicy }}
 {{- /* Every pod that connects to the database. */}}
-{{- $dbClients := list "api" "scheduler" "run" "migrate" "rederive" "retention" }}
+{{- /* `paths` (ADR-0052 §9 M1) gets this and DNS and nothing else: no route out of the cluster. */}}
+{{- $dbClients := list "api" "scheduler" "run" "paths" "migrate" "rederive" "retention" }}
 {{- if include "argus.reportsInS3" . }}{{- $dbClients = append $dbClients "report" }}{{- end }}
 {{ include "argus.np.meta" (dict "root" . "name" "default-deny") }}
 spec:

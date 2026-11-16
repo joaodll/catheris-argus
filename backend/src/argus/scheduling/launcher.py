@@ -18,6 +18,13 @@ Jobs alive, and start the missing Jobs from the chart's fixed templates, one per
 - Reports have theirs, ARGUS_MAX_REPORT_JOBS, and run only where this install keeps reports in
   S3 (ARGUS_REPORTS_STORE, ADR-0047 round 5); elsewhere the report template is not loaded and
   the bound is 0.
+- Attack routes (ADR-0052 §1, §9 M3): one `paths` Job at a time, MAX_PATHS_JOBS, fixed. It is
+  started when an evaluation is due (paths.due: the inputs changed, a failed one may be retried,
+  or the last was left running), none is alive, and the last one started PATHS_MIN_GAP ago or
+  more; due signals in between coalesce into the next. The gap bounds paths Jobs in the Job
+  quota: a finished Job counts until its TTL (600 s), so at most three are ever held. The
+  scheduler asks only on some passes (`paths_rules`, every 30 seconds), since the question hashes
+  every connection's newest loads and runs.
 - With nothing to start, the Kubernetes API is not called at all.
 - Every Job started is logged with its name and its work (review S5).
 - A Job with no running pod after STUCK_AFTER (an image it cannot pull, no node for it) is
@@ -44,14 +51,18 @@ from sqlalchemy import Engine
 from argus import reports
 from argus.connections import checks
 from argus.core.kube import JobState
-from argus.scheduling import claims
-from argus.scheduling.job import REPORT, SCAN_WORK, TEST, WORK, work_of
+from argus.scheduling import claims, paths
+from argus.scheduling.job import PATHS, REPORT, SCAN_WORK, TEST, WORK, work_of
 from argus.settings import read_collection
 
 log = logging.getLogger("argus.scheduler")
 # The label that tells the templates' Jobs apart; its value is the template's work.
 WORK_LABEL = "argus/work"
 STUCK_AFTER = timedelta(minutes=5)
+# One evaluation at a time (ADR-0052 §9 M3): fixed, never a setting.
+MAX_PATHS_JOBS = 1
+# The least time between two evaluations' starts on Kubernetes (see the module's docstring).
+PATHS_MIN_GAP = timedelta(minutes=5)
 
 
 class TemplateError(ValueError):
@@ -79,6 +90,7 @@ class Work:
     queued_tests: int
     max_parallel_runs: int
     queued_reports: int = 0
+    paths_due: bool = False  # an attack-route evaluation is due
 
 
 class Kube(Protocol):
@@ -142,10 +154,21 @@ def plan(
         start[REPORT] = max(
             min(work.queued_reports, bounds.max_report_jobs) - live.get(REPORT, 0), 0
         )
+    if work.paths_due and PATHS not in stuck:
+        start[PATHS] = max(MAX_PATHS_JOBS - live.get(PATHS, 0), 0)
     return start
 
 
-def read_work(engine: Engine, *, reports_in_jobs: bool = False) -> Work:
+def read_work(
+    engine: Engine, *, reports_in_jobs: bool = False, paths_rules: Path | None = None
+) -> Work:
+    """The work waiting. `paths_rules`: the rules directory when this pass asks whether an
+    attack-route evaluation is due; None leaves it unasked (False)."""
+    due = (
+        paths.due_for_a_job(engine, rules_dir=paths_rules, now=datetime.now(UTC), gap=PATHS_MIN_GAP)
+        if paths_rules is not None
+        else False
+    )
     with engine.connect() as conn:
         claimed: dict[str, int] = {}
         for (kind, tool), n in claims.claimed_tools(conn).items():
@@ -157,6 +180,7 @@ def read_work(engine: Engine, *, reports_in_jobs: bool = False) -> Work:
             queued_tests=checks.queued_tests(conn),
             max_parallel_runs=read_collection(conn).max_parallel_runs,
             queued_reports=reports.queued_reports(conn) if reports_in_jobs else 0,
+            paths_due=due,
         )
 
 
@@ -168,12 +192,18 @@ def reconcile(
     *,
     warned: set[str] | None = None,
     now: datetime | None = None,
+    paths_rules: Path | None = None,
 ) -> int:
     """One pass. Returns how many Jobs it started. A KubeError (a denial, the API unreachable)
     propagates: the caller backs off. `warned` holds the stuck Jobs already logged, across
-    passes."""
-    work = read_work(engine, reports_in_jobs=REPORT in templates)
-    if not work.next_work and not work.queued_tests and not work.queued_reports:
+    passes. `paths_rules`: the rules directory on a pass that asks whether attack routes are
+    due (ignored without a paths template)."""
+    work = read_work(
+        engine,
+        reports_in_jobs=REPORT in templates,
+        paths_rules=paths_rules if PATHS in templates else None,
+    )
+    if not (work.next_work or work.queued_tests or work.queued_reports or work.paths_due):
         return 0
     warned = warned if warned is not None else set()
     now = now or datetime.now(UTC)
@@ -215,6 +245,7 @@ def reconcile(
                     "claimable_connections": len(work.next_work),
                     "queued_tests": work.queued_tests,
                     "queued_reports": work.queued_reports,
+                    "paths_due": work.paths_due,
                 },
             )
     return sum(started.values())

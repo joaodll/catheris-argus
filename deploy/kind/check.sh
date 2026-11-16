@@ -51,10 +51,11 @@ check_render() {
   [ -z "$tagged" ] || fail "images without a digest: $tagged"
 
   step "$name: the Job templates, one per work"
-  # The report Job only where reports are kept in S3: IRSA installs (ADR-0047 round 5).
-  local works=cloudfox,prowler,steampipe,test work irsa
+  # The paths Job on every install (ADR-0052); the report Job only where reports are kept in S3:
+  # IRSA installs (ADR-0047 round 5).
+  local works=cloudfox,paths,prowler,steampipe,test work irsa
   irsa=$(yq -N 'select(.kind == "ServiceAccount" and .metadata.name == "argus-report") | .metadata.name' "$OUT/$name.yaml")
-  [ -n "$irsa" ] && works=cloudfox,prowler,report,steampipe,test
+  [ -n "$irsa" ] && works=cloudfox,paths,prowler,report,steampipe,test
   [ "$(yq -N 'select(.kind == "ConfigMap" and .metadata.name == "argus-job-templates") | .data | keys | sort | join(",")' \
     "$OUT/$name.yaml")" = "$(sed 's/,/.json,/g; s/$/.json/' <<< "$works")" ] \
     || fail "the ConfigMap does not hold exactly one template per work ($works)"
@@ -70,12 +71,28 @@ check_render() {
       || fail "$work template: no generateName, a fixed name, or not its own work label, ARGUS_JOB_WORK or AWS_EC2_METADATA_DISABLED"
     conform "$OUT/$name-$work.json"
   done
-  # Each work on its own image: the test Job on runtime, no two tools on one.
-  [ "$(jq -r '.spec.template.spec.containers[0].image' "$OUT/$name-test.json")" \
-    = "$(yq -N 'select(.kind == "Deployment" and .metadata.name == "argus-api") | .spec.template.spec.containers[0].image' "$OUT/$name.yaml")" ] \
-    || fail "the test template does not run the runtime image"
-  [ "$(for work in ${works//,/ }; do jq -r '.spec.template.spec.containers[0].image' "$OUT/$name-$work.json"; done | sort -u | wc -l)" \
-    = "$(tr ',' '\n' <<< "$works" | wc -l)" ] || fail "two works share one image"
+  # Each work on its own image: the test and paths Jobs on runtime, no two tools on one.
+  local runtime
+  runtime=$(yq -N 'select(.kind == "Deployment" and .metadata.name == "argus-api") | .spec.template.spec.containers[0].image' "$OUT/$name.yaml")
+  for work in test paths; do
+    [ "$(jq -r '.spec.template.spec.containers[0].image' "$OUT/$name-$work.json")" = "$runtime" ] \
+      || fail "the $work template does not run the runtime image"
+  done
+  [ "$(for work in ${works//,/ }; do [ "$work" = paths ] || jq -r '.spec.template.spec.containers[0].image' "$OUT/$name-$work.json"; done | sort -u | wc -l)" \
+    = "$(tr ',' '\n' <<< "$works" | grep -cv '^paths$')" ] || fail "two works share one image"
+  # The paths Job (ADR-0052 §9 M1): its own account (no identity), component and database role,
+  # no keyring, no scan bound, and the whole of its memory requested.
+  jq -e '.spec.template.spec.serviceAccountName == "argus-paths"
+      and .spec.template.metadata.labels["app.kubernetes.io/component"] == "paths"
+      and ([.spec.template.spec.containers[0].env[] | select(.name == "ARGUS_DB_USER") | .value] == ["argus_paths"])
+      and ([.spec.template.spec.containers[0].env[] | select(.name == "ARGUS_DB_PASSWORD") | .valueFrom.secretKeyRef.key] == ["ARGUS_PATHS_DB_PASSWORD"])
+      and ([.spec.template.spec.containers[0].env[] | select(.name | startswith("ARGUS_SECRET_KEY") or . == "ARGUS_MAX_RUN_JOBS")] == [])
+      and .spec.template.spec.containers[0].resources.requests.memory == .spec.template.spec.containers[0].resources.limits.memory' \
+    "$OUT/$name-paths.json" > /dev/null \
+    || fail "the paths template is not on its own account, component and role, holds the keyring, or requests less memory than its limit"
+  [ -z "$(yq -N 'select(.kind == "ServiceAccount" and .metadata.name == "argus-paths") | .metadata.annotations // ""' "$OUT/$name.yaml")" ] \
+    || fail "the paths account carries an annotation (an identity)"
+  echo "paths: argus-paths (no identity), argus_paths, no keyring, memory requested whole"
   if [ -n "$irsa" ]; then
     # The report Job: its own account, component and database role, and no keyring.
     jq -e '.spec.template.spec.serviceAccountName == "argus-report"
@@ -134,6 +151,7 @@ refused "IRSA with no route to S3 and STS" --set networkPolicy.awsEgressCidrs=nu
 refused "a reports image without a digest" --set images.reports.digest=
 refused "more report Jobs than the bound" --set scheduler.maxReportJobs=4
 refused "a report Job pool of none" --set database.pools.reportJob=0
+refused "a paths Job pool below its peak (its lock and its transaction)" --set database.pools.pathsJob=1
 refused "an unknown key" --set networkPolicy.enabeld=false
 refused "more database connections than Postgres allows" --set api.autoscaling.enabled=true --set api.autoscaling.maxReplicas=10 --set scheduler.maxRunJobs=20 --set postgres.maxConnections=100
 refused "a scan Job pool below a run's peak" --set database.pools.scanJob=2
@@ -212,7 +230,7 @@ jq -r 'def pod: if .kind == "CronJob" then .spec.jobTemplate.spec.template.spec
           | .data[] | fromjson | report)' "$OUT/placement.json" | sort > "$OUT/placement.txt"
 cat "$OUT/placement.txt"
 if grep -q MISSING "$OUT/placement.txt"; then fail "a pod ignores its placement values"; fi
-for needed in argus-api argus-web argus-scheduler argus-postgres argus-retention argus-netpol-probe argus-scan-test- argus-scan-steampipe- argus-scan-prowler- argus-scan-cloudfox- argus-scan-report- argus-migrate- argus-rederive-; do
+for needed in argus-api argus-web argus-scheduler argus-postgres argus-retention argus-netpol-probe argus-scan-test- argus-scan-steampipe- argus-scan-prowler- argus-scan-cloudfox- argus-scan-report- argus-scan-paths- argus-migrate- argus-rederive-; do
   grep -q "^$needed" "$OUT/placement.txt" || fail "$needed is not in the render, so its placement wasn't checked"
 done
 

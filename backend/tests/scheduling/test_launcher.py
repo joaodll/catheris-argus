@@ -12,9 +12,11 @@ from pathlib import Path
 import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import ProgrammingError
+from tests.conftest import RULES_DIR
 from tests.ingest.conftest import make_aws, make_demo
 
 from argus.core.kube import JobState
+from argus.scheduling import paths
 from argus.scheduling.job import WORK
 from argus.scheduling.launcher import (
     Bounds,
@@ -37,8 +39,11 @@ def _work(
     queued_tests: int = 0,
     max_parallel_runs: int = 8,
     queued_reports: int = 0,
+    paths_due: bool = False,
 ) -> Work:
-    return Work(tuple(next_work), claimed or {}, queued_tests, max_parallel_runs, queued_reports)
+    return Work(
+        tuple(next_work), claimed or {}, queued_tests, max_parallel_runs, queued_reports, paths_due
+    )
 
 
 def _only(**started: int) -> dict[str, int]:
@@ -228,6 +233,82 @@ def test_a_queued_report_starts_a_report_job_as_the_scheduler(
     assert kube.created == [templates["report"].body]
     with scheduler.connect() as conn, pytest.raises(ProgrammingError, match="permission denied"):
         conn.execute(text("SELECT filters FROM report_request"))
+
+
+@pytest.mark.parametrize(
+    ("work", "live", "stuck", "expected"),
+    [
+        (_work(paths_due=True), {}, (), _only(paths=1)),
+        (_work(), {}, (), _only()),
+        # One at a time (ADR-0052 §9 M3): due signals while it runs wait for the next.
+        (_work(paths_due=True), {"paths": 1}, (), _only()),
+        # A failed paths Job stops the work until Kubernetes deletes it.
+        (_work(paths_due=True), {}, ("paths",), _only()),
+        # Its own slot: never a scan's, a test's or a report's.
+        (
+            _work(*["prowler"] * 6, queued_tests=1, paths_due=True),
+            {},
+            (),
+            _only(prowler=4, test=1, paths=1),
+        ),
+    ],
+    ids=["due", "not-due", "running", "stuck", "own-slot"],
+)
+def test_one_paths_job_at_a_time_when_routes_are_due(
+    work: Work, live: dict[str, int], stuck: tuple[str, ...], expected: object
+) -> None:
+    assert plan(work, live, BOUNDS, frozenset(stuck)) == expected
+
+
+@pytest.mark.db
+def test_the_scheduler_starts_a_paths_job_only_when_routes_are_due(
+    scheduler: Engine, paths_role: Engine, tmp_path: Path
+) -> None:
+    """As the scheduler's role: never worked out is due, one Job starts and none beside it;
+    once worked out (as argus_paths, the Job's role) nothing is due and Kubernetes is not
+    called; a pass that does not ask (paths_rules None) starts nothing."""
+    bodies = _write_templates(tmp_path)
+    templates = load_templates(tmp_path)
+    kube = _Kube()
+    assert reconcile(scheduler, kube, templates, BOUNDS) == 0  # not asked this pass
+    assert kube.listed == 0
+    assert reconcile(scheduler, kube, templates, BOUNDS, paths_rules=RULES_DIR) == 1
+    assert kube.created == [bodies["paths"]]
+    kube.jobs = {"paths": [JobState("job-1", finished=False)]}
+    assert reconcile(scheduler, kube, templates, BOUNDS, paths_rules=RULES_DIR) == 0
+    assert paths.run_pending(paths_role, rules_dir=RULES_DIR)
+    kube.jobs, kube.listed = {}, 0
+    assert reconcile(scheduler, kube, templates, BOUNDS, paths_rules=RULES_DIR) == 0
+    assert kube.listed == 0  # nothing due: no Kubernetes call
+
+
+@pytest.mark.db
+def test_paths_jobs_start_at_least_a_gap_apart(
+    scheduler: Engine, paths_role: Engine, owner: Engine, tmp_path: Path
+) -> None:
+    """A finished Job counts in the Job quota until its TTL: an evaluation due again within
+    PATHS_MIN_GAP of the last one's start waits, and then one Job starts."""
+    _write_templates(tmp_path)
+    templates = load_templates(tmp_path)
+    assert paths.run_pending(paths_role, rules_dir=RULES_DIR)
+    # Due again (a failure long since retriable), but the last started just now.
+    with owner.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE route_evaluation SET status = 'failed', error = 'test', "
+                "finished_at = now() - interval '1 day'"
+            )
+        )
+    kube = _Kube()
+    assert reconcile(scheduler, kube, templates, BOUNDS, paths_rules=RULES_DIR) == 0
+    with owner.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE route_evaluation SET started_at = now() - interval '1 day 1 hour', "
+                "finished_at = now() - interval '1 day'"
+            )
+        )
+    assert reconcile(scheduler, kube, templates, BOUNDS, paths_rules=RULES_DIR) == 1
 
 
 def test_a_missing_template_stops_the_scheduler(tmp_path: Path) -> None:

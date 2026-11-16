@@ -13,7 +13,7 @@ says what the chart creates and which values matter.
 | `api` | Deployment (2 replicas, or an HPA) | The HTTP API, behind `web` |
 | `web` | Deployment (2 replicas, or an HPA) | The UI on nginx; proxies `/api` to `api`. ClusterIP only |
 | `scheduler` | Deployment (1 replica) | Queues the scans schedules call for and starts a **scan Job** for each. It never scans itself |
-| scan Jobs | Jobs the scheduler creates, from fixed templates, one per work | `test` answers one connection test (the Test connection button) on the runtime image; `steampipe`, `prowler` and `cloudfox` each run one AWS scan of their tool, on that tool's image, then exit; on IRSA installs `report` builds one report on the reports image, into the bucket's `reports/` folder. Values under `scanJobs` |
+| scan Jobs | Jobs the scheduler creates, from fixed templates, one per work | `test` answers one connection test (the Test connection button) on the runtime image; `steampipe`, `prowler` and `cloudfox` each run one AWS scan of their tool, on that tool's image, then exit; `paths` works out the attack routes once (one at a time, when scans have changed them) on the runtime image, as `argus_paths`, with no cloud identity, no keyring and no route out of the cluster; on IRSA installs `report` builds one report on the reports image, into the bucket's `reports/` folder. Values under `scanJobs` |
 | `postgres` | StatefulSet (optional) | PostgreSQL 18, the same image as Compose; or an external database |
 | `migrate`, `rederive` | Jobs, one per image | Schema migrations; deriving again after a rule change |
 | `retention` | CronJob | Daily: drops history older than the UI's **History** setting, unused configurations and old rule loads |
@@ -34,6 +34,7 @@ The chart creates these, the only ones that hold anything:
 | `<release>-scheduler` | The scheduler | A Role to create, get and list Jobs in the namespace |
 | `<release>-api` | The API, on IRSA installs | The role that reads reports: `identity.apiRoleArn` |
 | `<release>-report` | Report Jobs, on IRSA installs | The role that writes reports: `identity.reportRoleArn` |
+| `<release>-paths` | The paths Job | None: no annotation, no token. Its own account so the admission policy tells it from every other Job |
 
 Every other pod runs as the namespace's `default` account with no token mounted. Extra annotations
 go in `serviceAccounts.run.annotations` and `serviceAccounts.scheduler.annotations`.
