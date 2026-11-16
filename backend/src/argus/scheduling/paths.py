@@ -9,7 +9,7 @@ The same code runs in the Compose worker's paths thread and in the Kubernetes `p
 """
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import Connection, Engine, text
@@ -35,6 +35,18 @@ def due(engine: Engine, *, rules_dir: Path, now: datetime) -> bool:
     with engine.connect() as conn:
         digest = attackpaths.loads_digest(conn, attackpaths.load_kinds(rules_dir))
         return attackpaths.due(attackpaths.last_evaluation(conn), digest, now)
+
+
+def due_for_a_job(engine: Engine, *, rules_dir: Path, now: datetime, gap: timedelta) -> bool:
+    """due(), and the last evaluation started at least `gap` ago: the scheduler's question on
+    Kubernetes. Every Job counts against the namespace's Job quota until Kubernetes deletes it,
+    so ingests that land within the gap wait and are worked out together."""
+    with engine.connect() as conn:
+        last = attackpaths.last_evaluation(conn)
+        if last is not None and now - last.started_at < gap:
+            return False
+        digest = attackpaths.loads_digest(conn, attackpaths.load_kinds(rules_dir))
+        return attackpaths.due(last, digest, now)
 
 
 def run_pending(engine: Engine, *, rules_dir: Path, now: datetime | None = None) -> bool:

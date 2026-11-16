@@ -49,7 +49,8 @@ imagePullSecrets: []
 # One existing Secret holds every secret value; the chart never generates one (ADR-0040).
 # Keys: ARGUS_DB_PASSWORD (the schema owner), ARGUS_API_DB_PASSWORD,
 # ARGUS_WORKER_DB_PASSWORD, ARGUS_SCHEDULER_DB_PASSWORD, ARGUS_SECRET_KEYS,
-# ARGUS_SECRET_KEY_ID; on IRSA installs, ARGUS_REPORTS_DB_PASSWORD (the report Job's role); for
+# ARGUS_SECRET_KEY_ID; ARGUS_PATHS_DB_PASSWORD (the paths Job's role, ADR-0052); on IRSA installs,
+# ARGUS_REPORTS_DB_PASSWORD (the report Job's role); for
 # the first start only, ARGUS_BOOTSTRAP_ADMIN_PASSWORD or
 # ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH (below, `admin`). Each pod references only its own keys.
 secrets:
@@ -143,14 +144,16 @@ database:
   #   task     x 3 (migrate, rederive and retention at once) + 1 (Alembic's own)
   #   scheduler
   #   reportJob x scheduler.maxReportJobs, on IRSA installs
-  # A pod below its own peak refuses to start: a scan Job holds 3 at once, migrate, rederive and
-  # retention 2, a report Job 1. The api uses one per request in progress; more wait, then get
+  #   pathsJob  x 1 (one attack-route evaluation at a time, fixed: ADR-0052)
+  # A pod below its own peak refuses to start: a scan Job holds 3 at once, migrate, rederive,
+  # retention and the paths Job 2, a report Job 1. The api uses one per request in progress; more wait, then get
   # 503.
   pools:
     api: 10
     scheduler: 2
     scanJob: 3
     reportJob: 1
+    pathsJob: 2
     task: 2
 
 # Postgres 18 in the chart (a StatefulSet), or an external one with `enabled: false`.
@@ -260,12 +263,14 @@ scheduler:
 
 # Scan Jobs (ADR-0039, ADR-0046): on Kubernetes there is no long-running worker. The scheduler
 # starts a short-lived Job for each piece of work; the Job does it and exits, and its credentials
-# and temporary files go with it. There are four works, each a fixed template the admission
+# and temporary files go with it. There are five works, each a fixed template the admission
 # policy pins (ADR-0040): `test` answers one queued connection test (the "Test connection"
 # button) on the runtime image; `steampipe` (also Vulnerabilities), `prowler` and `cloudfox` each
-# run one AWS scan of their tool on one account, then ingest, on that tool's image. A connection's
-# tools still run in order. Only AWS connections are scanned here: Demo connections are for
-# Docker Compose. Every scan Job has the AWS identity.
+# run one AWS scan of their tool on one account, then ingest, on that tool's image; `paths` works
+# out the attack routes after scans are ingested, on the runtime image, with no cloud identity
+# and no keyring (ADR-0052). A connection's tools still run in order. Only AWS connections are
+# scanned here: Demo connections are for Docker Compose. Every scan Job has the AWS identity. On
+# IRSA installs a sixth, `report`, builds reports. Every Job shares the placement below.
 scanJobs:
   # Finished Jobs (and their logs) are deleted after this many seconds.
   ttlSecondsAfterFinished: 600
@@ -292,6 +297,14 @@ scanJobs:
       resources:
         requests: {cpu: 500m, memory: 2Gi}
         limits: {memory: 6Gi}
+    # Attack routes (ADR-0052): one evaluation over every account, on the runtime image, on every
+    # install, one at a time. At 300,000 resources, run as this Job, the first evaluation took 5.4
+    # minutes and peaked at 2.33 GiB (2026-11-16); memory is requested whole, so the node is
+    # chosen for it.
+    paths:
+      resources:
+        requests: {cpu: 500m, memory: 3Gi}
+        limits: {memory: 3Gi}
     # One report, on IRSA installs (ADR-0047). The renderer is capped at 2 GiB; a PDF at every
     # cap peaked at 1.37 GiB (2026-11-11). The file is written to the scratch volume, then sent
     # to S3 in one PUT.

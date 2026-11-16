@@ -38,12 +38,16 @@ push_image() {
 
 make_secret() {
   if k get secret argus-secrets > /dev/null 2>&1; then
-    # A cluster made before reports were kept in S3 has no password for their role yet.
-    if [ -z "$(k get secret argus-secrets -o jsonpath='{.data.ARGUS_REPORTS_DB_PASSWORD}')" ]; then
-      k patch secret argus-secrets --type merge \
-        -p "{\"stringData\":{\"ARGUS_REPORTS_DB_PASSWORD\":\"$(rand 32)\"}}" > /dev/null
-      ok "the Secret gained ARGUS_REPORTS_DB_PASSWORD"
-    fi
+    # A cluster made before reports were kept in S3, or before the paths Job, has no password
+    # for that role yet.
+    local key
+    for key in ARGUS_REPORTS_DB_PASSWORD ARGUS_PATHS_DB_PASSWORD; do
+      if [ -z "$(k get secret argus-secrets -o jsonpath="{.data.$key}")" ]; then
+        k patch secret argus-secrets --type merge \
+          -p "{\"stringData\":{\"$key\":\"$(rand 32)\"}}" > /dev/null
+        ok "the Secret gained $key"
+      fi
+    done
     ok "the Secret exists; its values are kept"
     return
   fi
@@ -59,6 +63,7 @@ make_secret() {
     echo "ARGUS_WORKER_DB_PASSWORD=$(rand 32)"
     echo "ARGUS_SCHEDULER_DB_PASSWORD=$(rand 32)"
     echo "ARGUS_REPORTS_DB_PASSWORD=$(rand 32)"
+    echo "ARGUS_PATHS_DB_PASSWORD=$(rand 32)"
     echo "ARGUS_SECRET_KEYS=k1:$(head -c 32 /dev/urandom | base64 -w0)"
     echo "ARGUS_SECRET_KEY_ID=k1"
     echo "ARGUS_BOOTSTRAP_ADMIN_PASSWORD_HASH=$hash"
@@ -303,15 +308,15 @@ test_rights() {
   can no create deployments.apps
   can no create jobs.batch -n default
   local sa accounts tokens
-  for sa in default "$FULL-run" "$FULL-api" "$FULL-report"; do
+  for sa in default "$FULL-run" "$FULL-api" "$FULL-report" "$FULL-paths"; do
     [ "$(kubectl auth can-i --as="system:serviceaccount:$NAMESPACE:$sa" -n "$NAMESPACE" create jobs.batch 2>/dev/null || true)" = no ] \
       || fail "$sa can create Jobs"
   done
   ok "no other service account can create Jobs"
-  # The chart's own accounts (api and report: reports in S3 on IRSA); every other pod runs as
-  # default.
+  # The chart's own accounts (api and report: reports in S3 on IRSA; paths on every install, with
+  # no identity); every other pod runs as default.
   accounts=$(k get serviceaccounts -o jsonpath='{.items[*].metadata.name}' | tr ' ' '\n' | sort | tr '\n' ' ')
-  [ "$accounts" = "$(printf '%s\n' default "$FULL-run" "$FULL-scheduler" "$FULL-api" "$FULL-report" | sort | tr '\n' ' ')" ] \
+  [ "$accounts" = "$(printf '%s\n' default "$FULL-run" "$FULL-scheduler" "$FULL-api" "$FULL-report" "$FULL-paths" | sort | tr '\n' ' ')" ] \
     || fail "service accounts: $accounts"
   [ "$(k get deploy "$FULL-api" -o jsonpath='{.spec.template.spec.serviceAccountName}')" = "$FULL-api" ] \
     || fail "the API does not run as $FULL-api"
@@ -345,13 +350,23 @@ CROSS_JOBS=(
   "the worker's role on the report Job|report|(.spec.template.spec.containers[0].env[] | select(.name == \"ARGUS_DB_USER\") | .value) = \"argus_worker\" | (.spec.template.spec.containers[0].env[] | select(.name == \"ARGUS_DB_PASSWORD\") | .valueFrom.secretKeyRef.key) = \"ARGUS_WORKER_DB_PASSWORD\""
   "a scan Job's routes for the report Job|report|.spec.template.metadata.labels[\"app.kubernetes.io/component\"] = \"run\""
   "the report Job on a tool's image|report|.spec.template.spec.containers[0].image = \$other.spec.template.spec.containers[0].image"
+  # The paths Job (ADR-0052 §9 M1): no identity, no keyring, never the worker's role or a scan
+  # Job's routes, never a tool's image or size; and no other Job on its account or its name.
+  "the paths Job as the platform identity|paths|.spec.template.spec.serviceAccountName = \$other.spec.template.spec.serviceAccountName"
+  "a scan Job as the paths account|prowler|.spec.template.spec.serviceAccountName = \"$FULL-paths\""
+  "the keyring on the paths Job|paths|.spec.template.spec.containers[0].env += [\$other.spec.template.spec.containers[0].env[] | select(.name | startswith(\"ARGUS_SECRET_KEY\"))]"
+  "the worker's role on the paths Job|paths|(.spec.template.spec.containers[0].env[] | select(.name == \"ARGUS_DB_USER\") | .value) = \"argus_worker\" | (.spec.template.spec.containers[0].env[] | select(.name == \"ARGUS_DB_PASSWORD\") | .valueFrom.secretKeyRef.key) = \"ARGUS_WORKER_DB_PASSWORD\""
+  "a scan Job's routes for the paths Job|paths|.spec.template.metadata.labels[\"app.kubernetes.io/component\"] = \"run\""
+  "the paths Job on a tool's image|paths|.spec.template.spec.containers[0].image = \$other.spec.template.spec.containers[0].image"
+  "a tool Job's size on the paths Job|paths|.spec.template.spec.containers[0].resources = \$other.spec.template.spec.containers[0].resources"
+  "the test template under the paths Job's name|test|.metadata.generateName = \"$FULL-scan-paths-\""
 )
 
 test_admission() {
   step "the admission policy: each template passes, every change is denied"
   local tmp out entry name change work other
   tmp=$(mktemp -d)
-  for work in test steampipe prowler cloudfox report; do
+  for work in test steampipe prowler cloudfox paths report; do
     k get configmap "$FULL-job-templates" -o json | jq -r --arg f "$work.json" '.data[$f]' > "$tmp/$work.json"
     out=$(create_as_scheduler < "$tmp/$work.json") || fail "the $work template is denied: $out"
     ok "the $work template is allowed"
@@ -625,6 +640,13 @@ test_network() {
   expect_reach "$out" report "$api_ip:$api_port" closed
   expect_reach "$out" report 1.1.1.1:443 closed
 
+  # The paths Job (ADR-0052 §9 M1): the database and nothing else, no cloud at all.
+  out=$(probe_from paths paths "$db" "$api" "$web" 169.254.169.254:80 10.96.0.1:443 "$api_ip:$api_port" 1.1.1.1:443 192.0.2.1:443)
+  expect_reach "$out" paths "$db" open
+  for target in "$api" "$web" 169.254.169.254:80 10.96.0.1:443 "$api_ip:$api_port" 1.1.1.1:443 192.0.2.1:443; do
+    expect_reach "$out" paths "$target" closed
+  done
+
   out=$(probe_from scheduler scheduler "$db" "$api_ip:$api_port" "$api" 1.1.1.1:443)
   expect_reach "$out" scheduler "$db" open
   expect_reach "$out" scheduler "$api_ip:$api_port" open
@@ -644,7 +666,8 @@ test_network() {
 test_report_job() {
   step "a report Job: started for a queued report, as argus_reports, no identity on kind"
   local id state
-  k logs -l app.kubernetes.io/component=migrate --tail=-1 | grep -q '"roles_with_login": \[[^]]*"argus_reports"' \
+  # Read whole first: grep -q stops at its match, and kubectl's SIGPIPE fails the pipe (pipefail).
+  grep -q '"roles_with_login": \[[^]]*"argus_reports"' <<< "$(k logs -l app.kubernetes.io/component=migrate --tail=-1)" \
     || fail "migrate did not give argus_reports its login"
   ok "migrate gave argus_reports its login"
   id=$(psql_q "INSERT INTO report_request (kind, format, filters, connection_ids, requested_by,
@@ -659,6 +682,41 @@ test_report_job() {
     || fail "report $id: '$state', expected failed as not stored"
   k get jobs -l argus/work=report -o name | grep -q . || fail "no report Job ran"
   ok "a report Job claimed report $id and failed it: no identity on kind"
+}
+
+# A paths Job really runs (ADR-0052): migrate gave argus_paths its login; routes due start one
+# Job, which logs in as argus_paths and records a complete evaluation; with nothing new, no second
+# Job follows. The install's first evaluation may be long gone (a finished Job is deleted after
+# 10 minutes), so the test makes routes due itself: the last evaluation becomes a failure from a
+# day ago, which is retried.
+test_paths_job() {
+  step "a paths Job: started when routes are due, as argus_paths, no identity, one at a time"
+  local before state jobs
+  grep -q '"roles_with_login": \[[^]]*"argus_paths"' <<< "$(k logs -l app.kubernetes.io/component=migrate --tail=-1)" \
+    || fail "migrate did not give argus_paths its login"
+  ok "migrate gave argus_paths its login"
+  before=$(psql_q "SELECT coalesce(max(id), 0) FROM route_evaluation")
+  # A day old, started too: the scheduler starts a paths Job only 5 minutes after the last one's
+  # start (PATHS_MIN_GAP, the Job quota).
+  psql_q "UPDATE route_evaluation SET status = 'failed', error = 'kind: due again',
+          started_at = now() - interval '1 day 1 hour', finished_at = now() - interval '1 day'
+          WHERE id = $before" > /dev/null
+  for _ in $(seq 60); do
+    state=$(psql_q "SELECT status FROM route_evaluation WHERE id > $before ORDER BY id DESC LIMIT 1")
+    [ "$state" = complete ] && break
+    sleep 2
+  done
+  [ "$state" = complete ] || fail "no new complete route evaluation: '${state:-none}'"
+  jobs=$(k get jobs -l argus/work=paths -o name | wc -l)
+  [ "$jobs" -ge 1 ] || fail "no paths Job ran"
+  grep -q '"done": "paths"' <<< "$(k logs -l argus/work=paths --tail=-1)" || fail "the paths Job did not log its evaluation"
+  ok "a paths Job worked out the routes as argus_paths"
+  # Nothing changed since: the scheduler asks again (every 30 s) and starts nothing more.
+  sleep 40
+  [ "$(k get jobs -l argus/work=paths -o name | wc -l)" -eq "$jobs" ] || fail "another paths Job started with nothing due"
+  [ "$(psql_q "SELECT count(*) FROM route_evaluation WHERE id > $before")" -eq 1 ] \
+    || fail "more than one evaluation ran for one due signal"
+  ok "nothing due: no second paths Job"
 }
 
 test_retention() {
@@ -715,7 +773,7 @@ test_password_rotation() {
   psql_q "ALTER ROLE argus PASSWORD '$owner_new'" > /dev/null
   set_secret ARGUS_DB_PASSWORD "$owner_new"
 
-  for role in api worker scheduler reports; do
+  for role in api worker scheduler reports paths; do
     key="ARGUS_${role^^}_DB_PASSWORD"
     old=$(secret_value "$key")
     new=$(rand 32)
@@ -738,7 +796,7 @@ test_password_rotation() {
     || fail "migrate did not complete with the new owner password"
   ok "migrate ran again, signing in with the owner's new password"
 
-  for role in api worker scheduler reports; do
+  for role in api worker scheduler reports paths; do
     signs_in "argus_$role" "${new_passwords[$role]}" || fail "argus_$role: the new password is refused"
     if signs_in "argus_$role" "${old_passwords[$role]}"; then
       fail "argus_$role: the old password still signs in"
@@ -784,6 +842,7 @@ run_tests() {
   test_policy_compiles
   test_network
   test_report_job
+  test_paths_job
   test_demo_refused
   test_web
   test_web_without_api

@@ -9,7 +9,8 @@ finishes, so an upgrade with no change does not run it again.
   it exits at once. As argus_worker. It may wait behind a scan's ingest, which can last as
   long as the run's own deadline. */ -}}
 {{- $passwords := "" }}
-{{- $roleKeys := list "ARGUS_API_DB_PASSWORD" "ARGUS_WORKER_DB_PASSWORD" "ARGUS_SCHEDULER_DB_PASSWORD" }}
+{{- /* argus_paths on every install: the paths Job's role (ADR-0052 §9 M1). */}}
+{{- $roleKeys := list "ARGUS_API_DB_PASSWORD" "ARGUS_WORKER_DB_PASSWORD" "ARGUS_SCHEDULER_DB_PASSWORD" "ARGUS_PATHS_DB_PASSWORD" }}
 {{- if include "argus.reportsInS3" . }}
 {{- $roleKeys = append $roleKeys "ARGUS_REPORTS_DB_PASSWORD" }}
 {{- end }}

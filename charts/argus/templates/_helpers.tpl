@@ -44,8 +44,9 @@ helm.sh/chart: {{ printf "%s-%s" .root.Chart.Name .root.Chart.Version | replace 
 {{- include "argus.image" (dict "root" . "image" .Values.images.runtime "registry" true) }}
 {{- end }}
 
-{{/* One of the chart's service accounts: "run" (the platform identity), "scheduler", and on IRSA
-installs "api" and "report" (the reports roles, ADR-0047). */}}
+{{/* One of the chart's service accounts: "run" (the platform identity), "scheduler", "paths" (the
+attack-route Job's: no identity, ADR-0052), and on IRSA installs "api" and "report" (the reports
+roles, ADR-0047). */}}
 {{- define "argus.serviceAccount" -}}
 {{- printf "%s-%s" (include "argus.fullname" .root) .name }}
 {{- end }}
@@ -123,11 +124,13 @@ database.pools in values.yaml.
 {{- $api := mul $apiPods $p.api }}
 {{- $scans := mul $scanPods $p.scanJob }}
 {{- $reports := mul $reportPods $p.reportJob }}
+{{- /* One paths Job at a time, fixed (ADR-0052 §9 M3). */}}
+{{- $paths := $p.pathsJob }}
 {{- $tasks := add (mul 3 $p.task) 1 }}
-{{- $total := add $api $scans $reports $tasks $p.scheduler }}
+{{- $total := add $api $scans $reports $paths $tasks $p.scheduler }}
 {{- $room := sub $v.postgres.maxConnections 3 }}
 {{- if gt $total $room }}
-{{- fail (printf "database connections: the pods can open %d at once (api %d = %d pods x %d, scan Jobs %d = %d x %d, report Jobs %d = %d x %d, migrate/rederive/retention %d, scheduler %d), above postgres.maxConnections %d less 3 reserved. Raise postgres.maxConnections, or lower database.pools, the api replicas, scheduler.maxRunJobs or scheduler.maxReportJobs." $total $api $apiPods (int $p.api) $scans $scanPods (int $p.scanJob) $reports (int $reportPods) (int $p.reportJob) $tasks (int $p.scheduler) (int $v.postgres.maxConnections)) }}
+{{- fail (printf "database connections: the pods can open %d at once (api %d = %d pods x %d, scan Jobs %d = %d x %d, report Jobs %d = %d x %d, the paths Job %d, migrate/rederive/retention %d, scheduler %d), above postgres.maxConnections %d less 3 reserved. Raise postgres.maxConnections, or lower database.pools, the api replicas, scheduler.maxRunJobs or scheduler.maxReportJobs." $total $api $apiPods (int $p.api) $scans $scanPods (int $p.scanJob) $reports (int $reportPods) (int $p.reportJob) (int $paths) $tasks (int $p.scheduler) (int $v.postgres.maxConnections)) }}
 {{- end }}
 {{- end }}
 
@@ -391,7 +394,8 @@ Reports screen says why there are none.
 {{/*
 The works a Job does (ADR-0046) and the image each runs: `test` answers a connection test on the
 runtime image; `steampipe`, `prowler` and `cloudfox` each run one AWS scan of their tool, on that
-tool's image; `report` builds one report on the reports image, where reports are kept in S3.
+tool's image; `paths` works out the attack routes once, on the runtime image, on every install
+(ADR-0052); `report` builds one report on the reports image, where reports are kept in S3.
 Called with the root context.
 */}}
 {{- define "argus.scanWorks" -}}
@@ -399,6 +403,7 @@ test: runtime
 steampipe: workerSteampipe
 prowler: workerProwler
 cloudfox: workerCloudfox
+paths: runtime
 {{- if include "argus.reportsInS3" . }}
 report: reports
 {{- end }}
@@ -411,7 +416,9 @@ cannot drift. Templates differ only in their name prefix, their labels, their se
 their image, their environment and their resources. A scan or test Job runs as the run account
 (the platform identity) with the worker's database role and the keyring; the report Job runs as
 the report account (its own IRSA role), with argus_reports, no keyring, and its own component
-label, so it gets its own NetworkPolicy (ADR-0047 round 5).
+label, so it gets its own NetworkPolicy (ADR-0047 round 5). The paths Job runs as the paths
+account (no identity at all), with argus_paths, no keyring, and its own component label, whose
+only route is to Postgres (ADR-0052 §9 M1).
 10001 is the user the image's /etc/passwd lists: CloudFox exits under any other.
 Called with (dict "root" $ "work" <work>).
 */}}
@@ -420,9 +427,13 @@ Called with (dict "root" $ "work" <work>).
 {{- $v := $root.Values }}
 {{- $s := $v.scanJobs }}
 {{- $image := index (include "argus.scanWorks" $root | fromYaml) .work }}
-{{- $report := eq .work "report" }}
-{{- $component := ternary "report" "run" $report }}
-{{- $db := ternary (dict "root" $root "user" "argus_reports" "key" "ARGUS_REPORTS_DB_PASSWORD" "pool" "reportJob") (dict "root" $root "user" "argus_worker" "key" "ARGUS_WORKER_DB_PASSWORD" "pool" "scanJob") $report }}
+{{- /* Who the Job is: its component (its account and its NetworkPolicy) and its database role. */}}
+{{- $own := dict
+  "report" (dict "component" "report" "user" "argus_reports" "key" "ARGUS_REPORTS_DB_PASSWORD" "pool" "reportJob")
+  "paths" (dict "component" "paths" "user" "argus_paths" "key" "ARGUS_PATHS_DB_PASSWORD" "pool" "pathsJob") }}
+{{- $who := get $own .work | default (dict "component" "run" "user" "argus_worker" "key" "ARGUS_WORKER_DB_PASSWORD" "pool" "scanJob") }}
+{{- $component := $who.component }}
+{{- $db := dict "root" $root "user" $who.user "key" $who.key "pool" $who.pool }}
 {{- $labels := printf "%s\nargus/work: %s" (include "argus.selectorLabels" (dict "root" $root "component" $component)) .work }}
 apiVersion: batch/v1
 kind: Job
@@ -464,6 +475,9 @@ spec:
 # (ADR-0047). Reports go to the bucket recorded on each report, in one PUT.
 - name: ARGUS_REPORTS_STORE
   value: s3
+{{- else if eq .work "paths" }}
+# No keyring and no identity: the walk reads edges, inventory ids and findings, never a sealed
+# value or a cloud (ADR-0052 §9 M1).
 {{- else }}
 {{ include "argus.keyringEnv" .root }}
 # The deployment's bound on scans at once.

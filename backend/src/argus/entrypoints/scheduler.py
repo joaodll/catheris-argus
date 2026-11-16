@@ -1,7 +1,8 @@
 """The Kubernetes scheduler (ADR-0039): one replica, no cloud identity, never runs work.
 
 Every 2 seconds it starts the Jobs that claimable scans, queued tests and queued reports need,
-from the chart's templates (scheduling/launcher.py, ADR-0046); every 60 seconds it keeps the
+from the chart's templates (scheduling/launcher.py, ADR-0046), and every 30 seconds it also asks
+whether an attack-route evaluation is due (the `paths` Job, ADR-0052); every 60 seconds it keeps the
 queue (scheduling/maintenance.py). A refused or failed Kubernetes call is logged with the API's
 message and retried after 30 seconds. It touches a file on every pass, which the liveness probe
 checks, and exits on SIGTERM: it holds no work of its own.
@@ -26,6 +27,9 @@ from argus.scheduling.launcher import Bounds, load_templates, reconcile, selecto
 log = logging.getLogger("argus.scheduler")
 RECONCILE_EVERY_SECONDS = 2.0
 MAINTAIN_EVERY_SECONDS = 60.0
+# How often a pass asks whether attack routes are due: the question hashes every connection's
+# newest loads and runs, and an evaluation takes minutes, so a few seconds' delay is nothing.
+PATHS_DUE_EVERY_SECONDS = 30.0
 BACKOFF_SECONDS = 30.0
 ALIVE_FILE = Path("/tmp/argus-scheduler.alive")  # noqa: S108 - the pod's own /tmp
 
@@ -62,6 +66,7 @@ def main() -> int:
         },
     )
     next_maintain = 0.0
+    next_paths = 0.0
     warned: set[str] = set()  # stuck Jobs already logged
     while not stop.is_set():
         wait = RECONCILE_EVERY_SECONDS
@@ -71,8 +76,18 @@ def main() -> int:
             except Exception:
                 log.exception("maintenance error")
             next_maintain = time.monotonic() + MAINTAIN_EVERY_SECONDS
+        ask_paths = time.monotonic() >= next_paths
+        if ask_paths:
+            next_paths = time.monotonic() + PATHS_DUE_EVERY_SECONDS
         try:
-            reconcile(engine, kube, templates, bounds, warned=warned)
+            reconcile(
+                engine,
+                kube,
+                templates,
+                bounds,
+                warned=warned,
+                paths_rules=settings.rules_dir if ask_paths else None,
+            )
         except KubeError as exc:
             log.error(
                 "kubernetes refused",
