@@ -26,7 +26,7 @@ from argus.core.logging import JsonFormatter
 from argus.core.rawstore import FilesystemRawStore
 from argus.entrypoints import seed
 from argus.reports import pdf as report_pdf
-from argus.scheduling import maintenance, runner
+from argus.scheduling import maintenance, paths, runner
 
 pytestmark = pytest.mark.db
 
@@ -326,6 +326,36 @@ def _sweep_map(client: TestClient, connection_id: int, bodies: dict[str, str]) -
         bodies[path] = response.text
 
 
+def _sweep_paths(client: TestClient, worker: Engine, bodies: dict[str, str]) -> None:
+    """Attack routes (ADR-0052 §9 M4): worked out, then every list, every route and every
+    listed target's steps; and the route tables themselves, whatever the API shows of them."""
+    assert paths.run_pending(worker, rules_dir=RULES_DIR)
+    classes = "&".join(
+        f"cls={c}" for c in ("confirmed", "conditional", "potential", "unknown", "blocked")
+    )
+    for path in (
+        f"/api/v1/attack-paths?limit=200&{classes}",
+        f"/api/v1/attack-paths?limit=200&state=resolved&{classes}",
+        "/api/v1/attack-paths/facets",
+    ):
+        response = client.get(path)
+        assert response.status_code == 200, (path, response.text)
+        bodies[path] = response.text
+    routes = json.loads(bodies[f"/api/v1/attack-paths?limit=200&{classes}"])["items"]
+    assert routes, "no attack route swept"
+    for route in routes:
+        for seq in range(1, route["listed_count"] + 1):
+            path = f"/api/v1/attack-paths/{route['id']}?target={seq}"
+            response = client.get(path)
+            assert response.status_code == 200, (path, response.text)
+            bodies[path] = response.text
+    with worker.connect() as conn:
+        stored = conn.execute(
+            text("SELECT r::text FROM route r UNION ALL SELECT t::text FROM route_target t")
+        ).scalars()
+        bodies["route tables"] = "\n".join(stored)
+
+
 def test_no_planted_secret_reaches_any_api_response_or_log(
     signed_in: TestClient,
     owner: Engine,
@@ -396,6 +426,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
                 bodies[path] = signed_in.get(path).text
         offset, total = offset + 200, page["total"]
     _sweep_map(signed_in, target.connection_id, bodies)
+    _sweep_paths(signed_in, worker, bodies)
     for listed in ("findings", "vulnerabilities"):  # every finding and CVE, each by its link too
         offset, total = 0, 1
         while offset < total:
@@ -424,10 +455,11 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
         "/api/v1/auth/saml/login",
         "/api/v1/auth/saml/metadata",
     }
-    swept = {p.split("?")[0] for p in bodies}
+    swept = {p.split("?")[0] for p in bodies} - {"route tables"}
     swept = {re.sub(r"/resources/\d+$", "/resources/{resource_id}", p) for p in swept}
     swept = {re.sub(r"/map/resource/\d+$", "/map/resource/{resource_id}", p) for p in swept}
     swept = {re.sub(r"/findings/\d+$", "/findings/{finding_id}", p) for p in swept}
+    swept = {re.sub(r"/attack-paths/\d+$", "/attack-paths/{route_id}", p) for p in swept}
     swept = {re.sub(r"/connection-tests/\d+$", "/connection-tests/{test_id}", p) for p in swept}
     swept = {re.sub(r"/reports/\d+", "/reports/{report_id}", p) for p in swept}
     swept = {re.sub(r"/compliance/cis_6\.0_aws", "/compliance/{framework}", p) for p in swept}

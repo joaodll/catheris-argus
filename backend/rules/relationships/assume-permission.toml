@@ -1,0 +1,35 @@
+id = "assume-permission"
+version = 1
+edge_type = "MAY_ASSUME"
+description = """A role or user whose policies (its groups' included, `ps`) allow sts:AssumeRole may
+assume a role whose trust names its account (ADR-0052 §6 A3, P1 R0). The edge goes from the
+principal to its own account's root, `arn:aws:iam::<account>:root`, the name a trust gives the
+whole account; the attack-path walk joins it with role-trust's CAN_ASSUME from that root, in any
+scanned account, when one of `resources` (the statements' Resource patterns, lower case, at most
+50, `truncated` beyond) matches the role. Action names are matched with their wildcards, as in
+privilege-escalation. A statement without Resource (NotResource) counts as "*"; one without
+Action (NotAction) is not read. Name-level only: conditions, Deny, boundaries and SCPs are not
+evaluated (`unevaluated`)."""
+# A colon in a string literal before a word reads as a bind parameter in SQLAlchemy text(), so
+# ':' and 'root' are concatenated.
+sql = """
+SELECT a.principal,
+       'arn:aws:iam::' || split_part(a.principal, ':', 5) || ':' || 'root',
+       jsonb_build_object(
+         'resources', to_jsonb((array_agg(DISTINCT a.res ORDER BY a.res))[1:50]),
+         'truncated', count(DISTINCT a.res) > 50,
+         'unevaluated', '["boundaries", "conditions", "deny", "notaction", "notresource", "scps"]'::jsonb)
+FROM (
+  SELECT s.principal, lower(res) AS res
+  FROM ps s
+  CROSS JOIN LATERAL jsonb_array_elements_text(
+    CASE jsonb_typeof(s.st -> 'Action') WHEN 'array' THEN s.st -> 'Action'
+         WHEN 'string' THEN jsonb_build_array(s.st -> 'Action') ELSE '[]'::jsonb END) AS act
+  CROSS JOIN LATERAL jsonb_array_elements_text(
+    CASE jsonb_typeof(s.st -> 'Resource') WHEN 'array' THEN s.st -> 'Resource'
+         WHEN 'string' THEN jsonb_build_array(s.st -> 'Resource') ELSE '["*"]'::jsonb END) AS res
+  WHERE 'sts:assumerole' LIKE replace(replace(lower(act), '*', '%'), '?', '_')
+    AND split_part(s.principal, ':', 5) ~ '^[0-9]{12}$'
+) a
+GROUP BY a.principal
+"""

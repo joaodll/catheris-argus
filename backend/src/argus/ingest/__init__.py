@@ -4,6 +4,8 @@ snapshots").
     register_run()         records a committed run in scan_run, from its manifest
     register_failed_run()  records a request that failed before it had a manifest to register
     ingest_run()           adapter -> load -> derived steps, for one scan_run
+    newest_runs()          each connection's newest ingested run per tool that did not fail
+                           (the attack-path resolve rule, ADR-0052 §4)
     rederive_stale()       at worker start: edges and reach again for each connection
                            whose rules were upgraded (ADR-0035, fifth amendment)
 
@@ -14,10 +16,12 @@ reason, instead of being skipped silently.
 
 from argus.ingest.pipeline import IngestOutcome, ingest_run, register_failed_run, register_run
 from argus.ingest.queries import (
+    NewestRun,
     data_through,
     data_through_by_connection,
     last_runs,
     list_runs,
+    newest_runs,
     synthetic_raw_paths_before,
 )
 from argus.ingest.rederive import REDERIVE_CONNECTIONS, rederive_stale
@@ -25,11 +29,13 @@ from argus.ingest.rederive import REDERIVE_CONNECTIONS, rederive_stale
 __all__ = [
     "REDERIVE_CONNECTIONS",
     "IngestOutcome",
+    "NewestRun",
     "data_through",
     "data_through_by_connection",
     "ingest_run",
     "last_runs",
     "list_runs",
+    "newest_runs",
     "rederive_stale",
     "register_failed_run",
     "register_run",

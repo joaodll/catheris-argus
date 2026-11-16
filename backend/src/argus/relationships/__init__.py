@@ -12,6 +12,9 @@ Owns edge, edge_snapshot and edge_load. Public interface:
     internet_reach()  what the internet rules say about each resource facing the internet,
                       and why (InternetReach, Door)
     edges_at()        a resource's edges as they stood on a day
+    EFFECTIVE_EDGES_SQL, latest_loads(), standing_edges(), EdgeLoad, edge_attributes()
+                      the edges that stand now, for the attack-path walk, its kinds and its
+                      steps (ADR-0052)
     neighbourhood(), group_members(), map_edges_at()   the Resource Map's and the Security
                       Map's reads (graph.py, ADR-0051): up to MAX_DEPTH hops around a focus, a
                       group's members and a panel's edges, for a MapScope and a Map; Layer,
@@ -51,23 +54,30 @@ from argus.relationships.graph import (
     Origin,
     edge_layers,
     group_members,
+    kind_of,
     map_edges_at,
     neighbourhood,
     on_map,
 )
 from argus.relationships.queries import (
+    EFFECTIVE_EDGES_SQL,
     Door,
+    EdgeLoad,
     InternetReach,
     delete_loads_before,
+    edge_attributes,
     edges_at,
     effective_days,
     internet_reach,
+    latest_loads,
     latest_rule_loads,
+    standing_edges,
 )
 
 __all__ = [
     "DEFAULT_LAYERS",
     "EDGE_ATTRIBUTES",
+    "EFFECTIVE_EDGES_SQL",
     "HOSTS_SQL",
     "MAX_DEPTH",
     "NO_JIT",
@@ -76,6 +86,7 @@ __all__ = [
     "SECURITY_EDGE_TYPES",
     "DerivedEdge",
     "Door",
+    "EdgeLoad",
     "InternetReach",
     "Layer",
     "Map",
@@ -84,11 +95,14 @@ __all__ = [
     "Rule",
     "delete_loads_before",
     "derive_edges",
+    "edge_attributes",
     "edge_layers",
     "edges_at",
     "effective_days",
     "group_members",
     "internet_reach",
+    "kind_of",
+    "latest_loads",
     "latest_rule_loads",
     "load_edges",
     "load_rules",
@@ -96,5 +110,6 @@ __all__ = [
     "neighbourhood",
     "on_map",
     "owners_of_hosts",
+    "standing_edges",
     "write_edges",
 ]

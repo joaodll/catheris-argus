@@ -10,6 +10,8 @@ Public interface:
     RESOURCE_TAGS_SQL, resource_id_sql(), uid_by_native_id()
                        for other modules' queries
     RESOURCE_NODES_SQL, resource_nodes()   resources as Resource map nodes, by uid
+    RESOURCE_TYPES_ON_DAY_SQL, latest_days(), resource_types()   uids and types only, for
+                       the attack-path walk and its kinds (ADR-0052)
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
                        (the Resources page, and a resource as of a day)
     is_asset()         whether a resource type counts as an asset (parts, settings and links
@@ -26,6 +28,7 @@ from argus.inventory.queries import (
     CURRENT_ASSETS_SQL,
     RESOURCE_NODES_SQL,
     RESOURCE_TAGS_SQL,
+    RESOURCE_TYPES_ON_DAY_SQL,
     RESOURCES_IN_REGIONS_SQL,
     RESOURCES_ON_DAY_SQL,
     TAGGED_RESOURCES_SQL,
@@ -33,12 +36,14 @@ from argus.inventory.queries import (
     ResourceOrder,
     delete_loads_before,
     effective_day,
+    latest_days,
     list_resources,
     resource_at,
     resource_facets,
     resource_id_sql,
     resource_names,
     resource_nodes,
+    resource_types,
     uid_by_native_id,
 )
 from argus.inventory.steampipe import (
@@ -56,6 +61,7 @@ __all__ = [
     "RESOURCES_ON_DAY_SQL",
     "RESOURCE_NODES_SQL",
     "RESOURCE_TAGS_SQL",
+    "RESOURCE_TYPES_ON_DAY_SQL",
     "SUPPORTED_VERSIONS",
     "TAGGED_RESOURCES_SQL",
     "InventoryBatch",
@@ -66,6 +72,7 @@ __all__ = [
     "delete_orphan_configs",
     "effective_day",
     "is_asset",
+    "latest_days",
     "list_resources",
     "load_inventory",
     "parse_steampipe",
@@ -75,6 +82,7 @@ __all__ = [
     "resource_id_sql",
     "resource_names",
     "resource_nodes",
+    "resource_types",
     "rollup_inventory_metrics",
     "uid_by_native_id",
 ]

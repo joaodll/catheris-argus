@@ -1,8 +1,8 @@
 """The Compose worker (ADR-0019): run threads that claim and execute requests, a thread that
 answers Test connection, a thread that builds reports where this install keeps them (ADR-0047),
-and a main loop that keeps the queue (maintenance.py) and runs retention
-once a day. On Kubernetes the same work is split between the scheduler and run Jobs (ADR-0039),
-with the same code.
+a thread that works out attack routes after ingests (ADR-0052), and a main loop that keeps the
+queue (maintenance.py) and runs retention once a day. On Kubernetes the same work is split
+between the scheduler and Jobs (ADR-0039), with the same code.
 """
 
 import logging
@@ -17,7 +17,7 @@ from sqlalchemy import Engine
 from argus import reports
 from argus.core.rawstore import FilesystemRawStore
 from argus.ingest import REDERIVE_CONNECTIONS, rederive_stale
-from argus.scheduling import connection_checks, maintenance
+from argus.scheduling import connection_checks, maintenance, paths
 from argus.scheduling.runner import RUN_CONNECTIONS, run_once
 
 log = logging.getLogger("argus.worker")
@@ -27,14 +27,16 @@ IDLE_WAIT_SECONDS = 5
 TEST_WAIT_SECONDS = 2
 # A queued report waits at most this long for the report thread to look.
 REPORT_WAIT_SECONDS = 3
+# How often the paths thread asks whether attack routes are due (ADR-0052).
+PATHS_WAIT_SECONDS = 60
 
 
 def connections_needed(threads: int) -> int:
     """The most connections a worker holds at once: every run thread at its peak, the test
-    thread, the report thread (one at a time: claim, read, record), and the main loop (re-derive
-    at start, then retention)."""
+    thread, the report thread (one at a time: claim, read, record), the paths thread (its lock
+    and one transaction), and the main loop (re-derive at start, then retention)."""
     main_loop = max(REDERIVE_CONNECTIONS, maintenance.RETENTION_CONNECTIONS)
-    return threads * RUN_CONNECTIONS + 1 + 1 + main_loop
+    return threads * RUN_CONNECTIONS + 1 + 1 + paths.PATHS_CONNECTIONS + main_loop
 
 
 class Worker:
@@ -105,6 +107,16 @@ class Worker:
             if not built:
                 self.stop.wait(REPORT_WAIT_SECONDS)
 
+    def _paths_loop(self) -> None:
+        """Attack routes are worked out on their own thread, one evaluation at a time, after
+        the ingests that change them (ADR-0052 §1): a scan never waits for one."""
+        while not self.stop.is_set():
+            try:
+                paths.run_pending(self.engine, rules_dir=self.rules_dir)
+            except Exception:
+                log.exception("paths loop error")
+            self.stop.wait(PATHS_WAIT_SECONDS)
+
     def run(self) -> None:
         # Before any run thread: a rule upgrade shows at once, and no ingest races it.
         try:
@@ -116,6 +128,7 @@ class Worker:
             for i in range(self.threads)
         ]
         runners.append(threading.Thread(target=self._test_loop, name="tests"))
+        runners.append(threading.Thread(target=self._paths_loop, name="paths"))
         if self.reports_store is not None:
             runners.append(
                 threading.Thread(

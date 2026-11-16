@@ -92,6 +92,18 @@ _COLUMNS = "id, name, kind, account_id, auth_method, demo_seed, enabled"
 DIRECTORY_SQL = "SELECT id, name, kind, provider, account_id, enabled FROM connection"
 
 
+def enabled_accounts(conn: Connection) -> dict[str, int]:
+    """Every enabled connection's account id -> connection id: the accounts Argus scans (the
+    attack-path walk, ADR-0052 §6 A3). Reads three columns only, all argus_paths may read."""
+    rows = conn.execute(text("SELECT id, account_id FROM connection WHERE enabled"))
+    return {r.account_id: int(r.id) for r in rows if r.account_id}
+
+
+def connection_ids(conn: Connection) -> set[int]:
+    """Every connection's id, enabled or not (a deleted connection has none)."""
+    return set(conn.execute(text("SELECT id FROM connection")).scalars())
+
+
 def demo_account_id(seed: int) -> str:
     """Demo accounts get obviously fake ids in the 1000000000xx range."""
     return f"{100000000010 + seed:012d}"

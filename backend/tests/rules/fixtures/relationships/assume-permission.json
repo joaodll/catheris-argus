@@ -1,0 +1,287 @@
+{
+  "about": "sts:AssumeRole allowed by name, with its Resource patterns: an exact ARN pattern, sts:* on *, a NotResource statement (counts as *), a user through a group's attached policy (two spellings of one ARN, lower-cased once). Near misses: sts:GetCallerIdentity only, a Deny, a NotAction statement.",
+  "resources": [
+    {
+      "uid": "arn:aws:iam::123456789012:role/deployer",
+      "type": "aws_iam_role",
+      "native_id": "deployer",
+      "name": "deployer",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "deployer",
+        "inline_policies_std": [
+          {
+            "PolicyName": "deployer-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "sts:AssumeRole",
+                  "Resource": "arn:aws:iam::210987654321:role/Deploy-*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/broad",
+      "type": "aws_iam_role",
+      "native_id": "broad",
+      "name": "broad",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "broad",
+        "inline_policies_std": [
+          {
+            "PolicyName": "broad-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "sts:*"
+                  ],
+                  "Resource": [
+                    "*"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/no-resource",
+      "type": "aws_iam_role",
+      "native_id": "no-resource",
+      "name": "no-resource",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "no-resource",
+        "inline_policies_std": [
+          {
+            "PolicyName": "no-resource-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "sts:assume*",
+                  "NotResource": "arn:aws:iam::123456789012:role/admin"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/caller",
+      "type": "aws_iam_role",
+      "native_id": "caller",
+      "name": "caller",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "caller",
+        "inline_policies_std": [
+          {
+            "PolicyName": "caller-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": "sts:GetCallerIdentity",
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/denied",
+      "type": "aws_iam_role",
+      "native_id": "denied",
+      "name": "denied",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "denied",
+        "inline_policies_std": [
+          {
+            "PolicyName": "denied-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Deny",
+                  "Action": "sts:AssumeRole",
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:role/not-action",
+      "type": "aws_iam_role",
+      "native_id": "not-action",
+      "name": "not-action",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "not-action",
+        "inline_policies_std": [
+          {
+            "PolicyName": "not-action-inline",
+            "PolicyDocument": {
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "NotAction": "iam:*",
+                  "Resource": "*"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:user/alice",
+      "type": "aws_iam_user",
+      "native_id": "alice",
+      "name": "alice",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "alice",
+        "groups": [
+          {
+            "Arn": "arn:aws:iam::123456789012:group/ops"
+          }
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:group/ops",
+      "type": "aws_iam_group",
+      "native_id": "ops",
+      "name": "ops",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "name": "ops",
+        "attached_policy_arns": [
+          "arn:aws:iam::123456789012:policy/assume-shared"
+        ]
+      }
+    },
+    {
+      "uid": "arn:aws:iam::123456789012:policy/assume-shared",
+      "type": "aws_iam_policy",
+      "native_id": "assume-shared",
+      "name": "assume-shared",
+      "region": "global",
+      "vpc_id": null,
+      "config": {
+        "policy_std": {
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "sts:assumerole"
+              ],
+              "Resource": [
+                "arn:aws:iam::345678901234:role/shared",
+                "arn:aws:iam::345678901234:role/Shared"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": [
+    {
+      "source": "arn:aws:iam::123456789012:role/broad",
+      "target": "arn:aws:iam::123456789012:root",
+      "attributes": {
+        "resources": [
+          "*"
+        ],
+        "truncated": false,
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "notaction",
+          "notresource",
+          "scps"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/deployer",
+      "target": "arn:aws:iam::123456789012:root",
+      "attributes": {
+        "resources": [
+          "arn:aws:iam::210987654321:role/deploy-*"
+        ],
+        "truncated": false,
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "notaction",
+          "notresource",
+          "scps"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:role/no-resource",
+      "target": "arn:aws:iam::123456789012:root",
+      "attributes": {
+        "resources": [
+          "*"
+        ],
+        "truncated": false,
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "notaction",
+          "notresource",
+          "scps"
+        ]
+      }
+    },
+    {
+      "source": "arn:aws:iam::123456789012:user/alice",
+      "target": "arn:aws:iam::123456789012:root",
+      "attributes": {
+        "resources": [
+          "arn:aws:iam::345678901234:role/shared"
+        ],
+        "truncated": false,
+        "unevaluated": [
+          "boundaries",
+          "conditions",
+          "deny",
+          "notaction",
+          "notresource",
+          "scps"
+        ]
+      }
+    }
+  ]
+}

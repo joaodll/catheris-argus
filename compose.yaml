@@ -350,10 +350,10 @@ services:
       # As the API's: retention deletes what is above the bound, so both must hold the same one.
       ARGUS_MAX_HISTORY_DAYS: ${ARGUS_MAX_HISTORY_DAYS:-400}
       ARGUS_WORKER_THREADS: "2"
-      # 3 connections per run thread, 1 for Test connection, 1 for reports, 2 for the main loop:
-      # raise it with the threads, or the worker refuses to start. api, migrate and seed use the
-      # default, 10.
-      ARGUS_DB_POOL_MAX: "10"
+      # 3 connections per run thread, 1 for Test connection, 1 for reports, 2 for attack routes
+      # (ADR-0052), 2 for the main loop: raise it with the threads, or the worker refuses to
+      # start. api, migrate and seed use the default, 10.
+      ARGUS_DB_POOL_MAX: "12"
       # Reports (ADR-0047), for Demo connections only: real output never stays on a local disk.
       ARGUS_REPORTS_ROOT: /var/lib/argus-reports
       ARGUS_SECRET_KEYS: ${ARGUS_SECRET_KEYS:-}
@@ -372,7 +372,9 @@ services:
     tmpfs: [/tmp]
     # Prowler and the Go tools are far heavier than ingest (180 MiB measured at the MVP gate).
     # Resize from the first real runs' measurements.
-    mem_limit: 4g
+    # Its run threads (Prowler, Steampipe) and its paths thread, which peaked at 2.4 GiB working
+    # out attack routes over 300,000 resources (ADR-0052; measured 2026-11-15).
+    mem_limit: 6g
     pids_limit: 1024
     depends_on:
       migrate:

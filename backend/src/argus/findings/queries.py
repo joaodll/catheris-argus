@@ -11,7 +11,7 @@ from sqlalchemy import Connection, text
 
 from argus.connections import DIRECTORY_SQL
 from argus.core.db import count_sql, like_contains
-from argus.findings.model import OPEN_MISCONFIGURATION
+from argus.findings.model import OPEN_MISCONFIGURATION, VULNERABILITY_TOOL
 from argus.inventory import TAGGED_RESOURCES_SQL
 
 FindingState = Literal["open", "reopened", "resolved", "accepted_risk"]
@@ -412,6 +412,47 @@ def confirmed_reach_resources(conn: Connection, resource_ids: list[int]) -> set[
         {"ids": resource_ids},
     )
     return {r.resource_id for r in rows}
+
+
+# Exported SQL: the view the attack-path kinds read as `f` (ADR-0052): one connection's open,
+# unmuted failing misconfigurations (:connection_id).
+FAILING_FINDINGS_SQL = f"""
+  SELECT resource_uid, check_id, severity FROM finding
+  WHERE connection_id = :connection_id AND state IN ('open', 'reopened') AND NOT muted
+    AND status = 'FAIL' AND tool <> '{VULNERABILITY_TOOL}'
+"""  # noqa: S608 - a fixed constant
+
+
+def failing_resources(conn: Connection, check_ids: tuple[str, ...]) -> dict[str, set[str]]:
+    """The resources each of these checks fails on, open and not muted, in every connection:
+    evidence an attack-path step reads (ADR-0052; P1 R0)."""
+    rows = conn.execute(
+        text("""
+        SELECT DISTINCT check_id, resource_uid FROM finding
+        WHERE check_id = ANY(CAST(:c AS text[])) AND state IN ('open', 'reopened')
+          AND NOT muted AND status = 'FAIL' AND resource_uid IS NOT NULL
+    """),
+        {"c": list(check_ids)},
+    )
+    found: dict[str, set[str]] = {c: set() for c in check_ids}
+    for r in rows:
+        found[r.check_id].add(r.resource_uid)
+    return found
+
+
+def exploitable_resources(conn: Connection) -> dict[str, str]:
+    """Each resource with an open vulnerability that has a public exploit, with one such CVE
+    (the highest id, so the choice is stable): a foothold's evidence (ADR-0052 §6 A1)."""
+    rows = conn.execute(
+        text(f"""
+        SELECT f.resource_uid, max(v.vulnerability_id) AS cve
+        FROM finding f JOIN finding_vulnerability v ON v.finding_id = f.id
+        WHERE f.tool = '{VULNERABILITY_TOOL}' AND f.state IN ('open', 'reopened') AND NOT f.muted
+          AND v.exploit_available AND f.resource_uid IS NOT NULL
+        GROUP BY f.resource_uid
+    """)  # noqa: S608 - a fixed constant
+    )
+    return {r.resource_uid: r.cve for r in rows}
 
 
 # Exported SQL: the ids of resources with open misconfigurations (OPEN_MISCONFIGURATION), for

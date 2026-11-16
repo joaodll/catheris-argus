@@ -2,7 +2,8 @@
 data list reflects."""
 
 from collections.abc import Sequence
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, datetime
 from typing import Any
 
 from sqlalchemy import Connection, text
@@ -73,6 +74,35 @@ def last_runs(conn: Connection, *, connection_id: int) -> list[dict[str, Any]]:
         {"c": connection_id},
     )
     return [dict(r._mapping) for r in rows]
+
+
+@dataclass(frozen=True)
+class NewestRun:
+    """A connection's newest ingested run of one tool that did not fail: its data is what
+    stands (a failed run moves nothing)."""
+
+    run_id: int
+    status: str
+    day: date
+    ingested_at: datetime
+
+
+def newest_runs(conn: Connection) -> dict[tuple[int, str], NewestRun]:
+    """{(connection id, tool): its newest ingested run that did not fail}. An attack route that
+    is no longer found is fixed only where these are complete (ADR-0052 §4)."""
+    rows = conn.execute(
+        text("""
+        SELECT DISTINCT ON (connection_id, tool) connection_id, tool, id, status,
+               snapshot_date, ingested_at
+        FROM scan_run
+        WHERE ingested_at IS NOT NULL AND status IN ('complete', 'partial')
+        ORDER BY connection_id, tool, id DESC
+    """)
+    )
+    return {
+        (r.connection_id, r.tool): NewestRun(r.id, r.status, r.snapshot_date, r.ingested_at)
+        for r in rows
+    }
 
 
 def data_through(
