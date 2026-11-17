@@ -358,6 +358,10 @@ HUB_VPC = "arn:aws:ec2:us-east-1:200000000001:vpc/vpc-hub"
 HUB_POLICY = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 # The largest hub one map read can meet: 20,000 neighbours of one kind, in one connection.
 HUB_BIG_VPC = "arn:aws:ec2:us-east-1:200000000001:vpc/vpc-big"
+# A Route 53 zone of connection 1 with 5,000 members on IN_ZONE lines (record-in-zone,
+# 2026-11-17): the internet's 5,000 front doors stand in for its records. A hop reads lines, and
+# one kind of neighbour is one group whatever its type, so the cost is a real zone's.
+HUB_ZONE = "arn:aws:route53:::hostedzone/ZHUB0000000001"
 # Resource 30 (an instance of connection 31): one of the VPC hub's 20,000 members.
 MAP_FOCUS = "arn:aws:ec2:us-east-1:200000000031:instance/i-30"
 # Connection c holds account 2000000000cc: every map read is for one connection (ADR-0051).
@@ -428,12 +432,22 @@ def _generate_edges(conn: Connection) -> None:
              (VALUES ('in', 'ROUTES_TO', 'rule:in@1'),
                      ('cf', 'INTERNET_REACHABLE', 'cloudfox')) o(kind, type, origin)
         UNION ALL
+        SELECT sha256(('zone|' || g)::bytea), {RESOURCE_UID.format(g="g")}, :hub_zone,
+               g, 'IN_ZONE', 'rule:record-in-zone@1', :d - 30, :d, 1
+        FROM generate_series(36, 180000, 36) g
+        UNION ALL
         -- Every tenth resource on the hub's chains is an administrator (CloudFox).
         SELECT sha256(('adm|' || g)::bytea), {RESOURCE_UID.format(g="g")},
                'admin:' || (200000000000 + 1), g, 'IS_ADMIN', 'cloudfox', :d - 30, :d, 1
         FROM generate_series(360, 300000, 360) g
     """),  # noqa: S608 - constant fragments
-        {**params, "hub_vpc": HUB_VPC, "hub_policy": HUB_POLICY, "hub_big": HUB_BIG_VPC},
+        {
+            **params,
+            "hub_vpc": HUB_VPC,
+            "hub_policy": HUB_POLICY,
+            "hub_big": HUB_BIG_VPC,
+            "hub_zone": HUB_ZONE,
+        },
     )
     conn.execute(
         text("""
@@ -454,6 +468,16 @@ def _generate_edges(conn: Connection) -> None:
         ORDER BY e.target_uid, e.connection_id
     """),
         params,
+    )
+    # The zone is in the inventory too, so the map draws it and does not walk through it.
+    conn.execute(
+        text("""
+        INSERT INTO resource (resource_uid, connection_id, region, type, native_id, name,
+                              first_seen, last_seen)
+        VALUES (:z, 1, 'global', 'aws_route53_zone', 'ZHUB0000000001', 'hub.example.com.',
+                CAST(:d AS date) - 30, :d)
+    """),
+        {**params, "z": HUB_ZONE},
     )
     conn.execute(
         text("""

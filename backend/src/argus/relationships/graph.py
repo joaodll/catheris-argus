@@ -45,19 +45,21 @@ Direction = Literal["out", "in"]
 Map = Literal["resource", "security"]
 
 MAX_DEPTH = 3  # hops one read walks (owner, 2026-11-13: "bring 3 hops back")
-# Network containers a multi-hop read draws but does not walk through: with the Network layer on
-# by default, walking a VPC or a subnet counted its thousands of members (owner, 2026-11-14,
-# "Stop walk at VPCs"). Opened or expanded by hand, they read their own hop as any resource.
-STOP_TYPES: frozenset[str] = frozenset({"aws_vpc", "aws_vpc_subnet"})
+# Containers a multi-hop read draws but does not walk through: with the Network layer on by
+# default, walking a VPC or a subnet counted its thousands of members (owner, 2026-11-14,
+# "Stop walk at VPCs"), and a hosted zone reached from one record would draw every sibling record
+# (2026-11-17, record-in-zone). Opened or expanded by hand, they read their own hop as any resource.
+STOP_TYPES: frozenset[str] = frozenset({"aws_vpc", "aws_vpc_subnet", "aws_route53_zone"})
 MAX_NODES = MAX_EDGES  # a hop stops at 500 nodes, and the screen's map holds as many
 GROUP_OVER = 25  # more neighbours of one kind than this: one group node (ADR-0051)
 # What a map opens with (owner, 2026-11-14, decisions/52e3c4c5): every kind but Data access,
 # so a resource shows its network, role and policies; Data access fans out to many resources.
 DEFAULT_LAYERS: tuple[Layer, ...] = ("traffic", "identity", "network", "policy")
 ORIGINS: tuple[Origin, ...] = ("rule", "cloudfox", "manual")
-# What a map edge shows of its attributes: the protocol and ports. The internet rules' evidence
-# (network, routes, reasons) stays on the edge row for the Resources sheet.
-EDGE_ATTRIBUTES: tuple[str, ...] = ("protocol", "from_port", "to_port", "port")
+# What a map edge shows of its attributes: the protocol and ports, and a DNS record's type (an A
+# record from a TXT record of one name). The internet rules' evidence (network, routes, reasons)
+# stays on the edge row for the Resources sheet.
+EDGE_ATTRIBUTES: tuple[str, ...] = ("protocol", "from_port", "to_port", "port", "record_type")
 
 # Lines that are security judgements, drawn on the Security Map only: who is an administrator,
 # who can escalate to whom, an outside account trusted, a credential held, CloudFox's claim that
@@ -81,7 +83,8 @@ MAP_SQL: dict[str, str] = {
 _IAM_GROUP = "e.target_uid ~ '[:]iam[:][:][0-9]{12}[:]group/'"
 LAYER_SQL: dict[str, str] = {
     # Connections only: VERDICT_EDGE_TYPES are not in any layer.
-    "traffic": "e.type IN ('ROUTES_TO', 'TRIGGERS', 'INTERNET_REACHABLE')",
+    # IN_ZONE: a DNS record in its hosted zone (record-in-zone), the zone a record answers for.
+    "traffic": "e.type IN ('ROUTES_TO', 'TRIGGERS', 'INTERNET_REACHABLE', 'IN_ZONE')",
     "identity": (
         "e.type IN ('RUNS_AS', 'CAN_ASSUME', 'IS_ADMIN', 'CAN_PRIVESC_TO', 'BELONGS_TO', "
         "'OUTSIDER', 'HAS_CREDENTIAL', 'CAN_ESCALATE_TO', 'CAN_RUN_ON') "
@@ -290,8 +293,8 @@ def neighbourhood(
     when it has the resource; `expanded` when its neighbours were read; `boundary` for another
     connection's or account's resource, which is never expanded), edges, groups and
     `truncated` (the 500-node cap stopped the walk). A hop goes on only from the connection's
-    own resources: a pseudo-node, a boundary node, a VPC or a subnet is drawn and left for the
-    screen to expand."""
+    own resources: a pseudo-node, a boundary node or a STOP_TYPES container is drawn and left for
+    the screen to expand."""
     depth = max(1, min(depth, MAX_DEPTH))
     sql = text(_hop_sql(_filters(layers, origins, kind)))
     params = {**_day_params(conn, day, [scope.connection_id]), "c": scope.connection_id}

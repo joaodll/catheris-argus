@@ -1,0 +1,14 @@
+id = "record-in-zone"
+version = 1
+edge_type = "IN_ZONE"
+description = """A Route 53 record belongs to its hosted zone (owner, 2026-11-17): the line that
+lets a zone's map show its records. Public and private zones alike, since belonging is a fact;
+whether a record is public stays internet-dns's verdict. `record_type` tells an A record from a
+TXT record of the same name in a group's member list. A record whose zone is not inventoried
+gets no line. The join is internet-dns's (the zone's native id is the record's zone_id)."""
+sql = """
+SELECT rec.uid, z.uid, jsonb_build_object('record_type', rec.config ->> 'type')
+FROM r rec
+JOIN r z ON z.type = 'aws_route53_zone' AND z.native_id = rec.config ->> 'zone_id'
+WHERE rec.type = 'aws_route53_record'
+"""

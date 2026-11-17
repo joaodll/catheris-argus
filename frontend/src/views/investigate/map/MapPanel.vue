@@ -194,8 +194,13 @@ function pseudoText(n: MapNode): string {
   if (n.kind === 'any') return 'Every resource of this service: a policy grants it on Resource "*".'
   return 'A host name that no collected resource owns: another account, a third party, or a type Argus does not collect.'
 }
-/** An edge's ports, the only attributes a map edge carries: "tcp/443", "tcp/8000-8100",
- * "All traffic". Null when it has none. */
+/** A DNS record's type on its line ("A", "TXT"): two records of one name differ by it. */
+function recordType(edge: MapEdge): string | null {
+  const t = edge.attributes.record_type
+  return typeof t === 'string' && t ? t : null
+}
+/** An edge's ports, one of the attributes a map edge carries (with a record's type): "tcp/443",
+ * "tcp/8000-8100", "All traffic". Null when it has none. */
 function ports(edge: MapEdge): string | null {
   const a = edge.attributes
   const protocol = typeof a.protocol === 'string' || typeof a.protocol === 'number' ? String(a.protocol).toLowerCase() : null
@@ -305,7 +310,7 @@ function ports(edge: MapEdge): string | null {
             </thead>
             <tbody>
               <tr v-for="m in members.data.value.items" :key="m.node.uid">
-                <td class="name" :title="m.node.uid">{{ nodeName(m.node) }}</td>
+                <td class="name" :title="m.node.uid"><span v-if="recordType(m.edge)" class="mono">{{ recordType(m.edge) }} · </span>{{ nodeName(m.node) }}</td>
                 <td class="mono small">{{ m.node.region ? regionLabel(m.node.region) : '—' }}</td>
                 <td v-if="security" class="member-facts" :title="memberWords(m)">
                   <CountPill v-if="memberPill(m)" :count="memberPill(m)!.count" :severity="memberPill(m)!.severity" base="var(--surface)" />
@@ -363,6 +368,7 @@ function ports(edge: MapEdge): string | null {
           <div><dt class="lbl">First seen</dt><dd class="mono">{{ e.first_seen }}</dd></div>
           <div><dt class="lbl">Last seen</dt><dd class="mono">{{ e.last_seen }}</dd></div>
           <div v-if="ports(e)" class="wide"><dt class="lbl">Ports</dt><dd class="mono">{{ ports(e) }}</dd></div>
+          <div v-if="recordType(e)"><dt class="lbl">Record type</dt><dd class="mono">{{ recordType(e) }}</dd></div>
         </dl>
       </section>
     </template>

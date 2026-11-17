@@ -26,8 +26,9 @@ Clients are threads of one process, as requests are in one API process, and read
 with its 5 s statement timeout. The estate is the query budget's (conftest.py). A map read is
 for one connection, so its hubs are what connection 1 holds: a VPC with 20,000 members (the
 largest hub, the size the first map was measured at), `internet` reaching 5,000 of its
-resources (by a rule and by CloudFox), and 1,666 each in the hub VPC and with the managed
-policy.
+resources (by a rule and by CloudFox), 1,666 each in the hub VPC and with the managed policy,
+and a Route 53 zone of 5,000 (record-in-zone, 2026-11-17; its members are the internet's front
+doors, so a front door's deeper reads also meet a zone, which the walk draws and stops at).
 """
 
 import math
@@ -43,7 +44,14 @@ import pytest
 from sqlalchemy import Connection, Engine, create_engine, event, text
 from sqlalchemy.exc import OperationalError
 from tests.budget.conftest import settle
-from tests.budget.test_query_budget import ACCOUNTS, HUB_BIG_VPC, HUB_POLICY, HUB_VPC, TODAY
+from tests.budget.test_query_budget import (
+    ACCOUNTS,
+    HUB_BIG_VPC,
+    HUB_POLICY,
+    HUB_VPC,
+    HUB_ZONE,
+    TODAY,
+)
 
 from argus import relationships
 from argus.api.routes import resource_map
@@ -70,6 +78,7 @@ HUBS = {
     "a VPC of 20,000": HUB_BIG_VPC,
     "the hub VPC": HUB_VPC,
     "the managed policy": HUB_POLICY,
+    "a zone of 5,000": HUB_ZONE,
 }
 
 
