@@ -1,4 +1,4 @@
-"""Reports: exports of the Misconfigurations and Vulnerabilities lists (ADR-0047).
+"""Reports: exports of the Misconfigurations, Vulnerabilities and Resources lists (ADR-0047).
 
 Owns report_request.
 Public interface:
@@ -15,6 +15,7 @@ Public interface:
 """
 
 from argus.reports.build import build_pending
+from argus.reports.filters import ReportFilters
 from argus.reports.model import (
     EXPIRY_DAYS,
     MAX_OPEN_PER_USER,
@@ -53,6 +54,7 @@ __all__ = [
     "ROW_CAP",
     "LocalReportStore",
     "ReportFileChangedError",
+    "ReportFilters",
     "ReportFormat",
     "ReportKind",
     "ReportRefusedError",

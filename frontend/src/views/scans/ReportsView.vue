@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * Operate -> Reports (ADR-0047; palace frontend/08ff3c8d, Kubernetes states 2026-11-12):
- * exports of Misconfigurations and Vulnerabilities, built by the worker (Compose) or a report Job
+ * exports of Misconfigurations, Vulnerabilities and Resources, built by the worker (Compose) or a report Job
  * (Kubernetes). Operator and Admin only; an Operator sees their own.
  */
 import { computed, onScopeDispose, ref, watch } from 'vue'
@@ -61,12 +61,18 @@ function accountName(id: number): string {
   return connections.data.value?.find((c) => c.id === id)?.name ?? `#${id}`
 }
 
+const KIND_NAMES: Record<Report['kind'], string> = {
+  misconfigurations: 'Misconfigurations',
+  vulnerabilities: 'Vulnerabilities',
+  resources: 'Resources',
+}
+
 function words(r: Report): string {
-  return describe(fromStored(r.filters), accountName)
+  return describe(fromStored(r.filters), accountName, r.kind === 'resources' ? 'All resources' : 'All open')
 }
 
 function kindName(r: Report): string {
-  return r.kind === 'misconfigurations' ? 'Misconfigurations' : 'Vulnerabilities'
+  return KIND_NAMES[r.kind]
 }
 
 function when(iso: string): string {
@@ -114,7 +120,7 @@ async function onRequested(id: number): Promise<void> {
 
 <template>
   <PageHeader title="Reports">
-    Exports of Misconfigurations and Vulnerabilities<template v-if="reports.data.value">, kept {{ reports.data.value.expiry_days }} days</template>.
+    Exports of Misconfigurations, Vulnerabilities and Resources<template v-if="reports.data.value">, kept {{ reports.data.value.expiry_days }} days</template>.
     <template #actions><RefreshButton :reload="reports.reload" /></template>
   </PageHeader>
 
@@ -166,7 +172,7 @@ async function onRequested(id: number): Promise<void> {
       <EmptyState
         icon="report"
         title="No reports yet."
-        :text="canRequest ? 'Export a list from Misconfigurations or Vulnerabilities, or start one here.' : 'Reports appear here once they can be stored.'"
+        :text="canRequest ? 'Export a list from Misconfigurations, Vulnerabilities or Resources, or start one here.' : 'Reports appear here once they can be stored.'"
       >
         <button v-if="canRequest" type="button" class="btn btn-secondary" @click="creating = true">New report</button>
       </EmptyState>

@@ -11,7 +11,8 @@ from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, TextIO
 
-from argus.findings import VulnerabilityFacts
+from argus.findings import VulnerabilityFacts, VulnerabilitySummary
+from argus.inventory import RoleLastUsed
 from argus.reports.model import ReportKind
 
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
@@ -66,6 +67,29 @@ _DATES: list[tuple[str, Callable[[Row], str]]] = [
     ("last_seen", _field("last_seen")),
 ]
 
+
+def _cve(name: str) -> Callable[[Row], str]:
+    """The Vulnerabilities cell's count; empty when no scanner covers the resource ("not
+    covered", never a zero)."""
+
+    def get(row: Row) -> str:
+        cell: VulnerabilitySummary | None = row.get("vulnerabilities")
+        return _number(getattr(cell, name)) if cell else ""
+
+    return get
+
+
+def _role(name: str) -> Callable[[Row], str]:
+    """A role's last use as AWS records it; empty on any other type, or before it was read. An
+    empty last_used with a last_used_read_on is AWS saying no use in its tracking window."""
+
+    def get(row: Row) -> str:
+        used: RoleLastUsed | None = row.get("role_last_used")
+        return _text(getattr(used, name)) if used else ""
+
+    return get
+
+
 COLUMNS: dict[str, list[tuple[str, Callable[[Row], str]]]] = {
     "misconfigurations": [
         *_COMMON_HEAD,
@@ -97,6 +121,24 @@ COLUMNS: dict[str, list[tuple[str, Callable[[Row], str]]]] = {
         ("fix_available", _fact("fix_available")),
         *_DATES,
         ("scanner", _fact("scanner")),
+    ],
+    "resources": [
+        *_COMMON_HEAD,
+        ("resource_type", _field("type")),
+        ("resource_name", _field("name")),
+        ("native_id", _field("native_id")),
+        ("resource_uid", _field("resource_uid")),
+        ("first_seen", _field("first_seen")),
+        ("last_seen", _field("last_seen")),
+        ("removed_on", _field("deleted_on")),
+        ("open_misconfigurations", lambda row: _number(row.get("open_misconfigurations"))),
+        ("worst_severity", _field("worst_severity")),
+        ("open_vulnerabilities", _cve("open")),
+        ("exploitable_vulnerabilities", _cve("exploitable")),
+        ("last_used", _role("last_used_at")),
+        ("last_used_region", _role("last_used_region")),
+        ("last_used_read_on", _role("observed_on")),
+        ("workloads", lambda row: _number(row.get("workloads"))),
     ],
 }
 

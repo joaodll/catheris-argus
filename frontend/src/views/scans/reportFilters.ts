@@ -1,7 +1,8 @@
 /**
  * A report's filters in words (Operate -> Reports; palace frontend/08ff3c8d). The list sends its
  * filters in the API's query shape (connection_id, severity…); a stored report holds them in the
- * backend's shape (connection_ids, severities…). Both are described the same way.
+ * backend's shape (connection_ids, severities…). Both are described the same way. A Resources
+ * report's filters are the Resources list's own (type, role_unused…).
  */
 import { byName, parseTags, tagParams, tagWords, type TagPair } from '@/views/investigate/tagFilter'
 
@@ -57,8 +58,20 @@ function counted(values: string[], plural: string): string | null {
   return values.length === 1 ? first : `${values.length} ${plural}`
 }
 
-/** The filters as a short phrase, e.g. "Critical, High · demo-0 · first seen from 2026-10-01". */
-export function describe(filters: ReportFilters, accountName: (id: number) => string): string {
+// The Resources list's level filters, in the words of its own options.
+const VULNERABILITY_LEVELS: Record<string, string> = {
+  any: 'open vulnerabilities',
+  high: 'critical or high vulnerabilities',
+  exploitable: 'public exploit',
+}
+const MISCONFIGURATION_LEVELS: Record<string, string> = {
+  any: 'open misconfigurations',
+  high: 'critical or high misconfigurations',
+}
+
+/** The filters as a short phrase, e.g. "Critical, High · demo-0 · first seen from 2026-10-01";
+ * `everything` when nothing narrows them ("All open", or "All resources" for a Resources report). */
+export function describe(filters: ReportFilters, accountName: (id: number) => string, everything = 'All open'): string {
   const f = filters
   const words: (string | null)[] = []
   const severity = list(f.severity)
@@ -73,7 +86,7 @@ export function describe(filters: ReportFilters, accountName: (id: number) => st
   if (state) words.push(state)
   words.push(counted(list(f.region), 'regions'))
   words.push(counted(list(f.service), 'services'))
-  words.push(counted(list(f.resource_type), 'resource types'))
+  words.push(counted([...list(f.resource_type), ...list(f.type)], 'resource types'))
   words.push(counted(list(f.check_id), 'checks'))
   words.push(counted(list(f.category), 'categories'))
   const status = list(f.status)
@@ -91,6 +104,16 @@ export function describe(filters: ReportFilters, accountName: (id: number) => st
   if (f.fix === 'available') words.push('fix available')
   if (f.fix === 'none') words.push('no fix yet')
   for (const { key, values } of byName(parseTags(list(f.tag)))) words.push(`tag ${tagWords(key, values)}`)
+  // The Resources list's own filters.
+  if (typeof f.vulnerabilities === 'string') words.push(VULNERABILITY_LEVELS[f.vulnerabilities] ?? null)
+  if (typeof f.misconfigurations === 'string') words.push(MISCONFIGURATION_LEVELS[f.misconfigurations] ?? null)
+  if (f.internet === true) words.push('internet reachable')
+  if (typeof f.role_unused === 'string' && f.role_unused) words.push(`roles not used in ${f.role_unused} days`)
+  if (f.no_workload === true) words.push('no workload runs as it')
+  if (f.assets === true) words.push('assets only')
+  if (typeof f.deleted_from === 'string' && f.deleted_from) words.push(`removed from ${f.deleted_from}`)
+  if (typeof f.deleted_to === 'string' && f.deleted_to) words.push(`removed to ${f.deleted_to}`)
+  if (f.include_deleted === true) words.push('deleted included')
   const shown = words.filter((w): w is string => w !== null)
-  return shown.length ? shown.join(' · ') : 'All open'
+  return shown.length ? shown.join(' · ') : everything
 }

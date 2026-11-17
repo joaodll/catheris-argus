@@ -22,6 +22,9 @@ import SeverityTag from '@/components/SeverityTag.vue'
 import SortHeader from '@/components/SortHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useResource } from '@/composables/useResource'
+import { can } from '@/composables/useSession'
+import { toast } from '@/composables/useToasts'
+import ReportModal from '@/views/scans/ReportModal.vue'
 import ExploitMark from './ExploitMark.vue'
 import { roleUseLine, roleUseTitle } from './roleUse'
 import { parsePage } from './findingFilters'
@@ -62,6 +65,14 @@ const PAGE = 20
 const route = useRoute()
 const router = useRouter()
 const filters = computed(() => parseResourceFilters(route.query))
+// Export (ADR-0047 amended 2026-11-17): an Operator or Admin turns this list, as filtered, into a
+// Resources CSV.
+const operator = computed(() => can('operator'))
+const exporting = ref(false)
+function onExported(id: number): void {
+  exporting.value = false
+  toast(`Report #${id} requested. Operate → Reports has it when it is ready.`)
+}
 const order = computed(() => parseResourceOrder(route.query))
 // Summary | List: the bare screen opens the summary, any list parameter the list.
 const tab = computed<Tab>(() => parseTab(route.query))
@@ -262,7 +273,18 @@ const inventoryNote = computed(() =>
   <PageHeader title="Resources">
     <template v-if="dataThrough">Data through <span class="mono strong">{{ dataThrough }}</span></template>
     <template v-else-if="loaded">No scan yet</template>
+    <template v-if="operator" #actions>
+      <button type="button" class="btn btn-secondary btn-sm" @click="exporting = true"><AppIcon name="download" :size="14" :stroke="2.2" />Export</button>
+    </template>
   </PageHeader>
+  <ReportModal
+    v-if="exporting"
+    kind="resources"
+    :filters="resourceApiFilters(filters)"
+    :connections="connections.data.value ?? []"
+    @close="exporting = false"
+    @requested="onExported"
+  />
 
   <InvestigateTabs :model-value="tab" label="Resources views" id-prefix="res" @update:model-value="setTab" />
   <div v-if="tab === 'summary'" id="res-summary" role="tabpanel" aria-labelledby="res-tab-summary" class="tabpanel">

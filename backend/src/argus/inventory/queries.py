@@ -1,6 +1,7 @@
 """Read side of inventory: the Resources list and its filter options, and a resource as it
 was on a given day."""
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Literal
@@ -222,6 +223,43 @@ def list_resources(
         params,
     ).scalar_one()
     return [dict(r._mapping) for r in rows], int(total)
+
+
+def iter_resources(
+    conn: Connection,
+    filters: ResourceFilters,
+    *,
+    batch: int = 1000,
+) -> Iterator[list[dict[str, Any]]]:
+    """Every resource matching the filters, in batches of at most `batch`, ordered by id (a
+    keyset, so each batch is one index range whatever the total). The rows are list rows. A
+    report reads it inside one REPEATABLE READ transaction, so the batches together are one
+    state of the table."""
+    where = _FILTERS + "".join(f" AND r.id IN ({within})" for within in filters.within)
+    params = _params(filters)
+    after = 0
+    while True:
+        rows = [
+            dict(r._mapping)
+            for r in conn.execute(
+                text(f"""
+                SELECT r.id, r.resource_uid, r.connection_id, r.provider, r.region, r.type,
+                       r.native_id, r.name, r.vpc_id, r.first_seen, r.last_seen, r.deleted_on
+                FROM resource r
+                {where}
+                  AND r.id > :after
+                ORDER BY r.id
+                LIMIT :l
+            """),  # noqa: S608 - fixed fragments only
+                {**params, "after": after, "l": batch},
+            )
+        ]
+        if not rows:
+            return
+        yield rows
+        if len(rows) < batch:
+            return
+        after = rows[-1]["id"]
 
 
 def resource_facets(
