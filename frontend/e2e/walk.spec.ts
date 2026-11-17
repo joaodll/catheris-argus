@@ -916,6 +916,49 @@ test('map, Infrastructure view: the start, a map as a diagram, the panel and the
   await shot(page, 'P91-map')
 })
 
+test('map, a Route 53 zone: its records on "in zone" lines, then where one routes; both themes, phone width', async ({ page }) => {
+  // record-in-zone (2026-11-17): a zone shows its records; a record's own map shows its zone.
+  test.setTimeout(120_000)
+  await signIn(page)
+  const connections = (await (await page.request.get('/api/v1/connections')).json()) as { id: number; name: string }[]
+  const prod = connections.find((c) => c.name === 'demo-prod')!
+  const zones = (await (
+    await page.request.get(`/api/v1/resources?connection_id=${prod.id}&type=aws_route53_zone&limit=1`)
+  ).json()) as { items: { resource_uid: string; name: string }[] }
+  const zone = zones.items[0]!
+  await navLink(page, 'Map')
+  await page.getByLabel('Account').selectOption({ label: 'demo-prod' })
+  const find = page.getByRole('combobox', { name: 'Find a resource' })
+  // A record's ARN starts with its zone's, so the search lists the records too: pick the zone.
+  await find.fill(zone.resource_uid)
+  const answered = page.waitForResponse((r) => r.url().includes('/api/v1/map/graph') && r.status() === 200)
+  await page.getByRole('listbox', { name: 'Resources' }).getByRole('option').filter({ hasText: 'aws_route53_zone' }).click()
+  const canvas = page.getByRole('application', { name: /^Map, Infrastructure view, \d+ resources/ })
+  await expect(canvas).toBeVisible()
+  const graph = (await (await answered).json()) as { edges: { type: string; target_uid: string; attributes: Record<string, unknown> }[] }
+  const inZone = graph.edges.filter((e) => e.type === 'IN_ZONE')
+  expect(inZone.length).toBeGreaterThan(1)
+  expect(inZone.every((e) => e.target_uid === zone.resource_uid && typeof e.attributes.record_type === 'string')).toBe(true)
+  await expect(page.locator('.line-word', { hasText: 'in zone' }).first()).toBeVisible()
+  await axe(page, 'map, a zone')
+  await shot(page, '93-map-zone')
+  // A record: Expand adds its own hop, where it routes.
+  const record = canvas.locator('.node', { hasText: /^app\./ }).first()
+  await record.click()
+  const expanded = page.waitForResponse((r) => r.url().includes('/api/v1/map/graph') && r.status() === 200)
+  await page.getByRole('complementary', { name: 'Resource panel' }).getByRole('button', { name: 'Expand' }).click()
+  const hop = (await (await expanded).json()) as { edges: { type: string }[] }
+  expect(hop.edges.some((e) => e.type === 'ROUTES_TO')).toBe(true)
+  await expect(page.locator('.line-word', { hasText: 'routes to' }).first()).toBeVisible()
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await axe(page, 'light map, a zone')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(canvas).toBeVisible()
+  await axe(page, 'phone map, a zone')
+  await shot(page, '93b-phone-map-zone')
+})
+
 test('map, Security view: card B, the security lines and each fact linked to its list; both themes, phone width', async ({ page }) => {
   test.setTimeout(150_000)
   await signIn(page)

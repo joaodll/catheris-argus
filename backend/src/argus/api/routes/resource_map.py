@@ -63,7 +63,8 @@ class MapEdge(BaseModel):
     target_uid: str
     type: str
     origin: str
-    # Protocol and ports only (relationships.EDGE_ATTRIBUTES), never the rules' evidence.
+    # Protocol, ports and a DNS record's type only (relationships.EDGE_ATTRIBUTES), never the
+    # rules' evidence.
     attributes: dict[str, Any]
     first_seen: date
     last_seen: date

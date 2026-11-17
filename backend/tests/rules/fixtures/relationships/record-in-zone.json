@@ -1,0 +1,21 @@
+{
+  "about": "Each record to its zone, public and private: an A and a TXT record of one name, a weighted pair with one name and two uids, a CNAME in a private zone. Near-misses: a record whose zone is not inventoried gets no line, and a load balancer whose config names a zone id is not a record.",
+  "resources": [
+    {"uid": "arn:aws:route53:::hostedzone/Z0PUBLIC", "type": "aws_route53_zone", "native_id": "Z0PUBLIC", "name": null, "region": "global", "config": {"id": "Z0PUBLIC", "private_zone": false}},
+    {"uid": "arn:aws:route53:::hostedzone/Z0PRIVATE", "type": "aws_route53_zone", "native_id": "Z0PRIVATE", "name": null, "region": "global", "config": {"id": "Z0PRIVATE", "private_zone": true}},
+    {"uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/www.example.com./A", "type": "aws_route53_record", "native_id": "www.example.com.", "name": null, "region": "global", "config": {"name": "www.example.com.", "type": "A", "zone_id": "Z0PUBLIC"}},
+    {"uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/www.example.com./TXT", "type": "aws_route53_record", "native_id": "www.example.com.", "name": null, "region": "global", "config": {"name": "www.example.com.", "type": "TXT", "zone_id": "Z0PUBLIC"}},
+    {"uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/api.example.com./A/eu", "type": "aws_route53_record", "native_id": "api.example.com.", "name": null, "region": "global", "config": {"name": "api.example.com.", "type": "A", "zone_id": "Z0PUBLIC"}},
+    {"uid": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/api.example.com./A/us", "type": "aws_route53_record", "native_id": "api.example.com.", "name": null, "region": "global", "config": {"name": "api.example.com.", "type": "A", "zone_id": "Z0PUBLIC"}},
+    {"uid": "arn:aws:route53:::hostedzone/Z0PRIVATE/recordset/db.internal./CNAME", "type": "aws_route53_record", "native_id": "db.internal.", "name": null, "region": "global", "config": {"name": "db.internal.", "type": "CNAME", "zone_id": "Z0PRIVATE"}},
+    {"uid": "arn:aws:route53:::hostedzone/Z0MISSING/recordset/orphan.example.net./A", "type": "aws_route53_record", "native_id": "orphan.example.net.", "name": null, "region": "global", "config": {"name": "orphan.example.net.", "type": "A", "zone_id": "Z0MISSING"}},
+    {"uid": "arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/web/1111", "type": "aws_ec2_application_load_balancer", "native_id": "web", "name": null, "region": "us-east-1", "config": {"zone_id": "Z0PUBLIC", "canonical_hosted_zone_id": "Z0PUBLIC"}}
+  ],
+  "expected": [
+    {"source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/www.example.com./A", "target": "arn:aws:route53:::hostedzone/Z0PUBLIC", "attributes": {"record_type": "A"}},
+    {"source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/www.example.com./TXT", "target": "arn:aws:route53:::hostedzone/Z0PUBLIC", "attributes": {"record_type": "TXT"}},
+    {"source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/api.example.com./A/eu", "target": "arn:aws:route53:::hostedzone/Z0PUBLIC", "attributes": {"record_type": "A"}},
+    {"source": "arn:aws:route53:::hostedzone/Z0PUBLIC/recordset/api.example.com./A/us", "target": "arn:aws:route53:::hostedzone/Z0PUBLIC", "attributes": {"record_type": "A"}},
+    {"source": "arn:aws:route53:::hostedzone/Z0PRIVATE/recordset/db.internal./CNAME", "target": "arn:aws:route53:::hostedzone/Z0PRIVATE", "attributes": {"record_type": "CNAME"}}
+  ]
+}
