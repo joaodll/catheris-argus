@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LANE_GAP, NODE_HEIGHT, NODE_WIDTH, ROW, cardGlyph, hopColumns, hopLabel, layout, moveSelection, typeLabel, type LaidNode, type Link } from './mapLanes'
+import { LANE_GAP, NODE_HEIGHT, NODE_WIDTH, ROW, SUB_CLEAR, cardGlyph, flatRun, hopColumns, hopLabel, layout, moveSelection, typeLabel, wrappedPitch, type LaidNode, type Link } from './mapLanes'
 
 const n = (id: string, type: string | null, extra: Partial<LaidNode> = {}): LaidNode => ({ id, kind: 'resource', type, name: id, ...extra })
 
@@ -125,6 +125,43 @@ describe('the map columns', () => {
           expect(Math.abs(a.x - b.x) >= NODE_WIDTH || Math.abs(a.y - b.y) >= NODE_HEIGHT).toBe(true)
         }
     }
+  })
+
+  it('staggers sub-columns, so a line from one never runs behind a card of another', () => {
+    // A zone's six records (2026-11-17): five and one, and a column of 24 in three or more.
+    for (const [count, aspect] of [
+      [6, 16 / 9],
+      [24, 3],
+      [24, 6],
+    ] as const) {
+      const nodes = [n('focus', 'aws_route53_zone'), ...Array.from({ length: count }, (_, i) => n(`r-${String(i).padStart(2, '0')}`, 'aws_route53_record'))]
+      const l = layout(nodes, nodes.slice(1).map((r) => ({ source: r.id, target: 'focus' })), 'focus', aspect)
+      const cards = [...l.positions.entries()].filter(([id]) => id !== 'focus').map(([, p]) => p)
+      const subs = new Set(cards.map((p) => p.x)).size
+      expect(subs).toBeGreaterThan(1)
+      // A card's line leaves at its own row: every card of another sub-column keeps its middle at
+      // least SUB_CLEAR away from that row.
+      for (const a of cards) for (const b of cards) if (a.x !== b.x) expect(Math.abs(a.y - b.y)).toBeGreaterThanOrEqual(SUB_CLEAR - 1e-6)
+      // And the lines from the cards inside the band run flat to its edge, bending in the gap.
+      const focus = l.positions.get('focus')!
+      const band = l.lanes.find((b) => b.lane === cards[0]!.lane)!
+      for (const c of cards) {
+        const run = flatRun(c, focus, l.lanes)
+        if (c.x + NODE_WIDTH / 2 === band.x + band.width) expect(run).toBeNull()
+        else expect(run).toEqual({ from: band.x + band.width, to: focus.x - NODE_WIDTH / 2 })
+      }
+    }
+  })
+
+  it('keeps an unwrapped column on whole rows, with the plain S between columns', () => {
+    const nodes = [n('focus', 'aws_route53_zone'), n('a', 'aws_route53_record'), n('b', 'aws_route53_record'), n('c', 'aws_route53_record')]
+    const l = layout(nodes, nodes.slice(1).map((r) => ({ source: r.id, target: 'focus' })), 'focus', 0.5)
+    expect([...l.positions.values()].map((p) => p.y).sort((x, y) => x - y)).toEqual([-ROW, 0, 0, ROW])
+    const focus = l.positions.get('focus')!
+    for (const id of ['a', 'b', 'c']) expect(flatRun(l.positions.get(id)!, focus, l.lanes)).toBeNull()
+    expect(wrappedPitch(1)).toBe(ROW)
+    expect(wrappedPitch(2)).toBe(ROW)
+    expect(wrappedPitch(4)).toBe(4 * SUB_CLEAR)
   })
 
   it('leaves the space the owner asked for', () => {

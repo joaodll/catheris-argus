@@ -19,6 +19,17 @@ export const LANE_GAP = 168
 export const ROW = NODE_HEIGHT + 40
 // A tall column wraps into sub-columns this far apart.
 export const SUB_GAP = 48
+// In a wrapped column each sub-column sits lower than the one before by its share of a row, so
+// a line from an outer sub-column runs between the cards of the inner ones (2026-11-17: a line
+// ran behind a card on its row). The share keeps at least this much between a card's middle and
+// such a line; with three or more sub-columns the column's rows spread to keep it.
+export const SUB_CLEAR = NODE_HEIGHT / 2 + 8
+
+/** The row pitch of a column wrapped into `subs` sub-columns: ROW, or more when the staggered
+ * sub-columns would leave a line closer than SUB_CLEAR to a card's middle. */
+export function wrappedPitch(subs: number): number {
+  return subs > 1 ? Math.max(ROW, subs * SUB_CLEAR) : ROW
+}
 // How far above the highest card a column's name sits.
 export const LANE_NAME_RISE = 64
 
@@ -303,10 +314,16 @@ function layoutWith(nodes: LaidNode[], edges: Link[], focus: string | null, cols
     const lane = `hop-${col}`
     const x = left.get(col) ?? 0
     lanes.push({ lane, label: hopLabel(col, focused), x, width: widthOf(col) })
+    // Every sub-column on the first one's rows, the k-th of n lower by k/n of a row, and a
+    // shorter last one centred on those rows: no card sits on a line from a sub-column beside it.
+    const subs = Math.max(1, Math.ceil(order.length / rows))
+    const pitch = wrappedPitch(subs)
+    const first = Math.min(rows, order.length)
     order.forEach((n, i) => {
       const sub = Math.floor(i / rows)
       const inSub = Math.min(rows, order.length - sub * rows)
-      positions.set(n.id, { x: x + sub * (NODE_WIDTH + SUB_GAP) + NODE_WIDTH / 2, y: ((i % rows) - (inSub - 1) / 2) * ROW, lane })
+      const row = (i % rows) + Math.floor((first - inSub) / 2) - (first - 1) / 2
+      positions.set(n.id, { x: x + sub * (NODE_WIDTH + SUB_GAP) + NODE_WIDTH / 2, y: (row + sub / subs) * pitch, lane })
     })
   }
   // The focus stays at y = 0 (its column is centred on it).
@@ -325,6 +342,29 @@ function layoutWith(nodes: LaidNode[], edges: Link[], focus: string | null, cols
     lates.forEach((n, i) => positions.set(n.id, { x, y: bottom + (i + 1) * ROW, lane }))
   }
   return { positions, lanes }
+}
+
+/**
+ * Where a line between two columns may bend, when one of its ends is a card inside a wrapped
+ * column, away from the band's edge: the line then runs flat from its card to the edge of the
+ * card's column band (`from`), bends in the gap between the bands, and runs flat again from the
+ * other band's edge (`to`), so it passes between the staggered cards of the sub-columns beside
+ * it, never behind one. Null when both ends sit at their band's edge (the plain S between two
+ * columns), within one column, or when a band is unknown.
+ */
+export function flatRun(s: Placed, t: Placed, lanes: Layout['lanes']): { from: number; to: number } | null {
+  const dx = t.x - s.x
+  if (Math.abs(dx) < 1) return null
+  const dir = Math.sign(dx)
+  const sb = lanes.find((l) => l.lane === s.lane)
+  const tb = lanes.find((l) => l.lane === t.lane)
+  if (!sb || !tb || sb === tb) return null
+  const from = dir > 0 ? sb.x + sb.width : sb.x
+  const to = dir > 0 ? tb.x : tb.x + tb.width
+  if ((to - from) * dir <= 0) return null
+  const atEdge = (edge: number, card: number) => Math.abs(edge - card) < 1
+  if (atEdge(from, s.x + (dir * NODE_WIDTH) / 2) && atEdge(to, t.x - (dir * NODE_WIDTH) / 2)) return null
+  return { from, to }
 }
 
 /** Where the canvas's camera stands, carried across a view switch: the zoom, and where the focus
