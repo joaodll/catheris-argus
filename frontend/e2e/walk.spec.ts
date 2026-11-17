@@ -1746,11 +1746,13 @@ test('resources: role use, its filters and the panel; both themes, phone width',
   const rows = resources.locator('tbody tr')
   await expect(rows.first()).toBeVisible()
   const line = rows.first().locator('[data-role-use]')
-  await expect(line).toHaveText(/^(Last used \d{4}-\d{2}-\d{2}|Not used in 400 days|Last use not collected yet) · /)
+  await expect(line).toHaveText(/^(Last used \d{4}-\d{2}-\d{2}|Never used · created \d{4}-\d{2}-\d{2}|Not used in 400 days|Last use not collected yet) · /)
   await expect(line).toHaveText(/(\d+ workloads?|no workload|workloads not counted yet)$/)
 
   await page.getByRole('button', { name: /^More filters/ }).click()
+  const filtered = page.waitForResponse((r) => r.url().includes('/api/v1/resources?') && r.url().includes('role_unused=90') && r.ok())
   await page.locator('#r-role-use').selectOption('90')
+  await filtered
   await expect(page).toHaveURL(/[?&]role_unused=90/)
   await expect(page.getByRole('button', { name: /^More filters · 1/ })).toBeVisible()
   await expect(rows.first()).toBeVisible()
@@ -1758,9 +1760,12 @@ test('resources: role use, its filters and the panel; both themes, phone width',
   for (const text of await resources.locator('[data-role-use]').allTextContents()) {
     const used = text.match(/^Last used (\d{4}-\d{2}-\d{2})/)?.[1]
     if (used) expect(Date.now() - Date.parse(used), text).toBeGreaterThan(80 * 86_400_000)
-    else expect(text).toMatch(/^Not used in 400 days/)
+    else expect(text).toMatch(/^(Not used in 400 days|Never used · created )/) // new roles stay in the filter (owner, 2026-11-18)
   }
+  // Read the rows only once the list has reloaded with the filter.
+  const reloaded = page.waitForResponse((r) => r.url().includes('/api/v1/resources?') && r.url().includes('no_workload=true') && r.ok())
   await page.getByLabel('No workload runs as it').check()
+  await reloaded
   await expect(page).toHaveURL(/[?&]no_workload=1/)
   await expect(page.getByRole('button', { name: /^More filters · 2/ })).toBeVisible()
   const idle = resources.locator('[data-role-use]')

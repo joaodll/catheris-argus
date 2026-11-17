@@ -3048,6 +3048,8 @@ export interface components {
          *     latest reading, whatever day the page shows.
          */
         RoleUse: {
+            /** Created At */
+            created_at?: string | null;
             /** Last Used At */
             last_used_at: string | null;
             /** Last Used Region */

@@ -142,6 +142,7 @@ RESOURCE_COLUMNS = [
     "last_used",
     "last_used_region",
     "last_used_read_on",
+    "role_created",
     "workloads",
 ]
 

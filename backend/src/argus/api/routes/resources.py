@@ -53,6 +53,9 @@ class RoleUse(BaseModel):
     last_used_region: str | None
     # The inventory day the last use was read; null: not collected yet ("not covered").
     observed_on: date | None
+    # When the role was created (IAM CreateDate, migration 0055); null: not read yet. No last use
+    # and a creation within `tracking_days` of `observed_on`: never used since it was created.
+    created_at: datetime | None = None
     tracking_days: int
     # Null: the connection has no rule load yet ("not covered", never a zero).
     workloads: int | None
@@ -245,6 +248,7 @@ def role_uses(conn: Connection, rows: list[dict[str, Any]]) -> dict[int, RoleUse
             last_used_at=seen.last_used_at if seen else None,
             last_used_region=seen.last_used_region if seen else None,
             observed_on=seen.observed_on if seen else None,
+            created_at=seen.created_at if seen else None,
             tracking_days=inventory.TRACKING_DAYS,
             workloads=workloads.get(i),
         )
