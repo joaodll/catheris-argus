@@ -20,9 +20,10 @@ Argus never changes anything in a cloud it scans: no create, update, delete, tag
 policy change. It observes and recommends; a human applies every fix.
 
 - **The scanner role** grants read actions only: `SecurityAudit`, `ViewOnlyAccess`, and the read
-  permissions Prowler and CloudFox document. It carries an explicit **Deny** on reading secret
-  values, parameters, decryption, object and table contents, and on bulk reads of code, container
-  images and log content: configuration, yes; contents, never
+  permissions Prowler and CloudFox document, plus the few reads Steampipe's tables need beyond
+  them. It carries an explicit **Deny** on reading secret values, parameters, decryption, object
+  and table contents, and on bulk reads of code, container images and log content: configuration,
+  yes; contents, never
   ([ADR-0018](adr/0018-scanner-role-denies-code-images-logs.md)).
 - **A build check enforces it.** Every action in the role template must be a read verb; the
   build fails on any other verb, a wildcard, or a weakened Deny (`deploy/aws/policycheck`).

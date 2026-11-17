@@ -88,9 +88,9 @@ FROM base AS tools-fetch
 ARG CLOUDFOX_VERSION=2.0.5
 # GitHub's published digest for cloudfox-linux-amd64.zip at v2.0.5.
 ARG CLOUDFOX_SHA256=3cdc5a1a94ff14eb8df04d3dc8f9eca7db232a1315ceb8a7de26e4cb13e32fd5
-ARG STEAMPIPE_AWS_VERSION=1.34.1
-# GitHub's published digest for steampipe_export_aws.linux_amd64.tar.gz at v1.34.1.
-ARG STEAMPIPE_AWS_SHA256=47aa252b00b8439d4e7c54a037d63fe1411759dbddf4b5bc81711893a76480f0
+ARG STEAMPIPE_AWS_VERSION=1.36.0
+# GitHub's published digest for steampipe_export_aws.linux_amd64.tar.gz at v1.36.0.
+ARG STEAMPIPE_AWS_SHA256=eef169e13ef1743455d2805b1481632fff7b87acbe9638a10b6776df5008b53a
 RUN apt-get update && apt-get install -y --no-install-recommends curl unzip \
  && rm -rf /var/lib/apt/lists/*
 RUN curl -fsSLo /tmp/cloudfox.zip \

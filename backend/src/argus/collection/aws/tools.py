@@ -402,8 +402,8 @@ def _status(ok: bool, throttle_events: int) -> str:
 
 # The plugin's own record of an AWS answer to one of its calls, written before the table's
 # IgnoreConfig decides whether the answer stops the table: "[ERROR] <ts>: <table>.<function>:
-# api_error=...". The pinned plugin (1.34.1) writes it for answers it then ignores too, such as
-# CloudFront's NoSuchMonitoringSubscription or Shield's ResourceNotFoundException (seen
+# api_error=...". The plugin writes it for answers it then ignores too, such as CloudFront's
+# NoSuchMonitoringSubscription or Shield's ResourceNotFoundException (1.34.1, seen
 # 2026-11-05). Only api_error: client_error, connection_error and the like are setup failures.
 _PLUGIN_API_ERROR = re.compile(r"^\[ERROR\]\s+\d+: aws_[a-z0-9_]+\.[A-Za-z0-9_]+: api_error=")
 
