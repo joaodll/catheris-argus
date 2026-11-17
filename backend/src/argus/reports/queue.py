@@ -17,9 +17,9 @@ from sqlalchemy import Connection, text
 from argus.connections import DIRECTORY_SQL
 from argus.core import audit
 from argus.core.redaction import redact_text
-from argus.findings import FindingFilters
-from argus.reports.filters import to_json
+from argus.reports.filters import ReportFilters, to_json
 from argus.reports.model import (
+    CSV_ONLY_KINDS,
     EXPIRY_DAYS,
     LOCAL_STORE_KINDS,
     MAX_OPEN_PER_USER,
@@ -36,6 +36,7 @@ DEMO_ONLY = (
     "Reports on this install cover Demo connections only. Filter the list to Demo accounts, "
     "or choose them in New report."
 )
+CSV_ONLY = "A Resources report is a CSV only."
 # report_request.filters' CHECK (migration 0047).
 FILTERS_MAX_CHARS = 16384
 TOO_MANY_FILTERS = "This report has too many filters to keep. Remove some tags or values."
@@ -68,6 +69,18 @@ def resolve_scope(conn: Connection, connection_ids: tuple[int, ...]) -> list[tup
     return [(r.id, r.kind) for r in rows]
 
 
+def scope_accounts(conn: Connection, connection_ids: list[int]) -> dict[int, tuple[str, str]]:
+    """Each of these connections' name and account id, for a report's rows."""
+    rows = conn.execute(
+        text(f"""
+        SELECT d.id, d.name, d.account_id FROM ({DIRECTORY_SQL}) d
+        WHERE d.id = ANY(CAST(:c AS bigint[]))
+    """),  # noqa: S608 - exported SQL constants only
+        {"c": connection_ids},
+    )
+    return {r.id: (r.name, r.account_id or "") for r in rows}
+
+
 def check_scope(scope: list[tuple[int, str]], *, local: bool) -> None:
     """Refuses an empty scope, and on a local store any connection that is not Demo."""
     if not scope:
@@ -81,7 +94,7 @@ def request_report(
     *,
     kind: ReportKind,
     fmt: ReportFormat,
-    filters: FindingFilters,
+    filters: ReportFilters,
     user_id: int,
     username: str,
     client_ip: str | None,
@@ -91,6 +104,8 @@ def request_report(
     region) an S3 report goes to, recorded with it; None is the local store. Refused
     (ReportRefusedError) when no account matches, when one is a real AWS connection on a local
     store, or when the user already has MAX_OPEN_PER_USER open. The caller commits."""
+    if kind in CSV_ONLY_KINDS and fmt != "csv":
+        raise ReportRefusedError(CSV_ONLY)
     stored = json.dumps(to_json(filters))
     # report_request.filters holds at most FILTERS_MAX_CHARS (migration 0047). json.dumps escapes
     # what jsonb keeps as one character, so its length is never shorter than the column's.

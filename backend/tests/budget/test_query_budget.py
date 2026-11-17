@@ -215,11 +215,47 @@ def _generate(conn: Connection) -> None:
     _generate_vulnerability_metrics(conn)
     _generate_asset_metrics(conn)
     _generate_edges(conn)
+    _generate_role_use(conn)
     _generate_compliance(conn)
     _generate_vulnerabilities(conn)
     for connection_id in range(1, ACCOUNTS + 1):  # the Tag filter's options, as ingest builds them
         findings.refresh_tag_facets(conn, connection_id=connection_id)
     conn.execute(text("ANALYZE"))
+
+
+def _generate_role_use(conn: Connection) -> None:
+    """Every role's last use (migration 0053): one in four with no use in AWS's window, the rest
+    0 to 399 days before the reading; and every account's workload counts, written as a rule
+    load writes them (from the RUNS_AS lines of its latest rule load)."""
+    conn.execute(
+        text("""
+        INSERT INTO role_last_used (resource_id, last_used_at, last_used_region, observed_on)
+        SELECT r.id,
+               CASE WHEN r.id % 4 <> 0
+                    THEN (CAST(:d AS date) - CAST(r.id % 400 AS integer)) + time '09:30' END,
+               CASE WHEN r.id % 4 <> 0 THEN 'us-east-1' END, :d
+        FROM resource r WHERE r.type = 'aws_iam_role'
+    """),
+        {"d": TODAY},
+    )
+    days = conn.execute(
+        text(
+            "SELECT connection_id, max(snapshot_date) FROM edge_load "
+            "WHERE family = 'rule' GROUP BY connection_id"
+        )
+    ).all()
+    for connection_id, day in days:
+        relationships.put_role_workloads(conn, connection_id=connection_id, day=day)
+
+
+def _role_use_of_a_page(c: Connection) -> Any:
+    """The Resources list's role use for one page of 200 roles (api.routes.resources)."""
+    ids = list(
+        c.execute(
+            text("SELECT id FROM resource WHERE type = 'aws_iam_role' ORDER BY id LIMIT 200")
+        ).scalars()
+    )
+    return inventory.role_last_used(c, ids), relationships.role_workloads(c, ids)
 
 
 def _generate_misconfiguration_metrics(conn: Connection) -> None:
@@ -358,6 +394,10 @@ HUB_VPC = "arn:aws:ec2:us-east-1:200000000001:vpc/vpc-hub"
 HUB_POLICY = "arn:aws:iam::aws:policy/ReadOnlyAccess"
 # The largest hub one map read can meet: 20,000 neighbours of one kind, in one connection.
 HUB_BIG_VPC = "arn:aws:ec2:us-east-1:200000000001:vpc/vpc-big"
+# A Route 53 zone of connection 1 with 5,000 members on IN_ZONE lines (record-in-zone,
+# 2026-11-17): the internet's 5,000 front doors stand in for its records. A hop reads lines, and
+# one kind of neighbour is one group whatever its type, so the cost is a real zone's.
+HUB_ZONE = "arn:aws:route53:::hostedzone/ZHUB0000000001"
 # Resource 30 (an instance of connection 31): one of the VPC hub's 20,000 members.
 MAP_FOCUS = "arn:aws:ec2:us-east-1:200000000031:instance/i-30"
 # Connection c holds account 2000000000cc: every map read is for one connection (ADR-0051).
@@ -428,12 +468,22 @@ def _generate_edges(conn: Connection) -> None:
              (VALUES ('in', 'ROUTES_TO', 'rule:in@1'),
                      ('cf', 'INTERNET_REACHABLE', 'cloudfox')) o(kind, type, origin)
         UNION ALL
+        SELECT sha256(('zone|' || g)::bytea), {RESOURCE_UID.format(g="g")}, :hub_zone,
+               g, 'IN_ZONE', 'rule:record-in-zone@1', :d - 30, :d, 1
+        FROM generate_series(36, 180000, 36) g
+        UNION ALL
         -- Every tenth resource on the hub's chains is an administrator (CloudFox).
         SELECT sha256(('adm|' || g)::bytea), {RESOURCE_UID.format(g="g")},
                'admin:' || (200000000000 + 1), g, 'IS_ADMIN', 'cloudfox', :d - 30, :d, 1
         FROM generate_series(360, 300000, 360) g
     """),  # noqa: S608 - constant fragments
-        {**params, "hub_vpc": HUB_VPC, "hub_policy": HUB_POLICY, "hub_big": HUB_BIG_VPC},
+        {
+            **params,
+            "hub_vpc": HUB_VPC,
+            "hub_policy": HUB_POLICY,
+            "hub_big": HUB_BIG_VPC,
+            "hub_zone": HUB_ZONE,
+        },
     )
     conn.execute(
         text("""
@@ -454,6 +504,16 @@ def _generate_edges(conn: Connection) -> None:
         ORDER BY e.target_uid, e.connection_id
     """),
         params,
+    )
+    # The zone is in the inventory too, so the map draws it and does not walk through it.
+    conn.execute(
+        text("""
+        INSERT INTO resource (resource_uid, connection_id, region, type, native_id, name,
+                              first_seen, last_seen)
+        VALUES (:z, 1, 'global', 'aws_route53_zone', 'ZHUB0000000001', 'hub.example.com.',
+                CAST(:d AS date) - 30, :d)
+    """),
+        {**params, "z": HUB_ZONE},
     )
     conn.execute(
         text("""
@@ -928,6 +988,37 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         offset=0,
     ),
     "resources: the Vulnerabilities cells of a page": _vulnerability_cells,
+    # Role use (migration 0053, 2026-11-17).
+    "resources: the role use of a page": _role_use_of_a_page,
+    "resources: roles not used in 90 days, all accounts": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(
+            resource_types=("aws_iam_role",), within=(inventory.UNUSED_ROLES_SQL["90"],)
+        ),
+    ),
+    "resources: roles not used in 365 days, one account": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(
+            connection_ids=(7,),
+            resource_types=("aws_iam_role",),
+            within=(inventory.UNUSED_ROLES_SQL["365"],),
+        ),
+    ),
+    "resources: roles no workload runs as and not used in 90 days, all accounts": lambda c: (
+        inventory.list_resources(
+            c,
+            limit=20,
+            offset=0,
+            filters=inventory.ResourceFilters(
+                resource_types=("aws_iam_role",),
+                within=(inventory.UNUSED_ROLES_SQL["90"], relationships.NO_WORKLOAD_ROLES_SQL),
+            ),
+        )
+    ),
     "resources: with an exploitable CVE, one account": lambda c: inventory.list_resources(
         c,
         limit=20,
@@ -1282,6 +1373,22 @@ def test_the_tag_options_of_one_account_stay_cheap_to_write(estate: Engine) -> N
     assert elapsed < WRITER_BOUND_MS
 
 
+def test_the_role_workloads_of_one_account_stay_cheap_to_write(estate: Engine) -> None:
+    """After every rule load: one account's workload counts (relationships.put_role_workloads),
+    in the load's transaction."""
+    with estate.connect() as conn:
+        transaction = conn.begin()
+        try:
+            start = time.perf_counter()
+            written = relationships.put_role_workloads(conn, connection_id=7, day=TODAY)
+            elapsed = (time.perf_counter() - start) * 1000
+        finally:
+            transaction.rollback()
+    print(f"role workloads of one account: {written} roles in {elapsed:.1f} ms")
+    assert written > 1000
+    assert elapsed < WRITER_BOUND_MS
+
+
 def test_the_asset_counts_of_one_account_stay_cheap_to_write(estate: Engine) -> None:
     """After a Steampipe load: one account's assets by type and region, its added and removed,
     and the rollup of all accounts (inventory.put_inventory_metrics)."""
@@ -1314,20 +1421,21 @@ def test_the_vulnerability_counts_of_one_account_stay_cheap_to_write(estate: Eng
 @pytest.mark.parametrize(
     ("label", "connection_ids"), [("one account", [2]), ("every account", list(range(1, 37)))]
 )
+@pytest.mark.parametrize("kind", ["misconfigurations", "resources"])
 def test_an_export_is_measured(
-    estate: Engine, tmp_path: Path, label: str, connection_ids: list[int]
+    estate: Engine, tmp_path: Path, kind: str, label: str, connection_ids: list[int]
 ) -> None:
-    """A report of every open misconfiguration (ADR-0047), built as the worker builds it: not a
-    300 ms query, so it is measured and recorded rather than held to the budget. The bound only
-    catches a regression by an order of magnitude."""
+    """A report of every open misconfiguration, or every resource (ADR-0047 §3b), built as the
+    worker builds it: not a 300 ms query, so it is measured and recorded rather than held to the
+    budget. The bound only catches a regression by an order of magnitude."""
     with estate.begin() as conn:
         conn.execute(text("DELETE FROM report_request WHERE status <> 'failed'"))
         conn.execute(
             text(
                 "INSERT INTO report_request (kind, format, filters, connection_ids, requested_by) "
-                "VALUES ('misconfigurations', 'csv', '{}', CAST(:c AS bigint[]), 'budget')"
+                "VALUES (:k, 'csv', '{}', CAST(:c AS bigint[]), 'budget')"
             ),
-            {"c": connection_ids},
+            {"k": kind, "c": connection_ids},
         )
     before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     start = time.perf_counter()
@@ -1342,7 +1450,7 @@ def test_an_export_is_measured(
             )
         ).one()
     print(
-        f"export, {label}: {rows} rows, {size / 1e6:.1f} MB in {seconds:.1f} s; "
+        f"export {kind}, {label}: {rows} rows, {size / 1e6:.1f} MB in {seconds:.1f} s; "
         f"peak RSS {after / 1024:.0f} MiB (before {before / 1024:.0f} MiB)"
     )
     assert status == "ready" and rows > 0

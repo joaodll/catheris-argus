@@ -4325,7 +4325,8 @@
           "kind": {
             "enum": [
               "misconfigurations",
-              "vulnerabilities"
+              "vulnerabilities",
+              "resources"
             ],
             "title": "Kind",
             "type": "string"
@@ -4699,6 +4700,16 @@
             "title": "Resource Uid",
             "type": "string"
           },
+          "role_use": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleUse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "scanned": {
             "$ref": "#/components/schemas/ToolScans"
           },
@@ -4793,6 +4804,168 @@
           "regions"
         ],
         "title": "ResourceFacets",
+        "type": "object"
+      },
+      "ResourceFilterQuery": {
+        "description": "The Resources list's filters: its query parameters, and a report's. A list parameter\nrepeats (`type=a&type=b`) and matches any of its values; absent, it does not filter.",
+        "properties": {
+          "assets": {
+            "default": false,
+            "title": "Assets",
+            "type": "boolean"
+          },
+          "connection_id": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "title": "Connection Id",
+            "type": "array"
+          },
+          "deleted_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted From"
+          },
+          "deleted_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted To"
+          },
+          "first_seen_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen From"
+          },
+          "first_seen_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen To"
+          },
+          "include_deleted": {
+            "default": false,
+            "title": "Include Deleted",
+            "type": "boolean"
+          },
+          "internet": {
+            "default": false,
+            "title": "Internet",
+            "type": "boolean"
+          },
+          "misconfigurations": {
+            "anyOf": [
+              {
+                "enum": [
+                  "any",
+                  "high"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Misconfigurations"
+          },
+          "no_workload": {
+            "default": false,
+            "title": "No Workload",
+            "type": "boolean"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "region": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Region",
+            "type": "array"
+          },
+          "role_unused": {
+            "anyOf": [
+              {
+                "enum": [
+                  "90",
+                  "180",
+                  "365"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Unused"
+          },
+          "type": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Type",
+            "type": "array"
+          },
+          "vulnerabilities": {
+            "anyOf": [
+              {
+                "enum": [
+                  "any",
+                  "high",
+                  "exploitable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vulnerabilities"
+          }
+        },
+        "title": "ResourceFilterQuery",
         "type": "object"
       },
       "ResourceOut": {
@@ -4989,6 +5162,16 @@
             "title": "Resource Uid",
             "type": "string"
           },
+          "role_use": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleUse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -5044,6 +5227,29 @@
           "vulnerabilities"
         ],
         "title": "ResourceRow",
+        "type": "object"
+      },
+      "ResourcesReportIn": {
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/ResourceFilterQuery"
+          },
+          "format": {
+            "const": "csv",
+            "default": "csv",
+            "title": "Format",
+            "type": "string"
+          },
+          "kind": {
+            "const": "resources",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ResourcesReportIn",
         "type": "object"
       },
       "ResourcesSummary": {
@@ -5260,6 +5466,82 @@
           }
         },
         "title": "RoleIn",
+        "type": "object"
+      },
+      "RoleUse": {
+        "description": "An IAM role's use (migration 0053): AWS's own record of its last use, and how many\nworkloads (EC2 instances, Lambda functions, ECS services, EKS node groups) run as it. The\nlatest reading, whatever day the page shows.",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "last_used_region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used Region"
+          },
+          "observed_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed On"
+          },
+          "tracking_days": {
+            "title": "Tracking Days",
+            "type": "integer"
+          },
+          "workloads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workloads"
+          }
+        },
+        "required": [
+          "last_used_at",
+          "last_used_region",
+          "observed_on",
+          "tracking_days",
+          "workloads"
+        ],
+        "title": "RoleUse",
         "type": "object"
       },
       "RouteDetail": {
@@ -13500,6 +13782,7 @@
                 "discriminator": {
                   "mapping": {
                     "misconfigurations": "#/components/schemas/MisconfigurationReportIn",
+                    "resources": "#/components/schemas/ResourcesReportIn",
                     "vulnerabilities": "#/components/schemas/VulnerabilityReportIn"
                   },
                   "propertyName": "kind"
@@ -13510,6 +13793,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/VulnerabilityReportIn"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResourcesReportIn"
                   }
                 ],
                 "title": "Body"
@@ -13730,29 +14016,6 @@
         "parameters": [
           {
             "in": "query",
-            "name": "limit",
-            "required": false,
-            "schema": {
-              "default": 20,
-              "maximum": 200,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "offset",
-            "required": false,
-            "schema": {
-              "default": 0,
-              "minimum": 0,
-              "title": "Offset",
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
             "name": "connection_id",
             "required": false,
             "schema": {
@@ -13901,22 +14164,6 @@
           },
           {
             "in": "query",
-            "name": "order",
-            "required": false,
-            "schema": {
-              "default": "name_asc",
-              "enum": [
-                "name_asc",
-                "name_desc",
-                "last_seen_desc",
-                "last_seen_asc"
-              ],
-              "title": "Order",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
             "name": "vulnerabilities",
             "required": false,
             "schema": {
@@ -13964,6 +14211,76 @@
               "default": false,
               "title": "Internet",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role_unused",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "90",
+                    "180",
+                    "365"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role Unused"
+            }
+          },
+          {
+            "in": "query",
+            "name": "no_workload",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "No Workload",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "name_asc",
+              "enum": [
+                "name_asc",
+                "name_desc",
+                "last_seen_desc",
+                "last_seen_asc"
+              ],
+              "title": "Order",
+              "type": "string"
             }
           },
           {

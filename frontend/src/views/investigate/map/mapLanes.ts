@@ -19,6 +19,17 @@ export const LANE_GAP = 168
 export const ROW = NODE_HEIGHT + 40
 // A tall column wraps into sub-columns this far apart.
 export const SUB_GAP = 48
+// In a wrapped column each sub-column sits lower than the one before by its share of a row, so
+// a line from an outer sub-column runs between the cards of the inner ones (2026-11-17: a line
+// ran behind a card on its row). The share keeps at least this much between a card's middle and
+// such a line; with three or more sub-columns the column's rows spread to keep it.
+export const SUB_CLEAR = NODE_HEIGHT / 2 + 8
+
+/** The row pitch of a column wrapped into `subs` sub-columns: ROW, or more when the staggered
+ * sub-columns would leave a line closer than SUB_CLEAR to a card's middle. */
+export function wrappedPitch(subs: number): number {
+  return subs > 1 ? Math.max(ROW, subs * SUB_CLEAR) : ROW
+}
 // How far above the highest card a column's name sits.
 export const LANE_NAME_RISE = 64
 
@@ -303,10 +314,16 @@ function layoutWith(nodes: LaidNode[], edges: Link[], focus: string | null, cols
     const lane = `hop-${col}`
     const x = left.get(col) ?? 0
     lanes.push({ lane, label: hopLabel(col, focused), x, width: widthOf(col) })
+    // Every sub-column on the first one's rows, the k-th of n lower by k/n of a row, and a
+    // shorter last one centred on those rows: no card sits on a line from a sub-column beside it.
+    const subs = Math.max(1, Math.ceil(order.length / rows))
+    const pitch = wrappedPitch(subs)
+    const first = Math.min(rows, order.length)
     order.forEach((n, i) => {
       const sub = Math.floor(i / rows)
       const inSub = Math.min(rows, order.length - sub * rows)
-      positions.set(n.id, { x: x + sub * (NODE_WIDTH + SUB_GAP) + NODE_WIDTH / 2, y: ((i % rows) - (inSub - 1) / 2) * ROW, lane })
+      const row = (i % rows) + Math.floor((first - inSub) / 2) - (first - 1) / 2
+      positions.set(n.id, { x: x + sub * (NODE_WIDTH + SUB_GAP) + NODE_WIDTH / 2, y: (row + sub / subs) * pitch, lane })
     })
   }
   // The focus stays at y = 0 (its column is centred on it).
@@ -325,6 +342,100 @@ function layoutWith(nodes: LaidNode[], edges: Link[], focus: string | null, cols
     lates.forEach((n, i) => positions.set(n.id, { x, y: bottom + (i + 1) * ROW, lane }))
   }
   return { positions, lanes }
+}
+
+// How far a line keeps from a card's middle when it is routed past it: half the tallest card (the
+// internet's 68 px disc) and a margin.
+export const ROUTE_CLEAR = 68 / 2 + 8
+
+export interface Point {
+  x: number
+  y: number
+}
+
+/** A line's path when it must not run straight: its corners, where its word goes, and where the
+ * word goes if that place is taken. */
+export interface Route {
+  points: Point[]
+  mid: Point
+  alts: Point[]
+}
+
+/** Each column band's card rows (the y of every card in it, sorted): what a routed line keeps
+ * clear of. */
+export function laneRows(positions: Map<string, Placed>): Map<string, number[]> {
+  const rows = new Map<string, number[]>()
+  for (const p of positions.values()) rows.set(p.lane, [...(rows.get(p.lane) ?? []), p.y])
+  for (const ys of rows.values()) ys.sort((a, b) => a - b)
+  return rows
+}
+
+/** Where a line crosses a column band it does not stop in: at its own height if no card is in the
+ * way, else the nearest free gap between two cards, above the first or below the last; a tie goes
+ * to the height the line is heading for. */
+function corridor(ys: number[], y: number, heading: number): number {
+  const free = (c: number) => ys.every((v) => Math.abs(v - c) >= ROUTE_CLEAR)
+  if (free(y)) return y
+  const options: number[] = []
+  if (free(heading)) options.push(heading)
+  for (let i = 1; i < ys.length; i++) if (ys[i]! - ys[i - 1]! >= 2 * ROUTE_CLEAR) options.push((ys[i]! + ys[i - 1]!) / 2)
+  if (ys.length) options.push(ys[0]! - ROW / 2, ys[ys.length - 1]! + ROW / 2)
+  options.sort((a, b) => Math.abs(a - y) - Math.abs(b - y) || Math.abs(a - heading) - Math.abs(b - heading))
+  return options[0] ?? y
+}
+
+/**
+ * The path of a line between two columns that would otherwise run behind a card (2026-11-17):
+ * - its card is inside a wrapped band, away from the band's edge: the line runs flat to the edge
+ *   (the staggered sub-columns leave it a free row);
+ * - it skips one or more columns: it crosses each through a corridor (corridor()), flat inside the
+ *   band.
+ * It bends only in the gaps between bands. Null for the plain S between two neighbouring bands
+ * whose cards sit at their edges, within one column, or when a band is unknown (a route's own
+ * layout has none).
+ */
+export function lineRoute(s: Placed, t: Placed, lanes: Layout['lanes'], rows: Map<string, number[]>): Route | null {
+  const dx = t.x - s.x
+  if (Math.abs(dx) < 1) return null
+  const dir = Math.sign(dx)
+  const sb = lanes.find((l) => l.lane === s.lane)
+  const tb = lanes.find((l) => l.lane === t.lane)
+  if (!sb || !tb || sb === tb) return null
+  const edge = (b: Layout['lanes'][number], side: number) => (side > 0 ? b.x + b.width : b.x)
+  const from = edge(sb, dir)
+  const to = edge(tb, -dir)
+  if ((to - from) * dir <= 0) return null
+  const lo = Math.min(from, to)
+  const hi = Math.max(from, to)
+  const between = lanes.filter((b) => b !== sb && b !== tb && b.x >= lo - 1 && b.x + b.width <= hi + 1).sort((a, b) => (a.x - b.x) * dir)
+  const atEdge = (e: number, card: number) => Math.abs(e - card) < 1
+  if (!between.length && atEdge(from, s.x + (dir * NODE_WIDTH) / 2) && atEdge(to, t.x - (dir * NODE_WIDTH) / 2)) return null
+  const points: Point[] = [{ x: from, y: s.y }]
+  let y = s.y
+  let at = from
+  let firstGap: number | null = null
+  for (const b of between) {
+    const near = edge(b, -dir)
+    const far = edge(b, dir)
+    const gap = (at + near) / 2
+    firstGap ??= gap
+    const crossing = corridor(rows.get(b.lane) ?? [], y, t.y)
+    points.push({ x: gap, y }, { x: gap, y: crossing }, { x: near, y: crossing }, { x: far, y: crossing })
+    y = crossing
+    at = far
+  }
+  const gap = (at + to) / 2
+  firstGap ??= gap
+  points.push({ x: gap, y }, { x: gap, y: t.y }, { x: to, y: t.y })
+  const path = points.filter((p, i) => i === 0 || p.x !== points[i - 1]!.x || p.y !== points[i - 1]!.y)
+  return {
+    points: path,
+    mid: { x: gap, y: (y + t.y) / 2 },
+    alts: [
+      { x: (from + firstGap) / 2, y: s.y },
+      { x: (gap + to) / 2, y: t.y },
+    ],
+  }
 }
 
 /** Where the canvas's camera stands, carried across a view switch: the zoom, and where the focus

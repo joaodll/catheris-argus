@@ -124,6 +124,138 @@ def test_a_vulnerabilities_report_carries_the_cve_facts(
     assert all(float(r["cvss"]) >= 0 for r in rows if r["cvss"])
 
 
+RESOURCE_COLUMNS = [
+    "account_id",
+    "account",
+    "region",
+    "resource_type",
+    "resource_name",
+    "native_id",
+    "resource_uid",
+    "first_seen",
+    "last_seen",
+    "removed_on",
+    "open_misconfigurations",
+    "worst_severity",
+    "open_vulnerabilities",
+    "exploitable_vulnerabilities",
+    "last_used",
+    "last_used_region",
+    "last_used_read_on",
+    "role_created",
+    "workloads",
+]
+
+
+def _listed(client: TestClient, **filters: Any) -> dict[str, dict[str, Any]]:
+    """Every resource the Resources list shows for these filters, by uid."""
+    out: dict[str, dict[str, Any]] = {}
+    offset = 0
+    while True:
+        page = client.get(
+            "/api/v1/resources", params={**filters, "limit": 200, "offset": offset}
+        ).json()
+        out.update({r["resource_uid"]: r for r in page["items"]})
+        offset += 200
+        if offset >= page["total"]:
+            return out
+
+
+def test_a_resources_report_is_the_list_with_its_columns(
+    signed_in: TestClient, worker: Engine, root: Path, demo: int
+) -> None:
+    """Export on Resources (round 2, 2026-11-17): the file holds the rows the list shows for
+    the same filters, each with the list's counts and a role's use."""
+    asked = _ask(signed_in, "resources", type=["aws_iam_role", "aws_lambda_function"])
+    assert asked.status_code == 202, asked.text
+    assert _build(worker, root)
+    report = signed_in.get(f"/api/v1/reports/{asked.json()['id']}").json()
+    assert report["status"] == "ready", report["error"]
+    assert report["kind"] == "resources" and report["data_through"] == {str(demo): DAY.isoformat()}
+    body = signed_in.get(f"/api/v1/reports/{report['id']}/download").content
+    header = body.decode().lstrip("\ufeff").split("\r\n", 1)[0].split(",")
+    assert header == RESOURCE_COLUMNS
+    rows = {r["resource_uid"]: r for r in _rows(body)}
+    listed = _listed(signed_in, type=["aws_iam_role", "aws_lambda_function"])
+    assert rows.keys() == listed.keys() and report["row_count"] == len(rows) > 0
+
+    for uid, row in rows.items():
+        item = listed[uid]
+        assert row["account_id"] and row["account"] and row["region"] == item["region"]
+        assert int(row["open_misconfigurations"]) == item["open_findings"]
+        assert (row["worst_severity"] or None) == item["worst_severity"]
+        cell = item["vulnerabilities"]
+        assert row["open_vulnerabilities"] == (str(cell["open"]) if cell else "")
+        role = item["role_use"]
+        if item["type"] == "aws_iam_role":
+            assert role is not None
+            assert row["last_used_read_on"] == (role["observed_on"] or "")
+            assert row["workloads"] == ("" if role["workloads"] is None else str(role["workloads"]))
+        else:
+            assert role is None and not (row["last_used_read_on"] or row["workloads"])
+    roles = [r for r in rows.values() if r["resource_type"] == "aws_iam_role"]
+    assert any(r["last_used"] for r in roles) and all(r["last_used_read_on"] for r in roles)
+    # A Lambda function is scanned for CVEs on the Demo estate: its cell is a number, never blank.
+    assert all(
+        r["open_vulnerabilities"] for r in rows.values() if r["resource_type"] != "aws_iam_role"
+    )
+
+
+def test_a_resources_report_keeps_the_lists_role_filters(
+    signed_in: TestClient, worker: Engine, root: Path, demo: int
+) -> None:
+    filters = {"type": ["aws_iam_role"], "role_unused": "90", "no_workload": True}
+    report_id = _ask(signed_in, "resources", **filters).json()["id"]
+    assert _build(worker, root)
+    rows = _rows(signed_in.get(f"/api/v1/reports/{report_id}/download").content)
+    assert {r["resource_uid"] for r in rows} == set(_listed(signed_in, **filters))
+    assert all(r["workloads"] == "0" for r in rows)
+
+
+def test_a_resources_report_is_a_csv_only(
+    signed_in: TestClient, owner: Engine, root: Path, demo: int
+) -> None:
+    refused = signed_in.post(
+        "/api/v1/reports",
+        json={"kind": "resources", "format": "pdf", "filters": {}},
+        headers=csrf(signed_in),
+    )
+    assert refused.status_code == 422
+    with owner.begin() as conn, pytest.raises(DBAPIError, match="report_request_resources_csv"):
+        conn.execute(
+            text(
+                "INSERT INTO report_request (kind, format, filters, connection_ids, "
+                "requested_by) VALUES ('resources', 'pdf', '{}', ARRAY[:c], 'admin')"
+            ),
+            {"c": demo},
+        )
+
+
+def test_the_report_role_builds_a_resources_report_through_every_filter(
+    signed_in: TestClient, reports_role: Engine, root: Path, demo: int
+) -> None:
+    """argus_reports (the Kubernetes report Job, migration 0054) reads everything a Resources
+    report reads: every filter's set, and each row's columns."""
+    every_filter = {
+        "vulnerabilities": "any",
+        "misconfigurations": "any",
+        "internet": True,
+        "role_unused": "365",
+        "no_workload": True,
+        "q": "a",
+        "assets": True,
+        "include_deleted": True,
+        "first_seen_from": "2020-01-01",
+        "deleted_to": "2030-01-01",
+    }
+    for filters in (every_filter, {}):
+        report_id = _ask(signed_in, "resources", **filters).json()["id"]
+        assert _build(reports_role, root)
+        report = signed_in.get(f"/api/v1/reports/{report_id}").json()
+        assert report["status"] == "ready", report["error"]
+    assert report["row_count"] == len(_listed(signed_in)) > 0
+
+
 def test_no_secret_value_reaches_a_report(
     signed_in: TestClient, owner: Engine, worker: Engine, root: Path, demo: int
 ) -> None:

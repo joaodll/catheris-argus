@@ -45,7 +45,7 @@ import { SECURITY_EDGE_TYPES, factLines, factsOf, marksOf, pillCount, worstOf, t
 import type { Severity } from '@/views/overview/severity'
 import type { MapKind } from './mapQuery'
 import { boundaryLabel, drawnEdges, groupNodeId, nodeName, traceOf, type GraphState, type MapGroup, type MapNode, type Selection } from './mapGraph'
-import { LANE_NAME_RISE, NODE_HEIGHT, NODE_WIDTH, cardGlyph, layout, moveSelection, typeLabel, type LaidNode, type Move, type NodeKind, type Viewport } from './mapLanes'
+import { LANE_NAME_RISE, NODE_HEIGHT, NODE_WIDTH, cardGlyph, laneRows, layout, lineRoute, moveSelection, typeLabel, type LaidNode, type Move, type NodeKind, type Placed, type Route, type Viewport } from './mapLanes'
 import { lineKey, routeBend, routeLayout, type RouteDrawing, type RouteLine } from './routeMap'
 import { SEVERITY_LABEL } from '@/views/overview/severity'
 import { resolvedTheme } from '@/composables/useTheme'
@@ -249,28 +249,33 @@ interface Bend {
   // quarter of the way from each end. None for an arc.
   alts: { x: number; y: number }[]
 }
-function bend(s: { x: number; y: number }, t: { x: number; y: number }): Bend {
+function bend(s: { x: number; y: number }, t: { x: number; y: number }, route: Route | null = null): Bend {
   const dx = t.x - s.x
   const dy = t.y - s.y
   const length2 = dx * dx + dy * dy
   if (length2 === 0) return { weights: [0.5], distances: [0], mid: { ...s }, alts: [] }
   const length = Math.sqrt(length2)
   const arc = Math.abs(dx) < 1
+  // A routed line (lineRoute): its corners. Cytoscape draws a chain of curves through the
+  // midpoints of the control points, so a run of points on one row is straight and each corner
+  // is rounded in a gap between columns.
   const points = arc
     ? [{ x: s.x + NODE_WIDTH * 0.4 + Math.abs(dy) * 0.15, y: (s.y + t.y) / 2 }]
-    : [
+    : (route?.points ?? [
         { x: s.x + dx / 2, y: s.y },
         { x: s.x + dx / 2, y: t.y },
-      ]
-  const mid = arc ? { x: 0.25 * s.x + 0.5 * points[0]!.x + 0.25 * t.x, y: (s.y + t.y) / 2 } : { x: s.x + dx / 2, y: (s.y + t.y) / 2 }
+      ])
+  const mid = arc ? { x: 0.25 * s.x + 0.5 * points[0]!.x + 0.25 * t.x, y: (s.y + t.y) / 2 } : (route?.mid ?? { x: s.x + dx / 2, y: (s.y + t.y) / 2 })
   return {
     weights: points.map((p) => ((p.x - s.x) * dx + (p.y - s.y) * dy) / length2),
     distances: points.map((p) => ((p.x - s.x) * -dy + (p.y - s.y) * dx) / length),
     mid,
-    alts: arc ? [] : [
-      { x: s.x + dx * 0.25, y: s.y },
-      { x: s.x + dx * 0.75, y: t.y },
-    ],
+    alts: arc
+      ? []
+      : (route?.alts ?? [
+          { x: s.x + dx * 0.25, y: s.y },
+          { x: s.x + dx * 0.75, y: t.y },
+        ]),
   }
 }
 
@@ -303,6 +308,7 @@ function elements(): ElementDefinition[] {
       position: { x: positions.get(c.id)!.x, y: positions.get(c.id)!.y },
     }
   })
+  const rows = laneRows(positions)
   const edges: ElementDefinition[] = lines.value
     .filter((l) => positions.has(l.source) && positions.has(l.target) && l.source !== l.target)
     .map((l) => {
@@ -317,7 +323,9 @@ function elements(): ElementDefinition[] {
         const words = side ? { x: mid.x + 16, y: mid.y } : { x: mid.x, y: mid.y + ROUTE_WORDS_BELOW }
         return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: routeLine.words, line: l.style, sec: 0, role: routeLine.role, side, weights, distances, mx: words.x, my: words.y, alts: [] } }
       }
-      const { weights, distances, mid, alts } = bend(positions.get(l.source)!, positions.get(l.target)!)
+      const a: Placed = positions.get(l.source)!
+      const b: Placed = positions.get(l.target)!
+      const { weights, distances, mid, alts } = bend(a, b, lineRoute(a, b, laid.value.lanes, rows))
       const sec = security.value && SECURITY_EDGE_TYPES.has(l.type) ? 1 : 0
       return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: edgeWord(l.type, l.target), line: l.style, sec, weights, distances, mx: mid.x, my: mid.y, alts } }
     })

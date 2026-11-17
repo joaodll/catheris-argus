@@ -417,6 +417,8 @@ def test_a_build_in_progress_is_not_abandoned(owner: Engine, reports_role: Engin
         "SELECT count(*) FROM audit_log",
         "SELECT count(*) FROM app_user",
         "SELECT config_id FROM resource",
+        "SELECT tags FROM resource",
+        "SELECT count(*) FROM edge",
         "INSERT INTO report_request (kind, format, filters, connection_ids, requested_by) "
         "VALUES ('misconfigurations', 'csv', '{}', ARRAY[1], 'x')",
         "UPDATE report_request SET connection_ids = ARRAY[2]",
@@ -431,6 +433,8 @@ def test_a_build_in_progress_is_not_abandoned(owner: Engine, reports_role: Engin
         "audit",
         "users",
         "configuration",
+        "tags",
+        "edges",
         "request",
         "scope",
         "bucket",

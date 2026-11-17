@@ -27,6 +27,7 @@ import DoorEvidence from './DoorEvidence.vue'
 import { doorOfEdge, doorWhy } from './doorWhy'
 import ReachBadge from './ReachBadge.vue'
 import ExploitMark from './ExploitMark.vue'
+import { lastUsedText, workloadsText } from './roleUse'
 import { coverageReason, epssPercent, lastScanned, packageLine } from './vulnerability'
 import { SEVERITIES } from '@/views/overview/severity'
 import { utc } from '@/format'
@@ -83,6 +84,8 @@ const findings: Record<Tool, ReturnType<typeof toolFindings>> = { prowler: toolF
 const current = computed(() => (detail.data.value?.id === props.resourceId ? detail.data.value : null))
 // The whole resource, with what the tools judged: never on a plain body, whose read has none.
 const full = computed(() => (current.value && 'scanned' in current.value ? current.value : null))
+// An IAM role's use (spec frontend/4ace4163); null on every other type and on the map's plain read.
+const roleUse = computed(() => full.value?.role_use ?? null)
 watch(current, (r) => emit('loaded', r), { immediate: true })
 
 const connection = computed(() => (current.value ? props.connectionName(current.value.connection_id) : ''))
@@ -160,7 +163,21 @@ const vulns = computed(() => {
         <div><dt class="lbl">First seen</dt><dd class="mono">{{ current.first_seen }}</dd></div>
         <div><dt class="lbl">Last seen</dt><dd class="mono">{{ current.last_seen }}</dd></div>
         <div v-if="current.deleted_on"><dt class="lbl">Deleted on</dt><dd class="mono">{{ current.deleted_on }}</dd></div>
+        <template v-if="roleUse">
+          <div>
+            <dt class="lbl">Last used</dt>
+            <dd :class="roleUse.observed_on == null ? 'soft' : roleUse.last_used_at ? 'mono' : ''">{{ lastUsedText(roleUse) }}</dd>
+          </div>
+          <div>
+            <dt class="lbl">Workloads</dt>
+            <dd :class="{ soft: roleUse.workloads == null }">
+              <a v-if="!part && roleUse.workloads" href="#rd-edges">{{ workloadsText(roleUse) }}</a>
+              <template v-else>{{ workloadsText(roleUse) }}</template>
+            </dd>
+          </div>
+        </template>
       </dl>
+      <p v-if="roleUse?.observed_on" class="cap">Last use as AWS records it, read <span class="mono">{{ roleUse.observed_on }}</span>.</p>
       <p v-if="current.seen_on" class="cap">Configuration as of <span class="mono">{{ current.seen_on }}</span></p>
       <AlertBanner v-else kind="warn">Not in the inventory on {{ current.as_of }}. Shown as last recorded.</AlertBanner>
     </section>
@@ -436,6 +453,11 @@ const vulns = computed(() => {
 
 .finding-link:hover {
   text-decoration-color: currentcolor;
+}
+
+/* Not read or not counted yet (role use): said in words, in the quieter text colour. */
+.soft {
+  color: var(--text-3);
 }
 
 .new-tab {

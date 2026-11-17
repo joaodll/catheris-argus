@@ -13,7 +13,8 @@ import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from datetime import datetime
+from typing import Any, NamedTuple
 
 from argus.core.manifest import Manifest
 from argus.core.rawstore import RawRun
@@ -176,6 +177,8 @@ AWS_OWNED: dict[str, Callable[[dict[str, Any]], bool]] = {
 # Left out of the configuration and its hash: they change without the resource changing.
 # An IAM user's and access key's last use are kept on purpose (argus_v7): a stale key is a
 # finding an operator looks for, at the cost of a new configuration on each day it is used.
+# A role's last use is kept apart instead (InventoryBatch.role_last_used, table role_last_used,
+# migration 0053): roles outnumber users, and the Resources list reads it as a plain column.
 VOLATILE_ALL = frozenset({"_ctx", "sp_ctx", "sp_connection_name", "title", "akas"})
 VOLATILE = {
     "aws_vpc_subnet": frozenset({"available_ip_address_count"}),
@@ -197,6 +200,15 @@ class InventoryResource:
     config_hash: bytes
 
 
+class RoleReading(NamedTuple):
+    """One role's reading from a run: AWS's last use (null: no use in its tracking window) and
+    when the role was created (null: not a timestamp), migrations 0053 and 0055."""
+
+    last_used_at: datetime | None
+    last_used_region: str | None
+    created_at: datetime | None
+
+
 @dataclass
 class InventoryBatch:
     resources: list[InventoryResource]
@@ -212,6 +224,11 @@ class InventoryBatch:
     # The regions the run scanned; empty means every region. Outside them the run says nothing:
     # nothing there is deleted, and its previous rows carry forward.
     regions: frozenset[str] = frozenset()
+    # Each IAM role's last use as AWS records it (RoleLastUsed) and its creation date: uid ->
+    # RoleReading, last use (None, None) when AWS records no use in its tracking window. Load
+    # writes it only when aws_iam_role was complete. A role whose last-use date is missing or not
+    # a timestamp is left out, so it keeps its last value.
+    role_last_used: dict[str, RoleReading] = field(default_factory=dict)
 
 
 def _decode(value: Any) -> Any:
@@ -244,6 +261,33 @@ def _normalise(table: str, row: dict[str, Any]) -> dict[str, Any]:
 def config_hash(config: dict[str, Any]) -> bytes:
     canonical = json.dumps(config, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).digest()
+
+
+def _zoned(value: Any) -> datetime | None:
+    """An ISO timestamp with a zone, or None."""
+    if not isinstance(value, str):
+        return None
+    try:
+        at = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return at if at.tzinfo is not None else None
+
+
+def _role_reading(row: dict[str, Any]) -> RoleReading | None:
+    """A role row's RoleLastUsed and CreateDate; None when the row does not carry the last-use
+    column (an export that left it out says nothing, so the role keeps its last value: review
+    2026-11-18) or its date is not a timestamp."""
+    if "role_last_used_date" not in row:
+        return None
+    when, region = row["role_last_used_date"], row.get("role_last_used_region")
+    at = None
+    if when is not None:
+        at = _zoned(when)
+        if at is None:
+            return None
+    used_in = region if at is not None and isinstance(region, str) and region else None
+    return RoleReading(at, used_in, _zoned(row.get("create_date")))
 
 
 def _uid(row: dict[str, Any], column: str | None) -> str | None:
@@ -292,6 +336,7 @@ def parse_steampipe(run: RawRun) -> InventoryBatch:
     if manifest.tool_version not in SUPPORTED_VERSIONS:
         raise UnsupportedVersionError(f"steampipe export {manifest.tool_version} not supported")
     chosen: dict[str, tuple[tuple[int, int, str], InventoryResource]] = {}
+    last_used: dict[str, RoleReading] = {}
     skipped: list[str] = []
     seen: set[str] = set()
     for file in manifest.files:
@@ -314,6 +359,8 @@ def parse_steampipe(run: RawRun) -> InventoryBatch:
                 native = row.get(cols.native_id) if cols else row.get("title")
                 skipped.append(f"{table}:{native}")
                 continue
+            if table == "aws_iam_role" and (used := _role_reading(row)) is not None:
+                last_used[uid] = used
             config = _normalise(table, row)
             # Read from the row, so redacted here as the configuration is.
             tags = redact_tags(row["tags"]) if isinstance(row.get("tags"), dict) else {}
@@ -346,6 +393,7 @@ def parse_steampipe(run: RawRun) -> InventoryBatch:
         complete_types=complete_types,
         carry_types=carry_types,
         regions=frozenset(manifest.region_scope),
+        role_last_used=last_used,
     )
 
 

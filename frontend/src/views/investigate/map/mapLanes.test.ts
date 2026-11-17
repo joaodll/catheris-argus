@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LANE_GAP, NODE_HEIGHT, NODE_WIDTH, ROW, cardGlyph, hopColumns, hopLabel, layout, moveSelection, typeLabel, type LaidNode, type Link } from './mapLanes'
+import { LANE_GAP, NODE_HEIGHT, NODE_WIDTH, ROW, ROUTE_CLEAR, SUB_CLEAR, cardGlyph, hopColumns, hopLabel, laneRows, layout, lineRoute, moveSelection, typeLabel, wrappedPitch, type LaidNode, type Link } from './mapLanes'
 
 const n = (id: string, type: string | null, extra: Partial<LaidNode> = {}): LaidNode => ({ id, kind: 'resource', type, name: id, ...extra })
 
@@ -125,6 +125,77 @@ describe('the map columns', () => {
           expect(Math.abs(a.x - b.x) >= NODE_WIDTH || Math.abs(a.y - b.y) >= NODE_HEIGHT).toBe(true)
         }
     }
+  })
+
+  it('staggers sub-columns, so a line from one never runs behind a card of another', () => {
+    // A zone's six records (2026-11-17): five and one, and a column of 24 in three or more.
+    for (const [count, aspect] of [
+      [6, 16 / 9],
+      [24, 3],
+      [24, 6],
+    ] as const) {
+      const nodes = [n('focus', 'aws_route53_zone'), ...Array.from({ length: count }, (_, i) => n(`r-${String(i).padStart(2, '0')}`, 'aws_route53_record'))]
+      const l = layout(nodes, nodes.slice(1).map((r) => ({ source: r.id, target: 'focus' })), 'focus', aspect)
+      const cards = [...l.positions.entries()].filter(([id]) => id !== 'focus').map(([, p]) => p)
+      const subs = new Set(cards.map((p) => p.x)).size
+      expect(subs).toBeGreaterThan(1)
+      // A card's line leaves at its own row: every card of another sub-column keeps its middle at
+      // least SUB_CLEAR away from that row.
+      for (const a of cards) for (const b of cards) if (a.x !== b.x) expect(Math.abs(a.y - b.y)).toBeGreaterThanOrEqual(SUB_CLEAR - 1e-6)
+      // And the lines from the cards inside the band run flat to its edge, bending in the gap.
+      const focus = l.positions.get('focus')!
+      const band = l.lanes.find((b) => b.lane === cards[0]!.lane)!
+      const rows = laneRows(l.positions)
+      for (const c of cards) {
+        const route = lineRoute(c, focus, l.lanes, rows)
+        if (c.x + NODE_WIDTH / 2 === band.x + band.width) expect(route).toBeNull()
+        else {
+          expect(route!.points[0]).toEqual({ x: band.x + band.width, y: c.y })
+          expect(route!.points.at(-1)).toEqual({ x: focus.x - NODE_WIDTH / 2, y: focus.y })
+        }
+      }
+    }
+  })
+
+  it('keeps an unwrapped column on whole rows, with the plain S between columns', () => {
+    const nodes = [n('focus', 'aws_route53_zone'), n('a', 'aws_route53_record'), n('b', 'aws_route53_record'), n('c', 'aws_route53_record')]
+    const l = layout(nodes, nodes.slice(1).map((r) => ({ source: r.id, target: 'focus' })), 'focus', 0.5)
+    expect([...l.positions.values()].map((p) => p.y).sort((x, y) => x - y)).toEqual([-ROW, 0, 0, ROW])
+    const focus = l.positions.get('focus')!
+    for (const id of ['a', 'b', 'c']) expect(lineRoute(l.positions.get(id)!, focus, l.lanes, laneRows(l.positions))).toBeNull()
+    expect(wrappedPitch(1)).toBe(ROW)
+    expect(wrappedPitch(2)).toBe(ROW)
+    expect(wrappedPitch(4)).toBe(4 * SUB_CLEAR)
+  })
+
+  it('takes a line that skips a column through a gap between its cards, never behind one', () => {
+    // p leads to the chosen resource and to q beyond it, and to four more cards in its column:
+    // the straight line p -> q would run behind the chosen resource.
+    const nodes = ['f', 'p', 'q', 'r1', 'r2', 'r3', 'r4'].map((id) => n(id, 'aws_ec2_instance'))
+    const edges: Link[] = [
+      { source: 'p', target: 'f' },
+      { source: 'f', target: 'q' },
+      { source: 'p', target: 'q' },
+      ...['r1', 'r2', 'r3', 'r4'].map((r) => ({ source: 'p', target: r })),
+    ]
+    const l = layout(nodes, edges, 'f', 0.3)
+    const at = (id: string) => l.positions.get(id)!
+    expect([at('p').lane, at('f').lane, at('q').lane]).toEqual(['hop--1', 'hop-0', 'hop-1'])
+    const rows = laneRows(l.positions)
+    const route = lineRoute(at('p'), at('q'), l.lanes, rows)!
+    const middle = l.lanes.find((b) => b.lane === 'hop-0')!
+    const inside = route.points.filter((pt) => pt.x >= middle.x && pt.x <= middle.x + middle.width)
+    expect(inside.length).toBeGreaterThanOrEqual(2)
+    const crossing = inside[0]!.y
+    expect(inside.every((pt) => pt.y === crossing)).toBe(true) // flat inside the column
+    for (const y of rows.get('hop-0')!) expect(Math.abs(y - crossing)).toBeGreaterThanOrEqual(ROUTE_CLEAR)
+    // It bends only in the gaps: every change of height is outside every band.
+    route.points.forEach((pt, i) => {
+      const prev = route.points[i - 1]
+      if (prev && prev.y !== pt.y) expect(l.lanes.some((b) => pt.x > b.x && pt.x < b.x + b.width)).toBe(false)
+    })
+    // Neighbouring columns with their cards at the edges keep the plain S.
+    expect(lineRoute(at('p'), at('f'), l.lanes, rows)).toBeNull()
   })
 
   it('leaves the space the owner asked for', () => {

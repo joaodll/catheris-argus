@@ -13,6 +13,7 @@ from sqlalchemy import Engine, text
 from tests.ingest.conftest import make_demo, run_tool
 
 from argus.api.routes import resource_map
+from argus.attackpaths import walk as attackpaths_walk
 from argus.collection import TOOL_ORDER
 from argus.core.rawstore import FilesystemRawStore
 from argus.relationships import EDGE_ATTRIBUTES, SECURITY_EDGE_TYPES
@@ -605,3 +606,74 @@ def test_a_deeper_read_draws_a_vpc_but_does_not_walk_through_it(
     assert all(e["source_uid"] in walked or e["target_uid"] in walked for e in deep["edges"]), (
         "an edge read from a container"
     )
+
+
+def _zone(client: TestClient, prod: int) -> dict[str, Any]:
+    found = client.get(
+        "/api/v1/resources", params={"type": "aws_route53_zone", "connection_id": prod}
+    ).json()
+    zone: dict[str, Any] = found["items"][0]
+    return zone
+
+
+def test_a_zone_shows_its_records_and_where_they_route(signed_in: TestClient, prod: int) -> None:
+    """record-in-zone (2026-11-17): a zone's map draws each of its records on an "in zone" line,
+    in the Traffic layer, with the record's type; the next hop is where the records route."""
+    zone = _zone(signed_in, prod)
+    first = _graph(signed_in, zone["resource_uid"], connection_id=prod)
+    in_zone = [e for e in first["edges"] if e["type"] == "IN_ZONE"]
+    records = {n["uid"] for n in first["nodes"] if n["type"] == "aws_route53_record"}
+    assert len(in_zone) == len(records) == 6
+    assert all(e["target_uid"] == zone["resource_uid"] for e in in_zone)
+    assert {e["attributes"]["record_type"] for e in in_zone} == {"A", "CNAME", "TXT"}
+    assert {e["layer"] for e in in_zone} == {"traffic"}
+    second = _graph(signed_in, zone["resource_uid"], connection_id=prod, depth=2)
+    cdn = next(n for n in second["nodes"] if n["type"] == "aws_cloudfront_distribution")
+    assert any(e["target_uid"] == cdn["uid"] and e["type"] == "ROUTES_TO" for e in second["edges"])
+
+
+def test_a_records_map_shows_its_zone_but_never_its_sibling_records(
+    signed_in: TestClient, prod: int
+) -> None:
+    """A zone is a STOP_TYPES container: reached from one record, it is drawn and not walked, so
+    three hops from a record draw no sibling through the zone. (Another record may still be drawn
+    where it routes to the same place: www and app reach one load balancer on the Demo estate.)"""
+    zone = _zone(signed_in, prod)
+    record = _record(signed_in, "app.")
+    deep = _graph(signed_in, record, connection_id=prod, depth=3)
+    drawn = next(n for n in deep["nodes"] if n["uid"] == zone["resource_uid"])
+    assert not drawn["expanded"]
+    in_zone = {(s, t) for s, t, kind in _edges(deep) if kind == "IN_ZONE"}
+    assert in_zone == {(record, zone["resource_uid"])}
+    records = [n for n in deep["nodes"] if n["type"] == "aws_route53_record"]
+    assert len(records) < 6
+
+
+def test_a_zones_records_over_the_group_size_come_back_as_one_group(
+    signed_in: TestClient, prod: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("argus.relationships.graph.GROUP_OVER", 5)
+    zone = _zone(signed_in, prod)
+    graph = _graph(signed_in, zone["resource_uid"], connection_id=prod)
+    group = next(g for g in graph["groups"] if g["edge_type"] == "IN_ZONE")
+    assert group["direction"] == "in" and group["count"] == 6
+    assert group["resource_type"] == "aws_route53_record" and group["layer"] == "traffic"
+    assert not any(e["type"] == "IN_ZONE" for e in graph["edges"])
+    page = signed_in.get(
+        "/api/v1/map/group",
+        params={
+            "anchor": zone["resource_uid"],
+            "connection_id": prod,
+            "direction": "in",
+            "edge_type": "IN_ZONE",
+            "resource_type": "aws_route53_record",
+        },
+    ).json()
+    assert page["total"] == 6
+    assert {i["edge"]["attributes"]["record_type"] for i in page["items"]} == {"A", "CNAME", "TXT"}
+
+
+def test_in_zone_is_a_plain_line_that_no_route_walks() -> None:
+    """Belonging to a zone is a connection, not a security judgement, and no attack-path move."""
+    assert "IN_ZONE" not in SECURITY_EDGE_TYPES
+    assert "IN_ZONE" not in attackpaths_walk.EDGE_TYPES

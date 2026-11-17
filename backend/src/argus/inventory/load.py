@@ -21,6 +21,7 @@ from datetime import date
 from sqlalchemy import Connection, text
 
 from argus.core.resolver import record_unresolved
+from argus.inventory.roles import ROLE_TYPE
 from argus.inventory.steampipe import InventoryBatch
 
 OWNED_ELSEWHERE = "resource owned by another connection (ADR-0034)"
@@ -161,6 +162,8 @@ def load_inventory(
         {"c": connection_id, "d": day, "n": inserted + carried},
     )
 
+    _put_role_last_used(conn, batch=batch, connection_id=connection_id, day=day)
+
     deleted = 0
     if batch.complete_types:
         deleted = conn.execute(
@@ -185,6 +188,45 @@ def load_inventory(
         "deleted": deleted,
         "owned_elsewhere": len(owned_elsewhere),
     }
+
+
+def _put_role_last_used(
+    conn: Connection, *, batch: InventoryBatch, connection_id: int, day: date
+) -> None:
+    """Each role's last use, as AWS recorded it on `day`, and its creation date (migrations 0053
+    and 0055). Only from a run in which the role table was complete: a failed, denied or
+    throttled table keeps the previous values, so a bad run never makes a role look unused. A
+    re-run of an older day never replaces a newer reading. Roles owned by another connection are
+    skipped (ADR-0034)."""
+    if ROLE_TYPE not in batch.complete_types or not batch.role_last_used:
+        return
+    uids = list(batch.role_last_used)
+    readings = [batch.role_last_used[u] for u in uids]
+    conn.execute(
+        text("""
+            INSERT INTO role_last_used
+              (resource_id, last_used_at, last_used_region, created_at, observed_on)
+            SELECT r.id, b.at, b.region, b.created, :d
+            FROM unnest(CAST(:uids AS text[]), CAST(:ats AS timestamptz[]),
+                        CAST(:regions AS text[]), CAST(:created AS timestamptz[]))
+                 AS b(uid, at, region, created)
+            JOIN resource r ON r.resource_uid = b.uid AND r.connection_id = :c
+            ON CONFLICT (resource_id) DO UPDATE SET
+              last_used_at = EXCLUDED.last_used_at,
+              last_used_region = EXCLUDED.last_used_region,
+              created_at = EXCLUDED.created_at,
+              observed_on = EXCLUDED.observed_on
+            WHERE role_last_used.observed_on <= EXCLUDED.observed_on
+        """),
+        {
+            "d": day,
+            "c": connection_id,
+            "uids": uids,
+            "ats": [r.last_used_at for r in readings],
+            "regions": [r.last_used_region for r in readings],
+            "created": [r.created_at for r in readings],
+        },
+    )
 
 
 def delete_orphan_configs(conn: Connection) -> int:

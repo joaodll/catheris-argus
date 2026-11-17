@@ -243,11 +243,12 @@ def reports_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Reports:
 def _sweep_reports(
     client: TestClient, worker: Engine, setup: _Reports, bodies: dict[str, str]
 ) -> None:
-    """Every open finding and CVE as a report, CSV and PDF: the list, each report, each file, and
-    each PDF's context."""
+    """Every open finding and CVE as a report, CSV and PDF, and every resource as a CSV: the list,
+    each report, each file, and each PDF's context."""
     for kind, fmt in (
         ("misconfigurations", "csv"),
         ("vulnerabilities", "csv"),
+        ("resources", "csv"),
         ("misconfigurations", "pdf"),
         ("vulnerabilities", "pdf"),
     ):

@@ -6,6 +6,8 @@
 
 const WORDS: Record<string, string> = {
   ROUTES_TO: 'routes to',
+  // A DNS record in its hosted zone (record-in-zone).
+  IN_ZONE: 'in zone',
   TRIGGERS: 'triggers',
   INTERNET_REACHABLE: 'reaches',
   // The internet rules' verdicts. The map never draws them; the words are for a list that does.

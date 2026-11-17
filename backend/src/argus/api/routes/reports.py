@@ -1,4 +1,5 @@
-"""Operate -> Reports (ADR-0047): exports of the Misconfigurations and Vulnerabilities lists.
+"""Operate -> Reports (ADR-0047): exports of the Misconfigurations, Vulnerabilities and Resources
+lists.
 
 The API queues a report and serves its file; the Compose worker or a Kubernetes report Job builds
 it (the API has a 5 s statement timeout and a capped pool). Operator and Admin only: a report
@@ -23,6 +24,7 @@ from argus import reports
 from argus.api import deps
 from argus.api.deps import Db, OperatorUser, client_ip
 from argus.api.routes.findings import FindingFilterQuery, finding_filters
+from argus.api.routes.resources import ResourceFilterQuery, resource_list_filters
 from argus.api.routes.vulnerabilities import VulnerabilityFilterQuery, vulnerability_filters
 from argus.auth import SessionUser
 from argus.core import audit
@@ -63,7 +65,17 @@ class VulnerabilityReportIn(BaseModel):
     filters: VulnerabilityFilterQuery = Field(default_factory=VulnerabilityFilterQuery)
 
 
-ReportIn = Annotated[MisconfigurationReportIn | VulnerabilityReportIn, Field(discriminator="kind")]
+class ResourcesReportIn(BaseModel):
+    kind: Literal["resources"]
+    # A Resources report is a CSV only (migration 0054).
+    format: Literal["csv"] = "csv"
+    filters: ResourceFilterQuery = Field(default_factory=ResourceFilterQuery)
+
+
+ReportIn = Annotated[
+    MisconfigurationReportIn | VulnerabilityReportIn | ResourcesReportIn,
+    Field(discriminator="kind"),
+]
 
 
 class ReportQueued(BaseModel):
@@ -74,8 +86,8 @@ class ReportOut(BaseModel):
     id: int
     kind: reports.ReportKind
     format: reports.ReportFormat
-    # The list's filters as the report runs them (FindingFilters' fields); for "filters in
-    # words" on the screen.
+    # The list's filters as the report runs them (FindingFilters' fields, or the Resources
+    # list's for a Resources report); for "filters in words" on the screen.
     filters: dict[str, Any]
     # The accounts the report covers, resolved when it was requested.
     connection_ids: list[int]
@@ -200,11 +212,14 @@ def request_report(body: ReportIn, conn: Db, user: OperatorUser, request: Reques
     storage, bucket = _storage(conn)
     if storage not in ("local", "s3"):
         raise reports.ReportRefusedError(UNAVAILABLE[storage])
-    filters = (
-        finding_filters(body.filters)
-        if isinstance(body, MisconfigurationReportIn)
-        else vulnerability_filters(body.filters)
-    )
+    filters: reports.ReportFilters
+    match body:
+        case MisconfigurationReportIn():
+            filters = finding_filters(body.filters)
+        case VulnerabilityReportIn():
+            filters = vulnerability_filters(body.filters)
+        case ResourcesReportIn():
+            filters = resource_list_filters(body.filters)
     report_id = reports.request_report(
         conn,
         kind=body.kind,

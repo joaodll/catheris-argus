@@ -22,13 +22,19 @@ import SeverityTag from '@/components/SeverityTag.vue'
 import SortHeader from '@/components/SortHeader.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import { useResource } from '@/composables/useResource'
+import { can } from '@/composables/useSession'
+import { toast } from '@/composables/useToasts'
+import ReportModal from '@/views/scans/ReportModal.vue'
 import ExploitMark from './ExploitMark.vue'
+import { roleUseLine, roleUseTitle } from './roleUse'
 import { parsePage } from './findingFilters'
 import { fromSelect, regionLabel, typesByService } from './labels'
 import {
+  ROLE_UNUSED,
   type MisconfigurationLevel,
   type ResourceFilters,
   type ResourceOrder,
+  type RoleUnused,
   type VulnerabilityLevel,
   emptyResourceFilters,
   isResourceFiltered,
@@ -52,11 +58,21 @@ const MISCONFIGURATION_OPTIONS: { value: MisconfigurationLevel; label: string }[
   { value: 'any', label: 'Any open misconfiguration' },
   { value: 'high', label: 'Critical or high' },
 ]
+// Role use (spec frontend/4ace4163): either filter lists roles only, so the options say so.
+const ROLE_UNUSED_OPTIONS = ROLE_UNUSED.map((days) => ({ value: days, label: `Roles not used in ${days} days` }))
 const PAGE = 20
 
 const route = useRoute()
 const router = useRouter()
 const filters = computed(() => parseResourceFilters(route.query))
+// Export (ADR-0047 amended 2026-11-17): an Operator or Admin turns this list, as filtered, into a
+// Resources CSV.
+const operator = computed(() => can('operator'))
+const exporting = ref(false)
+function onExported(id: number): void {
+  exporting.value = false
+  toast(`Report #${id} requested. Operate → Reports has it when it is ready.`)
+}
 const order = computed(() => parseResourceOrder(route.query))
 // Summary | List: the bare screen opens the summary, any list parameter the list.
 const tab = computed<Tab>(() => parseTab(route.query))
@@ -257,7 +273,18 @@ const inventoryNote = computed(() =>
   <PageHeader title="Resources">
     <template v-if="dataThrough">Data through <span class="mono strong">{{ dataThrough }}</span></template>
     <template v-else-if="loaded">No scan yet</template>
+    <template v-if="operator" #actions>
+      <button type="button" class="btn btn-secondary btn-sm" @click="exporting = true"><AppIcon name="download" :size="14" :stroke="2.2" />Export</button>
+    </template>
   </PageHeader>
+  <ReportModal
+    v-if="exporting"
+    kind="resources"
+    :filters="resourceApiFilters(filters)"
+    :connections="connections.data.value ?? []"
+    @close="exporting = false"
+    @requested="onExported"
+  />
 
   <InvestigateTabs :model-value="tab" label="Resources views" id-prefix="res" @update:model-value="setTab" />
   <div v-if="tab === 'summary'" id="res-summary" role="tabpanel" aria-labelledby="res-tab-summary" class="tabpanel">
@@ -312,6 +339,22 @@ const inventoryNote = computed(() =>
               <option v-for="o in MISCONFIGURATION_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
           </div>
+          <div class="field">
+            <label class="lbl" for="r-role-use">Role use</label>
+            <select
+              id="r-role-use"
+              class="select"
+              :value="filters.roleUnused ?? ''"
+              @change="set('roleUnused', fromSelect(($event.target as HTMLSelectElement).value) as RoleUnused | null)"
+            >
+              <option value="">All resources</option>
+              <option v-for="o in ROLE_UNUSED_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</option>
+            </select>
+          </div>
+          <label class="check inline-check" title="No EC2 instance, Lambda function, ECS service or EKS node group runs as the role">
+            <input type="checkbox" :checked="filters.noWorkload" @change="set('noWorkload', ($event.target as HTMLInputElement).checked)">
+            No workload runs as it
+          </label>
           <label class="check inline-check" title="An open misconfiguration that Argus's rules confirm is reachable from the internet">
             <input type="checkbox" :checked="filters.internet" @change="set('internet', ($event.target as HTMLInputElement).checked)">
             Internet reachable
@@ -414,6 +457,7 @@ const inventoryNote = computed(() =>
                   <span v-if="r.deleted_on" :title="`Deleted on ${r.deleted_on}`"><StatusBadge status="deleted" /></span>
                 </span>
                 <span class="mono sub">{{ r.type }}</span>
+                <span v-if="r.role_use" class="sub role-use" :title="roleUseTitle(r.role_use)" data-role-use>{{ roleUseLine(r.role_use).join(' · ') }}</span>
               </td>
               <td data-label="Connection">
                 <span class="conn"><ProviderTag :provider="r.provider" /><span class="conn-name">{{ connectionName(r.connection_id) }}</span></span>

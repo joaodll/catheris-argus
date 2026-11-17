@@ -2672,7 +2672,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "misconfigurations" | "vulnerabilities";
+            kind: "misconfigurations" | "vulnerabilities" | "resources";
             /**
              * Requested At
              * Format: date-time
@@ -2802,6 +2802,7 @@ export interface components {
             region: string;
             /** Resource Uid */
             resource_uid: string;
+            role_use?: components["schemas"]["RoleUse"] | null;
             scanned: components["schemas"]["ToolScans"];
             /** Seen On */
             seen_on: string | null;
@@ -2821,6 +2822,55 @@ export interface components {
             regions: string[];
             /** Types */
             types: string[];
+        };
+        /**
+         * ResourceFilterQuery
+         * @description The Resources list's filters: its query parameters, and a report's. A list parameter
+         *     repeats (`type=a&type=b`) and matches any of its values; absent, it does not filter.
+         */
+        ResourceFilterQuery: {
+            /**
+             * Assets
+             * @default false
+             */
+            assets: boolean;
+            /** Connection Id */
+            connection_id?: number[];
+            /** Deleted From */
+            deleted_from?: string | null;
+            /** Deleted To */
+            deleted_to?: string | null;
+            /** First Seen From */
+            first_seen_from?: string | null;
+            /** First Seen To */
+            first_seen_to?: string | null;
+            /**
+             * Include Deleted
+             * @default false
+             */
+            include_deleted: boolean;
+            /**
+             * Internet
+             * @default false
+             */
+            internet: boolean;
+            /** Misconfigurations */
+            misconfigurations?: ("any" | "high") | null;
+            /**
+             * No Workload
+             * @default false
+             */
+            no_workload: boolean;
+            /** Q */
+            q?: string | null;
+            /** Region */
+            region?: string[];
+            /** Role Unused */
+            role_unused?: ("90" | "180" | "365") | null;
+            /** Type */
+            type?: string[];
+            /** Vulnerabilities */
+            vulnerabilities?: ("any" | "high" | "exploitable") | null;
         };
         /** ResourceOut */
         ResourceOut: {
@@ -2896,6 +2946,7 @@ export interface components {
             region: string;
             /** Resource Uid */
             resource_uid: string;
+            role_use?: components["schemas"]["RoleUse"] | null;
             /** Type */
             type: string;
             /** Vpc Id */
@@ -2903,6 +2954,21 @@ export interface components {
             vulnerabilities: components["schemas"]["VulnerabilitySummary"] | null;
             /** Worst Severity */
             worst_severity: string | null;
+        };
+        /** ResourcesReportIn */
+        ResourcesReportIn: {
+            filters?: components["schemas"]["ResourceFilterQuery"];
+            /**
+             * Format
+             * @default csv
+             * @constant
+             */
+            format: "csv";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "resources";
         };
         /**
          * ResourcesSummary
@@ -2974,6 +3040,26 @@ export interface components {
             external_id?: string | null;
             /** Role Arn */
             role_arn?: string | null;
+        };
+        /**
+         * RoleUse
+         * @description An IAM role's use (migration 0053): AWS's own record of its last use, and how many
+         *     workloads (EC2 instances, Lambda functions, ECS services, EKS node groups) run as it. The
+         *     latest reading, whatever day the page shows.
+         */
+        RoleUse: {
+            /** Created At */
+            created_at?: string | null;
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Last Used Region */
+            last_used_region: string | null;
+            /** Observed On */
+            observed_on: string | null;
+            /** Tracking Days */
+            tracking_days: number;
+            /** Workloads */
+            workloads: number | null;
         };
         /** RouteDetail */
         RouteDetail: {
@@ -5600,7 +5686,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MisconfigurationReportIn"] | components["schemas"]["VulnerabilityReportIn"];
+                "application/json": components["schemas"]["MisconfigurationReportIn"] | components["schemas"]["VulnerabilityReportIn"] | components["schemas"]["ResourcesReportIn"];
             };
         };
         responses: {
@@ -5700,8 +5786,6 @@ export interface operations {
     list_resources_api_v1_resources_get: {
         parameters: {
             query?: {
-                limit?: number;
-                offset?: number;
                 connection_id?: number[];
                 type?: string[];
                 region?: string[];
@@ -5712,10 +5796,14 @@ export interface operations {
                 first_seen_to?: string | null;
                 deleted_from?: string | null;
                 deleted_to?: string | null;
-                order?: "name_asc" | "name_desc" | "last_seen_desc" | "last_seen_asc";
                 vulnerabilities?: ("any" | "high" | "exploitable") | null;
                 misconfigurations?: ("any" | "high") | null;
                 internet?: boolean;
+                role_unused?: ("90" | "180" | "365") | null;
+                no_workload?: boolean;
+                limit?: number;
+                offset?: number;
+                order?: "name_asc" | "name_desc" | "last_seen_desc" | "last_seen_asc";
             };
             header?: {
                 "X-Argus-CSRF"?: string | null;

@@ -2,7 +2,8 @@
 /**
  * New report, or Export from a list (ADR-0047; palace frontend/08ff3c8d). From a list the kind is
  * fixed and the list's filters go along as they are; from Operate -> Reports the person picks the
- * kind and, optionally, the accounts. The worker builds it in the background.
+ * kind and, optionally, the accounts. The worker builds it in the background. Resources is exported
+ * from its list only, as a CSV (migration 0054).
  */
 import { computed, ref } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
@@ -14,7 +15,7 @@ import TagFilter from '@/views/investigate/TagFilter.vue'
 import { type TagPair, tagParams } from '@/views/investigate/tagFilter'
 import { describe, type ReportFilters } from './reportFilters'
 
-type Kind = 'misconfigurations' | 'vulnerabilities'
+type Kind = 'misconfigurations' | 'vulnerabilities' | 'resources'
 const props = defineProps<{
   // Set when exporting from a list: that list's kind and its filters (the API's query shape).
   kind?: Kind
@@ -23,6 +24,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: []; requested: [id: number] }>()
 
+const KIND_NAMES: Record<Kind, string> = { misconfigurations: 'Misconfigurations', vulnerabilities: 'Vulnerabilities', resources: 'Resources' }
+// New report's kinds; Resources is exported from its list.
 const KINDS: { id: Kind; label: string; text: string }[] = [
   { id: 'misconfigurations', label: 'Misconfigurations', text: 'Prowler and CloudFox checks that fail.' },
   { id: 'vulnerabilities', label: 'Vulnerabilities', text: "CVEs from the provider's scanner." },
@@ -30,6 +33,7 @@ const KINDS: { id: Kind; label: string; text: string }[] = [
 const fromList = props.kind !== undefined
 const kind = ref<Kind>(props.kind ?? 'misconfigurations')
 const format = ref<'csv' | 'pdf'>('csv')
+const csvOnly = computed(() => kind.value === 'resources')
 // From a list, its filters; "Clear filters" drops them (the report then covers all open).
 const listFilters = ref<ReportFilters | null>(props.filters ?? null)
 const allAccounts = ref(true)
@@ -58,7 +62,7 @@ const unavailable = computed((): string | null => {
 const offered = computed(() => props.connections.filter((c) => !local.value || c.kind === 'demo'))
 
 const title = computed(() =>
-  fromList ? `Export ${kind.value === 'misconfigurations' ? 'Misconfigurations' : 'Vulnerabilities'}` : 'New report',
+  fromList ? `Export ${KIND_NAMES[kind.value]}` : 'New report',
 )
 // New report's tags (spec frontend/27ceefe0): the names the kind's list offers over the accounts.
 const tags = ref<TagPair[]>([])
@@ -78,8 +82,11 @@ const tagNames = useResource(
 )
 const tagStatus = computed(() => (tagNames.error.value ? 'error' : tagNames.data.value ? 'ready' : 'loading'))
 
+const everything = computed(() => (kind.value === 'resources' ? 'All resources' : 'All open'))
 const filterWords = computed(() =>
-  listFilters.value ? describe(listFilters.value, (id) => props.connections.find((c) => c.id === id)?.name ?? `#${id}`) : '',
+  listFilters.value
+    ? describe(listFilters.value, (id) => props.connections.find((c) => c.id === id)?.name ?? `#${id}`, everything.value)
+    : '',
 )
 const dirty = computed(
   () =>
@@ -132,7 +139,11 @@ async function send(): Promise<void> {
           <span><span class="kind-name">{{ k.label }}</span><span class="cap">{{ k.text }}</span></span>
         </label>
       </fieldset>
-      <fieldset class="choices">
+      <div v-if="csvOnly" class="field">
+        <span class="lbl">Format</span>
+        <span class="filters">CSV: every row, for a spreadsheet</span>
+      </div>
+      <fieldset v-else class="choices">
         <legend class="lbl">Format</legend>
         <label class="check"><input v-model="format" type="radio" name="report-format" value="csv">CSV: every row, for a spreadsheet</label>
         <label class="check"><input v-model="format" type="radio" name="report-format" value="pdf">PDF: an audit hand-off to send</label>
@@ -140,7 +151,7 @@ async function send(): Promise<void> {
       </fieldset>
       <div v-if="fromList" class="field">
         <span class="lbl">Filters from the list</span>
-        <span class="filters">{{ listFilters ? filterWords : 'All open, every account' }}</span>
+        <span class="filters">{{ listFilters ? filterWords : `${everything}, every account` }}</span>
         <button v-if="listFilters" type="button" class="btn btn-ghost btn-sm clear" @click="listFilters = null">Clear filters</button>
       </div>
       <fieldset v-else class="choices">
@@ -156,7 +167,7 @@ async function send(): Promise<void> {
       <TagFilter
         v-if="!fromList"
         id="report-tag"
-        :list="kind"
+        :list="kind === 'vulnerabilities' ? 'vulnerabilities' : 'misconfigurations'"
         :names="tagNames.data.value"
         :status="tagStatus"
         :connection-ids="scopeIds"

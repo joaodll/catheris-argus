@@ -916,6 +916,49 @@ test('map, Infrastructure view: the start, a map as a diagram, the panel and the
   await shot(page, 'P91-map')
 })
 
+test('map, a Route 53 zone: its records on "in zone" lines, then where one routes; both themes, phone width', async ({ page }) => {
+  // record-in-zone (2026-11-17): a zone shows its records; a record's own map shows its zone.
+  test.setTimeout(120_000)
+  await signIn(page)
+  const connections = (await (await page.request.get('/api/v1/connections')).json()) as { id: number; name: string }[]
+  const prod = connections.find((c) => c.name === 'demo-prod')!
+  const zones = (await (
+    await page.request.get(`/api/v1/resources?connection_id=${prod.id}&type=aws_route53_zone&limit=1`)
+  ).json()) as { items: { resource_uid: string; name: string }[] }
+  const zone = zones.items[0]!
+  await navLink(page, 'Map')
+  await page.getByLabel('Account').selectOption({ label: 'demo-prod' })
+  const find = page.getByRole('combobox', { name: 'Find a resource' })
+  // A record's ARN starts with its zone's, so the search lists the records too: pick the zone.
+  await find.fill(zone.resource_uid)
+  const answered = page.waitForResponse((r) => r.url().includes('/api/v1/map/graph') && r.status() === 200)
+  await page.getByRole('listbox', { name: 'Resources' }).getByRole('option').filter({ hasText: 'aws_route53_zone' }).click()
+  const canvas = page.getByRole('application', { name: /^Map, Infrastructure view, \d+ resources/ })
+  await expect(canvas).toBeVisible()
+  const graph = (await (await answered).json()) as { edges: { type: string; target_uid: string; attributes: Record<string, unknown> }[] }
+  const inZone = graph.edges.filter((e) => e.type === 'IN_ZONE')
+  expect(inZone.length).toBeGreaterThan(1)
+  expect(inZone.every((e) => e.target_uid === zone.resource_uid && typeof e.attributes.record_type === 'string')).toBe(true)
+  await expect(page.locator('.line-word', { hasText: 'in zone' }).first()).toBeVisible()
+  await axe(page, 'map, a zone')
+  await shot(page, '93-map-zone')
+  // A record: Expand adds its own hop, where it routes.
+  const record = canvas.locator('.node', { hasText: /^app\./ }).first()
+  await record.click()
+  const expanded = page.waitForResponse((r) => r.url().includes('/api/v1/map/graph') && r.status() === 200)
+  await page.getByRole('complementary', { name: 'Resource panel' }).getByRole('button', { name: 'Expand' }).click()
+  const hop = (await (await expanded).json()) as { edges: { type: string }[] }
+  expect(hop.edges.some((e) => e.type === 'ROUTES_TO')).toBe(true)
+  await expect(page.locator('.line-word', { hasText: 'routes to' }).first()).toBeVisible()
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await axe(page, 'light map, a zone')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(canvas).toBeVisible()
+  await axe(page, 'phone map, a zone')
+  await shot(page, '93b-phone-map-zone')
+})
+
 test('map, Security view: card B, the security lines and each fact linked to its list; both themes, phone width', async ({ page }) => {
   test.setTimeout(150_000)
   await signIn(page)
@@ -994,17 +1037,29 @@ test('map, Security view: card B, the security lines and each fact linked to its
   await canvas.locator('.node:has(.mark-internet)').first().click()
   await follow(facts.getByRole('link', { name: /Reachable from the internet/ }), /^[1-9][\d,]* records?$/)
   checked.push('internet')
-  // Vulnerabilities: a function with four open CVEs, one with a public exploit (the Demo estate).
-  await find.fill('prod-resize-2-g21')
-  await page.getByRole('listbox', { name: 'Resources' }).getByRole('option').filter({ hasText: 'prod-resize-2-g21' }).first().click()
+  // Vulnerabilities: a demo-prod function with open CVEs, one with a public exploit. Demo function
+  // names carry a generation that changes with the scan day, so the list names it, never the test.
+  const connections = (await (await page.request.get('/api/v1/connections')).json()) as { id: number; name: string }[]
+  const prod = connections.find((c) => c.name === 'demo-prod')!
+  const exploitable = (await (
+    await page.request.get(`/api/v1/resources?connection_id=${prod.id}&type=aws_lambda_function&vulnerabilities=exploitable&limit=1`)
+  ).json()) as { items: { name: string; resource_uid: string; vulnerabilities: { open: number } }[] }
+  const fn = exploitable.items[0]
+  expect(fn, 'a demo-prod function with an exploitable CVE').toBeTruthy()
+  const open = fn.vulnerabilities.open
+  // By its ARN: the same function name exists in more than one region.
+  await find.fill(fn.resource_uid)
+  const options = page.getByRole('listbox', { name: 'Resources' }).getByRole('option')
+  await expect(options).toHaveCount(1)
+  await options.filter({ hasText: fn.name }).click()
   const vulnerable = canvas.locator('.node.focus')
   await expect(vulnerable.locator('.mark-vulnerable')).toBeVisible()
   await expect(vulnerable.locator('.mark-exploit')).toBeVisible()
   await vulnerable.click()
   const cves = facts.getByRole('link', { name: /open vulnerabilit/ })
-  await expect(cves).toContainText('4 open vulnerabilities')
+  await expect(cves).toContainText(`${open} open vulnerabilit${open === 1 ? 'y' : 'ies'}`)
   await expect(cves).toContainText('Exploit')
-  await follow(cves, /^4 records$/)
+  await follow(cves, new RegExp(`^${open} records?$`))
   checked.push('vulnerabilities')
   expect(checked).toEqual(['misconfigurations', 'internet', 'vulnerabilities'])
   // The List view says each fact in words.
@@ -1734,6 +1789,105 @@ test('tag filter: pick a tag, export it, see it in Reports; both themes, phone w
   const inner = await creating.evaluate((el) => el.scrollWidth - el.clientWidth)
   expect(inner, 'the dialog does not scroll sideways').toBeLessThanOrEqual(0)
   await shot(page, '6x-phone-new-report-tag')
+})
+
+test('resources: role use, its filters and the panel; both themes, phone width', async ({ page }) => {
+  // Spec frontend/4ace4163: each IAM role says when AWS last saw it used and how many workloads
+  // run as it, in words; Role use and No workload filter the list, in the URL.
+  test.setTimeout(120_000)
+  await signIn(page)
+  await page.goto('/investigate/resources?tab=list&type=aws_iam_role')
+  const resources = page.getByRole('table')
+  const rows = resources.locator('tbody tr')
+  await expect(rows.first()).toBeVisible()
+  const line = rows.first().locator('[data-role-use]')
+  await expect(line).toHaveText(/^(Last used \d{4}-\d{2}-\d{2}|Never used · created \d{4}-\d{2}-\d{2}|Not used in 400 days|Last use not collected yet) · /)
+  await expect(line).toHaveText(/(\d+ workloads?|no workload|workloads not counted yet)$/)
+
+  await page.getByRole('button', { name: /^More filters/ }).click()
+  const filtered = page.waitForResponse((r) => r.url().includes('/api/v1/resources?') && r.url().includes('role_unused=90') && r.ok())
+  await page.locator('#r-role-use').selectOption('90')
+  await filtered
+  await expect(page).toHaveURL(/[?&]role_unused=90/)
+  await expect(page.getByRole('button', { name: /^More filters · 1/ })).toBeVisible()
+  await expect(rows.first()).toBeVisible()
+  // Every role listed has no use AWS records in the last 90 days.
+  for (const text of await resources.locator('[data-role-use]').allTextContents()) {
+    const used = text.match(/^Last used (\d{4}-\d{2}-\d{2})/)?.[1]
+    if (used) expect(Date.now() - Date.parse(used), text).toBeGreaterThan(80 * 86_400_000)
+    else expect(text).toMatch(/^(Not used in 400 days|Never used · created )/) // new roles stay in the filter (owner, 2026-11-18)
+  }
+  // Read the rows only once the list has reloaded with the filter.
+  const reloaded = page.waitForResponse((r) => r.url().includes('/api/v1/resources?') && r.url().includes('no_workload=true') && r.ok())
+  await page.getByLabel('No workload runs as it').check()
+  await reloaded
+  await expect(page).toHaveURL(/[?&]no_workload=1/)
+  await expect(page.getByRole('button', { name: /^More filters · 2/ })).toBeVisible()
+  const idle = resources.locator('[data-role-use]')
+  if (await idle.count()) {
+    for (const text of await idle.allTextContents()) expect(text).toMatch(/ · no workload$/)
+  } else {
+    await expect(page.getByText('No resources match these filters.')).toBeVisible()
+  }
+  await axe(page, 'resources role use filters')
+  await shot(page, '73-resources-role-use')
+
+  // A role used by a workload: its panel says when and how many.
+  await page.goto('/investigate/resources?tab=list&type=aws_iam_role')
+  await rows.filter({ has: page.locator('[data-role-use]', { hasText: /\d+ workloads?$/ }) }).first().getByRole('link').click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet.getByText('Last used', { exact: true })).toBeVisible()
+  await expect(sheet.getByRole('link', { name: /^\d+ runs? as it$/ })).toBeVisible()
+  await expect(sheet.getByText(/^Last use as AWS records it, read/)).toBeVisible()
+  await axe(page, 'resource sheet role use')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await axe(page, 'light resource sheet role use')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(rows.first().locator('[data-role-use]')).toBeVisible()
+  await shot(page, '73b-phone-resources-role-use')
+})
+
+test('resources: export the list as a CSV, see it in Reports, download it; both themes, phone width', async ({ page }) => {
+  // Round 2 (2026-11-17, ADR-0047 amended): Resources has Export, a CSV of the list as filtered.
+  test.setTimeout(120_000)
+  await signIn(page)
+  await page.goto('/investigate/resources?tab=list&type=aws_iam_role&role_unused=90')
+  await expect(page.getByRole('heading', { level: 1, name: 'Resources' })).toBeVisible()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const exporting = page.getByRole('dialog', { name: 'Export Resources' })
+  await expect(exporting.getByText('aws_iam_role · roles not used in 90 days')).toBeVisible()
+  // A Resources report is a CSV only: no PDF choice.
+  await expect(exporting.getByText('CSV: every row, for a spreadsheet')).toBeVisible()
+  await expect(exporting.getByRole('radio')).toHaveCount(0)
+  await axe(page, 'export resources')
+  await shot(page, '74-export-resources')
+  await exporting.getByRole('button', { name: 'Request report' }).click()
+  const toastText = page.getByRole('status').filter({ hasText: /Report #\d+ requested/ })
+  await expect(toastText).toBeVisible()
+  const id = (await toastText.textContent())?.match(/#(\d+)/)?.[1] ?? ''
+
+  await navLink(page, 'Reports')
+  const link = page.getByRole('link', { name: `Download report #${id}` })
+  await expect(link).toBeVisible({ timeout: 60_000 })
+  const row = page.locator('tbody tr', { has: link })
+  await expect(row.locator('.kind')).toHaveText('Resources')
+  await expect(row).toContainText('aws_iam_role · roles not used in 90 days')
+  const response = await page.request.get((await link.getAttribute('href')) ?? '')
+  expect(response.status()).toBe(200)
+  expect(response.headers()['content-disposition']).toMatch(new RegExp(`^attachment; filename="argus-resources-${id}\\.csv"`))
+  const [header, ...rows] = (await response.text()).replace(/^\ufeff/, '').trim().split('\r\n')
+  expect(header).toContain('last_used_read_on')
+  expect(rows.length).toBeGreaterThan(0)
+  await axe(page, 'reports with a resources report')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await axe(page, 'light reports with a resources report')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(link).toBeVisible()
+  await axe(page, 'phone reports with a resources report')
+  await shot(page, '74b-phone-resources-report')
 })
 
 test('light theme: every screen passes axe, and the toggle cycles', async ({ page }) => {
