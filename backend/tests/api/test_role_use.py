@@ -3,7 +3,8 @@ role's last use as AWS records it, kept apart from its configuration, and how ma
 as it. Missing data is null ("not covered"), never a zero, and a bad run never makes a role look
 unused."""
 
-from datetime import date, timedelta
+import threading
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from tests.ingest.conftest import make_demo, run_tool
 from argus import inventory
 from argus.collection.synthetic.estate import SCENARIO_ROLE
 from argus.core.rawstore import FilesystemRawStore
+from argus.inventory.steampipe import _last_used as last_used_of
 from argus.relationships import put_role_workloads
 
 pytestmark = pytest.mark.db
@@ -221,3 +223,57 @@ def test_a_role_not_read_yet_says_so(
     )
     assert _roles(signed_in, role_unused=365) == []
     assert _roles(signed_in, no_workload=True) == []
+
+
+def test_two_rule_loads_of_one_account_rewrite_its_counts_in_turn(
+    owner: Engine, worker: Engine, store: FilesystemRawStore
+) -> None:
+    """Review 2026-11-18: two ingests of one account can run together on Kubernetes. Each
+    rewrites the account's counts (delete, then insert); the second waits for the first instead
+    of inserting on top of its rows and failing its rule load."""
+    target = make_demo(owner)
+    run_tool(worker, store, target, "steampipe", DAY)
+    failed: list[BaseException] = []
+
+    def second() -> None:
+        try:
+            with worker.begin() as conn:
+                put_role_workloads(conn, connection_id=target.connection_id, day=DAY)
+        except BaseException as exc:  # reported by the test
+            failed.append(exc)
+
+    with worker.connect() as first:
+        with first.begin():
+            assert put_role_workloads(first, connection_id=target.connection_id, day=DAY) > 0
+            thread = threading.Thread(target=second)
+            thread.start()
+            thread.join(timeout=1)
+            assert thread.is_alive(), "the second rewrite did not wait for the first"
+        thread.join(timeout=30)
+    assert not thread.is_alive() and not failed, failed
+    counted = _rows(
+        owner, "SELECT count(*) FROM role_workload WHERE connection_id = :c", c=target.connection_id
+    )[0][0]
+    assert counted > 0
+
+
+@pytest.mark.parametrize(
+    ("row", "read"),
+    [
+        ({"role_last_used_date": None, "role_last_used_region": None}, (None, None)),
+        (
+            {"role_last_used_date": "2026-10-01T09:30:00Z", "role_last_used_region": "eu-west-1"},
+            (datetime(2026, 10, 1, 9, 30, tzinfo=UTC), "eu-west-1"),
+        ),
+        ({"role_last_used_date": "yesterday"}, None),
+        ({"role_last_used_date": "2026-10-01T09:30:00"}, None),  # no zone: not trusted
+        ({}, None),  # the export left the column out: says nothing
+    ],
+    ids=["no-use", "used", "not-a-date", "no-zone", "column-missing"],
+)
+def test_a_role_rows_last_use_is_read_only_when_the_row_says_it(
+    row: dict[str, Any], read: Any
+) -> None:
+    """Review 2026-11-18: a row without the column is not AWS saying "no use"; the role keeps
+    its last value (None here means nothing is written)."""
+    assert last_used_of(row) == read

@@ -25,7 +25,16 @@ def put_role_workloads(conn: Connection, *, connection_id: int, day: date) -> in
     """Rewrites the connection's counts from its rule load of `day`, inside the load's own
     transaction; nothing when a later rule load exists (a re-run of an older day). Counts only
     the connection's own lines: a role runs as itself in its own account. Returns the rows
-    written."""
+    written.
+
+    One rewrite of a connection's counts at a time, until the transaction ends (review
+    2026-11-18): two ingests of one account can run together on Kubernetes, and each deletes then
+    inserts, so the second's insert would hit the first's rows and fail its rule load. Taken
+    first, so the later-load check below reads what the other rewrite committed."""
+    conn.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext('argus.role.workloads'), CAST(:c AS int))"),
+        {"c": connection_id},
+    )
     latest = conn.execute(
         text(
             "SELECT max(snapshot_date) FROM edge_load WHERE connection_id = :c AND family = 'rule'"

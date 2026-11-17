@@ -254,8 +254,12 @@ def config_hash(config: dict[str, Any]) -> bytes:
 
 
 def _last_used(row: dict[str, Any]) -> tuple[datetime | None, str | None] | None:
-    """A role row's RoleLastUsed as (when, region); None when the date is not a timestamp."""
-    when, region = row.get("role_last_used_date"), row.get("role_last_used_region")
+    """A role row's RoleLastUsed as (when, region); None when the row does not carry the column
+    (an export that left it out says nothing, so the role keeps its last value: review
+    2026-11-18) or the date is not a timestamp."""
+    if "role_last_used_date" not in row:
+        return None
+    when, region = row["role_last_used_date"], row.get("role_last_used_region")
     if when is None:
         return None, None
     if not isinstance(when, str):
