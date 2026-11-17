@@ -1,4 +1,4 @@
-# Every AWS check of the pinned Prowler (5.48.0), one id per line: `prowler aws --list-checks-json`.
+# Every AWS check of the pinned Prowler (5.50.0), one id per line: `prowler aws --list-checks-json`.
 # A check's service is the first word of its id. The worker image's build fails when this list
 # differs from the installed Prowler, so an upgrade refreshes it (backend/Dockerfile).
 accessanalyzer_enabled
@@ -68,11 +68,13 @@ bedrock_api_key_no_long_term_credentials
 bedrock_custom_model_encrypted_with_cmk
 bedrock_full_access_policy_attached
 bedrock_guardrail_contextual_grounding_filter_enabled
+bedrock_guardrail_iam_condition_enforcement_enabled
 bedrock_guardrail_prompt_attack_filter_enabled
 bedrock_guardrail_sensitive_information_filter_enabled
 bedrock_guardrail_sensitive_information_filter_enforced
 bedrock_guardrails_configured
 bedrock_knowledge_base_encrypted_with_cmk
+bedrock_model_invocation_job_output_encrypted_with_cmk
 bedrock_model_invocation_logging_enabled
 bedrock_model_invocation_logging_text_data_enabled
 bedrock_model_invocation_logs_encryption_enabled
@@ -123,6 +125,7 @@ cloudwatch_changes_to_network_route_tables_alarm_configured
 cloudwatch_changes_to_vpcs_alarm_configured
 cloudwatch_cross_account_sharing_disabled
 cloudwatch_log_group_agentcore_data_protection_policy_enabled
+cloudwatch_log_group_data_protection_policy_configured
 cloudwatch_log_group_kms_encryption_enabled
 cloudwatch_log_group_no_secrets_in_logs
 cloudwatch_log_group_not_publicly_accessible
@@ -226,6 +229,7 @@ ec2_elastic_ip_shodan
 ec2_elastic_ip_unassigned
 ec2_instance_account_imdsv2_enabled
 ec2_instance_detailed_monitoring_enabled
+ec2_instance_emerging_threat_image
 ec2_instance_imdsv2_enabled
 ec2_instance_internet_facing_with_instance_profile
 ec2_instance_managed_by_ssm
@@ -504,6 +508,7 @@ networkfirewall_multi_az
 networkfirewall_policy_default_action_fragmented_packets
 networkfirewall_policy_default_action_full_packets
 networkfirewall_policy_rule_group_associated
+oam_sink_not_publicly_accessible
 opensearch_service_domains_access_control_enabled
 opensearch_service_domains_audit_logging_enabled
 opensearch_service_domains_cloudwatch_logging_enabled
@@ -520,6 +525,7 @@ organizations_account_part_of_organizations
 organizations_delegated_administrators
 organizations_opt_out_ai_services_policy
 organizations_scp_check_deny_regions
+organizations_security_services_delegated_admin_not_management_account
 organizations_tags_policies_enabled_and_attached
 rds_cluster_backtrack_enabled
 rds_cluster_copy_tags_to_snapshots

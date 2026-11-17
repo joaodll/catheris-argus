@@ -6,9 +6,11 @@ Description: >-
 
 # Permission sources, pinned to the tool versions in the worker image (backend/Dockerfile):
 #   - arn:aws:iam::aws:policy/SecurityAudit and job-function/ViewOnlyAccess (AWS managed)
-#   - Prowler permissions/prowler-additions-policy.json (5.48.0: 5.44.0's, unchanged until 5.47.0,
-#     plus 5.48.0's bedrock-agentcore reads; the Description below keeps 5.44.0, since changing
-#     it would replace the policy), WITHOUT
+#   - Prowler permissions/prowler-additions-policy.json (5.50.0: 5.44.0's, unchanged until 5.47.0,
+#     plus 5.48.0's bedrock-agentcore reads and 5.49.0's inspector2:SearchVulnerabilities,
+#     oam:GetSinkPolicy and oam:ListTagsForResource; the Description below keeps 5.44.0, since
+#     changing it would replace the policy), plus logs:GetDataProtectionPolicy, which a 5.50.0
+#     check calls and the upstream policy lacks, WITHOUT
 #     securityhub:BatchImportFindings (a write; Argus never sends findings to Security Hub) and
 #     WITHOUT ecr:BatchGetImage, ecr:GetDownloadUrlForLayer, lambda:GetLayerVersion,
 #     logs:FilterLogEvents (bulk reads of
@@ -133,10 +135,16 @@ Resources:
               - glue:SearchTables
               - glue:GetMLTransforms
               - inspector2:BatchGetFindingDetails
+              - inspector2:SearchVulnerabilities
               - lambda:GetFunction*
               - lightsail:GetRelationalDatabases
+              # Not in Prowler's additions policy (5.50.0), which its new
+              # cloudwatch_log_group_data_protection_policy_configured check calls.
+              - logs:GetDataProtectionPolicy
               - macie2:GetMacieSession
               - macie2:GetAutomatedDiscoveryConfiguration
+              - oam:GetSinkPolicy
+              - oam:ListTagsForResource
               - rolesanywhere:ListProfiles
               - rolesanywhere:ListTagsForResource
               - rolesanywhere:ListTrustAnchors
