@@ -134,6 +134,25 @@ you scan it, deploy the stack there with the single-account command.
 
 Argus itself never calls CloudFormation or IAM: you deploy the role, with your own credentials.
 
+**After an Argus upgrade** whose release notes say the template changed, update the role the same
+way. Until you do, the new reads are refused, and the Runs page lists them as missing from the
+role. Keep the parameter values you deployed with, so the ExternalId is not typed again:
+
+```bash
+aws cloudformation update-stack-set \
+  --stack-set-name argus-scanner \
+  --template-body file://deploy/aws/scanner-role.yaml \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --parameters \
+    ParameterKey=HubRoleArn,UsePreviousValue=true \
+    ParameterKey=ExternalId,UsePreviousValue=true \
+    ParameterKey=RoleName,UsePreviousValue=true
+```
+
+From a delegated administrator account, add `--call-as DELEGATED_ADMIN`. For a single stack, run
+the `aws cloudformation deploy` command above again without `--parameter-overrides`: it keeps the
+stack's current values.
+
 ## 5. Add the connection
 
 In **Administration → Connections → Add connection**, choose **Assume role** and enter:

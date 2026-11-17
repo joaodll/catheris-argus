@@ -146,6 +146,7 @@ def test_printed_policies_fit_a_managed_policy_and_keep_the_deny(template: dict[
     assert set(documents) == {
         "ProwlerAdditionsPolicy",
         "CloudFoxAdditionsPolicy",
+        "SteampipeAdditionsPolicy",
         "DenySecretReadsPolicy",
     }
     assert all(len(compact(d)) <= MANAGED_POLICY_LIMIT for d in documents.values())

@@ -107,7 +107,7 @@ def fakes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "STEAMPIPE",
         _script(
             bin_dir / "steampipe",
-            'if [ "$1" = "--version" ]; then echo "steampipe_export_aws v1.34.1"; exit 0; fi\n'
+            'if [ "$1" = "--version" ]; then echo "steampipe_export_aws v1.36.0"; exit 0; fi\n'
             + record
             + 'if grep -qx "$1" "$HOME/../failing.txt" 2>/dev/null; then\n'
             '  echo "[ERROR] AccessDenied" >&2; exit 0; fi\n'
@@ -305,7 +305,7 @@ def test_a_steampipe_table_logging_an_error_is_dropped_and_the_run_is_partial(
     assert " <table> --connection aws --config-dir <config> --output jsonl" in manifest.command
     assert manifest.command.endswith('regions = ["eu-west-1"])')
     assert "table failed: aws_s3_bucket" in manifest.log_tail
-    assert manifest.tool_version == "1.34.1"
+    assert manifest.tool_version == "1.36.0"
     assert manifest.incomplete_tables == ["aws_s3_bucket"]  # the only table out of scope
 
 
@@ -950,7 +950,7 @@ def test_inspector_exports_this_accounts_open_findings_and_its_coverage(fakes: P
     tables, each filtered to the connection's account; one failing table makes the run partial
     and is named."""
     _, manifest = _run(fakes, "vulnerabilities")
-    assert manifest.tool == "vulnerabilities" and manifest.tool_version == "1.34.1"
+    assert manifest.tool == "vulnerabilities" and manifest.tool_version == "1.36.0"
     assert manifest.status == "complete"
     assert sorted(f.path for f in manifest.files) == [
         "aws_inspector2_coverage.jsonl",
@@ -1006,7 +1006,7 @@ def test_a_steampipe_run_asked_to_stop_kills_its_exports_and_starts_no_other(
     """Tables export in parallel: those running are killed, those waiting never start."""
     started = fakes / "started.txt"
     slow = (
-        'if [ "$1" = "--version" ]; then echo "steampipe_export_aws v1.34.1"; exit 0; fi\n'
+        'if [ "$1" = "--version" ]; then echo "steampipe_export_aws v1.36.0"; exit 0; fi\n'
         f'echo "$1" >> "{started}"\nexec sleep 60\n'
     )
     monkeypatch.setattr(aws_tools, "STEAMPIPE", _script(fakes / "bin" / "slow-steampipe", slow))

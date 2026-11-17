@@ -24,7 +24,7 @@ class UnsupportedVersionError(ValueError):
     pass
 
 
-SUPPORTED_VERSIONS = frozenset({"1.34.0", "1.34.1"})
+SUPPORTED_VERSIONS = frozenset({"1.34.0", "1.34.1", "1.36.0"})
 # Parts of another resource, settings and links: stored and searchable, not counted as
 # assets. Named ones, plus every table whose name ends in one of the suffixes below. The
 # database stores the same rule as resource.asset (migration 0045): a change here needs a

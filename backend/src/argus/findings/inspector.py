@@ -37,8 +37,8 @@ from argus.findings.model import (
     VulnerabilityKind,
 )
 
-# The Steampipe export binary's version (plugin 1.34.1), the same pin as the inventory's.
-SUPPORTED_VERSIONS = frozenset({"1.34.0", "1.34.1"})
+# The Steampipe export binary's version (plugin 1.36.0), the same pin as the inventory's.
+SUPPORTED_VERSIONS = frozenset({"1.34.0", "1.34.1", "1.36.0"})
 FINDINGS_FILE = "aws_inspector2_finding.jsonl"
 COVERAGE_FILE = "aws_inspector2_coverage.jsonl"
 SCANNER = "aws-inspector"

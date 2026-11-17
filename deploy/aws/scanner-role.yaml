@@ -14,7 +14,10 @@ Description: >-
 #     logs:FilterLogEvents (bulk reads of
 #     images and log content, denied below: ADR-0018)
 #   - CloudFox v2.0.5 misc/aws/cloudfox-policy.json
-# On a collector upgrade, re-diff both upstream policies against this file.
+#   - Steampipe AWS plugin 1.36.0: reads its tables make that the two AWS managed policies don't
+#     grant (SteampipeAdditionsPolicy; the plugin publishes no policy of its own)
+# On a collector upgrade, re-diff both upstream policies against this file, and check each new
+# Steampipe table's calls against the AWS managed policies.
 # deploy/aws/check_readonly.py (run by `docker compose run --rm lint`) fails the build on any
 # action that is not a read, on wildcards, or if the Deny statement is weakened.
 
@@ -67,6 +70,7 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/job-function/ViewOnlyAccess
         - !Ref ProwlerAdditionsPolicy
         - !Ref CloudFoxAdditionsPolicy
+        - !Ref SteampipeAdditionsPolicy
         - !Ref DenySecretReadsPolicy
 
   ProwlerAdditionsPolicy:
@@ -158,6 +162,23 @@ Resources:
               - arn:*:apigateway:*::/apis/*
               - arn:*:apigateway:*::/domainnames
               - arn:*:apigateway:*::/domainnames/*
+
+  # No version in the Description: changing it replaces the policy.
+  SteampipeAdditionsPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: Read permissions Steampipe's AWS tables need beyond SecurityAudit and ViewOnlyAccess
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          # aws_application_signals_service_level_objective (plugin 1.35.0): SLO configuration.
+          - Sid: SteampipeReadOnly
+            Effect: Allow
+            Resource: "*"
+            Action:
+              - application-signals:GetServiceLevelObjective
+              - application-signals:ListServiceLevelObjectives
+              - application-signals:ListTagsForResource
 
   CloudFoxAdditionsPolicy:
     Type: AWS::IAM::ManagedPolicy

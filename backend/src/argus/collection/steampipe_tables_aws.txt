@@ -34,6 +34,8 @@ aws_api_gatewayv2_stage
 aws_app_runner_service
 # appconfig
 aws_appconfig_application
+# application
+aws_application_signals_service_level_objective
 # appstream
 aws_appstream_fleet
 aws_appstream_image

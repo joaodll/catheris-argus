@@ -337,20 +337,21 @@ and Steampipe itself ([ADR-0030](adr/0030-aws-source-in-the-worker.md)). Set up 
 storage first (above). Then:
 
 1. In the account to scan, create an IAM user for scanning. Attach the AWS managed policies
-   `SecurityAudit` and `ViewOnlyAccess`, and the scanner role's own three policies as customer
+   `SecurityAudit` and `ViewOnlyAccess`, and the scanner role's own four policies as customer
    managed policies. Print them from the template, so they are exactly what `lint` checks:
 
    ```bash
    docker compose run --rm policy-check python print_policies.py /work/scanner-role.yaml
    ```
 
-   It prints `ArgusProwlerAdditions`, `ArgusCloudFoxAdditions` and `ArgusDenySecretReads`. Create
-   one managed policy from each; together they are too large for one inline user policy. The
+   It prints `ArgusProwlerAdditions`, `ArgusCloudFoxAdditions`, `ArgusSteampipeAdditions` and
+   `ArgusDenySecretReads`. Create one managed policy from each; together they are too large for
+   one inline user policy. The
    Deny policy is not optional: it keeps secret values, data-plane items, code, images, log
    content and API key values out of reach even if the managed policies widen
    ([ADR-0018](adr/0018-scanner-role-denies-code-images-logs.md)). A hand-written inline policy that
    allows `logs:FilterLogEvents` or `lambda:GetFunction*`, or leaves out the Deny statements,
-   breaks the read-only rule: replace it with these three. Create an access key for the user. Keep
+   breaks the read-only rule: replace it with these four. Create an access key for the user. Keep
    it separate from the platform identity, which can write to the bucket: the scanning identity
    must only read.
 2. In **Administration → Connections → Add**, choose **Access key** and enter the account id and
