@@ -193,23 +193,28 @@ def load_inventory(
 def _put_role_last_used(
     conn: Connection, *, batch: InventoryBatch, connection_id: int, day: date
 ) -> None:
-    """Each role's last use, as AWS recorded it on `day` (migration 0053). Only from a run in
-    which the role table was complete: a failed, denied or throttled table keeps the previous
-    values, so a bad run never makes a role look unused. A re-run of an older day never replaces
-    a newer reading. Roles owned by another connection are skipped (ADR-0034)."""
+    """Each role's last use, as AWS recorded it on `day`, and its creation date (migrations 0053
+    and 0055). Only from a run in which the role table was complete: a failed, denied or
+    throttled table keeps the previous values, so a bad run never makes a role look unused. A
+    re-run of an older day never replaces a newer reading. Roles owned by another connection are
+    skipped (ADR-0034)."""
     if ROLE_TYPE not in batch.complete_types or not batch.role_last_used:
         return
     uids = list(batch.role_last_used)
+    readings = [batch.role_last_used[u] for u in uids]
     conn.execute(
         text("""
-            INSERT INTO role_last_used (resource_id, last_used_at, last_used_region, observed_on)
-            SELECT r.id, b.at, b.region, :d
+            INSERT INTO role_last_used
+              (resource_id, last_used_at, last_used_region, created_at, observed_on)
+            SELECT r.id, b.at, b.region, b.created, :d
             FROM unnest(CAST(:uids AS text[]), CAST(:ats AS timestamptz[]),
-                        CAST(:regions AS text[])) AS b(uid, at, region)
+                        CAST(:regions AS text[]), CAST(:created AS timestamptz[]))
+                 AS b(uid, at, region, created)
             JOIN resource r ON r.resource_uid = b.uid AND r.connection_id = :c
             ON CONFLICT (resource_id) DO UPDATE SET
               last_used_at = EXCLUDED.last_used_at,
               last_used_region = EXCLUDED.last_used_region,
+              created_at = EXCLUDED.created_at,
               observed_on = EXCLUDED.observed_on
             WHERE role_last_used.observed_on <= EXCLUDED.observed_on
         """),
@@ -217,8 +222,9 @@ def _put_role_last_used(
             "d": day,
             "c": connection_id,
             "uids": uids,
-            "ats": [batch.role_last_used[u][0] for u in uids],
-            "regions": [batch.role_last_used[u][1] for u in uids],
+            "ats": [r.last_used_at for r in readings],
+            "regions": [r.last_used_region for r in readings],
+            "created": [r.created_at for r in readings],
         },
     )
 

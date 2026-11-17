@@ -5471,6 +5471,18 @@
       "RoleUse": {
         "description": "An IAM role's use (migration 0053): AWS's own record of its last use, and how many\nworkloads (EC2 instances, Lambda functions, ECS services, EKS node groups) run as it. The\nlatest reading, whatever day the page shows.",
         "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
           "last_used_at": {
             "anyOf": [
               {

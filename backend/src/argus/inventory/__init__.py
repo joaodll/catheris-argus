@@ -65,6 +65,7 @@ from argus.inventory.steampipe import (
     SUPPORTED_VERSIONS,
     InventoryBatch,
     InventoryResource,
+    RoleReading,
     is_asset,
     parse_steampipe,
 )
@@ -88,6 +89,7 @@ __all__ = [
     "ResourceFilters",
     "ResourceOrder",
     "RoleLastUsed",
+    "RoleReading",
     "RoleUnused",
     "delete_loads_before",
     "delete_orphan_configs",

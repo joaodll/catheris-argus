@@ -43,6 +43,9 @@ class RoleLastUsed:
     last_used_at: datetime | None  # null: no use in AWS's tracking window
     last_used_region: str | None
     observed_on: date  # the inventory day it was read
+    # When the role was created (IAM CreateDate, migration 0055); null: not read yet. With no
+    # last use and a creation inside the tracking window, the role was never used.
+    created_at: datetime | None = None
 
 
 def role_last_used(conn: Connection, resource_ids: list[int]) -> dict[int, RoleLastUsed]:
@@ -52,11 +55,12 @@ def role_last_used(conn: Connection, resource_ids: list[int]) -> dict[int, RoleL
         return {}
     rows = conn.execute(
         text(
-            "SELECT resource_id, last_used_at, last_used_region, observed_on FROM role_last_used "
-            "WHERE resource_id = ANY(CAST(:ids AS bigint[]))"
+            "SELECT resource_id, last_used_at, last_used_region, observed_on, created_at "
+            "FROM role_last_used WHERE resource_id = ANY(CAST(:ids AS bigint[]))"
         ),
         {"ids": resource_ids},
     )
     return {
-        r.resource_id: RoleLastUsed(r.last_used_at, r.last_used_region, r.observed_on) for r in rows
+        r.resource_id: RoleLastUsed(r.last_used_at, r.last_used_region, r.observed_on, r.created_at)
+        for r in rows
     }

@@ -8,14 +8,16 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
+from alembic import command
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
+from tests.conftest import alembic_config
 from tests.ingest.conftest import make_demo, run_tool
 
 from argus import inventory
 from argus.collection.synthetic.estate import SCENARIO_ROLE
 from argus.core.rawstore import FilesystemRawStore
-from argus.inventory.steampipe import _last_used as last_used_of
+from argus.inventory.steampipe import _role_reading as role_reading
 from argus.relationships import put_role_workloads
 
 pytestmark = pytest.mark.db
@@ -95,7 +97,7 @@ def test_a_run_without_the_role_table_keeps_the_last_reading(
         "WHERE r.type = :t AND rl.last_used_at IS NOT NULL LIMIT 1",
         t=ROLE,
     )[0]
-    wiped = {role.resource_uid: (None, None)}
+    wiped = {role.resource_uid: inventory.RoleReading(None, None, None)}
 
     def load(day: date, complete: frozenset[str]) -> None:
         batch = inventory.InventoryBatch(
@@ -257,23 +259,60 @@ def test_two_rule_loads_of_one_account_rewrite_its_counts_in_turn(
     assert counted > 0
 
 
+CREATED = "2026-01-05T08:00:00Z"
+
+
 @pytest.mark.parametrize(
     ("row", "read"),
     [
-        ({"role_last_used_date": None, "role_last_used_region": None}, (None, None)),
+        (
+            {"role_last_used_date": None, "role_last_used_region": None, "create_date": CREATED},
+            (None, None, datetime(2026, 1, 5, 8, tzinfo=UTC)),
+        ),
         (
             {"role_last_used_date": "2026-10-01T09:30:00Z", "role_last_used_region": "eu-west-1"},
-            (datetime(2026, 10, 1, 9, 30, tzinfo=UTC), "eu-west-1"),
+            (datetime(2026, 10, 1, 9, 30, tzinfo=UTC), "eu-west-1", None),
         ),
         ({"role_last_used_date": "yesterday"}, None),
         ({"role_last_used_date": "2026-10-01T09:30:00"}, None),  # no zone: not trusted
-        ({}, None),  # the export left the column out: says nothing
+        ({"create_date": CREATED}, None),  # the export left the column out: says nothing
+        ({"role_last_used_date": None, "create_date": "not a date"}, (None, None, None)),
     ],
-    ids=["no-use", "used", "not-a-date", "no-zone", "column-missing"],
+    ids=["no-use", "used", "not-a-date", "no-zone", "column-missing", "bad-create-date"],
 )
-def test_a_role_rows_last_use_is_read_only_when_the_row_says_it(
+def test_a_role_rows_reading_is_taken_only_when_the_row_says_it(
     row: dict[str, Any], read: Any
 ) -> None:
-    """Review 2026-11-18: a row without the column is not AWS saying "no use"; the role keeps
-    its last value (None here means nothing is written)."""
-    assert last_used_of(row) == read
+    """Review 2026-11-18: a row without the last-use column is not AWS saying "no use"; the role
+    keeps its last value (None: nothing is written). The creation date rides along (0055)."""
+    assert role_reading(row) == read
+
+
+def test_a_roles_creation_date_is_kept_with_its_last_use(
+    owner: Engine, worker: Engine, store: FilesystemRawStore, signed_in: TestClient
+) -> None:
+    """Owner, 2026-11-18: AWS records no use for an old idle role and for a new one never used;
+    the creation date tells them apart, from the configuration Steampipe exported."""
+    target = make_demo(owner)
+    run_tool(worker, store, target, "steampipe", DAY)
+    rows = _rows(
+        owner,
+        "SELECT r.id, rl.created_at, rc.config ->> 'create_date' AS created "
+        "FROM resource r JOIN resource_config rc ON rc.id = r.config_id "
+        "JOIN role_last_used rl ON rl.resource_id = r.id WHERE r.type = :t",
+        t=ROLE,
+    )
+    assert rows and all(r.created_at == datetime.fromisoformat(r.created) for r in rows)
+    listed = {i["id"]: i["role_use"] for i in _roles(signed_in)}
+    assert all(datetime.fromisoformat(listed[r.id]["created_at"]) == r.created_at for r in rows)
+    # Migration 0055 fills existing rows from each role's configuration.
+    command.downgrade(alembic_config(), "0054")
+    try:
+        command.upgrade(alembic_config(), "head")
+    finally:
+        command.upgrade(alembic_config(), "head")
+    again = {
+        r.id: r.created_at
+        for r in _rows(owner, "SELECT resource_id AS id, created_at FROM role_last_used")
+    }
+    assert again == {r.id: r.created_at for r in rows}

@@ -80,8 +80,9 @@ def _cve(name: str) -> Callable[[Row], str]:
 
 
 def _role(name: str) -> Callable[[Row], str]:
-    """A role's last use as AWS records it; empty on any other type, or before it was read. An
-    empty last_used with a last_used_read_on is AWS saying no use in its tracking window."""
+    """A role's last use as AWS records it, and its creation; empty on any other type, or before
+    it was read. An empty last_used with a last_used_read_on is AWS saying no use in its tracking
+    window: since role_created, when that is inside the window."""
 
     def get(row: Row) -> str:
         used: RoleLastUsed | None = row.get("role_last_used")
@@ -138,6 +139,7 @@ COLUMNS: dict[str, list[tuple[str, Callable[[Row], str]]]] = {
         ("last_used", _role("last_used_at")),
         ("last_used_region", _role("last_used_region")),
         ("last_used_read_on", _role("observed_on")),
+        ("role_created", _role("created_at")),
         ("workloads", lambda row: _number(row.get("workloads"))),
     ],
 }
