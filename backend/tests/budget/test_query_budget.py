@@ -215,11 +215,47 @@ def _generate(conn: Connection) -> None:
     _generate_vulnerability_metrics(conn)
     _generate_asset_metrics(conn)
     _generate_edges(conn)
+    _generate_role_use(conn)
     _generate_compliance(conn)
     _generate_vulnerabilities(conn)
     for connection_id in range(1, ACCOUNTS + 1):  # the Tag filter's options, as ingest builds them
         findings.refresh_tag_facets(conn, connection_id=connection_id)
     conn.execute(text("ANALYZE"))
+
+
+def _generate_role_use(conn: Connection) -> None:
+    """Every role's last use (migration 0053): one in four with no use in AWS's window, the rest
+    0 to 399 days before the reading; and every account's workload counts, written as a rule
+    load writes them (from the RUNS_AS lines of its latest rule load)."""
+    conn.execute(
+        text("""
+        INSERT INTO role_last_used (resource_id, last_used_at, last_used_region, observed_on)
+        SELECT r.id,
+               CASE WHEN r.id % 4 <> 0
+                    THEN (CAST(:d AS date) - CAST(r.id % 400 AS integer)) + time '09:30' END,
+               CASE WHEN r.id % 4 <> 0 THEN 'us-east-1' END, :d
+        FROM resource r WHERE r.type = 'aws_iam_role'
+    """),
+        {"d": TODAY},
+    )
+    days = conn.execute(
+        text(
+            "SELECT connection_id, max(snapshot_date) FROM edge_load "
+            "WHERE family = 'rule' GROUP BY connection_id"
+        )
+    ).all()
+    for connection_id, day in days:
+        relationships.put_role_workloads(conn, connection_id=connection_id, day=day)
+
+
+def _role_use_of_a_page(c: Connection) -> Any:
+    """The Resources list's role use for one page of 200 roles (api.routes.resources)."""
+    ids = list(
+        c.execute(
+            text("SELECT id FROM resource WHERE type = 'aws_iam_role' ORDER BY id LIMIT 200")
+        ).scalars()
+    )
+    return inventory.role_last_used(c, ids), relationships.role_workloads(c, ids)
 
 
 def _generate_misconfiguration_metrics(conn: Connection) -> None:
@@ -928,6 +964,37 @@ QUERIES: dict[str, Callable[[Connection], Any]] = {
         offset=0,
     ),
     "resources: the Vulnerabilities cells of a page": _vulnerability_cells,
+    # Role use (migration 0053, 2026-11-17).
+    "resources: the role use of a page": _role_use_of_a_page,
+    "resources: roles not used in 90 days, all accounts": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(
+            resource_types=("aws_iam_role",), within=(inventory.UNUSED_ROLES_SQL["90"],)
+        ),
+    ),
+    "resources: roles not used in 365 days, one account": lambda c: inventory.list_resources(
+        c,
+        limit=20,
+        offset=0,
+        filters=inventory.ResourceFilters(
+            connection_ids=(7,),
+            resource_types=("aws_iam_role",),
+            within=(inventory.UNUSED_ROLES_SQL["365"],),
+        ),
+    ),
+    "resources: roles no workload runs as and not used in 90 days, all accounts": lambda c: (
+        inventory.list_resources(
+            c,
+            limit=20,
+            offset=0,
+            filters=inventory.ResourceFilters(
+                resource_types=("aws_iam_role",),
+                within=(inventory.UNUSED_ROLES_SQL["90"], relationships.NO_WORKLOAD_ROLES_SQL),
+            ),
+        )
+    ),
     "resources: with an exploitable CVE, one account": lambda c: inventory.list_resources(
         c,
         limit=20,
@@ -1279,6 +1346,22 @@ def test_the_tag_options_of_one_account_stay_cheap_to_write(estate: Engine) -> N
         finally:
             transaction.rollback()
     print(f"tag options of the account with the CVEs: {elapsed:.1f} ms")
+    assert elapsed < WRITER_BOUND_MS
+
+
+def test_the_role_workloads_of_one_account_stay_cheap_to_write(estate: Engine) -> None:
+    """After every rule load: one account's workload counts (relationships.put_role_workloads),
+    in the load's transaction."""
+    with estate.connect() as conn:
+        transaction = conn.begin()
+        try:
+            start = time.perf_counter()
+            written = relationships.put_role_workloads(conn, connection_id=7, day=TODAY)
+            elapsed = (time.perf_counter() - start) * 1000
+        finally:
+            transaction.rollback()
+    print(f"role workloads of one account: {written} roles in {elapsed:.1f} ms")
+    assert written > 1000
     assert elapsed < WRITER_BOUND_MS
 
 

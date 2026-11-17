@@ -1,6 +1,6 @@
 """Relationships: edges between resources, derived by our own versioned rules (ADR-0006).
 
-Owns edge, edge_snapshot and edge_load. Public interface:
+Owns edge, edge_snapshot, edge_load and role_workload. Public interface:
     load_rules()      the rule files in <rules dir>/relationships/*.toml
     derive_edges()    runs every rule for one connection and day, read-only
     load_edges()      writes derived edges and that day's edge snapshot
@@ -28,6 +28,9 @@ Owns edge, edge_snapshot and edge_load. Public interface:
                       policies and Allow statements, its groups' included; ADR-0037)
     NO_JIT            the setting rule transactions run with (JIT off)
     delete_loads_before()   retention's cleanup of edge_load
+    role_workloads(), NO_WORKLOAD_ROLES_SQL   how many workloads run as each IAM role
+                      (roles.py, migration 0053); put_role_workloads() writes them with each
+                      rule load (write_edges)
 """
 
 from argus.relationships.engine import (
@@ -73,6 +76,7 @@ from argus.relationships.queries import (
     latest_rule_loads,
     standing_edges,
 )
+from argus.relationships.roles import NO_WORKLOAD_ROLES_SQL, put_role_workloads, role_workloads
 
 __all__ = [
     "DEFAULT_LAYERS",
@@ -81,6 +85,7 @@ __all__ = [
     "HOSTS_SQL",
     "MAX_DEPTH",
     "NO_JIT",
+    "NO_WORKLOAD_ROLES_SQL",
     "ORIGINS",
     "RULE_VIEWS_SQL",
     "SECURITY_EDGE_TYPES",
@@ -110,6 +115,8 @@ __all__ = [
     "neighbourhood",
     "on_map",
     "owners_of_hosts",
+    "put_role_workloads",
+    "role_workloads",
     "standing_edges",
     "write_edges",
 ]

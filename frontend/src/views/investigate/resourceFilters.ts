@@ -12,6 +12,8 @@ import { day, ids, oneOf, strings } from './findingFilters'
 export type VulnerabilityLevel = 'any' | 'high' | 'exploitable'
 // Open misconfigurations (open, FAIL, not muted): any, or critical or high.
 export type MisconfigurationLevel = 'any' | 'high'
+// IAM roles AWS records no use of in the last N days (migration 0053).
+export type RoleUnused = '90' | '180' | '365'
 export type ResourceOrder = 'name_asc' | 'name_desc' | 'last_seen_desc' | 'last_seen_asc'
 
 export interface ResourceFilters {
@@ -25,6 +27,9 @@ export interface ResourceFilters {
   internet: boolean
   // Only the types the Overview counts as assets.
   assets: boolean
+  // IAM roles AWS records no use of in the last N days, and roles no workload runs as.
+  roleUnused: RoleUnused | null
+  noWorkload: boolean
   includeDeleted: boolean
   // First seen, or removed, on or after / on or before (YYYY-MM-DD, '' for no bound). A removed
   // bound lists removed resources only.
@@ -35,11 +40,12 @@ export interface ResourceFilters {
 }
 
 /** The filters in row 2 (More filters): how many are set, for the button's count. */
-export const SECONDARY: (keyof ResourceFilters)[] = ['misconfigurations', 'internet', 'assets', 'firstSeenFrom', 'removedFrom', 'includeDeleted']
+export const SECONDARY: (keyof ResourceFilters)[] = ['misconfigurations', 'roleUnused', 'noWorkload', 'internet', 'assets', 'firstSeenFrom', 'removedFrom', 'includeDeleted']
 
 const TYPE_MAX = 200 // as the API: a summary's service links with every type of the service
 const VULNERABILITY_LEVELS: VulnerabilityLevel[] = ['any', 'high', 'exploitable']
 const MISCONFIGURATION_LEVELS: MisconfigurationLevel[] = ['any', 'high']
+export const ROLE_UNUSED: RoleUnused[] = ['90', '180', '365']
 const ORDERS: ResourceOrder[] = ['name_asc', 'name_desc', 'last_seen_desc', 'last_seen_asc']
 
 function level<T extends string>(value: LocationQuery[string] | undefined, allowed: readonly T[]): T | null {
@@ -57,6 +63,8 @@ export function parseResourceFilters(query: LocationQuery): ResourceFilters {
     misconfigurations: level(query.misconfigurations, MISCONFIGURATION_LEVELS),
     internet: query.internet === '1',
     assets: query.assets === '1',
+    roleUnused: level(query.role_unused, ROLE_UNUSED),
+    noWorkload: query.no_workload === '1',
     includeDeleted: query.deleted === '1',
     firstSeenFrom: day(query.first_seen_from),
     firstSeenTo: day(query.first_seen_to),
@@ -81,6 +89,8 @@ export function resourceFiltersToQuery(f: ResourceFilters): LocationQueryRaw {
     misconfigurations: f.misconfigurations ?? undefined,
     internet: f.internet ? '1' : undefined,
     assets: f.assets ? '1' : undefined,
+    role_unused: f.roleUnused ?? undefined,
+    no_workload: f.noWorkload ? '1' : undefined,
     deleted: f.includeDeleted ? '1' : undefined,
     first_seen_from: f.firstSeenFrom || undefined,
     first_seen_to: f.firstSeenTo || undefined,
@@ -100,6 +110,8 @@ export function resourceApiFilters(f: ResourceFilters) {
     misconfigurations: f.misconfigurations,
     internet: f.internet,
     assets: f.assets,
+    role_unused: f.roleUnused,
+    no_workload: f.noWorkload,
     include_deleted: f.includeDeleted,
     first_seen_from: f.firstSeenFrom || null,
     first_seen_to: f.firstSeenTo || null,

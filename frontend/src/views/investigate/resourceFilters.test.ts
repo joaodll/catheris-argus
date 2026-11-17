@@ -59,6 +59,19 @@ describe('resource filters and the URL', () => {
     expect(resourceSecondaryCount(f)).toBe(3)
   })
 
+  it('reads role use: the three windows and the workload flag, nothing else', () => {
+    const f = parseResourceFilters({ role_unused: '180', no_workload: '1' })
+    expect(f.roleUnused).toBe('180')
+    expect(f.noWorkload).toBe(true)
+    expect(parseResourceFilters({ role_unused: '30' }).roleUnused).toBeNull()
+    expect(parseResourceFilters({ no_workload: 'true' }).noWorkload).toBe(false)
+    const query = resourceFiltersToQuery(f)
+    expect(query).toMatchObject({ role_unused: '180', no_workload: '1' })
+    expect(parseResourceFilters(query as never)).toEqual(f)
+    expect(resourceApiFilters(f)).toMatchObject({ role_unused: '180', no_workload: true })
+    expect(resourceSecondaryCount(f)).toBe(2)
+  })
+
   it('reads the order, name A to Z by default', () => {
     expect(parseResourceOrder({ order: 'last_seen_desc' })).toBe('last_seen_desc')
     expect(parseResourceOrder({ order: 'nope' })).toBe('name_asc')

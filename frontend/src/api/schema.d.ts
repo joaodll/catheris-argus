@@ -2802,6 +2802,7 @@ export interface components {
             region: string;
             /** Resource Uid */
             resource_uid: string;
+            role_use?: components["schemas"]["RoleUse"] | null;
             scanned: components["schemas"]["ToolScans"];
             /** Seen On */
             seen_on: string | null;
@@ -2896,6 +2897,7 @@ export interface components {
             region: string;
             /** Resource Uid */
             resource_uid: string;
+            role_use?: components["schemas"]["RoleUse"] | null;
             /** Type */
             type: string;
             /** Vpc Id */
@@ -2974,6 +2976,24 @@ export interface components {
             external_id?: string | null;
             /** Role Arn */
             role_arn?: string | null;
+        };
+        /**
+         * RoleUse
+         * @description An IAM role's use (migration 0053): AWS's own record of its last use, and how many
+         *     workloads (EC2 instances, Lambda functions, ECS services, EKS node groups) run as it. The
+         *     latest reading, whatever day the page shows.
+         */
+        RoleUse: {
+            /** Last Used At */
+            last_used_at: string | null;
+            /** Last Used Region */
+            last_used_region: string | null;
+            /** Observed On */
+            observed_on: string | null;
+            /** Tracking Days */
+            tracking_days: number;
+            /** Workloads */
+            workloads: number | null;
         };
         /** RouteDetail */
         RouteDetail: {
@@ -5716,6 +5736,8 @@ export interface operations {
                 vulnerabilities?: ("any" | "high" | "exploitable") | null;
                 misconfigurations?: ("any" | "high") | null;
                 internet?: boolean;
+                role_unused?: ("90" | "180" | "365") | null;
+                no_workload?: boolean;
             };
             header?: {
                 "X-Argus-CSRF"?: string | null;

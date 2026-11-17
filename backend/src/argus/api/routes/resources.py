@@ -42,6 +42,22 @@ class VulnerabilitySummary(BaseModel):
     scanned: bool
 
 
+class RoleUse(BaseModel):
+    """An IAM role's use (migration 0053): AWS's own record of its last use, and how many
+    workloads (EC2 instances, Lambda functions, ECS services, EKS node groups) run as it. The
+    latest reading, whatever day the page shows."""
+
+    # Null with an `observed_on`: AWS records no use in its tracking window (the trailing
+    # `tracking_days`), which is not "never".
+    last_used_at: datetime | None
+    last_used_region: str | None
+    # The inventory day the last use was read; null: not collected yet ("not covered").
+    observed_on: date | None
+    tracking_days: int
+    # Null: the connection has no rule load yet ("not covered", never a zero).
+    workloads: int | None
+
+
 class ResourceRow(ResourceOut):
     # Open and reopened Prowler and CloudFox findings on the resource, and the worst severity
     # among them (null when there are none). CVEs are counted apart.
@@ -50,6 +66,8 @@ class ResourceRow(ResourceOut):
     # Null when no scanner scans this provider and type, or the vulnerabilities tool never ran
     # for the connection.
     vulnerabilities: VulnerabilitySummary | None
+    # IAM roles only; null on every other type.
+    role_use: RoleUse | None = None
 
 
 class ResourcePage(BaseModel):
@@ -142,6 +160,8 @@ class ResourceDetail(ResourceOut):
     # Open misconfigurations (findings.OPEN_MISCONFIGURATION) per severity, as the
     # Misconfigurations list counts them for this resource; only severities with any.
     open_by_severity: dict[str, int]
+    # IAM roles only; null on every other type.
+    role_use: RoleUse | None = None
 
 
 Facet = Annotated[str, Field(min_length=1, max_length=128)]
@@ -180,6 +200,11 @@ class ResourceQuery(BaseModel):
     # Only resources with an open misconfiguration that Argus's rules confirm is reachable from
     # the internet.
     internet: bool = False
+    # Only IAM roles AWS records no use of in the last 90, 180 or 365 days (no use in its
+    # tracking window included), counted back from the day the value was read.
+    role_unused: inventory.RoleUnused | None = None
+    # Only IAM roles no workload runs as, by the connection's latest rule load.
+    no_workload: bool = False
 
 
 def _within(query: ResourceQuery) -> tuple[str, ...]:
@@ -191,7 +216,29 @@ def _within(query: ResourceQuery) -> tuple[str, ...]:
         within.append(findings.MISCONFIGURED_RESOURCES_SQL[query.misconfigurations])
     if query.internet:
         within.append(findings.INTERNET_REACHABLE_RESOURCES_SQL)
+    if query.role_unused:
+        within.append(inventory.UNUSED_ROLES_SQL[query.role_unused])
+    if query.no_workload:
+        within.append(relationships.NO_WORKLOAD_ROLES_SQL)
     return tuple(within)
+
+
+def role_uses(conn: Connection, rows: list[dict[str, Any]]) -> dict[int, RoleUse]:
+    """Each IAM role's use among these rows (one page), keyed by resource id."""
+    ids = [r["id"] for r in rows if r["type"] == inventory.ROLE_TYPE]
+    used = inventory.role_last_used(conn, ids)
+    workloads = relationships.role_workloads(conn, ids)
+    out: dict[int, RoleUse] = {}
+    for i in ids:
+        seen = used.get(i)
+        out[i] = RoleUse(
+            last_used_at=seen.last_used_at if seen else None,
+            last_used_region=seen.last_used_region if seen else None,
+            observed_on=seen.observed_on if seen else None,
+            tracking_days=inventory.TRACKING_DAYS,
+            workloads=workloads.get(i),
+        )
+    return out
 
 
 @router.get("/resources")
@@ -223,6 +270,7 @@ def list_resources(
     ids = [r["id"] for r in rows]
     counts = findings.open_finding_counts(conn, ids)
     vulns = vulnerability_summaries(conn, rows)
+    roles = role_uses(conn, rows)
     return ResourcePage(
         items=[
             ResourceRow.model_validate(
@@ -231,6 +279,7 @@ def list_resources(
                     "open_findings": counts.get(r["id"], (0, None))[0],
                     "worst_severity": counts.get(r["id"], (0, None))[1],
                     "vulnerabilities": vulns.get(r["id"]),
+                    "role_use": roles.get(r["id"]),
                 }
             )
             for r in rows
@@ -435,6 +484,7 @@ def resource(
             "scanned": scanned,
             "vulnerabilities": _vulnerability_section(conn, found),
             "open_by_severity": findings.open_finding_severities(conn, resource_id),
+            "role_use": role_uses(conn, [found]).get(resource_id),
             "commands": [
                 vars(c)
                 for c in findings.commands_for_resource(
