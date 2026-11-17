@@ -37,9 +37,13 @@ FROM ${NGINX_IMAGE} AS runtime
 # The published base lags Alpine's repository, so its packages carry CVEs already fixed there.
 # Upgrade all of them: not to exact versions, because Alpine removes old ones and the build would
 # break. curl and libcurl (most of the base's findings) go: nothing here uses them, and the
-# healthcheck uses BusyBox wget.
+# healthcheck uses BusyBox wget. So do the base's four dynamic modules, which no config here loads,
+# and the libraries only they need (libxslt, libxml2, libgd, libjpeg, GeoIP): fewer packages to
+# patch, and nothing for a registry scanner to report.
 USER root
-RUN apk upgrade --no-cache && apk del --no-cache curl
+RUN apk upgrade --no-cache \
+ && apk del --no-cache curl nginx-module-geoip nginx-module-image-filter nginx-module-njs \
+      nginx-module-xslt
 # A template the entrypoint fills in at start (ARGUS_API_UPSTREAM), into /etc/nginx/conf.d,
 # which must be writable: a tmpfs in Compose, an emptyDir on Kubernetes. Only ARGUS_ variables
 # are substituted, never nginx's own ($remote_addr, $host).
@@ -49,6 +53,15 @@ ENV NGINX_ENVSUBST_FILTER=^ARGUS_
 ENV ARGUS_NGINX_REAL_IP=""
 COPY nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY nginx/api-proxy.conf /etc/nginx/snippets/api-proxy.conf
+# The configuration must load without the removed modules: fill in the template as the entrypoint
+# does (any address will do), test it, and remove the result, so a directive that needs a module
+# fails the build rather than the start. The entrypoint writes the real one at start. The test,
+# run as root, leaves a root-owned pid file and temp folders in /tmp: remove them too, or nginx,
+# as uid 101, can't start where /tmp is not mounted over.
+RUN ARGUS_API_UPSTREAM=127.0.0.1:8000 envsubst '${ARGUS_API_UPSTREAM} ${ARGUS_NGINX_REAL_IP}' \
+      < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf \
+ && nginx -t \
+ && rm -rf /etc/nginx/conf.d/default.conf /tmp/nginx.pid /tmp/*_temp
 COPY --from=build /app/dist /usr/share/nginx/html
 # The image's own unprivileged user, stated so the runtime user is explicit in this file.
 USER 101

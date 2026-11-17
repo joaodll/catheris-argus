@@ -212,11 +212,17 @@ when their checks need it. Argus never stores such a value:
 - Trivy scans the repository and the images, gitleaks scans the working tree and the whole
   history, and both fail the checks every change must pass. Accepted findings are listed with their reason and an expiry
   in `.trivyignore`.
-- The runtime and web images fail on a HIGH or CRITICAL finding that has a fix. The worker image and the three tool
-  images fail on a CRITICAL that has a fix, because most of its findings are inside the upstream tools and wait on their next release.
+- The runtime, web and reports images fail on a HIGH or CRITICAL finding that has a fix. The worker image and the three
+  tool images fail on a CRITICAL that has a fix, because most of their findings are inside the upstream tools and wait
+  on their next release.
+- Images carry only what they run. The web image removes curl and the base image's four dynamic nginx modules, which
+  no configuration loads, with the libraries only they need; its build fails if the configuration needs one again.
 - Findings with no fix are accepted and don't fail the scan. The backend images are built on Debian, which lists many
   vulnerabilities in base packages that it hasn't patched, so a registry scanner such as Amazon ECR or Inspector reports
   them until Debian fixes them. Judge them again whenever the base image digest changes.
+- A registry scanner can report what Trivy doesn't, because it rates or detects differently, or because it scanned an
+  older build. Release images are built with `--pull --no-cache`, and their registry findings are checked after each
+  push: a package older than the one a fresh build installs means the pushed image is stale.
 
 ## Known limits
 
