@@ -994,17 +994,29 @@ test('map, Security view: card B, the security lines and each fact linked to its
   await canvas.locator('.node:has(.mark-internet)').first().click()
   await follow(facts.getByRole('link', { name: /Reachable from the internet/ }), /^[1-9][\d,]* records?$/)
   checked.push('internet')
-  // Vulnerabilities: a function with four open CVEs, one with a public exploit (the Demo estate).
-  await find.fill('prod-resize-2-g21')
-  await page.getByRole('listbox', { name: 'Resources' }).getByRole('option').filter({ hasText: 'prod-resize-2-g21' }).first().click()
+  // Vulnerabilities: a demo-prod function with open CVEs, one with a public exploit. Demo function
+  // names carry a generation that changes with the scan day, so the list names it, never the test.
+  const connections = (await (await page.request.get('/api/v1/connections')).json()) as { id: number; name: string }[]
+  const prod = connections.find((c) => c.name === 'demo-prod')!
+  const exploitable = (await (
+    await page.request.get(`/api/v1/resources?connection_id=${prod.id}&type=aws_lambda_function&vulnerabilities=exploitable&limit=1`)
+  ).json()) as { items: { name: string; resource_uid: string; vulnerabilities: { open: number } }[] }
+  const fn = exploitable.items[0]
+  expect(fn, 'a demo-prod function with an exploitable CVE').toBeTruthy()
+  const open = fn.vulnerabilities.open
+  // By its ARN: the same function name exists in more than one region.
+  await find.fill(fn.resource_uid)
+  const options = page.getByRole('listbox', { name: 'Resources' }).getByRole('option')
+  await expect(options).toHaveCount(1)
+  await options.filter({ hasText: fn.name }).click()
   const vulnerable = canvas.locator('.node.focus')
   await expect(vulnerable.locator('.mark-vulnerable')).toBeVisible()
   await expect(vulnerable.locator('.mark-exploit')).toBeVisible()
   await vulnerable.click()
   const cves = facts.getByRole('link', { name: /open vulnerabilit/ })
-  await expect(cves).toContainText('4 open vulnerabilities')
+  await expect(cves).toContainText(`${open} open vulnerabilit${open === 1 ? 'y' : 'ies'}`)
   await expect(cves).toContainText('Exploit')
-  await follow(cves, /^4 records$/)
+  await follow(cves, new RegExp(`^${open} records?$`))
   checked.push('vulnerabilities')
   expect(checked).toEqual(['misconfigurations', 'internet', 'vulnerabilities'])
   // The List view says each fact in words.
