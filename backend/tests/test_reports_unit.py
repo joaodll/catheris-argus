@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from argus.findings import FindingFilters, VulnerabilityFacts
+from argus.findings import FindingFilters, ResourceListFilters, VulnerabilityFacts
 from argus.reports import LocalReportStore, ReportStoreError
 from argus.reports.csv_report import COLUMNS, CsvReport
 from argus.reports.filters import from_json, to_json
@@ -75,18 +75,44 @@ def test_the_kind_decides_the_tools_never_the_stored_filters() -> None:
         )
     )
     misconfigurations = from_json("misconfigurations", stored, connection_ids=[1, 2])
+    assert isinstance(misconfigurations, FindingFilters)
     assert misconfigurations.tools == ("prowler",)  # narrowed within the kind
     assert misconfigurations.connection_ids == (1, 2)  # the row's scope, not the stored one
     assert misconfigurations.first_seen_from == date(2026, 10, 1)
     assert misconfigurations.severities == ("high",)
     vulnerabilities = from_json("vulnerabilities", stored, connection_ids=[1])
+    assert isinstance(vulnerabilities, FindingFilters)
     assert vulnerabilities.tools == ("vulnerabilities",)
     wider = from_json(
         "misconfigurations", {**stored, "tools": ["vulnerabilities"]}, connection_ids=[1]
     )
-    assert wider.tools == ("prowler", "cloudfox")
+    assert isinstance(wider, FindingFilters) and wider.tools == ("prowler", "cloudfox")
     with pytest.raises(ValueError, match="unknown report filters"):
         from_json("misconfigurations", {"sql": "1"}, connection_ids=[1])
+
+
+def test_a_resources_reports_filters_survive_storage() -> None:
+    """The Resources list's own filters, stored as JSON and read back over the row's scope."""
+    asked = ResourceListFilters(
+        connection_ids=(9,),
+        resource_types=("aws_iam_role",),
+        regions=("eu-west-1",),
+        q="ci",
+        first_seen_from=date(2026, 1, 1),
+        deleted_to=date(2026, 11, 1),
+        vulnerabilities="exploitable",
+        misconfigurations="high",
+        internet=True,
+        role_unused="180",
+        no_workload=True,
+    )
+    stored = json.loads(json.dumps(to_json(asked)))
+    built = from_json("resources", stored, connection_ids=[1, 2])
+    assert built == ResourceListFilters(**{**vars(asked), "connection_ids": (1, 2)})
+    assert len(built.within()) == 5
+    assert built.inventory_filters().within == built.within()
+    with pytest.raises(ValueError, match="unknown report filters"):
+        from_json("resources", {"severities": ["high"]}, connection_ids=[1])
 
 
 @pytest.mark.parametrize(

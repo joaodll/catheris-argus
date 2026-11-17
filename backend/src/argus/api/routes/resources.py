@@ -171,12 +171,10 @@ def _many(n: int = 50) -> Any:
     return Field(default_factory=list, max_length=n)
 
 
-class ResourceQuery(BaseModel):
-    """The Resources list's query parameters. A list parameter repeats (`type=a&type=b`) and
-    matches any of its values; absent, it does not filter."""
+class ResourceFilterQuery(BaseModel):
+    """The Resources list's filters: its query parameters, and a report's. A list parameter
+    repeats (`type=a&type=b`) and matches any of its values; absent, it does not filter."""
 
-    limit: int = Field(20, ge=1, le=200)
-    offset: int = Field(0, ge=0)
     connection_id: list[int] = _many()
     # Up to 200: a Resources summary's service links with every type of that service.
     type: list[Facet] = _many(200)
@@ -191,7 +189,6 @@ class ResourceQuery(BaseModel):
     first_seen_to: date | None = None
     deleted_from: date | None = None
     deleted_to: date | None = None
-    order: inventory.ResourceOrder = "name_asc"
     # Only resources with open CVEs: any, critical or high, or with a public exploit.
     vulnerabilities: findings.VulnerabilityLevel | None = None
     # Only resources with open misconfigurations (open, FAIL, not muted): any, or critical or
@@ -207,20 +204,33 @@ class ResourceQuery(BaseModel):
     no_workload: bool = False
 
 
-def _within(query: ResourceQuery) -> tuple[str, ...]:
-    """The other modules' exported resource sets these filters keep, all of them applied."""
-    within: list[str] = []
-    if query.vulnerabilities:
-        within.append(findings.VULNERABLE_RESOURCES_SQL[query.vulnerabilities])
-    if query.misconfigurations:
-        within.append(findings.MISCONFIGURED_RESOURCES_SQL[query.misconfigurations])
-    if query.internet:
-        within.append(findings.INTERNET_REACHABLE_RESOURCES_SQL)
-    if query.role_unused:
-        within.append(inventory.UNUSED_ROLES_SQL[query.role_unused])
-    if query.no_workload:
-        within.append(relationships.NO_WORKLOAD_ROLES_SQL)
-    return tuple(within)
+class ResourceQuery(ResourceFilterQuery):
+    """The list's query parameters: its filters, then the page and the order."""
+
+    limit: int = Field(20, ge=1, le=200)
+    offset: int = Field(0, ge=0)
+    order: inventory.ResourceOrder = "name_asc"
+
+
+def resource_list_filters(query: ResourceFilterQuery) -> findings.ResourceListFilters:
+    """The list's filters as the list and its report run them (findings.ResourceListFilters)."""
+    return findings.ResourceListFilters(
+        connection_ids=tuple(query.connection_id),
+        resource_types=tuple(query.type),
+        regions=tuple(query.region),
+        q=query.q or None,
+        include_deleted=query.include_deleted,
+        assets=query.assets,
+        first_seen_from=query.first_seen_from,
+        first_seen_to=query.first_seen_to,
+        deleted_from=query.deleted_from,
+        deleted_to=query.deleted_to,
+        vulnerabilities=query.vulnerabilities,
+        misconfigurations=query.misconfigurations,
+        internet=query.internet,
+        role_unused=query.role_unused,
+        no_workload=query.no_workload,
+    )
 
 
 def role_uses(conn: Connection, rows: list[dict[str, Any]]) -> dict[int, RoleUse]:
@@ -250,19 +260,7 @@ def list_resources(
         conn,
         limit=query.limit,
         offset=query.offset,
-        filters=inventory.ResourceFilters(
-            connection_ids=tuple(query.connection_id),
-            resource_types=tuple(query.type),
-            regions=tuple(query.region),
-            q=q,
-            include_deleted=query.include_deleted,
-            assets=query.assets,
-            first_seen_from=query.first_seen_from,
-            first_seen_to=query.first_seen_to,
-            deleted_from=query.deleted_from,
-            deleted_to=query.deleted_to,
-            within=_within(query),
-        ),
+        filters=resource_list_filters(query).inventory_filters(),
         order=query.order,
     )
     # Only a search count is capped (core.db.count_sql); any other count is exact.
@@ -296,27 +294,18 @@ def vulnerability_summaries(
     conn: Connection, rows: list[dict[str, Any]]
 ) -> dict[int, VulnerabilitySummary]:
     """For one page of resources (id, provider, type, connection_id): the Vulnerabilities cell
-    of those a scanner scans the provider and type of, on connections with a vulnerabilities
-    run. The Resources list and the Security Map's cards share it, so they count alike."""
-    scannable = [r for r in rows if findings.scanner_for(r["provider"], r["type"])]
-    tool = [findings.VULNERABILITY_TOOL]
-    collected = {
-        c
-        for c in {r["connection_id"] for r in scannable}
-        if ingest.data_through(conn, connection_id=c, tools=tool) is not None
-    }
-    ids = [r["id"] for r in scannable if r["connection_id"] in collected]
-    counts = findings.vulnerability_counts(conn, ids)
-    scanned = findings.scanned_resources(conn, ids)
-    empty = findings.VulnerabilityCount(0, None, 0)
-    return {
-        i: VulnerabilitySummary(
-            open=counts.get(i, empty).open,
-            worst=counts.get(i, empty).worst,
-            exploitable=counts.get(i, empty).exploitable,
-            scanned=i in scanned,
+    (findings.vulnerability_summaries) over the connections with a vulnerabilities run. The
+    Resources list and the Security Map's cards share it, so they count alike."""
+    collected = set(
+        ingest.data_through_by_connection(
+            conn,
+            connection_ids=sorted({r["connection_id"] for r in rows}),
+            tools=[findings.VULNERABILITY_TOOL],
         )
-        for i in ids
+    )
+    return {
+        i: VulnerabilitySummary.model_validate(cell, from_attributes=True)
+        for i, cell in findings.vulnerability_summaries(conn, rows, collected=collected).items()
     }
 
 

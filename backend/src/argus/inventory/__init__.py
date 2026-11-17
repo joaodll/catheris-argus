@@ -15,6 +15,7 @@ Public interface:
                        the attack-path walk and its kinds (ADR-0052)
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
                        (the Resources page, and a resource as of a day)
+    iter_resources()   every resource matching the list's filters, in id batches (reports)
     role_last_used(), UNUSED_ROLES_SQL, RoleLastUsed, RoleUnused   each IAM role's last use as
                        AWS records it (roles.py, migration 0053), for the Resources list
     CURRENT_ROLES_SQL  one connection's current roles, for relationships' workload counts
@@ -40,6 +41,7 @@ from argus.inventory.queries import (
     ResourceOrder,
     delete_loads_before,
     effective_day,
+    iter_resources,
     latest_days,
     list_resources,
     resource_at,
@@ -91,6 +93,7 @@ __all__ = [
     "delete_orphan_configs",
     "effective_day",
     "is_asset",
+    "iter_resources",
     "latest_days",
     "list_resources",
     "load_inventory",

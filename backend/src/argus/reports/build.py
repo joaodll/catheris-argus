@@ -17,16 +17,18 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import Connection, Engine
 
-from argus import findings, ingest, inventory
+from argus import findings, ingest, inventory, relationships
 from argus.core.process import IsolatedRunError
-from argus.findings import FindingFilters
+from argus.findings import FindingFilters, ResourceListFilters
 from argus.reports import filters as report_filters
 from argus.reports import pdf, queue
 from argus.reports.csv_report import CsvReport
 from argus.reports.model import (
+    CSV_ONLY_KINDS,
     MAX_BUILD_SECONDS,
     MAX_REPORT_BYTES,
     ROW_CAP,
@@ -62,15 +64,68 @@ class _Built:
 
 def _scope(
     conn: Connection, report: ClaimedReport, *, local: bool
-) -> tuple[FindingFilters, dict[int, date]]:
+) -> tuple[report_filters.ReportFilters, dict[int, date]]:
     """The report's filters over its scope, re-checked inside the build's transaction, and each
     account's data-through day."""
     scope = queue.resolve_scope(conn, tuple(report.connection_ids))
     queue.check_scope(scope, local=local)
     ids = [cid for cid, _ in scope]
     filters = report_filters.from_json(report.kind, report.filters, connection_ids=ids)
-    through = ingest.data_through_by_connection(conn, connection_ids=ids, tools=filters.tools)
+    tools = (
+        filters.tools
+        if isinstance(filters, FindingFilters)
+        else report_filters.KIND_TOOLS[report.kind]
+    )
+    through = ingest.data_through_by_connection(conn, connection_ids=ids, tools=tools)
     return filters, through
+
+
+def _finding_rows(
+    conn: Connection, report: ClaimedReport, filters: FindingFilters
+) -> Iterator[list[dict[str, Any]]]:
+    """A Misconfigurations or Vulnerabilities report's rows, batch by batch."""
+    for batch in findings.iter_findings(conn, filters, batch=BATCH):
+        names = inventory.resource_names(
+            conn, [r["resource_id"] for r in batch if r["resource_id"] is not None]
+        )
+        facts = (
+            findings.vulnerability_facts(conn, [r["id"] for r in batch])
+            if report.kind == "vulnerabilities"
+            else {}
+        )
+        for row in batch:
+            row["resource_name"] = names.get(row["resource_id"]) or row["reported_resource_name"]
+            row["vulnerability"] = facts.get(row["id"])
+        yield batch
+
+
+def _resource_rows(
+    conn: Connection, filters: ResourceListFilters
+) -> Iterator[list[dict[str, Any]]]:
+    """A Resources report's rows, batch by batch: the list's rows with the columns it shows,
+    each read from its owning module for the batch (the list reads them per page)."""
+    ids = list(filters.connection_ids)
+    accounts = queue.scope_accounts(conn, ids)
+    collected = set(
+        ingest.data_through_by_connection(
+            conn, connection_ids=ids, tools=[findings.VULNERABILITY_TOOL]
+        )
+    )
+    for batch in inventory.iter_resources(conn, filters.inventory_filters(), batch=BATCH):
+        resource_ids = [r["id"] for r in batch]
+        counts = findings.open_finding_counts(conn, resource_ids)
+        cells = findings.vulnerability_summaries(conn, batch, collected=collected)
+        roles = [r["id"] for r in batch if r["type"] == inventory.ROLE_TYPE]
+        used = inventory.role_last_used(conn, roles)
+        workloads = relationships.role_workloads(conn, roles)
+        for row in batch:
+            rid = row["id"]
+            row["connection"], row["account_id"] = accounts.get(row["connection_id"], ("", ""))
+            row["open_misconfigurations"], row["worst_severity"] = counts.get(rid, (0, None))
+            row["vulnerabilities"] = cells.get(rid)
+            row["role_last_used"] = used.get(rid)
+            row["workloads"] = workloads.get(rid)
+        yield batch
 
 
 @contextmanager
@@ -98,27 +153,20 @@ def _write_csv(
         filters, through = _scope(conn, report, local=local)
         written = 0
         truncated = False
+        batches = (
+            _finding_rows(conn, report, filters)
+            if isinstance(filters, FindingFilters)
+            else _resource_rows(conn, filters)
+        )
         with out_path.open("w", encoding="utf-8", newline="") as out:
             csv = CsvReport(out, report.kind)
-            for batch in findings.iter_findings(conn, filters, batch=BATCH):
+            for batch in batches:
                 if time.monotonic() > deadline:
                     raise _TooLongError
-                names = inventory.resource_names(
-                    conn, [r["resource_id"] for r in batch if r["resource_id"] is not None]
-                )
-                facts = (
-                    findings.vulnerability_facts(conn, [r["id"] for r in batch])
-                    if report.kind == "vulnerabilities"
-                    else {}
-                )
                 for row in batch:
                     if written == row_cap:
                         truncated = True
                         break
-                    row["resource_name"] = (
-                        names.get(row["resource_id"]) or row["reported_resource_name"]
-                    )
-                    row["vulnerability"] = facts.get(row["id"])
                     csv.write(row)
                     written += 1
                 if truncated:
@@ -129,8 +177,12 @@ def _write_csv(
 def _write_pdf(engine: Engine, report: ClaimedReport, out_path: Path, *, local: bool) -> _Built:
     """Reads inside the transaction, then closes it before rendering: a render can outlast the
     worker role's 5-minute limit on an idle transaction."""
+    if report.kind in CSV_ONLY_KINDS:
+        raise ReportRefusedError(queue.CSV_ONLY)
     with _snapshot(engine) as conn:
         filters, through = _scope(conn, report, local=local)
+        if not isinstance(filters, FindingFilters):
+            raise ReportRefusedError(queue.CSV_ONLY)
         collected = pdf.collect(conn, report.kind, filters)
     context = pdf.build_context(
         collected,

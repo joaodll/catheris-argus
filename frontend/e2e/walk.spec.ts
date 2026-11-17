@@ -1789,6 +1789,47 @@ test('resources: role use, its filters and the panel; both themes, phone width',
   await shot(page, '73b-phone-resources-role-use')
 })
 
+test('resources: export the list as a CSV, see it in Reports, download it; both themes, phone width', async ({ page }) => {
+  // Round 2 (2026-11-17, ADR-0047 amended): Resources has Export, a CSV of the list as filtered.
+  test.setTimeout(120_000)
+  await signIn(page)
+  await page.goto('/investigate/resources?tab=list&type=aws_iam_role&role_unused=90')
+  await expect(page.getByRole('heading', { level: 1, name: 'Resources' })).toBeVisible()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const exporting = page.getByRole('dialog', { name: 'Export Resources' })
+  await expect(exporting.getByText('aws_iam_role · roles not used in 90 days')).toBeVisible()
+  // A Resources report is a CSV only: no PDF choice.
+  await expect(exporting.getByText('CSV: every row, for a spreadsheet')).toBeVisible()
+  await expect(exporting.getByRole('radio')).toHaveCount(0)
+  await axe(page, 'export resources')
+  await shot(page, '74-export-resources')
+  await exporting.getByRole('button', { name: 'Request report' }).click()
+  const toastText = page.getByRole('status').filter({ hasText: /Report #\d+ requested/ })
+  await expect(toastText).toBeVisible()
+  const id = (await toastText.textContent())?.match(/#(\d+)/)?.[1] ?? ''
+
+  await navLink(page, 'Reports')
+  const link = page.getByRole('link', { name: `Download report #${id}` })
+  await expect(link).toBeVisible({ timeout: 60_000 })
+  const row = page.locator('tbody tr', { has: link })
+  await expect(row.locator('.kind')).toHaveText('Resources')
+  await expect(row).toContainText('aws_iam_role · roles not used in 90 days')
+  const response = await page.request.get((await link.getAttribute('href')) ?? '')
+  expect(response.status()).toBe(200)
+  expect(response.headers()['content-disposition']).toMatch(new RegExp(`^attachment; filename="argus-resources-${id}\\.csv"`))
+  const [header, ...rows] = (await response.text()).replace(/^\ufeff/, '').trim().split('\r\n')
+  expect(header).toContain('last_used_read_on')
+  expect(rows.length).toBeGreaterThan(0)
+  await axe(page, 'reports with a resources report')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await axe(page, 'light reports with a resources report')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(link).toBeVisible()
+  await axe(page, 'phone reports with a resources report')
+  await shot(page, '74b-phone-resources-report')
+})
+
 test('light theme: every screen passes axe, and the toggle cycles', async ({ page }) => {
   // The OS prefers light, so System (the default) draws the light theme (2026-10-14).
   await page.emulateMedia({ colorScheme: 'light' })

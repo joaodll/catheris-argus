@@ -4,7 +4,10 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Literal
 
-ReportKind = Literal["misconfigurations", "vulnerabilities"]
+ReportKind = Literal["misconfigurations", "vulnerabilities", "resources"]
+# Kinds with a CSV only (migration 0054 refuses the rest): the Resources list is a table to sort
+# and filter, not a hand-off to read.
+CSV_ONLY_KINDS = frozenset({"resources"})
 ReportFormat = Literal["csv", "pdf"]
 ReportStatus = Literal["queued", "building", "ready", "failed"]
 

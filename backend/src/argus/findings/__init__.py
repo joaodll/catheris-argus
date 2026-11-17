@@ -27,6 +27,8 @@ Public interface:
     VULNERABLE_RESOURCES_SQL, MISCONFIGURED_RESOURCES_SQL, INTERNET_REACHABLE_RESOURCES_SQL
                         resource ids with open CVEs, open misconfigurations, or an open
                         misconfiguration reachable from the internet, for the Resources filters
+    ResourceListFilters, vulnerability_summaries()   the Resources list's filters and its
+                        Vulnerabilities cell, shared by the list and its report (resource_list.py)
 """
 
 from argus.findings.commands import (
@@ -92,6 +94,11 @@ from argus.findings.queries import (
     open_finding_severities,
 )
 from argus.findings.repair import remove_compliance_items
+from argus.findings.resource_list import (
+    ResourceListFilters,
+    VulnerabilitySummary,
+    vulnerability_summaries,
+)
 from argus.findings.tags import (
     TAG_VALUES_LISTED,
     TagKey,
@@ -147,12 +154,14 @@ __all__ = [
     "RequirementStatus",
     "ResolvedCommand",
     "ResourceCommand",
+    "ResourceListFilters",
     "ResourceVulnerabilities",
     "TagKey",
     "VulnerabilityBatch",
     "VulnerabilityCount",
     "VulnerabilityFacts",
     "VulnerabilityLevel",
+    "VulnerabilitySummary",
     "carry_forward_compliance",
     "check_texts",
     "commands_for_resource",
@@ -189,4 +198,5 @@ __all__ = [
     "tag_values",
     "vulnerability_counts",
     "vulnerability_facts",
+    "vulnerability_summaries",
 ]
