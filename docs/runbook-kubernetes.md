@@ -374,6 +374,16 @@ other paths Job starts until Kubernetes deletes it (10 minutes), after which rou
 out as usual. On Compose nothing changes: the worker's paths thread
 works the routes out as `argus_worker`.
 
+**To 0.3.2: the scanner role in every scanned account** (2026-11-16): Prowler 5.50.0 and
+Steampipe's AWS plugin 1.36.0 need seven more reads. `ProwlerAdditionsPolicy` gains
+`inspector2:SearchVulnerabilities`, `oam:GetSinkPolicy`, `oam:ListTagsForResource` and
+`logs:GetDataProtectionPolicy`. A new `SteampipeAdditionsPolicy` grants three
+`application-signals` reads. Update the role in every account as
+[Connecting AWS accounts](connect-aws.md) describes (StackSet, single stack, or printed policies).
+Before or after the chart upgrade both work: until the role is updated, those checks and the
+new table have no result. Nothing in the chart, the Secret or the database changes. The same
+applies on Compose.
+
 **From a chart before ADR-0046** (one `images.worker`): the schema refuses `images.worker` and
 `scanJobs.resources`. Replace them with `images.workerSteampipe`, `images.workerProwler` and
 `images.workerCloudfox` (one digest each), and `scanJobs.work.<work>.resources`. Scan Jobs still

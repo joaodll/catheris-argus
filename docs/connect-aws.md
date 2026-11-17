@@ -135,8 +135,9 @@ you scan it, deploy the stack there with the single-account command.
 Argus itself never calls CloudFormation or IAM: you deploy the role, with your own credentials.
 
 **After an Argus upgrade** whose release notes say the template changed, update the role the same
-way. Until you do, the new reads are refused, and the Runs page lists them as missing from the
-role. Keep the parameter values you deployed with, so the ExternalId is not typed again:
+way. Until you do, the new reads are refused: the checks and tables that need them have no
+result, and the Runs page lists the refused actions the tools report. Keep the parameter values
+you deployed with, so the ExternalId is not typed again:
 
 ```bash
 aws cloudformation update-stack-set \
@@ -152,6 +153,11 @@ aws cloudformation update-stack-set \
 From a delegated administrator account, add `--call-as DELEGATED_ADMIN`. For a single stack, run
 the `aws cloudformation deploy` command above again without `--parameter-overrides`: it keeps the
 stack's current values.
+
+A role or user whose policies were made by hand, or from the printed policies
+(`print_policies.py`), gets the change the same way: print the policies again and replace each
+customer managed policy with its new document, creating any the role doesn't have yet (Argus
+0.3.2 adds `ArgusSteampipeAdditions`).
 
 ## 5. Add the connection
 

@@ -37,7 +37,7 @@ DATA_KIND = "internet-to-data"
 ENV_KIND = "internet-to-workload-secret"
 IMDS_CHECK = "ec2_instance_imdsv2_enabled"
 # Prowler's checks that make a bucket public itself: a distribution's origin bucket counts as a
-# data route only then (kind 6, ADR-0052 §6; all in Prowler 5.48.0's list).
+# data route only then (kind 6, ADR-0052 §6; all in Prowler 5.50.0's list).
 EXPOSURE_CHECKS = (
     "s3_bucket_public_access",
     "s3_bucket_public_list_acl",
