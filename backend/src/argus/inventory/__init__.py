@@ -1,6 +1,7 @@
 """Inventory: resources, their configurations and their daily snapshots.
 
-Owns resource, resource_config, resource_snapshot, resource_load and resource_tag.
+Owns resource, resource_config, resource_snapshot, resource_load, resource_tag and
+role_last_used.
 Public interface:
     parse_steampipe()  the Steampipe adapter: one run's raw files -> InventoryBatch (pure)
     load_inventory()   writes a batch for one connection and day, in the caller's transaction
@@ -14,6 +15,9 @@ Public interface:
                        the attack-path walk and its kinds (ADR-0052)
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
                        (the Resources page, and a resource as of a day)
+    role_last_used(), UNUSED_ROLES_SQL, RoleLastUsed, RoleUnused   each IAM role's last use as
+                       AWS records it (roles.py, migration 0053), for the Resources list
+    CURRENT_ROLES_SQL  one connection's current roles, for relationships' workload counts
     is_asset()         whether a resource type counts as an asset (parts, settings and links
                        are stored and searchable, not counted); stored as resource.asset
 """
@@ -46,6 +50,15 @@ from argus.inventory.queries import (
     resource_types,
     uid_by_native_id,
 )
+from argus.inventory.roles import (
+    CURRENT_ROLES_SQL,
+    ROLE_TYPE,
+    TRACKING_DAYS,
+    UNUSED_ROLES_SQL,
+    RoleLastUsed,
+    RoleUnused,
+    role_last_used,
+)
 from argus.inventory.steampipe import (
     SUPPORTED_VERSIONS,
     InventoryBatch,
@@ -56,18 +69,24 @@ from argus.inventory.steampipe import (
 
 __all__ = [
     "CURRENT_ASSETS_SQL",
+    "CURRENT_ROLES_SQL",
     "INVENTORY_METRICS",
     "RESOURCES_IN_REGIONS_SQL",
     "RESOURCES_ON_DAY_SQL",
     "RESOURCE_NODES_SQL",
     "RESOURCE_TAGS_SQL",
     "RESOURCE_TYPES_ON_DAY_SQL",
+    "ROLE_TYPE",
     "SUPPORTED_VERSIONS",
     "TAGGED_RESOURCES_SQL",
+    "TRACKING_DAYS",
+    "UNUSED_ROLES_SQL",
     "InventoryBatch",
     "InventoryResource",
     "ResourceFilters",
     "ResourceOrder",
+    "RoleLastUsed",
+    "RoleUnused",
     "delete_loads_before",
     "delete_orphan_configs",
     "effective_day",
@@ -83,6 +102,7 @@ __all__ = [
     "resource_names",
     "resource_nodes",
     "resource_types",
+    "role_last_used",
     "rollup_inventory_metrics",
     "uid_by_native_id",
 ]

@@ -13,6 +13,7 @@ import hashlib
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from argus.core.manifest import Manifest
@@ -176,6 +177,8 @@ AWS_OWNED: dict[str, Callable[[dict[str, Any]], bool]] = {
 # Left out of the configuration and its hash: they change without the resource changing.
 # An IAM user's and access key's last use are kept on purpose (argus_v7): a stale key is a
 # finding an operator looks for, at the cost of a new configuration on each day it is used.
+# A role's last use is kept apart instead (InventoryBatch.role_last_used, table role_last_used,
+# migration 0053): roles outnumber users, and the Resources list reads it as a plain column.
 VOLATILE_ALL = frozenset({"_ctx", "sp_ctx", "sp_connection_name", "title", "akas"})
 VOLATILE = {
     "aws_vpc_subnet": frozenset({"available_ip_address_count"}),
@@ -212,6 +215,10 @@ class InventoryBatch:
     # The regions the run scanned; empty means every region. Outside them the run says nothing:
     # nothing there is deleted, and its previous rows carry forward.
     regions: frozenset[str] = frozenset()
+    # Each IAM role's last use as AWS records it (RoleLastUsed): uid -> (when, region), (None,
+    # None) when AWS records no use in its tracking window. Load writes it only when aws_iam_role
+    # was complete. A role whose date is not a timestamp is left out, so it keeps its last value.
+    role_last_used: dict[str, tuple[datetime | None, str | None]] = field(default_factory=dict)
 
 
 def _decode(value: Any) -> Any:
@@ -244,6 +251,22 @@ def _normalise(table: str, row: dict[str, Any]) -> dict[str, Any]:
 def config_hash(config: dict[str, Any]) -> bytes:
     canonical = json.dumps(config, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).digest()
+
+
+def _last_used(row: dict[str, Any]) -> tuple[datetime | None, str | None] | None:
+    """A role row's RoleLastUsed as (when, region); None when the date is not a timestamp."""
+    when, region = row.get("role_last_used_date"), row.get("role_last_used_region")
+    if when is None:
+        return None, None
+    if not isinstance(when, str):
+        return None
+    try:
+        at = datetime.fromisoformat(when)
+    except ValueError:
+        return None
+    if at.tzinfo is None:
+        return None
+    return at, region if isinstance(region, str) and region else None
 
 
 def _uid(row: dict[str, Any], column: str | None) -> str | None:
@@ -292,6 +315,7 @@ def parse_steampipe(run: RawRun) -> InventoryBatch:
     if manifest.tool_version not in SUPPORTED_VERSIONS:
         raise UnsupportedVersionError(f"steampipe export {manifest.tool_version} not supported")
     chosen: dict[str, tuple[tuple[int, int, str], InventoryResource]] = {}
+    last_used: dict[str, tuple[datetime | None, str | None]] = {}
     skipped: list[str] = []
     seen: set[str] = set()
     for file in manifest.files:
@@ -314,6 +338,8 @@ def parse_steampipe(run: RawRun) -> InventoryBatch:
                 native = row.get(cols.native_id) if cols else row.get("title")
                 skipped.append(f"{table}:{native}")
                 continue
+            if table == "aws_iam_role" and (used := _last_used(row)) is not None:
+                last_used[uid] = used
             config = _normalise(table, row)
             # Read from the row, so redacted here as the configuration is.
             tags = redact_tags(row["tags"]) if isinstance(row.get("tags"), dict) else {}
@@ -346,6 +372,7 @@ def parse_steampipe(run: RawRun) -> InventoryBatch:
         complete_types=complete_types,
         carry_types=carry_types,
         regions=frozenset(manifest.region_scope),
+        role_last_used=last_used,
     )
 
 

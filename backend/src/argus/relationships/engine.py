@@ -45,6 +45,7 @@ from sqlalchemy import Connection, Engine, text
 
 from argus.core.resolver import record_unresolved
 from argus.inventory import RESOURCES_ON_DAY_SQL, effective_day, resource_id_sql
+from argus.relationships.roles import put_role_workloads
 
 
 def _array(path: str) -> str:
@@ -1162,7 +1163,7 @@ def write_edges(
                 reason="host name owned by no resource in the inventory",
                 day=day,
             )
-        return load_edges(
+        loaded = load_edges(
             conn,
             edges=edges,
             connection_id=connection_id,
@@ -1170,3 +1171,6 @@ def write_edges(
             origin_prefix="rule:",
             ruleset=ruleset,
         )
+        # The Resources list's workload counts, in the same transaction (migration 0053).
+        put_role_workloads(conn, connection_id=connection_id, day=day)
+        return loaded

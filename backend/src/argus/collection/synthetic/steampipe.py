@@ -315,6 +315,18 @@ def _lambda(r: Resource, e: EstateDay) -> dict[str, Any]:
     }
 
 
+# How many days before the scan each synthetic role was last used, fixed per role: some daily,
+# some weeks or months back, some not within IAM's 400-day tracking window (None: AWS's null).
+ROLE_IDLE_DAYS = (0, 0, 1, 6, 45, 130, 250, None)
+
+
+def _role_last_used(r: Resource, e: EstateDay) -> tuple[str | None, str | None]:
+    idle = ROLE_IDLE_DAYS[h(r.uid, "last-used") % len(ROLE_IDLE_DAYS)]
+    if idle is None or e.day - timedelta(days=idle) < _born(r):
+        return None, None
+    return f"{e.day - timedelta(days=idle)}T09:30:00Z", "us-east-1"
+
+
 def _role(r: Resource, e: EstateDay) -> dict[str, Any]:
     trusted = r.attrs["trusted"]
     principal = {"AWS": trusted} if trusted.startswith("arn:") else {"Service": trusted}
@@ -328,6 +340,7 @@ def _role(r: Resource, e: EstateDay) -> dict[str, Any]:
         else [f"arn:aws:iam::{e.account_id}:policy/{r.name}-policy"]
     )
     tags = _tags(r, e)
+    used_at, used_region = _role_last_used(r, e)
     return {
         "name": r.name,
         "arn": r.arn,
@@ -339,6 +352,8 @@ def _role(r: Resource, e: EstateDay) -> dict[str, Any]:
         "inline_policies_std": r.attrs.get("inline", []),
         "max_session_duration": 3600,
         "create_date": _created(r),
+        "role_last_used_date": used_at,
+        "role_last_used_region": used_region,
         "tags": tags,
         "tags_src": _tags_src(tags),
         "title": r.name,

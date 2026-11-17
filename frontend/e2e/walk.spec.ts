@@ -1736,6 +1736,59 @@ test('tag filter: pick a tag, export it, see it in Reports; both themes, phone w
   await shot(page, '6x-phone-new-report-tag')
 })
 
+test('resources: role use, its filters and the panel; both themes, phone width', async ({ page }) => {
+  // Spec frontend/4ace4163: each IAM role says when AWS last saw it used and how many workloads
+  // run as it, in words; Role use and No workload filter the list, in the URL.
+  test.setTimeout(120_000)
+  await signIn(page)
+  await page.goto('/investigate/resources?tab=list&type=aws_iam_role')
+  const resources = page.getByRole('table')
+  const rows = resources.locator('tbody tr')
+  await expect(rows.first()).toBeVisible()
+  const line = rows.first().locator('[data-role-use]')
+  await expect(line).toHaveText(/^(Last used \d{4}-\d{2}-\d{2}|Not used in 400 days|Last use not collected yet) · /)
+  await expect(line).toHaveText(/(\d+ workloads?|no workload|workloads not counted yet)$/)
+
+  await page.getByRole('button', { name: /^More filters/ }).click()
+  await page.locator('#r-role-use').selectOption('90')
+  await expect(page).toHaveURL(/[?&]role_unused=90/)
+  await expect(page.getByRole('button', { name: /^More filters · 1/ })).toBeVisible()
+  await expect(rows.first()).toBeVisible()
+  // Every role listed has no use AWS records in the last 90 days.
+  for (const text of await resources.locator('[data-role-use]').allTextContents()) {
+    const used = text.match(/^Last used (\d{4}-\d{2}-\d{2})/)?.[1]
+    if (used) expect(Date.now() - Date.parse(used), text).toBeGreaterThan(80 * 86_400_000)
+    else expect(text).toMatch(/^Not used in 400 days/)
+  }
+  await page.getByLabel('No workload runs as it').check()
+  await expect(page).toHaveURL(/[?&]no_workload=1/)
+  await expect(page.getByRole('button', { name: /^More filters · 2/ })).toBeVisible()
+  const idle = resources.locator('[data-role-use]')
+  if (await idle.count()) {
+    for (const text of await idle.allTextContents()) expect(text).toMatch(/ · no workload$/)
+  } else {
+    await expect(page.getByText('No resources match these filters.')).toBeVisible()
+  }
+  await axe(page, 'resources role use filters')
+  await shot(page, '73-resources-role-use')
+
+  // A role used by a workload: its panel says when and how many.
+  await page.goto('/investigate/resources?tab=list&type=aws_iam_role')
+  await rows.filter({ has: page.locator('[data-role-use]', { hasText: /\d+ workloads?$/ }) }).first().getByRole('link').click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet.getByText('Last used', { exact: true })).toBeVisible()
+  await expect(sheet.getByRole('link', { name: /^\d+ runs? as it$/ })).toBeVisible()
+  await expect(sheet.getByText(/^Last use as AWS records it, read/)).toBeVisible()
+  await axe(page, 'resource sheet role use')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await axe(page, 'light resource sheet role use')
+  await page.keyboard.press('Escape')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(rows.first().locator('[data-role-use]')).toBeVisible()
+  await shot(page, '73b-phone-resources-role-use')
+})
+
 test('light theme: every screen passes axe, and the toggle cycles', async ({ page }) => {
   // The OS prefers light, so System (the default) draws the light theme (2026-10-14).
   await page.emulateMedia({ colorScheme: 'light' })

@@ -20,8 +20,9 @@ OWNERS: dict[str, set[str]] = {
         "resource_snapshot",
         "resource_load",
         "resource_tag",
+        "role_last_used",
     },
-    "relationships": {"edge", "edge_snapshot", "edge_load"},
+    "relationships": {"edge", "edge_snapshot", "edge_load", "role_workload"},
     "findings": {
         "finding",
         "finding_command",

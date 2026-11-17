@@ -4699,6 +4699,16 @@
             "title": "Resource Uid",
             "type": "string"
           },
+          "role_use": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleUse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "scanned": {
             "$ref": "#/components/schemas/ToolScans"
           },
@@ -4989,6 +4999,16 @@
             "title": "Resource Uid",
             "type": "string"
           },
+          "role_use": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoleUse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "type": {
             "title": "Type",
             "type": "string"
@@ -5260,6 +5280,70 @@
           }
         },
         "title": "RoleIn",
+        "type": "object"
+      },
+      "RoleUse": {
+        "description": "An IAM role's use (migration 0053): AWS's own record of its last use, and how many\nworkloads (EC2 instances, Lambda functions, ECS services, EKS node groups) run as it. The\nlatest reading, whatever day the page shows.",
+        "properties": {
+          "last_used_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used At"
+          },
+          "last_used_region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Used Region"
+          },
+          "observed_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed On"
+          },
+          "tracking_days": {
+            "title": "Tracking Days",
+            "type": "integer"
+          },
+          "workloads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workloads"
+          }
+        },
+        "required": [
+          "last_used_at",
+          "last_used_region",
+          "observed_on",
+          "tracking_days",
+          "workloads"
+        ],
+        "title": "RoleUse",
         "type": "object"
       },
       "RouteDetail": {
@@ -13963,6 +14047,37 @@
             "schema": {
               "default": false,
               "title": "Internet",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role_unused",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "90",
+                    "180",
+                    "365"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role Unused"
+            }
+          },
+          {
+            "in": "query",
+            "name": "no_workload",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "No Workload",
               "type": "boolean"
             }
           },
