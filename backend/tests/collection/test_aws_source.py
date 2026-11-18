@@ -34,6 +34,7 @@ from argus.core.manifest import (
     TABLE_ERROR_PATTERN,
     Manifest,
 )
+from argus.core.redaction import redact_text
 from argus.settings import CollectionSettings
 
 DAY = date(2026, 10, 2)
@@ -99,7 +100,8 @@ def fakes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             'mkdir -p "$2/cached-data/aws/210987654321"\n'
             'echo cache > "$2/cached-data/aws/210987654321/lambda-ListFunctions.gob"\n'
             'cat "$HOME/../cloudfox.errors" >> "$HOME/../cloudfox-error.log" 2>/dev/null\n'
-            'cat "$HOME/../cloudfox.out" 2>/dev/null; exit 0\n',
+            'cat "$HOME/../cloudfox.out" 2>/dev/null\n'
+            'exit "$(cat "$HOME/../cloudfox.rc" 2>/dev/null || echo 0)"\n',
         ),
     )
     monkeypatch.setattr(
@@ -625,6 +627,51 @@ def test_cloudfox_output_in_an_unexpected_layout_is_left_as_written(tmp_path: Pa
         "argus-2",
     ]
     assert not (tmp_path / "json").exists()
+
+
+def test_a_failed_cloudfox_run_shows_its_error_log(fakes: Path) -> None:
+    """CloudFox's console says little at --verbosity 1: a failed run carries the lines it
+    added to its own error log, a fatal one naming no account included, never a concurrent
+    run's lines for another account, and says why it failed."""
+    log = fakes / "homes" / "cloudfox-error.log"
+    log.write_text("2026/11/17 an older run's line\n")
+    other_account = CLOUDFOX_403.replace("210987654321", "999999999999")
+    fatal = "2026/11/18 role-trusts: Get https://example.invalid/accounts.yaml: dial tcp: timeout\n"
+    _control(fakes / "homes", "cloudfox.errors", CLOUDFOX_403 + other_account + fatal)
+    _control(fakes / "homes", "cloudfox.rc", "1")
+    _, manifest = _run(fakes, "cloudfox")
+    assert manifest.status == "failed"
+    tail = manifest.log_tail
+    assert "argus: CloudFox's error log, last lines:" in tail
+    assert "role-trusts: Get https://example.invalid/accounts.yaml: dial tcp: timeout" in tail
+    assert "lambda:ListFunctions" in tail  # this account's denial
+    assert "999999999999" not in tail and "an older run's line" not in tail
+    assert "argus: CloudFox failed: exit code 1\nargus: 1 action(s) denied" in tail
+
+
+def test_a_failed_cloudfox_run_with_nothing_in_its_error_log_says_so(fakes: Path) -> None:
+    _control(fakes / "homes", "cloudfox.empty", "")
+    _, manifest = _run(fakes, "cloudfox")
+    assert manifest.status == "failed"
+    assert "argus: CloudFox's error log: nothing added by this run" in manifest.log_tail
+    assert manifest.log_tail.rstrip().endswith("argus: CloudFox failed: it wrote no output")
+
+
+def test_a_successful_cloudfox_run_carries_no_error_log_tail(fakes: Path) -> None:
+    _control(fakes / "homes", "cloudfox.errors", CLOUDFOX_403)
+    _, manifest = _run(fakes, "cloudfox")
+    assert manifest.status == "partial"  # denied, not failed
+    assert "CloudFox's error log" not in manifest.log_tail
+
+
+def test_cloudfox_error_lines_are_redacted_and_bounded() -> None:
+    secret_line = "2026/11/18 env-vars: password=hunter2-not-real failed to parse\n"
+    added = "".join(f"2026/11/18 line {i} {'x' * 500}\n" for i in range(20)) + secret_line
+    tail = aws_tools._cloudfox_error_tail(added, "210987654321")
+    assert len(tail) == aws_tools.CLOUDFOX_ERROR_LINES + 1
+    assert all(len(line) <= aws_tools.CLOUDFOX_ERROR_LINE_CHARS for line in tail[1:])
+    # The run's log reaches Postgres through redact_text (collect.py), as every log line does.
+    assert "hunter2-not-real" not in redact_text("\n".join(tail))
 
 
 def test_a_denied_cloudfox_module_makes_the_run_partial(fakes: Path) -> None:
