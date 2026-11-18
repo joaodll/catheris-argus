@@ -105,5 +105,7 @@ def run_job(
         kinds=("aws",),
         tools=SCAN_WORK[work],
         max_parallel=max_runs,
+        # One run in this pod: its cgroup's memory is the run's (core/memory.py).
+        guard_memory=True,
     )
     return "nothing" if status is None else "scan"

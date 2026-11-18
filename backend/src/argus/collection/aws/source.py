@@ -49,8 +49,11 @@ class AwsSource:
         regions = list(options.aws_regions)
         credentials = options.aws_access.credentials(session_name=f"argus-{run_uid.hex[:24]}")
         _refuse_another_account(credentials, target.account_id)
+        guard = options.memory_guard
         live = ToolStream(
-            tool, fields={"connection_id": target.connection_id, "run_uid": run_uid.hex}
+            tool,
+            fields={"connection_id": target.connection_id, "run_uid": run_uid.hex},
+            status=guard.status if guard is not None else None,
         )
         with (
             tool_profile(credentials, regions[0] if regions else "us-east-1") as env,
@@ -64,6 +67,7 @@ class AwsSource:
                     options.steampipe_parallel_tables,
                     options.cancel,
                     stream=stream,
+                    guard=guard,
                 )
             elif tool == "prowler":
                 result = run_prowler(
@@ -75,10 +79,17 @@ class AwsSource:
                     skip_services=options.prowler_skip_services,
                     skip_checks=options.prowler_skip_checks,
                     stream=stream,
+                    guard=guard,
                 )
             elif tool == "vulnerabilities":  # on AWS, Inspector is the scanner
                 result = run_inspector(
-                    out_dir, env, regions, target.account_id, options.cancel, stream=stream
+                    out_dir,
+                    env,
+                    regions,
+                    target.account_id,
+                    options.cancel,
+                    stream=stream,
+                    guard=guard,
                 )
             else:
                 result = run_cloudfox(
@@ -88,7 +99,13 @@ class AwsSource:
                     options.cloudfox_max_goroutines,
                     options.cancel,
                     stream=stream,
+                    guard=guard,
                 )
+            # The most the run used, so the operator can size the Job (core/memory.py).
+            peak = guard.peak_line() if guard is not None else None
+            if peak is not None:
+                stream.line(peak)
+                result.log_lines = [*result.log_lines, peak]
         return Outcome(
             status=result.status,  # type: ignore[arg-type]
             exit_code=result.exit_code,

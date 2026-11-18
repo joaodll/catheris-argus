@@ -174,6 +174,14 @@ Also review:
   `scanJobs.scratch.size` (20 Gi): the node disk a scan's raw output may use.
   `scanJobs.work.<work>.resources`: each template's pod size. A connection test needs far less
   than a scan. The admission policy pins these sizes, so change them here, never on a Job.
+  - **Size a scan's memory from its peak.** Every scan run ends its log with
+    `argus: peak memory <used> of <limit> (tmp <part>)`. Memory counts the tool's own memory plus
+    `/tmp`, which is in memory and holds each tool's home and CloudFox's cache; it never counts
+    the page cache.
+  - **Near the limit, the scan stops itself.** About a second before the kernel would kill the
+    pod, the scan Job stops its tool, and the run fails with a sentence naming the use, the limit
+    and the value to raise. The run is not retried, because the same limit would stop it again.
+    The threshold is the limit less the larger of 256 MiB and 8 %.
 - `scheduler.maxRunJobs`: how many AWS scans run at once, a bound below the UI's **Max parallel
   runs**. There is no bound to set for the paths Job: it is one, fixed. `scheduler.maxTestJobs`: how many more Jobs may start while connection tests wait, so
   a test never waits behind a long scan.
@@ -565,6 +573,8 @@ refused sign-in means.
 | One person's bad sign-ins lock out everyone, or web's log shows one address for all users | Something adds a second proxy in front of the ingress, or the ingress doesn't set `X-Forwarded-For` | Read the last field of web's log lines: the chain it received. The ingress must add the client last |
 | `helm test` fails: "accepted a connection" | NetworkPolicy is not enforced | Turn on the VPC CNI's network policy, then test again |
 | The scheduler restarts while scans run; its events say `Liveness probe failed: command timed out` | Up to 0.2.0 its probe started Python with a one-second timeout, too little on a node busy with scans | Upgrade the chart. If pods still slow down during scans, give scan Jobs their own nodes or a CPU limit (Values) |
+| A run fails with "<Tool> was stopped at … of the pod's … memory limit" | The tool needed more memory than its scan Job allows | Raise `scanJobs.work.<work>.resources` with `requests.memory` equal to `limits.memory`, sized from the runs' `peak memory` lines, on nodes with room for it, then run the scan again |
+| A run fails with "lost 2 times while running (killed, out of memory, evicted or past its deadline)" | The pod died without the scan saying why: evicted, its node removed, past `scanJobs.activeDeadlineSeconds`, or killed by the kernel faster than the scan could stop its tool | `kubectl -n argus get events --field-selector involvedObject.kind=Pod` within the hour; see "Scan nodes" for keeping scans on their node |
 | Runs stay queued; the scheduler logs `kubernetes refused` | A denial by the policy or the quota | The `detail` names the rule; reinstall with Helm rather than editing templates by hand |
 | Runs stay queued; the scheduler logs a reconcile error with a connection timeout | `networkPolicy.kubeApi.cidrs` no longer holds the API's addresses | Read them again (Values) and upgrade |
 | Test connection fails: "Unable to locate credentials" | No identity reached the `test` pod | Check `identity.roleArn`, the role's trust (`sub` names the namespace and `<release>-run`) |

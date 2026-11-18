@@ -15,10 +15,11 @@ from sqlalchemy.exc import DataError
 from tests.ingest.conftest import make_aws, make_demo
 
 from argus.collection import source_for, store_for
-from argus.collection.collect import Outcome
+from argus.collection.collect import CollectOptions, Outcome
 from argus.core.aws import SessionCredentials
 from argus.core.config import get_settings
 from argus.core.db import CONNECT_ARGS
+from argus.core.memory import MemoryGuard
 from argus.core.rawstore import FilesystemRawStore, S3RawStore
 from argus.ingest import pipeline
 from argus.scheduling import (
@@ -783,3 +784,73 @@ def test_backfill_does_not_trigger_the_run_now_cooldown(owner: Engine, worker: E
         assert not recently_completed(
             conn, connection_id=target.connection_id, tool="prowler", cooldown_minutes=60
         )
+
+
+def _cgroup(root: Path, *, anon_mib: int, shmem_mib: int = 0, limit_mib: int = 1024) -> Path:
+    """A cgroup v2 directory as a container sees its own (core/memory.py)."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "memory.max").write_text(f"{limit_mib << 20}\n")
+    (root / "memory.stat").write_text(
+        f"anon {anon_mib << 20}\nfile {4096 << 20}\nshmem {shmem_mib << 20}\n"
+    )
+    return root
+
+
+class _OverMemory:
+    """A tool that grows past its pod's memory: the guard stops it (Kubernetes scan Job)."""
+
+    name = "synthetic"
+
+    def collect(self, *, options: CollectOptions, **_: object) -> None:
+        assert options.memory_guard is not None
+        options.memory_guard.stop_if_over()
+        raise AssertionError("the guard let the tool run on")
+
+
+def test_a_run_stopped_for_memory_fails_saying_so_and_is_not_retried(
+    owner: Engine,
+    worker: Engine,
+    store: FilesystemRawStore,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """The same limit would stop it again: one failed run with the numbers, no retry, instead
+    of a pod killed twice and "lost 2 times" (owner, 2026-11-18)."""
+    target = make_demo(owner)
+    root = _cgroup(tmp_path / "cgroup", anon_mib=900, shmem_mib=60)
+    monkeypatch.setattr(runner.MemoryGuard, "for_this_container", lambda: MemoryGuard(root))
+    monkeypatch.setattr(runner, "source_for", lambda kind: _OverMemory())
+    rid = _request(owner, target.connection_id, "prowler", reason="schedule", day=date(2026, 10, 2))
+    status = runner.run_once(
+        worker, store=store, rules_dir=RULES_DIR, worker_id="t", guard_memory=True
+    )
+    assert status == "failed"
+    with owner.connect() as conn:
+        row = conn.execute(
+            text("SELECT status, error FROM run_request WHERE id = :i"), {"i": rid}
+        ).one()
+        queued = conn.execute(
+            text("SELECT count(*) FROM run_request WHERE status = 'queued'")
+        ).scalar_one()
+        log_tail = conn.execute(text("SELECT log_tail FROM scan_run")).scalar_one()
+    assert row.status == "finished" and queued == 0
+    sentence = (
+        "Prowler was stopped at 0.9 GiB of the pod's 1.0 GiB memory limit (0.1 GiB of it in "
+        "/tmp), before the kernel killed the pod. Raise scanJobs.work.prowler.resources"
+    )
+    assert row.error.startswith(sentence)
+    assert sentence in log_tail
+
+
+def test_without_a_guard_a_run_never_reads_memory(
+    owner: Engine, worker: Engine, store: FilesystemRawStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The Compose worker runs several runs in one container: no guard there."""
+
+    def refuse() -> None:
+        raise AssertionError("no guard on the worker")
+
+    monkeypatch.setattr(runner.MemoryGuard, "for_this_container", refuse)
+    target = make_demo(owner)
+    _request(owner, target.connection_id, "steampipe", reason="schedule", day=date(2026, 10, 2))
+    assert runner.run_once(worker, store=store, rules_dir=RULES_DIR, worker_id="t") is not None

@@ -36,9 +36,11 @@ from argus.collection import (
     access_for,
     collect,
     source_for,
+    stopped_for_memory,
     store_for,
 )
 from argus.connections import ConnectionRow
+from argus.core.memory import MemoryGuard
 from argus.core.rawstore import FilesystemRawStore, RawStore
 from argus.ingest import ingest_run, register_failed_run, register_run
 from argus.scheduling import claims
@@ -70,6 +72,8 @@ class _Attempt:
     # Set by the heartbeat when the run was asked to stop, with who asked.
     cancel: threading.Event = field(default_factory=threading.Event)
     cancelled_by: str | None = None
+    # Set when the run is alone in its container (a Kubernetes scan Job, core/memory.py).
+    guard: MemoryGuard | None = None
 
 
 class _ClaimLost(Exception):
@@ -87,11 +91,14 @@ def execute(
     rules_dir: Path,
     request: claims.ClaimedRequest,
     today: date,
+    guard_memory: bool = False,
 ) -> str:
     """Runs one claimed request to the end. Returns the run status, "lost" when the claim
     was released meanwhile, "cancelled" when it was stopped as asked, or "error"."""
     stop_heartbeat = threading.Event()
     attempt = _Attempt(request=request, day=request.snapshot_date or today, store=store)
+    if guard_memory:
+        attempt.guard = MemoryGuard.for_this_container()
 
     def beat() -> None:
         while not stop_heartbeat.wait(HEARTBEAT_EVERY.total_seconds()):
@@ -191,6 +198,7 @@ def _collect_and_ingest(
             prowler_skip_services=tuple(settings.prowler_skip_services),
             prowler_skip_checks=tuple(settings.prowler_skip_checks),
             cancel=attempt.cancel,
+            memory_guard=attempt.guard,
         ),
     )
     if attempt.lost.is_set():
@@ -202,14 +210,17 @@ def _collect_and_ingest(
     outcome = ingest_run(
         engine, store=attempt.store, scan_run_id=attempt.scan_run_id, rules_dir=rules_dir
     )
+    # A tool stopped near the memory limit would be stopped again under the same limit.
+    over = attempt.guard.over if attempt.guard is not None else None
+    error = stopped_for_memory(request.tool, over) if over is not None else outcome.error
     with engine.begin() as conn:
-        if not claims.finish(conn, request, scan_run_id=attempt.scan_run_id, error=outcome.error):
+        if not claims.finish(conn, request, scan_run_id=attempt.scan_run_id, error=error):
             raise _ClaimLost
         # A partial run is not retried: its usual cause, actions the scanner role denies by
         # design, would make the retry partial again (decided 2026-10-08, argus_v8).
         # Nor is a run that was asked to stop too late to be stopped: asked not to run, it is
-        # not run again.
-        if outcome.status == "failed" and not attempt.cancel.is_set():
+        # not run again. Nor one stopped for memory (owner, 2026-11-18).
+        if outcome.status == "failed" and not attempt.cancel.is_set() and over is None:
             claims.retry(conn, request, settings=settings)
     return outcome.status
 
@@ -303,6 +314,7 @@ def run_once(
     kinds: Collection[str] | None = None,
     tools: Collection[str] | None = None,
     max_parallel: int | None = None,
+    guard_memory: bool = False,
 ) -> str | None:
     """Claims and executes one request, if one is due (of a connection of one of `kinds` when
     given, a connection's next request only if it is one of `tools` when given, and while fewer
@@ -323,4 +335,5 @@ def run_once(
         rules_dir=rules_dir,
         request=request,
         today=today or datetime.now(UTC).date(),
+        guard_memory=guard_memory,
     )

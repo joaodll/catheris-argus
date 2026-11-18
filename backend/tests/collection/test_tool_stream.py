@@ -17,6 +17,7 @@ from argus.collection.aws import tools as aws_tools
 from argus.collection.aws.stream import ToolStream
 from argus.collection.collect import Cancelled
 from argus.core.logging import JsonFormatter
+from argus.core.memory import MemoryGuard, OutOfMemory
 
 
 class _Lines(logging.Handler):
@@ -196,3 +197,28 @@ def test_a_very_long_line_is_cut(captured: _Lines) -> None:
     ToolStream("prowler").line("checking bucket " * 200)
     assert len(captured.messages()[0]) <= live.MAX_LINE_CHARS
     assert captured.messages()[0].startswith("checking bucket checking")
+
+
+def test_a_tool_near_the_memory_limit_is_killed(tmp_path: Path) -> None:
+    """The guard is read on every look at the tool (a second apart): over the line, the tool's
+    group is killed and the run raises, before the kernel would kill the pod."""
+    root = tmp_path / "cgroup"
+    root.mkdir()
+    (root / "memory.max").write_text(str(1 << 30))
+    (root / "memory.stat").write_text(f"anon {100 << 20}\nshmem 0\n")
+    cmd = _tool(tmp_path / "tool", "echo started\nwhile true; do sleep 0.05; done\n")
+    guard = MemoryGuard(root)
+    threading.Timer(
+        0.5, lambda: (root / "memory.stat").write_text(f"anon {900 << 20}\nshmem 0\n")
+    ).start()
+    started = time.monotonic()
+    with pytest.raises(OutOfMemory):
+        aws_tools._run(
+            cmd,
+            env=_env(tmp_path),
+            log=tmp_path / "tool.log",
+            timeout=timedelta(seconds=30),
+            guard=guard,
+        )
+    assert time.monotonic() - started < 10
+    assert guard.over is not None
