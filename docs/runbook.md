@@ -449,9 +449,24 @@ docker compose exec -T postgres psql -U argus -d argus -c \
   "SELECT id, tool, attempt, finished_at, error FROM run_request
    WHERE status = 'finished' AND scan_run_id IS NULL ORDER BY id DESC LIMIT 20"
 docker compose logs worker | grep -E '"(run request failed|failed run not recorded)"'
-``` Watch a run with `docker compose logs -f worker`: it logs "run started", "collection
-finished", "raw output stored" and "run request finished", never the tools' output (CloudFox
-prints secret values).
+```
+
+Watch a run with `docker compose logs -f worker`. It logs "run started", "collection finished",
+"raw output stored" and "run request finished". While a tool runs, its console output also
+appears line by line, on the logger `argus.tool`:
+- `tool`, `connection_id` and `run_uid` tell parallel runs apart.
+- A progress bar is shown at most every 10 seconds.
+- Steampipe has one line per table: started, then finished with its row count, or failed with
+  its first error.
+- A heartbeat every minute says the tool is still running.
+
+Every line is redacted before it is logged, as the Runs page's log is. Tools keep their quiet
+modes, and CloudFox stays at `--verbosity 1`; a louder level prints secret values. To read only
+the tool's words:
+
+```bash
+docker compose logs -f --no-log-prefix worker | jq -r 'select(.logger == "argus.tool") | "\(.tool) \(.msg)"'
+```
 
 Rough durations depend on the account; Prowler is the longest. A run under an assumed role stops
 after one hour (role session limit); an access-key run does not.

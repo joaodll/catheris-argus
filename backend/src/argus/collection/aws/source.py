@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import UUID
 
+from argus.collection.aws.stream import ToolStream
 from argus.collection.aws.tools import (
     run_cloudfox,
     run_inspector,
@@ -48,10 +49,21 @@ class AwsSource:
         regions = list(options.aws_regions)
         credentials = options.aws_access.credentials(session_name=f"argus-{run_uid.hex[:24]}")
         _refuse_another_account(credentials, target.account_id)
-        with tool_profile(credentials, regions[0] if regions else "us-east-1") as env:
+        live = ToolStream(
+            tool, fields={"connection_id": target.connection_id, "run_uid": run_uid.hex}
+        )
+        with (
+            tool_profile(credentials, regions[0] if regions else "us-east-1") as env,
+            live as stream,
+        ):
             if tool == "steampipe":
                 result = run_steampipe(
-                    out_dir, env, regions, options.steampipe_parallel_tables, options.cancel
+                    out_dir,
+                    env,
+                    regions,
+                    options.steampipe_parallel_tables,
+                    options.cancel,
+                    stream=stream,
                 )
             elif tool == "prowler":
                 result = run_prowler(
@@ -62,9 +74,12 @@ class AwsSource:
                     retry_attempts=options.prowler_retry_attempts,
                     skip_services=options.prowler_skip_services,
                     skip_checks=options.prowler_skip_checks,
+                    stream=stream,
                 )
             elif tool == "vulnerabilities":  # on AWS, Inspector is the scanner
-                result = run_inspector(out_dir, env, regions, target.account_id, options.cancel)
+                result = run_inspector(
+                    out_dir, env, regions, target.account_id, options.cancel, stream=stream
+                )
             else:
                 result = run_cloudfox(
                     out_dir,
@@ -72,6 +87,7 @@ class AwsSource:
                     target.account_id,
                     options.cloudfox_max_goroutines,
                     options.cancel,
+                    stream=stream,
                 )
         return Outcome(
             status=result.status,  # type: ignore[arg-type]

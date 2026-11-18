@@ -31,6 +31,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import IO
 
+from argus.collection.aws.stream import ToolStream, pump
 from argus.collection.collect import Cancelled
 from argus.collection.prowler_lists import prowler_checks, prowler_frameworks, prowler_services
 from argus.collection.tables import (
@@ -64,6 +65,8 @@ VERSION_TIMEOUT = 60
 LOG_TAIL_LINES = 200
 # How often a waiting tool is checked for a request to stop.
 CANCEL_POLL_SECONDS = 1.0
+# How long a tool's output is still read after the tool ended.
+READER_JOIN_SECONDS = 10.0
 # Attempts per AWS call, retries included, for every tool. The SDKs read it from the profile's
 # environment; Prowler builds its own botocore Config (standard mode, 3 attempts in 5.50.0),
 # which wins over the environment, so it gets the same number as a flag.
@@ -349,20 +352,32 @@ def _run(
     log: Path,
     timeout: timedelta,
     cancel: threading.Event | None = None,
+    stream: ToolStream | None = None,
 ) -> int:
-    """Runs a tool in its own process group, output to `log`. Kills the group on timeout, or
-    when the run is asked to stop (Cancelled)."""
+    """Runs a tool in its own process group, output to `log` and, line by line, to the live
+    log (`stream`). Kills the group on timeout, or when the run is asked to stop (Cancelled)."""
     with log.open("ab") as out:
         process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             cmd,
             env=env,
             cwd=env["HOME"],
-            stdout=out,
+            stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
-        rc = _wait(process, timeout, cancel)
+        assert process.stdout is not None  # noqa: S101 - stdout=PIPE above
+        reader = threading.Thread(
+            target=pump, args=(process.stdout, out, stream), name="tool-output", daemon=True
+        )
+        reader.start()
+        try:
+            rc = _wait(process, timeout, cancel)
+        finally:
+            # The pipe closes when the tool's group exits; a process of it that outlived the
+            # wait (killed or not) is not waited for longer.
+            reader.join(timeout=READER_JOIN_SECONDS)
+            process.stdout.close()
         if rc is None:
             out.write(f"\nargus: killed after {timeout}\n".encode())
             return -9
@@ -419,10 +434,14 @@ def table_failed(rc: int, errors: str, rows: Path) -> bool:
     table also exits 1, prints to stdout and, from a hydrate call, logs "callHydrate ...
     finished with error" (owner, 2026-11-05; tests pin each shape for the pinned version)."""
     bad_rows = any(not line.startswith("{") for line in rows.read_text().splitlines() if line)
-    stopped = any(
+    return rc != 0 or _stopped(errors) or bad_rows
+
+
+def _stopped(errors: str) -> bool:
+    """An [ERROR] line other than the plugin's record of an API answer (table_failed)."""
+    return any(
         "[ERROR]" in line and not _PLUGIN_API_ERROR.match(line) for line in errors.splitlines()
     )
-    return rc != 0 or stopped or bad_rows
 
 
 def table_outcome(errors: str) -> str | None:
@@ -562,6 +581,7 @@ def run_steampipe(
     regions: list[str],
     parallel_tables: int = 4,
     cancel: threading.Event | None = None,
+    stream: ToolStream | None = None,
 ) -> ToolResult:
     """Every column of each table in the versioned list (some narrowed, collection/tables.py),
     one JSONL file per table, `parallel_tables` exports at a time.
@@ -570,7 +590,14 @@ def run_steampipe(
     export logged a denied call or throttling, is listed in `incomplete_tables` and resolves
     nothing; the run is partial, and every other table is complete."""
     return _export_tables(
-        out_dir, env, regions, steampipe_tables(), table_options, parallel_tables, cancel=cancel
+        out_dir,
+        env,
+        regions,
+        steampipe_tables(),
+        table_options,
+        parallel_tables,
+        cancel=cancel,
+        stream=stream,
     )
 
 
@@ -580,6 +607,7 @@ def run_inspector(
     regions: list[str],
     account_id: str,
     cancel: threading.Event | None = None,
+    stream: ToolStream | None = None,
 ) -> ToolResult:
     """The vulnerabilities tool on AWS: Inspector's open findings and its coverage for this
     account (ADR-0042), by the same export binary, one JSONL file per table. Judged as
@@ -592,6 +620,7 @@ def run_inspector(
         lambda table: inspector_table_options(table, account_id),
         len(INSPECTOR_TABLES),
         cancel=cancel,
+        stream=stream,
     )
 
 
@@ -604,6 +633,7 @@ def _export_tables(
     parallel_tables: int,
     *,
     cancel: threading.Event | None = None,
+    stream: ToolStream | None = None,
 ) -> ToolResult:
     home = Path(env["HOME"])
     config_dir = home / "steampipe" / "config"
@@ -614,14 +644,31 @@ def _export_tables(
         f"  regions = [{region_list}]\n}}\n"
     )
 
+    done = 0
+    done_lock = threading.Lock()
+
     def export(table: str) -> _TableRun:
+        nonlocal done
         if cancel is not None and cancel.is_set():
             raise Cancelled  # a table still waiting its turn never starts
         out, err = out_dir / f"{table}.jsonl", home / f"{table}.err"
         command = _table_command(table, config_dir, options(table))
+        if stream is not None:
+            stream.note(f"table {table} started")
         with out.open("wb") as rows:
             rc = _run_table(command, env, rows, err, cancel)
-        return _TableRun(table, rc, err.read_text(errors="replace") if err.exists() else "")
+        run = _TableRun(table, rc, err.read_text(errors="replace") if err.exists() else "")
+        if stream is not None:
+            with done_lock:
+                done += 1
+                at = f"({done} of {len(tables)})"
+            # A light look for the live log (the judgement, which reads every row, is
+            # _judge_tables's): the exit code and the error lines.
+            if rc != 0 or _stopped(run.errors):
+                stream.note(f"table {table} failed {at}: {table_error(table, rc, run.errors)}")
+            else:
+                stream.note(f"table {table} finished, {_count_rows(out)} rows {at}")
+        return run
 
     with ThreadPoolExecutor(max_workers=max(1, parallel_tables)) as pool:
         runs = list(pool.map(export, tables))
@@ -667,6 +714,18 @@ def _export_tables(
         blocked_actions=blocked_list,
         table_errors=sorted(judged.errors),
     )
+
+
+def _count_rows(rows: Path) -> int:
+    """A JSONL file's rows (its lines), read in blocks."""
+    count = 0
+    try:
+        with rows.open("rb") as data:
+            while block := data.read(1 << 20):
+                count += block.count(b"\n")
+    except OSError:
+        return 0
+    return count
 
 
 def _table_command(table: str, config_dir: Path, options: tuple[str, ...]) -> list[str]:
@@ -732,6 +791,7 @@ def run_prowler(
     retry_attempts: int = AWS_MAX_ATTEMPTS,
     skip_services: Sequence[str] = (),
     skip_checks: Sequence[str] = (),
+    stream: ToolStream | None = None,
 ) -> ToolResult:
     """Every check in the regions set, unless Collection settings skip services or checks.
 
@@ -774,7 +834,7 @@ def run_prowler(
     shown = command_line(cmd, out_dir).replace(
         " ".join(prowler_frameworks()), f"<every AWS framework: {len(prowler_frameworks())}>"
     )
-    rc = _run(cmd, env=env, log=log, timeout=TOOL_TIMEOUT, cancel=cancel)
+    rc = _run(cmd, env=env, log=log, timeout=TOOL_TIMEOUT, cancel=cancel, stream=stream)
     lines, throttled = _read_log(log)
     lines = [*notes, *lines]
     # A check whose calls were denied has no result, so it resolves nothing: the run stays
@@ -804,6 +864,7 @@ def run_cloudfox(
     account_id: str,
     max_goroutines: int,
     cancel: threading.Event | None = None,
+    stream: ToolStream | None = None,
 ) -> ToolResult:
     """All checks, including env-vars (decided 2026-10-02). --verbosity 1 prints control
     messages only: higher levels print module output, which includes secret values."""
@@ -824,7 +885,7 @@ def run_cloudfox(
     ]
     errors_from = _size(CLOUDFOX_ERROR_LOG)
     try:
-        rc = _run(cmd, env=env, log=log, timeout=TOOL_TIMEOUT, cancel=cancel)
+        rc = _run(cmd, env=env, log=log, timeout=TOOL_TIMEOUT, cancel=cancel, stream=stream)
     finally:
         # CloudFox 2.0.5 also caches what it read (env-var values included) next to its
         # output: it is not output, so it is never archived.

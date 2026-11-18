@@ -3,6 +3,7 @@ scripts stand in for them, so each rule ported from the old collector entrypoint
 without AWS: read-only command lines, the failures the tools report as success, throttling,
 and that a tool never sees Argus's own secrets."""
 
+import logging
 import os
 import re
 import stat
@@ -1080,3 +1081,32 @@ def test_a_steampipe_run_asked_to_stop_kills_its_exports_and_starts_no_other(
     assert time.monotonic() - began < 10
     assert len(started.read_text().split()) == 2  # only the two that were running
     assert not list((fakes / "raw").rglob("manifest.json"))
+
+
+def test_steampipe_says_each_table_live(fakes: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """The pod's log says what the export is doing, a table at a time (owner, 2026-11-18)."""
+    _control(fakes / "homes", "failing.txt", "aws_s3_bucket\n")
+    with caplog.at_level(logging.INFO, logger="argus.tool"):
+        _run(fakes, "steampipe", ("eu-west-1",))
+    lines = [r.getMessage() for r in caplog.records if r.name == "argus.tool"]
+    total = len(aws_tools.steampipe_tables())
+    assert "argus: table aws_iam_role started" in lines
+    assert any(
+        re.fullmatch(rf"argus: table aws_iam_role finished, 1 rows \(\d+ of {total}\)", m)
+        for m in lines
+    )
+    assert any(
+        m.startswith("argus: table aws_s3_bucket failed (") and "AccessDenied" in m for m in lines
+    )
+    assert all(r.tool == "steampipe" for r in caplog.records if r.name == "argus.tool")  # type: ignore[attr-defined]
+
+
+def test_prowler_output_reaches_the_live_log(fakes: Path, caplog: pytest.LogCaptureFixture) -> None:
+    _control(fakes / "homes", "prowler.out", "-> Scanning accessanalyzer service\n")
+    with caplog.at_level(logging.INFO, logger="argus.tool"):
+        _, manifest = _run(fakes, "prowler")
+    assert manifest.status == "complete"
+    assert "-> Scanning accessanalyzer service" in [
+        r.getMessage() for r in caplog.records if r.name == "argus.tool"
+    ]
+    assert "-> Scanning accessanalyzer service" in manifest.log_tail  # the Runs page, unchanged

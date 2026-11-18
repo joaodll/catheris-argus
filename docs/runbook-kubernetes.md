@@ -403,13 +403,32 @@ Settings, Test connection, raw output storage and the Cancel button work as on C
 scan Job stops its own tool, records the run as cancelled and exits, and Kubernetes removes it
 after `scanJobs.ttlSecondsAfterFinished` like any finished Job.
 
-**Logs.** Every pod logs JSON lines, redacted, never raw tool output.
+**Logs.** Every pod logs JSON lines, redacted.
 
 ```bash
 kubectl -n argus logs deploy/argus-scheduler -c scheduler
 kubectl -n argus get jobs -l app.kubernetes.io/component=run
 kubectl -n argus logs job/<name>
 ```
+
+**Watching a scan.** While a scan Job's tool runs, its console output is in the pod's log, line by
+line, on the logger `argus.tool`:
+- A progress bar is shown at most every 10 seconds.
+- Steampipe has one line per table: started, then finished with its row count, or failed with
+  its first error.
+- A heartbeat every minute says the tool is still running.
+
+To follow a Prowler scan as if it ran in a terminal:
+
+```bash
+kubectl -n argus logs -f job/<name> | jq -r 'select(.logger == "argus.tool") | .msg'
+```
+
+Every line is redacted before it is logged, and tools keep their quiet modes (CloudFox stays at
+`--verbosity 1`; a louder level prints secret values). The lines still name resources, ARNs and
+account ids, like **Scans → Runs**. If your cluster ships pod logs elsewhere (Fluent Bit,
+CloudWatch), that store holds them too: protect it as you protect Argus, or keep the Job's logs
+out of it.
 
 A scan Job is deleted 10 minutes after it ends (`scanJobs.ttlSecondsAfterFinished`); after that, its
 logs are in your log pipeline or gone. The run itself stays on **Scans → Runs**.
