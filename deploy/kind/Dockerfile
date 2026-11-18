@@ -45,7 +45,7 @@ RUN set -eu; \
     for kind in configmap-v1 cronjob-batch-v1 deployment-apps-v1 ingress-networking-v1 job-batch-v1 \
         networkpolicy-networking-v1 pod-v1 poddisruptionbudget-policy-v1 resourcequota-v1 \
         role-rbac-v1 rolebinding-rbac-v1 service-v1 serviceaccount-v1 statefulset-apps-v1 \
-        horizontalpodautoscaler-autoscaling-v2 \
+        horizontalpodautoscaler-autoscaling-v2 priorityclass-scheduling-v1 \
         validatingadmissionpolicy-admissionregistration-v1 \
         validatingadmissionpolicybinding-admissionregistration-v1; do \
       curl -fsSLo "$dir/$kind.json" \

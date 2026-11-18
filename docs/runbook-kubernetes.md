@@ -190,12 +190,13 @@ Also review:
   `tasks`, to place them on your node groups (`tasks` is the pods that run once and exit:
   migrate, rederive, retention and `helm test`'s probe). `scanJobs` takes `nodeSelector` and
   `tolerations`. Set every block: a component left out can land on any node.
-- Give scan Jobs their own nodes (`scanJobs.nodeSelector` and `tolerations`, with a taint on
-  those nodes). A scan Job has no CPU limit by default and may use up to 6 Gi of memory, and up
-  to `scheduler.maxRunJobs` run at once, so on shared nodes they take CPU and memory from the
-  API, the scheduler and Postgres. Where scans must share nodes, set
-  `scanJobs.resources.limits.cpu`, and raise `scanJobs.resources.requests` towards what a scan
-  really uses, so Kubernetes stops placing more on a node than it holds.
+- Give scan Jobs their own nodes, and one scan per node: see [Scan nodes](#scan-nodes).
+  `scanJobs.onePerNode` (off by default) keeps two scans off one node. `scanJobs.priority`
+  (1000) is every Argus Job's priority, through a PriorityClass the chart creates. A scan Job
+  has no CPU limit by default, requests its memory whole (6 Gi), and up to
+  `scheduler.maxRunJobs` run at once, so on shared nodes they take CPU and memory from the API,
+  the scheduler and Postgres. Where scans must share nodes, add a CPU limit under
+  `scanJobs.work.<work>.resources`.
 
 Start from `charts/argus/ci/minimal-values.yaml`; `ci/external-db-values.yaml` sets every
 optional piece.
@@ -350,6 +351,99 @@ while either is missing:
 `verify-full` and `verify-ca` are refused without `caConfigMap`, because every connection would
 fail.
 
+## Scan nodes
+
+A scan runs for hours, and a pod that is moved or evicted loses its run. Give scans nodes of
+their own, one scan per node, so they never compete with each other or with your applications.
+
+**What the chart does:**
+- **One scan per node.** With `scanJobs.onePerNode: true`, the Steampipe, Prowler and CloudFox
+  Jobs carry a required pod anti-affinity: no two of them on one node. Test, paths and report
+  Jobs share the scans' placement and may run beside a scan, so size the node for them too
+  (Sizing, below).
+- **No voluntary eviction.** A PodDisruptionBudget (`<release>-jobs`, `maxUnavailable: 0`)
+  covers every Argus Job pod, so `kubectl drain` and a managed node group's upgrade wait for
+  the Job instead of evicting it. The pods also carry `karpenter.sh/do-not-disrupt` and the
+  Cluster Autoscaler's `safe-to-evict: "false"`.
+- **Priority.** Every Job names the chart's PriorityClass (`<namespace>-<release>-jobs`, value
+  `scanJobs.priority`, `preemptionPolicy: Never`). A pod without a class can't preempt a
+  scan, and a scan never preempts anything.
+- **Memory requested whole.** A pod that can't use more than it requested is the last one the
+  kubelet evicts when its node runs short. Near its limit the scan stops its own tool and says
+  so on the run, rather than being killed.
+
+The admission policy pins all of this: a Job with another affinity or priority class is
+refused.
+
+**What you set up.** Label and taint the scan nodes, then point `scanJobs` at them:
+
+```yaml
+scanJobs:
+  nodeSelector: {argus.catheris.io/pool: scanners}
+  tolerations:
+    - {key: argus.catheris.io/scanners, operator: Exists, effect: NoSchedule}
+  onePerNode: true
+  work:
+    prowler: {resources: {requests: {cpu: "1", memory: 12Gi}, limits: {memory: 12Gi}}}
+```
+
+With **Karpenter**, a NodePool for scans adds a node for each scan that waits and removes it
+once empty:
+
+```yaml
+apiVersion: karpenter.sh/v1
+kind: NodePool
+metadata:
+  name: argus-scanners
+spec:
+  template:
+    metadata:
+      labels: {argus.catheris.io/pool: scanners}
+    spec:
+      taints:
+        - {key: argus.catheris.io/scanners, effect: NoSchedule}
+      requirements:
+        - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
+        - {key: kubernetes.io/arch, operator: In, values: [amd64]}
+      # Longer than scanJobs.activeDeadlineSeconds (6 h): a node is not expired under a scan.
+      expireAfter: 720h
+      terminationGracePeriod: 8h
+      nodeClassRef: {group: karpenter.k8s.aws, kind: EC2NodeClass, name: default}
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 10m
+  limits:
+    memory: 128Gi
+```
+
+- **On-demand only:** AWS reclaims a spot node with two minutes' notice, and nothing in
+  Kubernetes can refuse it.
+- **`limits.memory`** caps what the pool may start: with the 12 Gi of the example, about
+  `scheduler.maxRunJobs` nodes.
+
+With a **managed node group**:
+- Give the group the same label and taint, and as many nodes as `scheduler.maxRunJobs`. Fewer
+  nodes is allowed: the extra scans wait for a free node. Their wait counts against
+  `scanJobs.activeDeadlineSeconds` (6 h), so a long queue can run a scan out of time; lower
+  `scheduler.maxRunJobs` to the node count instead.
+- A node group upgrade waits on the PDB. After 15 minutes it fails rather than killing the scan,
+  unless you force it.
+- With the Cluster Autoscaler, the pods' `safe-to-evict: "false"` keeps a node with a running
+  scan from being scaled down.
+
+**Sizing.** A scan node needs room for:
+- the scan's memory, sized from the runs' `peak memory` lines
+- the DaemonSets
+- a test, paths (3 Gi) or report Job that may land beside it
+
+**What can still end a scan:**
+- a spot reclaim, or a node or hardware failure
+- a forced drain
+- `scanJobs.activeDeadlineSeconds`
+- the kernel's OOM killer, when memory grows faster than the scan's one-second look
+
+The run then ends as "lost" and is run again, once.
+
 ## Upgrade
 
 1. Build and push the new images; note their digests.
@@ -383,6 +477,14 @@ Steampipe's AWS plugin 1.36.0 need seven more reads. `ProwlerAdditionsPolicy` ga
 Before or after the chart upgrade both work: until the role is updated, those checks and the
 new table have no result. Nothing in the chart, the Secret or the database changes. The same
 applies on Compose.
+
+**To a chart with scan nodes** (2026-11-18): Steampipe, Prowler and CloudFox Jobs now request
+their memory whole, 6 Gi instead of 2 Gi, so fewer fit on a node: check that your scan nodes hold
+`scheduler.maxRunJobs` of them, or set `scanJobs.work.<work>.resources` as you need. Every Job
+now names the chart's PriorityClass, and a PDB covers Job pods, so a drain waits for running
+Jobs. `scanJobs.onePerNode` is off until you turn it on ([Scan nodes](#scan-nodes)). The
+installer needs the right to create a PriorityClass (cluster-wide), as it already creates the
+admission policy.
 
 **From a chart before ADR-0046** (one `images.worker`): the schema refuses `images.worker` and
 `scanJobs.resources`. Replace them with `images.workerSteampipe`, `images.workerProwler` and

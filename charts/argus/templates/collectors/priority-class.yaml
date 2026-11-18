@@ -1,0 +1,13 @@
+{{- /* Every Argus Job's priority (scanJobs.priority). preemptionPolicy Never: a Job waits for
+room and never pushes another pod out. Above 0, so a pod without a class cannot preempt a
+running scan, and a node short of memory evicts lower-priority pods first. */ -}}
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ include "argus.jobPriorityClass" . }}
+  labels:
+    {{- include "argus.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+value: {{ .Values.scanJobs.priority | int }}
+preemptionPolicy: Never
+globalDefault: false
+description: Argus Jobs (scans, connection tests, attack routes, reports). They never preempt.

@@ -197,6 +197,16 @@ BAD_JOBS=(
   'the API component label|.spec.template.metadata.labels["app.kubernetes.io/component"] = "api"'
   'another label|.spec.template.metadata.labels["example.com/extra"] = "x"'
   'more pods|.spec.parallelism = 10'
+  'another priority class|.spec.template.spec.priorityClassName = "system-node-critical"'
+  'no priority class|del(.spec.template.spec.priorityClassName)'
+  'a priority set on the Job|.spec.template.spec.priority = 1000000000'
+  'preemption set on the Job|.spec.template.spec.preemptionPolicy = "PreemptLowerPriority"'
+  'a scan without its one-per-node term|del(.spec.template.spec.affinity)'
+  'a node affinity beside the term|.spec.template.spec.affinity.nodeAffinity = {"requiredDuringSchedulingIgnoredDuringExecution": {"nodeSelectorTerms": [{"matchExpressions": [{"key": "kubernetes.io/hostname", "operator": "In", "values": ["x"]}]}]}}'
+  'beside chosen pods|.spec.template.spec.affinity.podAffinity = {"requiredDuringSchedulingIgnoredDuringExecution": [{"topologyKey": "kubernetes.io/hostname", "labelSelector": {"matchLabels": {"app.kubernetes.io/component": "api"}}}]}'
+  'apart from other pods|(.spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].labelSelector.matchExpressions[0].values) = ["api"]'
+  'apart across namespaces|.spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].namespaceSelector = {}'
+  'apart per zone|.spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution[0].topologyKey = "topology.kubernetes.io/zone"'
   'a longer deadline|.spec.activeDeadlineSeconds = 864000'
   'an annotation|.spec.template.metadata.annotations["cluster-autoscaler.kubernetes.io/safe-to-evict"] = "true"'
   # A probe or hook runs a command of its own in the pod, with its identity and keyring.
@@ -342,6 +352,7 @@ CROSS_JOBS=(
   "the test Job on a tool's image|test|.spec.template.spec.containers[0].image = \$other.spec.template.spec.containers[0].image"
   "metadata reachable|test|.spec.template.spec.containers[0].env |= map(select(.name != \"AWS_EC2_METADATA_DISABLED\"))"
   "a name prefix of no template|prowler|.metadata.generateName = \"$FULL-scan-other-\""
+  "the scans' one-per-node term on the test Job|test|.spec.template.spec.affinity = \$other.spec.template.spec.affinity"
   # The report Job (ADR-0047 round 5): never the platform identity, the keyring, the worker's
   # role or a scan Job's routes; and no scan Job on the report account.
   "the report Job as the platform identity|report|.spec.template.spec.serviceAccountName = \$other.spec.template.spec.serviceAccountName"
@@ -399,6 +410,52 @@ test_admission() {
 
 # helm install compiles only the kind values' policy, and chart-check compiles none (kubeconform
 # doesn't read CEL). Another release's name, so each is created, not an update of the installed one.
+# scanJobs.onePerNode (owner, 2026-11-18): two pods made from the scan templates, as the Job
+# controller would make them, never share kind's one worker; and the Jobs' PDB refuses to evict a
+# running one. Plain pods, created as the harness: the policy judges the scheduler's Jobs only.
+test_scan_placement() {
+  step "one scan per node, and no eviction of a running Job's pod"
+  local tmp work out reason
+  tmp=$(mktemp -d)
+  trap 'k delete pod "$FULL-place-prowler" "$FULL-place-steampipe" --ignore-not-found --wait=false > /dev/null; rm -rf "$tmp"; trap - RETURN' RETURN
+  for work in prowler steampipe; do
+    k get configmap "$FULL-job-templates" -o json | jq -r --arg f "$work.json" '.data[$f]' \
+      | jq --arg n "$FULL-place-$work" '.spec.template
+          | {apiVersion: "v1", kind: "Pod", metadata: {name: $n, labels: .metadata.labels},
+             spec: (.spec | .restartPolicy = "Never" | .terminationGracePeriodSeconds = 0
+                    | .containers[0].command = ["sleep", "600"] | .containers[0].env = [])}' \
+      > "$tmp/$work.json"
+    jq -e '.spec.affinity.podAntiAffinity and .spec.priorityClassName' "$tmp/$work.json" > /dev/null \
+      || fail "the $work template has no one-per-node term or priority class (kind values: onePerNode)"
+  done
+  k create -f "$tmp/prowler.json" > /dev/null
+  k wait --for=condition=Ready "pod/$FULL-place-prowler" --timeout=120s > /dev/null \
+    || fail "the first scan pod did not start"
+  ok "a scan pod runs on $(k get pod "$FULL-place-prowler" -o jsonpath='{.spec.nodeName}')"
+  k create -f "$tmp/steampipe.json" > /dev/null
+  for _ in $(seq 30); do
+    reason=$(k get events --field-selector "involvedObject.name=$FULL-place-steampipe,reason=FailedScheduling" \
+               -o jsonpath='{.items[-1:].message}' 2>/dev/null || true)
+    [ -n "$reason" ] && break
+    sleep 2
+  done
+  [ "$(k get pod "$FULL-place-steampipe" -o jsonpath='{.status.phase}')" = Pending ] \
+    || fail "a second scan pod started beside the first"
+  grep -qi 'anti-affinity' <<< "$reason" || fail "the second scan pod waits for another reason: ${reason:-none}"
+  ok "a second scan pod waits for a node of its own: $reason"
+  [ "$(k get pod "$FULL-place-prowler" -o jsonpath='{.spec.priority}')" = "$(kubectl get priorityclass \
+       "$(jq -r .spec.priorityClassName "$tmp/prowler.json")" -o jsonpath='{.value}')" ] \
+    || fail "the scan pod does not carry its class's priority"
+  ok "the scan pod carries the Jobs' priority ($(k get pod "$FULL-place-prowler" -o jsonpath='{.spec.priority}'), preemption $(k get pod "$FULL-place-prowler" -o jsonpath='{.spec.preemptionPolicy}'))"
+  if out=$(printf '{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"%s","namespace":"%s"}}' \
+             "$FULL-place-prowler" "$NAMESPACE" \
+           | kubectl create --raw "/api/v1/namespaces/$NAMESPACE/pods/$FULL-place-prowler/eviction" -f - 2>&1); then
+    fail "a running Job pod was evicted: $out"
+  fi
+  grep -qi 'disruption budget' <<< "$out" || fail "the eviction was refused for another reason: $out"
+  ok "an eviction of a running Job pod is refused by the PDB"
+}
+
 test_policy_compiles() {
   step "the admission policy compiles from every ci/ values file"
   local values out
@@ -839,6 +896,7 @@ run_tests() {
   test_limits
   test_rights
   test_admission
+  test_scan_placement
   test_policy_compiles
   test_network
   test_report_job
