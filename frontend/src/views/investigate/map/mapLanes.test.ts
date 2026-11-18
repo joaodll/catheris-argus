@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { LANE_GAP, NODE_HEIGHT, NODE_WIDTH, ROW, ROUTE_CLEAR, SUB_CLEAR, cardGlyph, hopColumns, hopLabel, laneRows, layout, lineRoute, moveSelection, typeLabel, wrappedPitch, type LaidNode, type Link } from './mapLanes'
+import { BESIDE_FIRST, BESIDE_STEP, LANE_GAP, NODE_HEIGHT, NODE_WIDTH, ROW, ROUTE_CLEAR, SUB_CLEAR, besideSide, cardGlyph, hopColumns, hopLabel, laneRows, layout, lineRoute, moveSelection, typeLabel, wrappedPitch, type LaidNode, type Link, type Placed, type Point } from './mapLanes'
 
 const n = (id: string, type: string | null, extra: Partial<LaidNode> = {}): LaidNode => ({ id, kind: 'resource', type, name: id, ...extra })
 
@@ -238,5 +238,70 @@ describe('the map columns', () => {
     const result = layout(nodes, edges, 'hub')
     expect(result.positions.size).toBe(500)
     expect(performance.now() - started).toBeLessThan(1500)
+  })
+})
+
+// Whether the segment a-b passes through a card's box (the card's middle at c).
+function throughCard(a: Point, b: Point, c: Placed): boolean {
+  const left = c.x - NODE_WIDTH / 2 + 1
+  const right = c.x + NODE_WIDTH / 2 - 1
+  const top = c.y - NODE_HEIGHT / 2 + 1
+  const bottom = c.y + NODE_HEIGHT / 2 - 1
+  for (let i = 0; i <= 40; i++) {
+    const x = a.x + ((b.x - a.x) * i) / 40
+    const y = a.y + ((b.y - a.y) * i) / 40
+    if (x > left && x < right && y > top && y < bottom) return true
+  }
+  return false
+}
+
+describe('a line between two cards of one column (2026-11-18)', () => {
+  // The owner's map: the focus instance reaches a peer instance and the subnets it shares with
+  // the peer, all one hop out; the peer's own subnets are two hops out.
+  const nodes = [n('f', 'aws_ec2_instance'), n('peer', 'aws_ec2_instance'), n('role', 'aws_iam_role'), ...['s1', 's2', 's3', 's4'].map((id) => n(id, 'aws_vpc_subnet'))]
+  const edges: Link[] = [
+    { source: 'f', target: 'peer' },
+    { source: 'f', target: 'role' },
+    { source: 'f', target: 's1' },
+    { source: 'f', target: 's2' },
+    ...['s1', 's2', 's3', 's4'].map((id) => ({ source: 'peer', target: id })),
+  ]
+  const l = layout(nodes, edges, 'f')
+  const at = (id: string) => l.positions.get(id)!
+  const rows = laneRows(l.positions)
+
+  it("is the owner's case: the peer and two of its subnets share a column", () => {
+    expect([at('peer').lane, at('s1').lane, at('s2').lane]).toEqual(['hop-1', 'hop-1', 'hop-1'])
+    expect([at('s3').lane, at('s4').lane]).toEqual(['hop-2', 'hop-2'])
+  })
+
+  it('runs beside the column, never behind a card, and every card keeps a visible line', () => {
+    const band = l.lanes.find((b) => b.lane === 'hop-1')!
+    const same = edges.filter((e) => at(e.source).lane === at(e.target).lane)
+    expect(same.map((e) => e.target).sort()).toEqual(['s1', 's2'])
+    same.forEach((e, slot) => {
+      const route = lineRoute(at(e.source), at(e.target), l.lanes, rows, slot)!
+      expect(route).not.toBeNull()
+      const track = route.points[1]!.x
+      expect(track).toBe(band.x + band.width + BESIDE_FIRST + slot * BESIDE_STEP)
+      expect(track - (band.x + band.width)).toBeLessThan(LANE_GAP / 2) // the gap's middle stays free
+      expect(route.mid.x).toBe(track)
+      const path = [at(e.source), ...route.points, at(e.target)]
+      for (const [id, card] of l.positions) {
+        if (id === e.source || id === e.target) continue
+        for (let i = 1; i < path.length; i++) expect(throughCard(path[i - 1]!, path[i]!, card), `${e.source}->${e.target} behind ${id}`).toBe(false)
+      }
+    })
+  })
+
+  it('takes the side away from the focus', () => {
+    expect(besideSide('hop-1')).toBe(1)
+    expect(besideSide('hop-0')).toBe(1)
+    expect(besideSide('hop--2')).toBe(-1)
+    const mirrored = layout(nodes, edges.map((e) => ({ source: e.target, target: e.source })), 'f')
+    const band = mirrored.lanes.find((b) => b.lane === 'hop--1')!
+    const p = mirrored.positions
+    const route = lineRoute(p.get('s1')!, p.get('peer')!, mirrored.lanes, laneRows(p))!
+    expect(route.points[1]!.x).toBe(band.x - BESIDE_FIRST)
   })
 })

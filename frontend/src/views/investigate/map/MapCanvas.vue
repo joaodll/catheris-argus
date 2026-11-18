@@ -255,7 +255,8 @@ function bend(s: { x: number; y: number }, t: { x: number; y: number }, route: R
   const length2 = dx * dx + dy * dy
   if (length2 === 0) return { weights: [0.5], distances: [0], mid: { ...s }, alts: [] }
   const length = Math.sqrt(length2)
-  const arc = Math.abs(dx) < 1
+  // Two cards one above the other with no route (a route's own drawing): a bow beside them.
+  const arc = Math.abs(dx) < 1 && route == null
   // A routed line (lineRoute): its corners. Cytoscape draws a chain of curves through the
   // midpoints of the control points, so a run of points on one row is straight and each corner
   // is rounded in a gap between columns.
@@ -309,6 +310,14 @@ function elements(): ElementDefinition[] {
     }
   })
   const rows = laneRows(positions)
+  // Each column's own lines, numbered, so each gets its own track beside the column (besideRoute).
+  const slots = new Map<string, number>()
+  const slotOf = (a: Placed, b: Placed) => {
+    if (a.lane !== b.lane) return 0
+    const n = slots.get(a.lane) ?? 0
+    slots.set(a.lane, n + 1)
+    return n
+  }
   const edges: ElementDefinition[] = lines.value
     .filter((l) => positions.has(l.source) && positions.has(l.target) && l.source !== l.target)
     .map((l) => {
@@ -325,7 +334,7 @@ function elements(): ElementDefinition[] {
       }
       const a: Placed = positions.get(l.source)!
       const b: Placed = positions.get(l.target)!
-      const { weights, distances, mid, alts } = bend(a, b, lineRoute(a, b, laid.value.lanes, rows))
+      const { weights, distances, mid, alts } = bend(a, b, lineRoute(a, b, laid.value.lanes, rows, slotOf(a, b)))
       const sec = security.value && SECURITY_EDGE_TYPES.has(l.type) ? 1 : 0
       return { group: 'edges', data: { id: l.key, source: l.source, target: l.target, label: edgeWord(l.type, l.target), line: l.style, sec, weights, distances, mx: mid.x, my: mid.y, alts } }
     })
