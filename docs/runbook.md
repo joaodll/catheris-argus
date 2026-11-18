@@ -468,6 +468,11 @@ the tool's words:
 docker compose logs -f --no-log-prefix worker | jq -r 'select(.logger == "argus.tool") | "\(.tool) \(.msg)"'
 ```
 
+A scan Job on Kubernetes stops its tool near its pod's memory limit, and says so on the run.
+The Compose worker doesn't, because several runs share its container: a tool past the worker's
+`mem_limit` is killed by the kernel, with the worker. Watch `docker stats`, and raise `mem_limit`
+in an override if a large account needs it.
+
 Rough durations depend on the account; Prowler is the longest. A run under an assumed role stops
 after one hour (role session limit); an access-key run does not.
 

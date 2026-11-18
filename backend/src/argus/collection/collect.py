@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import UUID
 
 from argus.core.manifest import Manifest, RunStatus, Tool
+from argus.core.memory import MemoryGuard, OutOfMemory, Reading, gib
 from argus.core.rawstore import KMS_ENCRYPTION, RawStore, RawStoreError, describe_files
 from argus.core.redaction import redact_text
 
@@ -39,6 +40,21 @@ log = logging.getLogger("argus.collection")
 
 class Cancelled(Exception):
     """The run was asked to stop while it collected. Nothing of it is archived."""
+
+
+# The chart's values block that sizes each tool's scan Job (ADR-0046).
+_JOB_WORK = {"steampipe": "steampipe", "vulnerabilities": "steampipe"}
+
+
+def stopped_for_memory(tool: str, reading: Reading) -> str:
+    """Why a run stopped near its memory limit, and what to change."""
+    work = _JOB_WORK.get(tool, tool)
+    return (
+        f"{tool.capitalize()} was stopped at {gib(reading.used)} of the pod's {gib(reading.limit)} "
+        f"memory limit ({gib(reading.shmem)} of it in /tmp), before the kernel killed the pod. "
+        f"Raise scanJobs.work.{work}.resources (requests.memory = limits.memory) on a node "
+        "with room for it; the run is not retried."
+    )
 
 
 @dataclass(frozen=True)
@@ -68,6 +84,9 @@ class CollectOptions:
     # Set by whoever runs the collection when the run is asked to stop: the source kills its
     # tool and raises Cancelled.
     cancel: threading.Event | None = field(default=None, repr=False, compare=False)
+    # Given only where the run is alone in its container (a Kubernetes scan Job): the source
+    # stops its tool near the memory limit, and the run fails saying so (core/memory.py).
+    memory_guard: MemoryGuard | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -168,6 +187,20 @@ def _collect_staged(
     except Cancelled:
         log.info("collection cancelled", extra=context)
         raise
+    except OutOfMemory as exc:
+        log.warning(
+            "collection stopped near the memory limit",
+            extra={**context, "used": exc.reading.used, "limit": exc.reading.limit},
+        )
+        outcome = Outcome(
+            status="failed",
+            exit_code=-9,
+            tool_version="unknown",
+            started_at=started,
+            finished_at=datetime.now(UTC),
+            region_scope=[],
+            log_lines=[stopped_for_memory(tool, exc.reading)],
+        )
     except Exception as exc:  # the run fails; the manifest still records why
         log.exception("collection raised", extra=context)
         outcome = Outcome(

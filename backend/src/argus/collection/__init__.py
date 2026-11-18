@@ -3,6 +3,7 @@
 Public interface:
     collect()          run a source into the raw store; the manifest is written last
     Cancelled          what collect() raises for a run asked to stop (CollectOptions.cancel)
+    stopped_for_memory()  why a run stopped near its pod's memory limit
     read_run()         open a committed run, verifying its manifest and file hashes
     Manifest           the one definition of manifest.json
     TOOL_ORDER         the order tools run against one account (throttling layer 1)
@@ -24,6 +25,7 @@ from argus.collection.collect import (
     CollectOptions,
     CollectTarget,
     collect,
+    stopped_for_memory,
 )
 from argus.collection.prowler_lists import prowler_checks, prowler_frameworks, prowler_services
 from argus.collection.sources import source_for
@@ -53,5 +55,6 @@ __all__ = [
     "read_run",
     "source_for",
     "steampipe_tables",
+    "stopped_for_memory",
     "store_for",
 ]
