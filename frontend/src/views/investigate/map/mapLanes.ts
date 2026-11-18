@@ -390,17 +390,19 @@ function corridor(ys: number[], y: number, heading: number): number {
  *   (the staggered sub-columns leave it a free row);
  * - it skips one or more columns: it crosses each through a corridor (corridor()), flat inside the
  *   band.
+ * - both its cards are in one column (2026-11-18): besideRoute().
  * It bends only in the gaps between bands. Null for the plain S between two neighbouring bands
- * whose cards sit at their edges, within one column, or when a band is unknown (a route's own
- * layout has none).
+ * whose cards sit at their edges, or when a band is unknown (a route's own layout has none).
+ * `slot` spreads a column's own lines apart in its gap (besideRoute).
  */
-export function lineRoute(s: Placed, t: Placed, lanes: Layout['lanes'], rows: Map<string, number[]>): Route | null {
+export function lineRoute(s: Placed, t: Placed, lanes: Layout['lanes'], rows: Map<string, number[]>, slot = 0): Route | null {
+  const sb = lanes.find((l) => l.lane === s.lane)
+  const tb = lanes.find((l) => l.lane === t.lane)
+  if (!sb || !tb) return null
+  if (sb === tb) return besideRoute(s, t, sb, slot)
   const dx = t.x - s.x
   if (Math.abs(dx) < 1) return null
   const dir = Math.sign(dx)
-  const sb = lanes.find((l) => l.lane === s.lane)
-  const tb = lanes.find((l) => l.lane === t.lane)
-  if (!sb || !tb || sb === tb) return null
   const edge = (b: Layout['lanes'][number], side: number) => (side > 0 ? b.x + b.width : b.x)
   const from = edge(sb, dir)
   const to = edge(tb, -dir)
@@ -434,6 +436,49 @@ export function lineRoute(s: Placed, t: Placed, lanes: Layout['lanes'], rows: Ma
     alts: [
       { x: (from + firstGap) / 2, y: s.y },
       { x: (gap + to) / 2, y: t.y },
+    ],
+  }
+}
+
+// A column's own lines run this far out into the gap beside it, a further step apart each, and
+// never past the gap's middle, where lines between columns bend.
+export const BESIDE_FIRST = 24
+export const BESIDE_STEP = 10
+const BESIDE_SLOTS = Math.floor((LANE_GAP / 2 - 12 - BESIDE_FIRST) / BESIDE_STEP) + 1
+
+/** Which side of its column a line between two of the column's cards runs: away from the focus
+ * (right of the focus's column and of what it leads to, left of what leads to it). */
+export function besideSide(lane: string): 1 | -1 {
+  const hop = Number(lane.replace(/^hop-/, ''))
+  return Number.isFinite(hop) && hop < 0 ? -1 : 1
+}
+
+/**
+ * A line between two cards of one column (an instance and a subnet both one hop out, say): out of
+ * its card's side, flat to the edge of the column's band, along the gap beside the column and back
+ * in to the other card. Drawn straight, it ran down the column behind every card between the two,
+ * and both cards looked alone (owner, 2026-11-18). `slot` puts each of a column's lines on its own
+ * track in the gap.
+ */
+function besideRoute(s: Placed, t: Placed, band: Layout['lanes'][number], slot: number): Route {
+  const side = besideSide(band.lane)
+  const edge = side > 0 ? band.x + band.width : band.x
+  const track = edge + side * (BESIDE_FIRST + (slot % BESIDE_SLOTS) * BESIDE_STEP)
+  const from = s.x + (side * NODE_WIDTH) / 2
+  const to = t.x + (side * NODE_WIDTH) / 2
+  const midY = (s.y + t.y) / 2
+  const quarter = (t.y - s.y) / 4
+  return {
+    points: [
+      { x: from, y: s.y },
+      { x: track, y: s.y },
+      { x: track, y: t.y },
+      { x: to, y: t.y },
+    ],
+    mid: { x: track, y: midY },
+    alts: [
+      { x: track, y: s.y + quarter },
+      { x: track, y: t.y - quarter },
     ],
   }
 }
