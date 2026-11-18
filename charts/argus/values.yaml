@@ -277,7 +277,10 @@ scanJobs:
   # Steampipe has no overall time limit of its own: this is it. A scan past it counts as lost.
   activeDeadlineSeconds: 21600
   # One template per work, each with its own image and pod size (ADR-0046). The admission
-  # policy pins each template whole, these resources included.
+  # policy pins each template whole, these resources included. A scan's memory is requested
+  # whole (requests = limits): a pod that cannot use more than it asked for is the last one the
+  # kubelet evicts when its node runs short. Near the limit the scan stops its own tool and
+  # says so on the run; every run logs its peak memory, to size these from.
   work:
     # Test connection: STS and one marker object per tool folder, no tool.
     test:
@@ -287,15 +290,15 @@ scanJobs:
     # Steampipe and Vulnerabilities.
     steampipe:
       resources:
-        requests: {cpu: 500m, memory: 2Gi}
+        requests: {cpu: 500m, memory: 6Gi}
         limits: {memory: 6Gi}
     prowler:
       resources:
-        requests: {cpu: 500m, memory: 2Gi}
+        requests: {cpu: 500m, memory: 6Gi}
         limits: {memory: 6Gi}
     cloudfox:
       resources:
-        requests: {cpu: 500m, memory: 2Gi}
+        requests: {cpu: 500m, memory: 6Gi}
         limits: {memory: 6Gi}
     # Attack routes (ADR-0052): one evaluation over every account, on the runtime image, on every
     # install, one at a time. At 300,000 resources, run as this Job, the first evaluation took 5.4
@@ -321,6 +324,18 @@ scanJobs:
     size: 20Gi
   nodeSelector: {}
   tolerations: []
+  # At most one scan (Steampipe with Vulnerabilities, Prowler, CloudFox) per node: a required
+  # pod anti-affinity between the three templates. Each running scan then needs a node of its
+  # own: give scans their own nodes (nodeSelector and tolerations above, with a taint on those
+  # nodes) and as many as scheduler.maxRunJobs, or a NodePool that adds them (runbook, "Scan
+  # nodes"). A scan waiting for a node waits inside activeDeadlineSeconds. Test, paths and
+  # report Jobs share the placement and may run beside a scan.
+  onePerNode: false
+  # Every Argus Job's priority, through the chart's PriorityClass (preemptionPolicy Never: a Job
+  # never pushes another pod out). Above the default 0, so a pod without a class cannot preempt
+  # a scan, and the kubelet evicts lower-priority pods first when a node runs short. Keep it
+  # below your own critical applications' classes.
+  priority: 1000
 
 # Where the pods that run once and exit go: migrate, rederive, retention and helm test's probe.
 # With a taint or a CPU type that only some nodes have, set this like the other components, or

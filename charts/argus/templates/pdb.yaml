@@ -13,3 +13,22 @@ spec:
     matchLabels:
       {{- include "argus.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
 {{- end }}
+---
+{{- /* Every Argus Job pod (argus/work: scans, connection tests, attack routes, reports): no
+voluntary eviction while it runs. A node drain, or a managed node group's upgrade, waits for
+the Job to end instead of losing the run. Karpenter also honours the pods' do-not-disrupt
+annotation; nothing here stops a spot reclaim or a node failure. */}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "argus.fullname" . }}-jobs
+  labels:
+    {{- include "argus.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
+spec:
+  maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "argus.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+    matchExpressions:
+      - {key: argus/work, operator: Exists}

@@ -218,6 +218,9 @@ enableServiceLinks: false
 {{- with .grace }}
 terminationGracePeriodSeconds: {{ . }}
 {{- end }}
+{{- with .priorityClassName }}
+priorityClassName: {{ . }}
+{{- end }}
 securityContext:
   {{- include "argus.podSecurity" (dict "uid" (.uid | default 10001)) | nindent 2 }}
   {{- with .fsGroupChangePolicy }}
@@ -458,7 +461,9 @@ spec:
     spec:
       {{- include "argus.podSpec" (dict "root" $root "component" $component "restartPolicy" "Never" "grace" 120 "db" true
         "serviceAccount" (include "argus.serviceAccount" (dict "root" $root "name" $component))
-        "placement" (dict "nodeSelector" $s.nodeSelector "tolerations" $s.tolerations)
+        "placement" (dict "nodeSelector" $s.nodeSelector "tolerations" $s.tolerations
+          "affinity" (include "argus.scanJob.affinity" (dict "root" $root "work" .work) | fromYaml))
+        "priorityClassName" (include "argus.jobPriorityClass" $root)
         "tmp" (dict "medium" "Memory" "sizeLimit" $s.tmpSize)
         "volumes" (include "argus.scanJob.volumes" $root)
         "containers" (include "argus.container" (dict "root" $root "name" "run"
@@ -491,6 +496,33 @@ spec:
 # use instance metadata (ADR-0046, gate review S1).
 - name: AWS_EC2_METADATA_DISABLED
   value: "true"
+{{- end }}
+
+{{/* The scans that are never two on one node (scanJobs.onePerNode): this release's Jobs of
+those works. The admission policy reads the same list. */}}
+{{- define "argus.scanJob.alone" -}}
+[cloudfox, prowler, steampipe]
+{{- end }}
+
+{{/* A scan template's affinity when scanJobs.onePerNode is on: no other scan of this release on
+its node. Empty for every other work, and for scans when it is off. */}}
+{{- define "argus.scanJob.affinity" -}}
+{{- $alone := include "argus.scanJob.alone" .root | fromYamlArray }}
+{{- if and .root.Values.scanJobs.onePerNode (has .work $alone) }}
+podAntiAffinity:
+  requiredDuringSchedulingIgnoredDuringExecution:
+    - topologyKey: kubernetes.io/hostname
+      labelSelector:
+        matchLabels:
+          app.kubernetes.io/instance: {{ .root.Release.Name }}
+        matchExpressions:
+          - {key: argus/work, operator: In, values: {{ $alone | toJson }}}
+{{- end }}
+{{- end }}
+
+{{/* Every Argus Job's PriorityClass (cluster-wide, so named by namespace and release). */}}
+{{- define "argus.jobPriorityClass" -}}
+{{- printf "%s-%s-jobs" .Release.Namespace (include "argus.fullname" .) | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{- define "argus.scanJob.volumes" -}}

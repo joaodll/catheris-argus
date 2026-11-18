@@ -44,6 +44,8 @@ scanJobs:
   tolerations:
     - {key: scanners, operator: Exists, effect: NoSchedule}
   scratch: {size: 40Gi}
+  # Scans on their own nodes, one at a time each (runbook, "Scan nodes").
+  onePerNode: true
 tasks:
   nodeSelector: {argus.catheris.io/pool: platform}
 networkPolicy:

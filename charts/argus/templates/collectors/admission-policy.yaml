@@ -14,7 +14,8 @@ two cannot drift.
   host), labels, annotations, resources, the Job's limits;
 - the security contexts, the volumes (by name; emptyDir or the database CA only);
 - no init or ephemeral container, no host namespace or path, no other node (node selector and
-  each toleration as rendered);
+  each toleration as rendered), the priority class as rendered, and affinity only as rendered:
+  the one-scan-per-node term on scan templates when scanJobs.onePerNode is on, none elsewhere;
 - no probe or lifecycle hook (each runs a command of its choosing in the container), the
   volume mounts as rendered, the cluster's DNS and scheduler.
 CEL cannot list a typed object's fields, so dangerous fields are refused by name: when the
@@ -26,7 +27,7 @@ policy 2Gi for the 2048Mi the chart rendered.
 {{- if .Values.admissionPolicy.enabled }}
 {{- $ns := .Release.Namespace }}
 {{- $schedulerSA := include "argus.serviceAccount" (dict "root" . "name" "scheduler") }}
-{{- $images := dict }}{{- $labelsBy := dict }}{{- $envBy := dict }}{{- $requestsBy := dict }}{{- $limitsBy := dict }}{{- $accountBy := dict }}
+{{- $images := dict }}{{- $labelsBy := dict }}{{- $envBy := dict }}{{- $requestsBy := dict }}{{- $limitsBy := dict }}{{- $accountBy := dict }}{{- $aloneBy := dict }}
 {{- $shared := "" }}
 {{- $job := dict }}
 {{- range $work, $_ := include "argus.scanWorks" . | fromYaml }}
@@ -36,6 +37,8 @@ policy 2Gi for the 2048Mi the chart rendered.
 {{- $_ := set $images $prefix $jc.image }}
 {{- $_ := set $labelsBy $prefix $j.spec.template.metadata.labels }}
 {{- $_ := set $accountBy $prefix $j.spec.template.spec.serviceAccountName }}
+{{- /* Whether this template carries the one-scan-per-node anti-affinity (scanJobs.onePerNode). */}}
+{{- $_ := set $aloneBy $prefix (hasKey $j.spec.template.spec "affinity") }}
 {{- $env := dict }}
 {{- range $jc.env }}
 {{- if .valueFrom }}
@@ -53,11 +56,11 @@ policy 2Gi for the 2048Mi the chart rendered.
 {{- $rest := deepCopy $j }}
 {{- $_ := unset $rest.metadata "generateName" }}{{- $_ := unset $rest.metadata "labels" }}
 {{- $_ := unset $rest.spec.template.metadata "labels" }}
-{{- $_ := unset $rest.spec.template.spec "serviceAccountName" }}
+{{- $_ := unset $rest.spec.template.spec "serviceAccountName" }}{{- $_ := unset $rest.spec.template.spec "affinity" }}
 {{- $rc := index $rest.spec.template.spec.containers 0 }}
 {{- $_ := unset $rc "image" }}{{- $_ := unset $rc "env" }}{{- $_ := unset $rc "resources" }}
 {{- if and $shared (ne $shared (toJson $rest)) }}
-{{- fail (printf "Job template %q differs from the others beyond its prefix, labels, service account, image, environment and resources" $work) }}
+{{- fail (printf "Job template %q differs from the others beyond its prefix, labels, service account, affinity, image, environment and resources" $work) }}
 {{- end }}
 {{- $shared = toJson $rest }}
 {{- $job = $j }}
@@ -160,8 +163,8 @@ spec:
         && !has(variables.pod.hostAliases) && !has(variables.pod.nodeName)
         && !has(variables.pod.initContainers) && !has(variables.pod.ephemeralContainers)
         && !has(variables.pod.shareProcessNamespace) && !has(variables.pod.runtimeClassName)
-        && !has(variables.pod.affinity) && !has(variables.pod.resourceClaims)
-        && !has(variables.pod.priorityClassName)
+        && !has(variables.pod.resourceClaims)
+        && !has(variables.pod.priority) && !has(variables.pod.preemptionPolicy)
         && !has(variables.pod.hostname) && !has(variables.pod.subdomain)
         && !has(variables.pod.setHostnameAsFQDN) && !has(variables.pod.dnsConfig)
         && (!has(variables.pod.dnsPolicy) || variables.pod.dnsPolicy == 'ClusterFirst')
@@ -180,6 +183,34 @@ spec:
              && (has(t.value) ? t.value : '') == a.value && (has(t.effect) ? t.effect : '') == a.effect
              && (has(t.tolerationSeconds) ? string(t.tolerationSeconds) : '') == a.seconds)))
       message: the pod's node placement is not its template's
+    # Priority: the chart's class, the same for every template (scanJobs.priority). The value
+    # and preemption come from the class, never from the Job.
+    - expression: >-
+        has(variables.pod.priorityClassName)
+        && variables.pod.priorityClassName == {{ $pod.priorityClassName | quote }}
+      message: the pod's priority is not its template's
+    # Affinity: only a scan template carries one, when scanJobs.onePerNode is on, and only the
+    # rendered term: no other scan of this release on its node. Anything else in affinity could
+    # steer a Job onto chosen nodes or beside chosen pods.
+    - expression: >-
+        has(variables.pod.affinity) == {{ $aloneBy | toJson }}[variables.prefix]
+        && (!has(variables.pod.affinity) || (
+          !has(variables.pod.affinity.nodeAffinity) && !has(variables.pod.affinity.podAffinity)
+          && has(variables.pod.affinity.podAntiAffinity)
+          && !has(variables.pod.affinity.podAntiAffinity.preferredDuringSchedulingIgnoredDuringExecution)
+          && size(variables.pod.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution) == 1
+          && variables.pod.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution.all(t,
+               t.topologyKey == 'kubernetes.io/hostname'
+               && !has(t.namespaces) && !has(t.namespaceSelector)
+               && !has(t.matchLabelKeys) && !has(t.mismatchLabelKeys)
+               && has(t.labelSelector)
+               && has(t.labelSelector.matchLabels)
+               && t.labelSelector.matchLabels == {{ dict "app.kubernetes.io/instance" .Release.Name | toJson }}
+               && has(t.labelSelector.matchExpressions)
+               && size(t.labelSelector.matchExpressions) == 1
+               && t.labelSelector.matchExpressions.all(e, e.key == 'argus/work' && e.operator == 'In'
+                    && has(e.values) && e.values == {{ include "argus.scanJob.alone" . | fromYamlArray | toJson }}))))
+      message: the pod's affinity is not its template's
     - expression: >-
         variables.pod.securityContext.runAsNonRoot == true
         && variables.pod.securityContext.runAsUser == 10001

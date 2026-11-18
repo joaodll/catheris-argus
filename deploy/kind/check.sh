@@ -234,6 +234,38 @@ for needed in argus-api argus-web argus-scheduler argus-postgres argus-retention
   grep -q "^$needed" "$OUT/placement.txt" || fail "$needed is not in the render, so its placement wasn't checked"
 done
 
+step "one scan per node, every Job's priority, and no eviction of a running Job"
+# scanJobs.onePerNode: only the three scans repel each other (owner, 2026-11-18); test, paths and
+# report Jobs may sit beside a scan. Every Job names the chart's PriorityClass, and one PDB
+# covers every Job pod.
+for one in true false; do
+  helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" \
+    --set "scanJobs.onePerNode=$one" --set scanJobs.priority=4242 \
+    | yq -o=json -I=0 'select(.kind)' > "$OUT/one-per-node-$one.json"
+  jq -r --arg one "$one" 'select(.kind == "ConfigMap" and .metadata.name == "argus-job-templates")
+      | .data | to_entries[] | (.value | fromjson) as $j | .key as $k
+      | ($j.spec.template.spec.affinity.podAntiAffinity.requiredDuringSchedulingIgnoredDuringExecution // []) as $t
+      | (($k | test("^(steampipe|prowler|cloudfox)[.]json$")) and $one == "true") as $alone
+      | if $j.spec.template.spec.priorityClassName != "argus-argus-jobs" then "\($k): priority class \($j.spec.template.spec.priorityClassName)"
+        elif $alone and ($t | length) != 1 then "\($k): no anti-affinity"
+        elif $alone and ($t[0].topologyKey != "kubernetes.io/hostname"
+              or $t[0].labelSelector.matchExpressions != [{"key":"argus/work","operator":"In","values":["cloudfox","prowler","steampipe"]}]
+              or $t[0].labelSelector.matchLabels != {"app.kubernetes.io/instance":"argus"}) then "\($k): another anti-affinity"
+        elif ($alone | not) and ($j.spec.template.spec | has("affinity")) then "\($k): an affinity it must not have"
+        else "\($k): ok" end' "$OUT/one-per-node-$one.json" | sort > "$OUT/one-per-node-$one.txt"
+  sed "s/^/onePerNode=$one /" "$OUT/one-per-node-$one.txt"
+  if grep -qv ': ok$' "$OUT/one-per-node-$one.txt"; then fail "onePerNode=$one: a template is wrong"; fi
+  jq -e 'select(.kind == "PriorityClass") | .metadata.name == "argus-argus-jobs" and .value == 4242
+      and .preemptionPolicy == "Never" and .globalDefault == false' "$OUT/one-per-node-$one.json" > /dev/null \
+    || fail "the PriorityClass is not the chart's"
+  jq -e 'select(.kind == "PodDisruptionBudget" and .metadata.name == "argus-jobs")
+      | .spec.maxUnavailable == 0
+        and .spec.selector.matchExpressions == [{"key":"argus/work","operator":"Exists"}]
+        and .spec.selector.matchLabels["app.kubernetes.io/instance"] == "argus"' "$OUT/one-per-node-$one.json" > /dev/null \
+    || fail "no PDB over the Job pods"
+done
+echo "PriorityClass argus-argus-jobs (value as set, preemptionPolicy Never); PDB argus-jobs (maxUnavailable 0)"
+
 step "only an ingress changes how web reads the client's address"
 real_ip() { # <rendered file>
   yq -N 'select(.kind == "Deployment" and .metadata.name == "argus-web")
