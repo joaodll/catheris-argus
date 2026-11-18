@@ -168,6 +168,9 @@ NOT_APPLICABLE = re.compile(
 )
 # CloudFox writes module errors here whatever $TMPDIR says. The worker's /tmp is a tmpfs.
 CLOUDFOX_ERROR_LOG = Path("/tmp/.cloudfox/cloudfox-error.log")  # noqa: S108 - CloudFox's path
+# On a failed run, this many of the error log's last lines, each cut to this length.
+CLOUDFOX_ERROR_LINES = 8
+CLOUDFOX_ERROR_LINE_CHARS = 300
 
 
 @dataclass
@@ -832,15 +835,15 @@ def run_cloudfox(
     text = "\n".join(lines)
     # CloudFox 2.0.5 exits 0 even when it cannot authenticate, and its checks fail silently.
     # A non-zero exit, a top-level error, or an empty output directory fails the run.
-    ok = (
-        rc == 0
-        and "Could not get caller's identity" not in text
-        and not re.search(r"^Error:", text, re.MULTILINE)
-        and any(out_dir.iterdir())
-    )
+    why = _cloudfox_failure(rc, text, out_dir)
+    ok = why is None
+    added = _cloudfox_log_added(errors_from)
+    if why is not None:
+        # The console at --verbosity 1 rarely says why; CloudFox's own error log often does.
+        lines = [*lines, *_cloudfox_error_tail(added, account_id), f"argus: CloudFox failed: {why}"]
     # Module errors go to CloudFox's own error log, not the console ("0 errors" there). A
     # denied module leaves its findings unseen, so the run is partial and resolves nothing.
-    denials = read_denials(_cloudfox_errors(errors_from, account_id))
+    denials = read_denials(_cloudfox_errors(added, account_id))
     refused, blocked = _denied_list(denials.denied), _denied_list(denials.blocked)
     status = _status(ok, throttled)
     # CloudFox has no per-table scope: any refused call, the role's or a policy's, leaves
@@ -888,17 +891,53 @@ def _size(path: Path) -> int:
         return 0
 
 
-def _cloudfox_errors(start: int, account_id: str) -> str:
-    """The error-log lines this run added. Two accounts' CloudFox runs can share the log, so
-    only lines naming this account are kept (a denial names the principal's ARN). The log
-    is left in place: deleting it would break a concurrent run."""
+def _cloudfox_failure(rc: int, console: str, out_dir: Path) -> str | None:
+    """Why a CloudFox run failed, in a few words, or None when it did not."""
+    if rc != 0:
+        return f"exit code {rc}"
+    if "Could not get caller's identity" in console:
+        return "it could not get the caller's identity"
+    if re.search(r"^Error:", console, re.MULTILINE):
+        return "it printed an error"
+    if not any(out_dir.iterdir()):
+        return "it wrote no output"
+    return None
+
+
+def _cloudfox_log_added(start: int) -> str:
+    """What this run added to CloudFox's error log. The log is left in place: deleting it
+    would break a concurrent run."""
     try:
         with CLOUDFOX_ERROR_LOG.open("rb") as errors:
             errors.seek(start)
-            added = errors.read().decode(errors="replace")
+            return errors.read().decode(errors="replace")
     except OSError:
         return ""
+
+
+def _cloudfox_errors(added: str, account_id: str) -> str:
+    """The added lines that name this account. Two accounts' CloudFox runs can share the log
+    on Compose, and a denial names the principal's ARN."""
     return "\n".join(line for line in added.splitlines() if f":{account_id}:" in line)
+
+
+# An account id inside an ARN: ":123456789012:".
+_ACCOUNT_IN_LINE = re.compile(r":(\d{12}):")
+
+
+def _cloudfox_error_tail(added: str, account_id: str) -> list[str]:
+    """The last lines this run added to CloudFox's error log, for a failed run: a fatal error
+    often names no account, so only lines naming another account (a concurrent run's on
+    Compose) are left out. Short enough that the Runs page's 4,000 characters keep them and
+    the console's last lines too; redacted with the rest of the log on the way to Postgres."""
+    kept = [
+        line[:CLOUDFOX_ERROR_LINE_CHARS]
+        for line in added.splitlines()
+        if line.strip() and all(found == account_id for found in _ACCOUNT_IN_LINE.findall(line))
+    ][-CLOUDFOX_ERROR_LINES:]
+    if not kept:
+        return ["argus: CloudFox's error log: nothing added by this run"]
+    return ["argus: CloudFox's error log, last lines:", *kept]
 
 
 def _forget_cloudfox_cache(account_id: str) -> None:
