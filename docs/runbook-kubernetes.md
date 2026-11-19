@@ -523,10 +523,21 @@ kubectl -n argus logs job/<name>
 
 **Watching a scan.** While a scan Job's tool runs, its console output is in the pod's log, line by
 line, on the logger `argus.tool`:
-- A progress bar is shown at most every 10 seconds.
-- Steampipe has one line per table: started, then finished with its row count, or failed with
-  its first error.
-- A heartbeat every minute says the tool is still running.
+- A progress bar is shown at most every 10 seconds. Prowler runs on a pseudo-terminal, so its
+  bar (`-> Scanning ec2 service`, checks done of total) is shown, with its INFO lines naming the
+  service and call it is on (`EC2 - Starting threads for 'describe_instances' ...`).
+- Steampipe has one line per table: started, then finished with its row count and how long it
+  took, or failed with its reason (a table stopped at its time limit, or killed by the system,
+  says so). Its warnings and errors appear as they come, tagged `[<table>]`.
+- CloudFox's error log (what a module could not read) appears as it is written, tagged
+  `[error log]`.
+- A heartbeat every minute says the tool is still running, with its memory, the Steampipe tables
+  running and how much each has written, and what was counted since the last heartbeat:
+  `AWS calls retried` (a throttle or a transient error that a retry may still answer) and
+  `calls given up throttled` (a call whose retries ran out: its data is missing, and the run
+  ends Partial). The busiest tables are named.
+- A tool printing more than 20 lines a second has the rest left out, and the heartbeat says how
+  many.
 
 To follow a Prowler scan as if it ran in a terminal:
 
@@ -535,7 +546,9 @@ kubectl -n argus logs -f job/<name> | jq -r 'select(.logger == "argus.tool") | .
 ```
 
 Every line is redacted before it is logged, and tools keep their quiet modes (CloudFox stays at
-`--verbosity 1`; a louder level prints secret values). The lines still name resources, ARNs and
+`--verbosity 1`; a louder level prints secret values). Prowler runs at INFO, never DEBUG
+(botocore then prints requests and answers whole); only botocore's one-line retry notice is let
+out, and it is counted, not printed. The lines still name resources, ARNs and
 account ids, like **Scans → Runs**. If your cluster ships pod logs elsewhere (Fluent Bit,
 CloudWatch), that store holds them too: protect it as you protect Argus, or keep the Job's logs
 out of it.
