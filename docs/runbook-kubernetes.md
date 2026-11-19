@@ -376,9 +376,11 @@ their own, one scan per node, so they never compete with each other or with your
 - **Priority.** Every Job names the chart's PriorityClass (`<namespace>-<release>-jobs`, value
   `scanJobs.priority`, `preemptionPolicy: Never`). A pod without a class can't preempt a
   scan, and a scan never preempts anything.
-- **Memory requested whole.** A pod that can't use more than it requested is the last one the
-  kubelet evicts when its node runs short. Near its limit the scan stops its own tool and says
-  so on the run, rather than being killed.
+- **Memory requested whole.** Every Argus Job (scans, test, paths, report) requests the memory
+  it may use: the chart refuses `requests.memory` different from `limits.memory`, written the
+  same way. A pod that can't use more than it requested is the last one the kubelet evicts when
+  its node runs short, and no Argus Job beside a scan can push the node short. Near its limit
+  the scan stops its own tool and says so on the run, rather than being killed.
 
 The admission policy pins all of this: a Job with another affinity or priority class is
 refused.
@@ -443,12 +445,58 @@ With a **managed node group**:
 - the scan's memory, sized from the runs' `peak memory` lines
 - the DaemonSets
 - a test, paths (3 Gi) or report Job that may land beside it
+- the kubelet's reservations and its eviction threshold (below)
+
+**When the node runs out of memory.** A scan pod that ends with an event like
+
+```text
+The node was low on resource: memory. Threshold quantity: 100Mi, available: 102192Ki.
+Container run was using 7340032Ki, request is 6Gi, has larger consumption of memory.
+```
+
+was evicted by the kubelet because the **whole node** fell below its eviction threshold
+(`memory.available`, 100 Mi by default). This is not the scan's own limit: the scan can be well
+under it, so the scan's memory watch never sees it, and the PDB and the `do-not-disrupt`
+annotations don't stop it either. The kubelet evicts first the pods using more than they
+requested, then the lower priorities.
+
+Read the event before changing anything:
+
+```bash
+kubectl -n argus get events --field-selector reason=Evicted
+kubectl -n argus describe pod <the evicted pod>     # within the hour, before the Job's TTL
+kubectl describe node <its node>                    # Allocated resources, and what else ran there
+```
+
+- **"Container run was using X, request is Y" with X above Y:** the scan could use more than it
+  requested. The chart now refuses that for Argus Jobs; check the install's values
+  (`helm get values argus`) were upgraded.
+- **The scan under its request:** something else on the node used more than it requested: your
+  own pods or DaemonSets without limits, or the system itself. Give scans their own nodes
+  (`onePerNode`, a taint, above), and reserve memory for the system so that what the scheduler
+  counts as allocatable is real:
+
+With **Karpenter** (v1), on the scan nodes' `EC2NodeClass`:
+
+```yaml
+spec:
+  kubelet:
+    systemReserved: {memory: 512Mi}
+    kubeReserved: {memory: 512Mi}
+    evictionHard: {memory.available: 200Mi}
+```
+
+With a **managed node group** on AL2023, the same three settings go in the launch template's
+`NodeConfig` (`spec.kubelet.config`). What a node already reserves is in
+`kubectl get --raw /api/v1/nodes/<node>/proxy/configz`. Reserved memory comes out of the node's
+allocatable, so the scan node's instance type must still hold the scan's request after it.
 
 **What can still end a scan:**
 - a spot reclaim, or a node or hardware failure
 - a forced drain
 - `scanJobs.activeDeadlineSeconds`
 - the kernel's OOM killer, when memory grows faster than the scan's one-second look
+- the kubelet's node-pressure eviction, when the node itself runs short (above)
 
 The run then ends as "lost" and is run again, once.
 
@@ -493,6 +541,13 @@ now names the chart's PriorityClass, and a PDB covers Job pods, so a drain waits
 Jobs. `scanJobs.onePerNode` is off until you turn it on ([Scan nodes](#scan-nodes)). The
 installer needs the right to create a PriorityClass (cluster-wide), as it already creates the
 admission policy.
+
+**To a chart that requires memory requested whole** (2026-11-19): the chart refuses a Job
+template whose `requests.memory` differs from its `limits.memory`, so values such as
+`requests: {memory: 2Gi}, limits: {memory: 6Gi}` now fail the upgrade with the work's name. Set
+both to the same value, written the same way. The defaults changed for the two Jobs that had
+less: the test Job requests 512 Mi (was 256 Mi) and the report Job 4 Gi (was 2 Gi), so check
+that the nodes they share with scans still hold them.
 
 **From a chart before ADR-0046** (one `images.worker`): the schema refuses `images.worker` and
 `scanJobs.resources`. Replace them with `images.workerSteampipe`, `images.workerProwler` and

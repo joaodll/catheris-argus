@@ -29,13 +29,13 @@ scheduler:
   maxRunJobs: 2
 scanJobs:
   # Small, and not the same for the test Job: run.sh checks one template's size on another's
-  # Job is denied.
+  # Job is denied. Memory is requested whole, as the chart requires.
   work:
-    test: {resources: {requests: {cpu: 50m, memory: 128Mi}, limits: {memory: 512Mi}}}
-    steampipe: {resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}}
-    prowler: {resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}}
-    cloudfox: {resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {memory: 2Gi}}}
-    report: {resources: {requests: {cpu: 100m, memory: 384Mi}, limits: {memory: 1536Mi}}}
+    test: {resources: {requests: {cpu: 50m, memory: 512Mi}, limits: {memory: 512Mi}}}
+    steampipe: {resources: {requests: {cpu: 100m, memory: 2Gi}, limits: {memory: 2Gi}}}
+    prowler: {resources: {requests: {cpu: 100m, memory: 2Gi}, limits: {memory: 2Gi}}}
+    cloudfox: {resources: {requests: {cpu: 100m, memory: 2Gi}, limits: {memory: 2Gi}}}
+    report: {resources: {requests: {cpu: 100m, memory: 1536Mi}, limits: {memory: 1536Mi}}}
   tmpSize: 512Mi
   scratch: {size: 2Gi}
   # One scan per node: run.sh proves a second scan pod waits on kind's one worker.

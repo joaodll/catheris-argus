@@ -155,6 +155,8 @@ refused "a paths Job pool below its peak (its lock and its transaction)" --set d
 refused "an unknown key" --set networkPolicy.enabeld=false
 refused "more database connections than Postgres allows" --set api.autoscaling.enabled=true --set api.autoscaling.maxReplicas=10 --set scheduler.maxRunJobs=20 --set postgres.maxConnections=100
 refused "a scan Job pool below a run's peak" --set database.pools.scanJob=2
+refused "a scan Job that can use more memory than it requested" --set scanJobs.work.prowler.resources.requests.memory=2Gi
+refused "a test Job that can use more memory than it requested" --set scanJobs.work.test.resources.limits.memory=1Gi
 refused "a session of no minutes" --set api.session.idleMinutes=0
 refused "no sign-in failures allowed" --set api.signIn.maxFailures=0
 refused "a lockout longer than retention keeps failures" --set api.signIn.lockoutMinutes=43201

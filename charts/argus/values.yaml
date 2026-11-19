@@ -277,15 +277,16 @@ scanJobs:
   # Steampipe has no overall time limit of its own: this is it. A scan past it counts as lost.
   activeDeadlineSeconds: 21600
   # One template per work, each with its own image and pod size (ADR-0046). The admission
-  # policy pins each template whole, these resources included. A scan's memory is requested
-  # whole (requests = limits): a pod that cannot use more than it asked for is the last one the
-  # kubelet evicts when its node runs short. Near the limit the scan stops its own tool and
-  # says so on the run; every run logs its peak memory, to size these from.
+  # policy pins each template whole, these resources included. Every Job's memory is requested
+  # whole: the chart refuses requests.memory different from limits.memory. A pod that cannot use
+  # more than it asked for is the last one the kubelet evicts when its node runs short, and it
+  # cannot push a scan beside it out. Near the limit a scan stops its own tool and says so on
+  # the run; every run logs its peak memory, to size these from.
   work:
     # Test connection: STS and one marker object per tool folder, no tool.
     test:
       resources:
-        requests: {cpu: 100m, memory: 256Mi}
+        requests: {cpu: 100m, memory: 512Mi}
         limits: {memory: 512Mi}
     # Steampipe and Vulnerabilities.
     steampipe:
@@ -313,7 +314,7 @@ scanJobs:
     # to S3 in one PUT.
     report:
       resources:
-        requests: {cpu: 500m, memory: 2Gi}
+        requests: {cpu: 500m, memory: 4Gi}
         limits: {memory: 4Gi}
   # /tmp holds each scan's AWS profile and CloudFox's cache: memory-backed, as in Compose.
   tmpSize: 2Gi
