@@ -99,10 +99,14 @@ function expiresIn(r: Report): string {
   return `Expires in ${days} ${days === 1 ? 'day' : 'days'}`
 }
 
-/** A CSV holds rows; a PDF covers findings and lists some of their resources (ADR-0047). */
+const FORMAT_NAMES: Record<Report['format'], string> = { csv: 'CSV', pdf: 'PDF', jsonl: 'JSON Lines' }
+
+/** A CSV holds rows; JSON Lines a resource per line (linked ones included); a PDF covers findings
+ * and lists some of their resources (ADR-0047). */
 function fileLine(r: Report): string {
   const n = (r.row_count ?? 0).toLocaleString('en-US')
   if (r.format === 'csv') return `${n} rows`
+  if (r.format === 'jsonl') return `${n} resources`
   return r.truncated ? `${n} findings, some listed` : `${n} findings, all listed`
 }
 
@@ -192,7 +196,7 @@ async function onRequested(id: number): Promise<void> {
           <tr v-for="r in items" :key="r.id" :class="{ 'is-off': r.expired }">
             <td data-label="Report" class="report">
               <span class="kind">{{ kindName(r) }}</span>
-              <span class="sub">{{ r.format.toUpperCase() }} · <span class="mono">#{{ r.id }}</span> · {{ words(r) }}</span>
+              <span class="sub">{{ FORMAT_NAMES[r.format] }} · <span class="mono">#{{ r.id }}</span> · {{ words(r) }}</span>
               <span v-if="!admin" class="sub mono">{{ when(r.requested_at) }}</span>
             </td>
             <td v-if="admin" data-label="Requested">
@@ -202,7 +206,7 @@ async function onRequested(id: number): Promise<void> {
             <td data-label="Status">
               <span class="badges">
                 <StatusBadge :status="badge(r)" />
-                <StatusBadge v-if="r.truncated && r.row_count != null && r.format === 'csv'" status="warning" :label="`First ${r.row_count.toLocaleString('en-US')} rows`" />
+                <StatusBadge v-if="r.truncated && r.row_count != null && r.format !== 'pdf'" status="warning" :label="`First ${r.row_count.toLocaleString('en-US')} ${r.format === 'jsonl' ? 'resources' : 'rows'}`" />
               </span>
               <span v-if="r.status === 'failed' && r.error" class="error">{{ r.error }}</span>
             </td>

@@ -19,8 +19,8 @@ from argus.core import audit
 from argus.core.redaction import redact_text
 from argus.reports.filters import ReportFilters, to_json
 from argus.reports.model import (
-    CSV_ONLY_KINDS,
     EXPIRY_DAYS,
+    KIND_FORMATS,
     LOCAL_STORE_KINDS,
     MAX_OPEN_PER_USER,
     STALE_AFTER_SECONDS,
@@ -36,7 +36,12 @@ DEMO_ONLY = (
     "Reports on this install cover Demo connections only. Filter the list to Demo accounts, "
     "or choose them in New report."
 )
-CSV_ONLY = "A Resources report is a CSV only."
+# Why a format is refused for a kind, one sentence per kind (KIND_FORMATS).
+FORMAT_REFUSED = {
+    "misconfigurations": "A Misconfigurations report is a CSV or a PDF.",
+    "vulnerabilities": "A Vulnerabilities report is a CSV or a PDF.",
+    "resources": "A Resources report is a CSV or a JSON Lines file.",
+}
 # report_request.filters' CHECK (migration 0047).
 FILTERS_MAX_CHARS = 16384
 TOO_MANY_FILTERS = "This report has too many filters to keep. Remove some tags or values."
@@ -104,8 +109,8 @@ def request_report(
     region) an S3 report goes to, recorded with it; None is the local store. Refused
     (ReportRefusedError) when no account matches, when one is a real AWS connection on a local
     store, or when the user already has MAX_OPEN_PER_USER open. The caller commits."""
-    if kind in CSV_ONLY_KINDS and fmt != "csv":
-        raise ReportRefusedError(CSV_ONLY)
+    if fmt not in KIND_FORMATS[kind]:
+        raise ReportRefusedError(FORMAT_REFUSED[kind])
     stored = json.dumps(to_json(filters))
     # report_request.filters holds at most FILTERS_MAX_CHARS (migration 0047). json.dumps escapes
     # what jsonb keeps as one character, so its length is never shorter than the column's.

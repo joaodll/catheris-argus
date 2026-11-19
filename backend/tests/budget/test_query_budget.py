@@ -1421,21 +1421,27 @@ def test_the_vulnerability_counts_of_one_account_stay_cheap_to_write(estate: Eng
 @pytest.mark.parametrize(
     ("label", "connection_ids"), [("one account", [2]), ("every account", list(range(1, 37)))]
 )
-@pytest.mark.parametrize("kind", ["misconfigurations", "resources"])
+@pytest.mark.parametrize(
+    "report",
+    [("misconfigurations", "csv"), ("resources", "csv"), ("resources", "jsonl")],
+    ids=["misconfigurations-csv", "resources-csv", "resources-jsonl"],
+)
 def test_an_export_is_measured(
-    estate: Engine, tmp_path: Path, kind: str, label: str, connection_ids: list[int]
+    estate: Engine, tmp_path: Path, report: tuple[str, str], label: str, connection_ids: list[int]
 ) -> None:
-    """A report of every open misconfiguration, or every resource (ADR-0047 §3b), built as the
+    """A report of every open misconfiguration, or every resource (ADR-0047 §3b), or every
+    resource with its links and configuration and its linked resources (§3c), built as the
     worker builds it: not a 300 ms query, so it is measured and recorded rather than held to the
     budget. The bound only catches a regression by an order of magnitude."""
+    kind, fmt = report
     with estate.begin() as conn:
         conn.execute(text("DELETE FROM report_request WHERE status <> 'failed'"))
         conn.execute(
             text(
                 "INSERT INTO report_request (kind, format, filters, connection_ids, requested_by) "
-                "VALUES (:k, 'csv', '{}', CAST(:c AS bigint[]), 'budget')"
+                "VALUES (:k, :f, '{}', CAST(:c AS bigint[]), 'budget')"
             ),
-            {"k": kind, "c": connection_ids},
+            {"k": kind, "f": fmt, "c": connection_ids},
         )
     before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     start = time.perf_counter()
@@ -1450,7 +1456,7 @@ def test_an_export_is_measured(
             )
         ).one()
     print(
-        f"export {kind}, {label}: {rows} rows, {size / 1e6:.1f} MB in {seconds:.1f} s; "
+        f"export {kind} {fmt}, {label}: {rows} rows, {size / 1e6:.1f} MB in {seconds:.1f} s; "
         f"peak RSS {after / 1024:.0f} MiB (before {before / 1024:.0f} MiB)"
     )
     assert status == "ready" and rows > 0

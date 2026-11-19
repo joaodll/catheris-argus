@@ -2,7 +2,9 @@
 argus_worker, served by the API from the reports store. Demo connections only on this store."""
 
 import csv
+import gzip
 import io
+import json
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
@@ -212,30 +214,180 @@ def test_a_resources_report_keeps_the_lists_role_filters(
     assert all(r["workloads"] == "0" for r in rows)
 
 
-def test_a_resources_report_is_a_csv_only(
-    signed_in: TestClient, owner: Engine, root: Path, demo: int
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("resources", "pdf", "report_request_resources_format"),
+        ("misconfigurations", "jsonl", "report_request_jsonl_resources"),
+        ("vulnerabilities", "jsonl", "report_request_jsonl_resources"),
+    ],
+    ids=["resources-pdf", "misconfigurations-jsonl", "vulnerabilities-jsonl"],
+)
+def test_a_report_comes_only_in_its_kinds_formats(
+    signed_in: TestClient, owner: Engine, root: Path, demo: int, case: tuple[str, str, str]
 ) -> None:
+    """Resources: a CSV or JSON Lines; the finding kinds: a CSV or a PDF (migrations 0054,
+    0056). The API refuses the others, and the table does whatever writes the row."""
+    kind, fmt, constraint = case
     refused = signed_in.post(
         "/api/v1/reports",
-        json={"kind": "resources", "format": "pdf", "filters": {}},
+        json={"kind": kind, "format": fmt, "filters": {}},
         headers=csrf(signed_in),
     )
     assert refused.status_code == 422
-    with owner.begin() as conn, pytest.raises(DBAPIError, match="report_request_resources_csv"):
+    with owner.begin() as conn, pytest.raises(DBAPIError, match=constraint):
         conn.execute(
             text(
                 "INSERT INTO report_request (kind, format, filters, connection_ids, "
-                "requested_by) VALUES ('resources', 'pdf', '{}', ARRAY[:c], 'admin')"
+                "requested_by) VALUES (:k, :f, '{}', ARRAY[:c], 'admin')"
+            ),
+            {"k": kind, "f": fmt, "c": demo},
+        )
+
+
+def _ask_jsonl(client: TestClient, **filters: Any) -> Any:
+    return client.post(
+        "/api/v1/reports",
+        json={"kind": "resources", "format": "jsonl", "filters": filters},
+        headers=csrf(client),
+    )
+
+
+def _lines(client: TestClient, report_id: int) -> list[dict[str, Any]]:
+    response = client.get(f"/api/v1/reports/{report_id}/download")
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/gzip"
+    assert (
+        f'filename="argus-resources-{report_id}.jsonl.gz"'
+        in response.headers["content-disposition"]
+    )
+    return [json.loads(line) for line in gzip.decompress(response.content).splitlines()]
+
+
+def test_a_resources_jsonl_report_is_each_panel_with_its_links_and_configuration(
+    signed_in: TestClient, worker: Engine, root: Path, demo: int
+) -> None:
+    """The owner's ask (2026-11-19): what a resource's panel shows, in one file. Each matched
+    line is a listed resource with the CSV's fields, its panel's links (same ends, same
+    directions) and its configuration."""
+    filters = {"type": ["aws_ec2_instance", "aws_iam_role", "aws_route53_record"]}
+    asked = _ask_jsonl(signed_in, **filters)
+    assert asked.status_code == 202, asked.text
+    assert _build(worker, root)
+    report = signed_in.get(f"/api/v1/reports/{asked.json()['id']}").json()
+    assert report["status"] == "ready", report["error"]
+    assert report["format"] == "jsonl"
+    lines = _lines(signed_in, report["id"])
+    assert report["row_count"] == len(lines)
+    matched = {line["resource_uid"]: line for line in lines if line["included"] == "matched"}
+    listed = _listed(signed_in, **filters)
+    assert matched.keys() == listed.keys() and matched
+    assert set(RESOURCE_COLUMNS) <= set(lines[0]) and {"links", "config"} <= set(lines[0])
+
+    linked_some = False
+    for uid, line in matched.items():
+        panel = signed_in.get(f"/api/v1/resources/{listed[uid]['id']}").json()
+        assert line["config"] == panel["config"]
+        assert line["open_misconfigurations"] == listed[uid]["open_findings"]
+        expected = sorted(
+            (e["type"], e["target_uid"] if e["source_uid"] == uid else e["source_uid"])
+            for e in panel["edges"]
+        )
+        assert sorted((link["type"], link["other_uid"]) for link in line["links"]) == expected
+        for link in line["links"]:
+            assert link["direction"] in {"out", "in"}
+            linked_some = linked_some or link["other_name"] is not None
+    assert linked_some  # the Demo estate links instances, roles and records to other resources
+
+
+def test_a_linked_resource_gets_its_own_line_once_and_only_in_the_reports_accounts(
+    signed_in: TestClient, worker: Engine, root: Path, demo: int
+) -> None:
+    """The config of the links too (owner, 2026-11-19): a resource one link away that the
+    filters left out gets its own line, once, marked linked, with its own configuration."""
+    asked = _ask_jsonl(signed_in, type=["aws_ec2_instance"])
+    assert _build(worker, root)
+    lines = _lines(signed_in, asked.json()["id"])
+    matched = [line for line in lines if line["included"] == "matched"]
+    linked = [line for line in lines if line["included"] == "linked"]
+    assert linked, "an instance links to its security groups, subnet and role"
+    uids = [line["resource_uid"] for line in lines]
+    assert len(uids) == len(set(uids))  # each resource once
+    assert all(line["resource_type"] != "aws_ec2_instance" for line in linked)
+    ends = {link["other_uid"] for line in matched for link in line["links"]}
+    assert {line["resource_uid"] for line in linked} <= ends
+    accounts = {line["account_id"] for line in matched}
+    assert {line["account_id"] for line in linked} <= accounts
+    assert any(line["config"] for line in linked)
+
+
+def test_another_accounts_resource_is_named_in_a_link_never_exported(
+    signed_in: TestClient, owner: Engine, worker: Engine, root: Path, demo: int
+) -> None:
+    """A report holds its accounts' data only: a link to another account's resource names it,
+    and that resource gets no line (on this store, also: a real account's configuration never
+    stays on a local disk, ADR-0032)."""
+    other = make_demo(owner, seed=1)
+    with owner.begin() as conn:
+        src = conn.execute(
+            text(
+                "SELECT id, resource_uid FROM resource WHERE connection_id = :c "
+                "AND type = 'aws_ec2_instance' ORDER BY id LIMIT 1"
             ),
             {"c": demo},
+        ).one()
+        conn.execute(
+            text("""
+            INSERT INTO resource (resource_uid, connection_id, region, type, native_id, name,
+                                  first_seen, last_seen)
+            VALUES ('arn:aws:iam::999999999999:role/elsewhere', :c, 'global', 'aws_iam_role',
+                    'elsewhere', 'elsewhere', :d, :d)
+        """),
+            {"c": other.connection_id, "d": DAY},
         )
+        conn.execute(
+            text("""
+            INSERT INTO edge (edge_key, source_uid, target_uid, source_resource_id,
+                              target_resource_id, type, origin, first_seen, last_seen, author,
+                              reason)
+            SELECT sha256('report-test'::bytea), :s, r.resource_uid, :sid, r.id, 'CAN_ASSUME',
+                   'manual', :d, :d, 'admin', 'test'
+            FROM resource r WHERE r.resource_uid = 'arn:aws:iam::999999999999:role/elsewhere'
+        """),
+            {"s": src.resource_uid, "sid": src.id, "d": DAY},
+        )
+    asked = _ask_jsonl(signed_in, type=["aws_ec2_instance"], connection_id=[demo])
+    assert asked.status_code == 202, asked.text
+    assert _build(worker, root)
+    lines = _lines(signed_in, asked.json()["id"])
+    (source,) = [line for line in lines if line["resource_uid"] == src.resource_uid]
+    (named,) = [
+        link
+        for link in source["links"]
+        if link["other_uid"] == "arn:aws:iam::999999999999:role/elsewhere"
+    ]
+    assert named["other_name"] == "elsewhere" and named["direction"] == "out"
+    assert "arn:aws:iam::999999999999:role/elsewhere" not in {
+        line["resource_uid"] for line in lines
+    }
+
+
+def test_a_jsonl_report_past_its_cap_is_cut_and_says_so(
+    signed_in: TestClient, worker: Engine, root: Path, demo: int
+) -> None:
+    asked = _ask_jsonl(signed_in)
+    assert _build(worker, root, row_cap=5)
+    report = signed_in.get(f"/api/v1/reports/{asked.json()['id']}").json()
+    assert report["status"] == "ready" and report["truncated"] is True
+    assert report["row_count"] == 5 == len(_lines(signed_in, report["id"]))
 
 
 def test_the_report_role_builds_a_resources_report_through_every_filter(
     signed_in: TestClient, reports_role: Engine, root: Path, demo: int
 ) -> None:
-    """argus_reports (the Kubernetes report Job, migration 0054) reads everything a Resources
-    report reads: every filter's set, and each row's columns."""
+    """argus_reports (the Kubernetes report Job, migrations 0054 and 0056) reads everything a
+    Resources report reads: every filter's set, each row's columns, and in JSON Lines the
+    configurations and links."""
     every_filter = {
         "vulnerabilities": "any",
         "misconfigurations": "any",
@@ -254,6 +406,14 @@ def test_the_report_role_builds_a_resources_report_through_every_filter(
         report = signed_in.get(f"/api/v1/reports/{report_id}").json()
         assert report["status"] == "ready", report["error"]
     assert report["row_count"] == len(_listed(signed_in)) > 0
+    # And a JSON Lines file with links and configuration (migration 0056), linked lines too.
+    report_id = _ask_jsonl(signed_in, type=["aws_ec2_instance"]).json()["id"]
+    assert _build(reports_role, root)
+    report = signed_in.get(f"/api/v1/reports/{report_id}").json()
+    assert report["status"] == "ready", report["error"]
+    lines = _lines(signed_in, report_id)
+    assert any(line["included"] == "linked" for line in lines)
+    assert any(line["config"] for line in lines) and any(line["links"] for line in lines)
 
 
 def test_no_secret_value_reaches_a_report(

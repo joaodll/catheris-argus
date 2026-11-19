@@ -8,6 +8,7 @@
  */
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Page } from '@playwright/test'
+import { gunzipSync } from 'node:zlib'
 
 const PASSWORD = process.env.ARGUS_E2E_PASSWORD ?? ''
 const SHOTS = 'e2e/screens'
@@ -1858,9 +1859,10 @@ test('resources: export the list as a CSV, see it in Reports, download it; both 
   await page.getByRole('button', { name: 'Export', exact: true }).click()
   const exporting = page.getByRole('dialog', { name: 'Export Resources' })
   await expect(exporting.getByText('aws_iam_role · roles not used in 90 days')).toBeVisible()
-  // A Resources report is a CSV only: no PDF choice.
-  await expect(exporting.getByText('CSV: every row, for a spreadsheet')).toBeVisible()
-  await expect(exporting.getByRole('radio')).toHaveCount(0)
+  // A Resources report is a CSV (the default) or JSON Lines: no PDF choice.
+  await expect(exporting.getByRole('radio', { name: 'CSV: every row, for a spreadsheet' })).toBeChecked()
+  await expect(exporting.getByRole('radio')).toHaveCount(2)
+  await expect(exporting.getByRole('radio', { name: /^PDF/ })).toHaveCount(0)
   await axe(page, 'export resources')
   await shot(page, '74-export-resources')
   await exporting.getByRole('button', { name: 'Request report' }).click()
@@ -1888,6 +1890,49 @@ test('resources: export the list as a CSV, see it in Reports, download it; both 
   await expect(link).toBeVisible()
   await axe(page, 'phone reports with a resources report')
   await shot(page, '74b-phone-resources-report')
+})
+
+test('resources: export each resource with its links and configuration as JSON Lines; both themes, phone width', async ({ page }) => {
+  // Round 6 (2026-11-19, ADR-0047 3c): what a resource's panel shows, in one file, the linked
+  // resources of the same accounts included.
+  test.setTimeout(120_000)
+  await signIn(page)
+  await page.goto('/investigate/resources?tab=list&type=aws_ec2_instance')
+  await expect(page.getByRole('heading', { level: 1, name: 'Resources' })).toBeVisible()
+  await page.getByRole('button', { name: 'Export', exact: true }).click()
+  const exporting = page.getByRole('dialog', { name: 'Export Resources' })
+  await exporting.getByRole('radio', { name: 'JSON Lines: each resource with its links and configuration' }).check()
+  await expect(exporting.getByText(/Compressed \(\.jsonl\.gz\)/)).toBeVisible()
+  await axe(page, 'export resources as json lines')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await axe(page, 'light export resources as json lines')
+  await shot(page, '74c-export-resources-jsonl')
+  await exporting.getByRole('button', { name: 'Request report' }).click()
+  const toastText = page.getByRole('status').filter({ hasText: /Report #\d+ requested/ })
+  await expect(toastText).toBeVisible()
+  const id = (await toastText.textContent())?.match(/#(\d+)/)?.[1] ?? ''
+
+  await navLink(page, 'Reports')
+  const link = page.getByRole('link', { name: `Download report #${id}` })
+  await expect(link).toBeVisible({ timeout: 60_000 })
+  const row = page.locator('tbody tr', { has: link })
+  await expect(row).toContainText('JSON Lines')
+  await expect(row).toContainText(/\d+ resources/)
+  const response = await page.request.get((await link.getAttribute('href')) ?? '')
+  expect(response.status()).toBe(200)
+  expect(response.headers()['content-type']).toBe('application/gzip')
+  expect(response.headers()['content-disposition']).toMatch(new RegExp(`^attachment; filename="argus-resources-${id}\\.jsonl\\.gz"`))
+  const lines = gunzipSync(await response.body()).toString('utf-8').trim().split('\n').map((l) => JSON.parse(l))
+  const matched = lines.filter((l) => l.included === 'matched')
+  expect(matched.length).toBeGreaterThan(0)
+  expect(matched.every((l) => l.resource_type === 'aws_ec2_instance')).toBe(true)
+  expect(matched.some((l) => l.links.length > 0 && l.config)).toBe(true)
+  expect(lines.some((l) => l.included === 'linked')).toBe(true)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(link).toBeVisible()
+  await axe(page, 'phone reports with a json lines report')
+  await shot(page, '74d-phone-resources-jsonl-report')
 })
 
 test('light theme: every screen passes axe, and the toggle cycles', async ({ page }) => {

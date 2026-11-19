@@ -5,10 +5,24 @@ from datetime import date, datetime
 from typing import Any, Literal
 
 ReportKind = Literal["misconfigurations", "vulnerabilities", "resources"]
-# Kinds with a CSV only (migration 0054 refuses the rest): the Resources list is a table to sort
-# and filter, not a hand-off to read.
-CSV_ONLY_KINDS = frozenset({"resources"})
-ReportFormat = Literal["csv", "pdf"]
+ReportFormat = Literal["csv", "pdf", "jsonl"]
+# The formats each kind comes in (migrations 0054 and 0056 hold the same pairs). The Resources
+# list is a table to sort and filter, not a hand-off to read: no PDF. JSON Lines is a resource's
+# links and configuration as its panel shows them (ADR-0047 section 3c): Resources only.
+KIND_FORMATS: dict[str, frozenset[str]] = {
+    "misconfigurations": frozenset({"csv", "pdf"}),
+    "vulnerabilities": frozenset({"csv", "pdf"}),
+    "resources": frozenset({"csv", "jsonl"}),
+}
+# How each format's file is served: its type and the name's ending. A JSON Lines report is
+# gzip-compressed (a resource's configuration is long); its storage key still ends ".jsonl"
+# (migration 0048: a key ends in its format).
+MEDIA_TYPES: dict[str, str] = {
+    "csv": "text/csv; charset=utf-8",
+    "pdf": "application/pdf",
+    "jsonl": "application/gzip",
+}
+FILE_ENDINGS: dict[str, str] = {"csv": "csv", "pdf": "pdf", "jsonl": "jsonl.gz"}
 ReportStatus = Literal["queued", "building", "ready", "failed"]
 
 # A file is kept this long after it is ready; the API refuses it afterwards, whatever storage
@@ -16,7 +30,8 @@ ReportStatus = Literal["queued", "building", "ready", "failed"]
 EXPIRY_DAYS = 7
 # Open reports (queued or building) one user may have at once.
 MAX_OPEN_PER_USER = 3
-# Rows in one CSV. Past it the file is cut and the report says so.
+# Rows in one CSV, or lines in one JSON Lines file (linked resources' lines included). Past it
+# the file is cut and the report says so.
 ROW_CAP = 500_000
 # A PDF is a hand-off to read, not the whole list (the CSV is): at most this many resources per
 # check or CVE, this many in all, and this many checks or CVEs in full; the rest of them are named

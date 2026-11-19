@@ -4313,7 +4313,8 @@
           "format": {
             "enum": [
               "csv",
-              "pdf"
+              "pdf",
+              "jsonl"
             ],
             "title": "Format",
             "type": "string"
@@ -5235,8 +5236,11 @@
             "$ref": "#/components/schemas/ResourceFilterQuery"
           },
           "format": {
-            "const": "csv",
             "default": "csv",
+            "enum": [
+              "csv",
+              "jsonl"
+            ],
             "title": "Format",
             "type": "string"
           },
@@ -13988,6 +13992,7 @@
         "responses": {
           "200": {
             "content": {
+              "application/gzip": {},
               "application/pdf": {},
               "text/csv": {}
             },

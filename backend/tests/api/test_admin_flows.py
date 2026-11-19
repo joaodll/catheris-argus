@@ -5,6 +5,7 @@ state. So each test also proves that the change needs no restart and no environm
 the worker picks it up because it re-reads Postgres on every tick and every claim.
 """
 
+import gzip
 import json
 import logging
 import re
@@ -243,12 +244,14 @@ def reports_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Reports:
 def _sweep_reports(
     client: TestClient, worker: Engine, setup: _Reports, bodies: dict[str, str]
 ) -> None:
-    """Every open finding and CVE as a report, CSV and PDF, and every resource as a CSV: the list,
-    each report, each file, and each PDF's context."""
+    """Every open finding and CVE as a report, CSV and PDF, and every resource as a CSV and as
+    JSON Lines with its links and configuration (ADR-0047 3c): the list, each report, each file
+    (a JSON Lines file decompressed), and each PDF's context."""
     for kind, fmt in (
         ("misconfigurations", "csv"),
         ("vulnerabilities", "csv"),
         ("resources", "csv"),
+        ("resources", "jsonl"),
         ("misconfigurations", "pdf"),
         ("vulnerabilities", "pdf"),
     ):
@@ -263,7 +266,8 @@ def _sweep_reports(
         ):
             response = client.get(path)
             assert response.status_code == 200, (path, response.text)
-            bodies[path] = response.text
+            gzipped = path.endswith("/download") and fmt == "jsonl"
+            bodies[path] = gzip.decompress(response.content).decode() if gzipped else response.text
     bodies["/api/v1/reports"] = client.get("/api/v1/reports").text
     assert len(setup.contexts) == 2
     assert not any(MARKERS.search(context) for context in setup.contexts)
