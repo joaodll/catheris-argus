@@ -1,34 +1,33 @@
-{{- /* api and web: a voluntary disruption (a node drain) takes down one pod at a time. */ -}}
-{{- range $component := list "api" "web" }}
+{{- /* Disruption budgets, declared in values (podDisruptionBudgets). api and web: a voluntary
+disruption takes down at most maxUnavailable of each. Job pods (argus/work: scans, connection
+tests, attack routes, reports): an integer minAvailable, the only form Kubernetes evaluates for pods
+a Job owns; by default the most that can run at once, so a drain waits for a running Job instead of
+losing it. Karpenter also honours the Job pods' do-not-disrupt annotation; nothing here stops a spot
+reclaim or a node failure. */ -}}
+{{- range $component := list "api" "web" "jobs" }}
+{{- $budget := index $.Values.podDisruptionBudgets $component }}
+{{- if $budget.enabled }}
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
   name: {{ include "argus.fullname" $ }}-{{ $component }}
   labels:
-    {{- include "argus.labels" (dict "root" $ "component" $component) | nindent 4 }}
+    {{- include "argus.labels" (dict "root" $ "component" (ternary "scheduler" $component (eq $component "jobs"))) | nindent 4 }}
 spec:
-  maxUnavailable: 1
+{{- if eq $component "jobs" }}
+  minAvailable: {{ ternary (include "argus.jobPodCeiling" $ | int) $budget.minAvailable (kindIs "invalid" $budget.minAvailable) }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "argus.name" $ }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+    matchExpressions:
+      - {key: argus/work, operator: Exists}
+{{- else }}
+  maxUnavailable: {{ $budget.maxUnavailable }}
   selector:
     matchLabels:
       {{- include "argus.selectorLabels" (dict "root" $ "component" $component) | nindent 6 }}
 {{- end }}
----
-{{- /* Every Argus Job pod (argus/work: scans, connection tests, attack routes, reports): no
-voluntary eviction while it runs. A node drain, or a managed node group's upgrade, waits for
-the Job to end instead of losing the run. Karpenter also honours the pods' do-not-disrupt
-annotation; nothing here stops a spot reclaim or a node failure. */}}
-apiVersion: policy/v1
-kind: PodDisruptionBudget
-metadata:
-  name: {{ include "argus.fullname" . }}-jobs
-  labels:
-    {{- include "argus.labels" (dict "root" . "component" "scheduler") | nindent 4 }}
-spec:
-  maxUnavailable: 0
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: {{ include "argus.name" . }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
-    matchExpressions:
-      - {key: argus/work, operator: Exists}
+{{- end }}
+{{- end }}

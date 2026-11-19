@@ -369,10 +369,19 @@ their own, one scan per node, so they never compete with each other or with your
   Jobs carry a required pod anti-affinity: no two of them on one node. Test, paths and report
   Jobs share the scans' placement and may run beside a scan, so size the node for them too
   (Sizing, below).
-- **No voluntary eviction.** A PodDisruptionBudget (`<release>-jobs`, `maxUnavailable: 0`)
-  covers every Argus Job pod, so `kubectl drain` and a managed node group's upgrade wait for
-  the Job instead of evicting it. The pods also carry `karpenter.sh/do-not-disrupt` and the
-  Cluster Autoscaler's `safe-to-evict: "false"`.
+- **No voluntary eviction.** A PodDisruptionBudget (`<release>-jobs`) covers every Argus Job
+  pod, so `kubectl drain` and a managed node group's upgrade wait for the Job instead of
+  evicting it. It keeps `minAvailable` Job pods: by default the most that can run at once
+  (`scheduler.maxRunJobs` + `maxTestJobs` + the report Jobs + the paths Job), so none can be
+  evicted. Kubernetes evaluates only an integer `minAvailable` for pods a Job owns, since a Job
+  has no scale subresource. `maxUnavailable` or a percentage leaves the budget unsynced
+  (`SyncFailed`), so the schema refuses both. The pods also carry `karpenter.sh/do-not-disrupt`
+  and the Cluster Autoscaler's `safe-to-evict: "false"`.
+- **The budgets are values.** `podDisruptionBudgets.api` and `.web` take `maxUnavailable` (default
+  1, or a percentage), and `podDisruptionBudgets.jobs` takes `minAvailable` (`null` = the Job
+  ceiling above; a lower number lets the Job pods above it be evicted, and 0 lets all of them go).
+  `enabled: false` removes a budget. Check one with `kubectl describe pdb <release>-jobs -n <ns>`:
+  with a scan running, `Allowed disruptions` is 0 and there is no `SyncFailed` condition.
 - **Priority.** Every Job names the chart's PriorityClass (`<namespace>-<release>-jobs`, value
   `scanJobs.priority`, `preemptionPolicy: Never`). A pod without a class can't preempt a
   scan, and a scan never preempts anything.
@@ -458,6 +467,11 @@ The run then ends as "lost" and is run again, once.
 2. `helm upgrade argus ./charts/argus -n argus -f values-argus.yaml --wait --timeout 15m` with
    the new digests.
 3. `helm test argus -n argus`.
+
+**To a chart with the budgets in values** (2026-11-19): the Job pods' budget was
+`maxUnavailable: 0`, which Kubernetes can't evaluate for pods a Job owns (`SyncFailed`). It is
+now `minAvailable`, the Job ceiling by default. Nothing to set unless you change a budget: the
+`podDisruptionBudgets` block in values.yaml holds all three ([Scan nodes](#scan-nodes)).
 
 **To a chart with reports on Kubernetes** (2026-11-12, ADR-0047): the schema now requires
 `images.reports.digest` on every install, and on an IRSA install also `identity.apiRoleArn`,

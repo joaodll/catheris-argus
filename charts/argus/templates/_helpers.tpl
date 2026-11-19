@@ -390,6 +390,17 @@ spec:
 report Job each have their own role. Not a switch: reports are part of the app, and elsewhere the
 Reports screen says why there are none.
 */}}
+{{/*
+The most Argus Job pods that can run at once: the scan and connection-test bounds, the report
+Jobs on IRSA installs, and the one paths Job. The ResourceQuota counts them; the Jobs'
+disruption budget keeps that many (pdb.yaml).
+*/}}
+{{- define "argus.jobPodCeiling" -}}
+{{- $v := .Values }}
+{{- $reports := ternary $v.scheduler.maxReportJobs 0 (eq (include "argus.reportsInS3" .) "true") }}
+{{- add $v.scheduler.maxRunJobs $v.scheduler.maxTestJobs $reports 1 }}
+{{- end }}
+
 {{- define "argus.reportsInS3" -}}
 {{- if eq .Values.identity.mode "irsa" }}true{{ end }}
 {{- end }}
