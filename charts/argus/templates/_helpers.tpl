@@ -430,6 +430,15 @@ Called with (dict "root" $ "work" <work>).
 {{- $v := $root.Values }}
 {{- $s := $v.scanJobs }}
 {{- $image := index (include "argus.scanWorks" $root | fromYaml) .work }}
+{{- /* Memory is requested whole: a Job that can use more than it requested is the first pod the
+kubelet evicts when its node runs short, and it can push a scan beside it out too. The two values
+are compared as written. */}}
+{{- $res := (index $s.work .work).resources }}
+{{- $asked := toString (dig "requests" "memory" "" $res) }}
+{{- $limit := toString (dig "limits" "memory" "" $res) }}
+{{- if or (not $asked) (ne $asked $limit) }}
+{{- fail (printf "scanJobs.work.%s.resources: requests.memory (%s) must equal limits.memory (%s), written the same way. A Job that can use more memory than it requested is evicted first when its node runs short (runbook-kubernetes.md, Scan nodes)." .work (default "unset" $asked) (default "unset" $limit)) }}
+{{- end }}
 {{- /* Who the Job is: its component (its account and its NetworkPolicy) and its database role. */}}
 {{- $own := dict
   "report" (dict "component" "report" "user" "argus_reports" "key" "ARGUS_REPORTS_DB_PASSWORD" "pool" "reportJob")
