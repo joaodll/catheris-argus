@@ -62,6 +62,17 @@ TOOL_BINARIES: dict[str, str] = {
 }
 TOOL_TIMEOUT = timedelta(hours=4)
 TABLE_TIMEOUT = timedelta(minutes=30)
+# Tables that take longer than TABLE_TIMEOUT on a large account. Inspector's findings: every
+# open finding of the account, its packages and resources in every row, every region; on a
+# large account that is hours, not minutes (2026-11-19). Each stays inside the scan Job's
+# deadline (chart scanJobs.activeDeadlineSeconds, 6 h).
+TABLE_TIMEOUTS = {"aws_inspector2_finding": timedelta(hours=3)}
+# Written into a table's error file when Argus stops it at its limit, so the reason on the Runs
+# page says so (table_error) and the table is never taken for "not applicable".
+TIMED_OUT_NOTE = "argus: stopped after its time limit of"
+# Bytes read at a time when a tool's output file is looked at whole: a large account's tables
+# reach gigabytes, which must never sit in the scan Job's memory at once.
+READ_BLOCK = 1 << 20
 VERSION_TIMEOUT = 60
 LOG_TAIL_LINES = 200
 # How often a waiting tool is checked for a request to stop.
@@ -435,6 +446,33 @@ def _status(ok: bool, throttle_events: int) -> str:
 _PLUGIN_API_ERROR = re.compile(r"^\[ERROR\]\s+\d+: aws_[a-z0-9_]+\.[A-Za-z0-9_]+: api_error=")
 
 
+def table_timeout(table: str) -> timedelta:
+    """How long one table's export may run (TABLE_TIMEOUTS, else TABLE_TIMEOUT)."""
+    return TABLE_TIMEOUTS.get(table, TABLE_TIMEOUT)
+
+
+def table_timed_out(errors: str) -> bool:
+    """Whether Argus stopped the table at its time limit (TIMED_OUT_NOTE)."""
+    return any(line.startswith(TIMED_OUT_NOTE) for line in errors.splitlines())
+
+
+def only_json_rows(rows: Path) -> bool:
+    """Whether every non-empty line of a table's output starts with "{". Read in blocks, looking
+    only at the first byte of each line: the file can be gigabytes (a large account's Inspector
+    findings), and holding it whole killed a scan Job (2026-11-19)."""
+    at_line_start = True
+    with rows.open("rb") as data:
+        while block := data.read(READ_BLOCK):
+            parts = block.split(b"\n")
+            for n, part in enumerate(parts):
+                starts_line = at_line_start if n == 0 else True
+                if starts_line and part not in (b"", b"\r") and not part.startswith(b"{"):
+                    return False
+            # The block's last part continues on the next block unless the block ended a line.
+            at_line_start = parts[-1] == b""
+    return True
+
+
 def table_failed(rc: int, errors: str, rows: Path) -> bool:
     """Whether the export says the table failed: its rows are not kept. Three signs, any one:
     a non-zero exit; stdout holding anything but JSON rows (some failures are printed there);
@@ -442,8 +480,7 @@ def table_failed(rc: int, errors: str, rows: Path) -> bool:
     answer the plugin ignores leaves only that record, exit 0 and every row; one that stops the
     table also exits 1, prints to stdout and, from a hydrate call, logs "callHydrate ...
     finished with error" (owner, 2026-11-05; tests pin each shape for the pinned version)."""
-    bad_rows = any(not line.startswith("{") for line in rows.read_text().splitlines() if line)
-    return rc != 0 or _stopped(errors) or bad_rows
+    return rc != 0 or _stopped(errors) or not only_json_rows(rows)
 
 
 def _stopped(errors: str) -> bool:
@@ -499,15 +536,27 @@ def table_error(table: str, rc: int, errors: str) -> str:
     """Why a table was left out, for the Runs page: "<table>: <its most telling error line>",
     redacted, on one line and at most MAX_TABLE_ERROR_CHARS (manifest.TABLE_ERROR_PATTERN)."""
     lines = [line.strip() for line in errors.splitlines() if line.strip()]
-    line = min(lines, key=_error_rank) if lines else ""
-    line = _LOG_PREFIX.sub("", line)
-    if sdk := _SDK_ANSWER.search(line):
-        line = f"{sdk['op']} (HTTP {sdk['status']}): {sdk['answer']}"
-    for pattern, replacement in _DROPPED:
-        line = pattern.sub(replacement, line)
-    line = " ".join(redact_text(line).split()).rstrip('"')
+    if table_timed_out(errors):
+        # Argus stopped it: the lines before are what the table met on the way, not why.
+        line = next(x for x in lines if x.startswith(TIMED_OUT_NOTE)).removeprefix("argus: ")
+    elif rc == -signal.SIGKILL:
+        # Killed, and not by Argus (its limit writes TIMED_OUT_NOTE; its memory guard and a
+        # cancel end the whole run instead): the kernel's OOM killer, in a scan Job.
+        line = "killed by the system (most likely out of memory)"
+    else:
+        line = min(lines, key=_error_rank) if lines else ""
+        line = _LOG_PREFIX.sub("", line)
+        if sdk := _SDK_ANSWER.search(line):
+            line = f"{sdk['op']} (HTTP {sdk['status']}): {sdk['answer']}"
+        for pattern, replacement in _DROPPED:
+            line = pattern.sub(replacement, line)
+        line = " ".join(redact_text(line).split()).rstrip('"')
     if not line:
-        line = f"exit code {rc}, nothing on standard error"
+        line = (
+            f"killed by signal {-rc}, nothing on standard error"
+            if rc < 0
+            else f"exit code {rc}, nothing on standard error"
+        )
     if len(line) > MAX_TABLE_ERROR_CHARS:
         line = line[: MAX_TABLE_ERROR_CHARS - 1] + "\u2026"
     return f"{table}: {line}"
@@ -549,7 +598,10 @@ def _judge_tables(runs: list[_TableRun], out_dir: Path, log: Path) -> _Tables:
         if table_failed(run.rc, run.errors, out):
             # A table only not applicable or refused here carries its rows forward without
             # making the run partial; any other failure does both.
-            outcome = None if throttling or missing else table_outcome(run.errors)
+            # Stopped at its limit: whatever its errors say, its rows are missing, not "not
+            # applicable".
+            stopped = throttling or missing or table_timed_out(run.errors)
+            outcome = None if stopped else table_outcome(run.errors)
             t.incomplete.append(run.table)
             if outcome == "not_applicable":
                 t.not_applicable.append(run.table)
@@ -673,14 +725,15 @@ def _export_tables(
         command = _table_command(table, config_dir, options(table))
         if stream is not None:
             stream.note(f"table {table} started")
+        started = time.monotonic()
         with out.open("wb") as rows:
-            rc = _run_table(command, env, rows, err, cancel, guard)
+            rc = _run_table(command, env, rows, err, cancel, guard, timeout=table_timeout(table))
         run = _TableRun(table, rc, err.read_text(errors="replace") if err.exists() else "")
         if stream is not None:
             with done_lock:
                 done += 1
                 at = f"({done} of {len(tables)})"
-            _say_table(stream, run, out, at)
+            _say_table(stream, run, out, at, time.monotonic() - started)
         return run
 
     with ThreadPoolExecutor(max_workers=max(1, parallel_tables)) as pool:
@@ -729,13 +782,26 @@ def _export_tables(
     )
 
 
-def _say_table(stream: ToolStream, run: _TableRun, rows: Path, at: str) -> None:
-    """A table's end in the live log. A light look (the judgement, which reads every row, is
-    _judge_tables's): the exit code and the error lines."""
+def _say_table(stream: ToolStream, run: _TableRun, rows: Path, at: str, seconds: float) -> None:
+    """A table's end in the live log, with how long it took. A light look (the judgement, which
+    reads every row, is _judge_tables's): the exit code and the error lines."""
+    took = span(timedelta(seconds=seconds))
     if run.rc != 0 or _stopped(run.errors):
-        stream.note(f"table {run.table} failed {at}: {table_error(run.table, run.rc, run.errors)}")
+        why = table_error(run.table, run.rc, run.errors)
+        stream.note(f"table {run.table} failed after {took} {at}: {why}")
     else:
-        stream.note(f"table {run.table} finished, {_count_rows(rows)} rows {at}")
+        stream.note(f"table {run.table} finished in {took}, {_count_rows(rows)} rows {at}")
+
+
+def span(duration: timedelta) -> str:
+    """A duration in words a log reader takes in at a glance: "42 s", "12 min", "3 h 5 min"."""
+    seconds = int(duration.total_seconds())
+    if seconds < 60:
+        return f"{seconds} s"
+    hours, minutes = divmod(seconds // 60, 60)
+    if not hours:
+        return f"{minutes} min"
+    return f"{hours} h {minutes} min" if minutes else f"{hours} h"
 
 
 def _count_rows(rows: Path) -> int:
@@ -771,6 +837,8 @@ def _run_table(
     err: Path,
     cancel: threading.Event | None = None,
     guard: MemoryGuard | None = None,
+    *,
+    timeout: timedelta = TABLE_TIMEOUT,
 ) -> int:
     with err.open("wb") as errors:
         process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
@@ -782,8 +850,11 @@ def _run_table(
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
-        rc = _wait(process, TABLE_TIMEOUT, cancel, guard)
-        return -9 if rc is None else rc
+        rc = _wait(process, timeout, cancel, guard)
+        if rc is None:
+            errors.write(f"\n{TIMED_OUT_NOTE} {span(timeout)}\n".encode())
+            return -signal.SIGKILL
+        return rc
 
 
 def _prowler_skips(
