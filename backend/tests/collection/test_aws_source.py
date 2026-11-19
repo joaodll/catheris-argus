@@ -1110,3 +1110,56 @@ def test_prowler_output_reaches_the_live_log(fakes: Path, caplog: pytest.LogCapt
         r.getMessage() for r in caplog.records if r.name == "argus.tool"
     ]
     assert "-> Scanning accessanalyzer service" in manifest.log_tail  # the Runs page, unchanged
+
+
+# The owner's run (2026-11-19), the account made up: every module finished, then CloudFox
+# could not save its own cache.
+CLOUDFOX_DONE_CONSOLE = (
+    "[workloads][argus] For context and next steps: https://github.com/BishopFox/cloudfox/wiki\n"
+    "[🦊 cloudfox 🦊 ] That's it! Check your output files for situational awareness and check "
+    "your loot files for next steps.\n"
+    "[🦊 cloudfox 🦊 ] FYI, we skipped the outbound-assumed-roles module in all-checks (really "
+    "long run time). Make sure to try it out manually.\n"
+)
+CLOUDFOX_CACHE_FATAL = (
+    'time="2026-11-19T00:15:19Z" level=error msg="workloads - argus - No pmapper data found for '
+    'this account. Skipping the pmapper column in the output table."\n'
+    'time="2026-11-19T00:15:19Z" level=error msg="Could not encode the following key: '
+    '210987654321-apigatewayv2-GetStages-us-east-1-ah7cwvbgy8"\n'
+    'time="2026-11-19T00:15:19Z" level=fatal msg="failed to save cache: gob: type not '
+    'registered for interface: []types.Stage"\n'
+)
+
+
+def test_cloudfox_failing_only_to_save_its_cache_is_complete(fakes: Path) -> None:
+    """CloudFox 2.0.5 saves its cache after every module wrote its output; on a large account
+    that save fails and it exits 1 (2026-11-19). The output is complete, so the run is too."""
+    _control(fakes / "homes", "cloudfox.out", CLOUDFOX_DONE_CONSOLE)
+    _control(fakes / "homes", "cloudfox.errors", CLOUDFOX_CACHE_FATAL)
+    _control(fakes / "homes", "cloudfox.rc", "1")
+    _, manifest = _run(fakes, "cloudfox")
+    assert manifest.status == "complete"
+    assert manifest.exit_code == 1  # as CloudFox gave it
+    assert "failed to save its own cache" in manifest.log_tail
+    assert "CloudFox failed" not in manifest.log_tail
+
+
+@pytest.mark.parametrize(
+    ("console", "errors", "rc"),
+    [
+        ("", CLOUDFOX_CACHE_FATAL, 1),  # stopped before the end: not every module ran
+        (CLOUDFOX_DONE_CONSOLE, CLOUDFOX_CACHE_FATAL + 'level=fatal msg="other"\n', 1),
+        (CLOUDFOX_DONE_CONSOLE, 'time="t" level=fatal msg="failed to get identity"\n', 1),
+        (CLOUDFOX_DONE_CONSOLE, CLOUDFOX_CACHE_FATAL, 2),
+        (CLOUDFOX_DONE_CONSOLE, "", 1),
+    ],
+    ids=["not-finished", "fatal-after-it", "another-fatal", "another-exit", "no-error-log"],
+)
+def test_any_other_cloudfox_exit_still_fails(
+    fakes: Path, console: str, errors: str, rc: int
+) -> None:
+    _control(fakes / "homes", "cloudfox.out", console)
+    _control(fakes / "homes", "cloudfox.errors", errors)
+    _control(fakes / "homes", "cloudfox.rc", str(rc))
+    _, manifest = _run(fakes, "cloudfox")
+    assert manifest.status == "failed"

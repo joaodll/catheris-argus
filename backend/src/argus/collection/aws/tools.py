@@ -924,11 +924,17 @@ def run_cloudfox(
     _flatten_cloudfox(out_dir)
     lines, throttled = _read_log(log)
     text = "\n".join(lines)
-    # CloudFox 2.0.5 exits 0 even when it cannot authenticate, and its checks fail silently.
-    # A non-zero exit, a top-level error, or an empty output directory fails the run.
-    why = _cloudfox_failure(rc, text, out_dir)
-    ok = why is None
     added = _cloudfox_log_added(errors_from)
+    if only_the_cache_failed(rc, text, added):
+        # Every module ran and wrote its output: only CloudFox's own cache, which Argus
+        # deletes anyway, was not saved. The exit code stays as CloudFox gave it.
+        lines = [*lines, CACHE_SAVE_NOTE]
+        why = _cloudfox_failure(0, text, out_dir)
+    else:
+        # CloudFox 2.0.5 exits 0 even when it cannot authenticate, and its checks fail
+        # silently. A non-zero exit, a top-level error, or an empty output fails the run.
+        why = _cloudfox_failure(rc, text, out_dir)
+    ok = why is None
     if why is not None:
         # The console at --verbosity 1 rarely says why; CloudFox's own error log often does.
         lines = [*lines, *_cloudfox_error_tail(added, account_id), f"argus: CloudFox failed: {why}"]
@@ -980,6 +986,29 @@ def _size(path: Path) -> int:
         return path.stat().st_size
     except OSError:
         return 0
+
+
+# CloudFox 2.0.5 ends every command by saving its cache (cli/aws.go awsPostRun ->
+# internal.SaveCacheToGobFiles), after every module has run and written its output. On a large
+# account encoding one answer fails ("gob: type not registered for interface:
+# []types.Stage", apigatewayv2 GetStages) and it exits 1 with this fatal, its last error-log
+# line (owner's run, 2026-11-19). Nothing can turn the save off.
+_CLOUDFOX_DONE = "That's it! Check your output files"
+_CACHE_SAVE_FATAL = re.compile(r'level=fatal msg="failed to save cache: ')
+CACHE_SAVE_NOTE = (
+    "argus: CloudFox finished every module, then failed to save its own cache (a CloudFox "
+    "2.0.5 bug); its output is complete"
+)
+
+
+def only_the_cache_failed(rc: int, console: str, added: str) -> bool:
+    """Whether CloudFox's exit 1 is only its cache save failing after every module finished:
+    exit 1, its closing line on the console, and the cache-save fatal as the last line it added
+    to its error log. Any other exit 1 is a failure."""
+    if rc != 1 or _CLOUDFOX_DONE not in console:
+        return False
+    last = [line for line in added.splitlines() if line.strip()]
+    return bool(last) and _CACHE_SAVE_FATAL.search(last[-1]) is not None
 
 
 def _cloudfox_failure(rc: int, console: str, out_dir: Path) -> str | None:
