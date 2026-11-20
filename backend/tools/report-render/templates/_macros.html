@@ -1,5 +1,18 @@
 {#- Pieces both report bodies use. Every value is escaped; the severity is a fixed word, mapped to
     one of five classes, so no value ever becomes a class name it was not checked against. -#}
+{#- Each kind's title (the cover's h1) and the name every section title carries on its right. -#}
+{% set TITLES = {"misconfigurations": "Misconfigurations", "vulnerabilities": "Vulnerabilities",
+  "resource-problems": "Misconfigurations and vulnerabilities"} %}
+
+{#- A section's title: the title on the left, the report on the right, a rule under both, on the
+    same edges as every table (owner, 2026-11-20). -#}
+{% macro section(title, ctx, new_page=false) -%}
+<table class="section"{% if new_page %} style="page-break-before: always"{% endif %}><tr>
+  <td><h2>{{ title }}</h2></td>
+  <td class="of">{{ TITLES[ctx.kind] }} report · #{{ ctx.report_id }}</td>
+</tr></table>
+{%- endmacro %}
+
 {% macro pill(severity) -%}
 {%- set known = severity if severity in ("critical", "high", "medium", "low", "informational") else "informational" -%}
 <span class="pill sev-{{ known }}">{{ severity }}</span>
@@ -27,19 +40,26 @@
 {%- if checked %}<a href="{{ checked }}">{{ checked }}</a>{% elif url %}{{ url }}{% endif -%}
 {%- endmacro %}
 
+{#- A resource type as a reader says it, with the tool's own word under it. -#}
+{% macro type_cell(raw, words) -%}
+{{ words or raw or "—" }}{% if raw and words and words != raw %}<span class="sub">{{ raw }}</span>{% endif %}
+{%- endmacro %}
+
+{#- A check's or CVE's resources, each first: its name, the tool's sentence about it (what is
+    wrong on it), its uid; then its type, where it is, and when it was first seen. -#}
 {% macro resources(block, installed=false) -%}
 {% if block.rows %}
-<div class="label">Affected resources</div>
+<div class="label with-next">Affected resources</div>
 <table class="list">
   <thead><tr>
-    <th style="width:26%">Where</th><th style="width:18%">Type</th>
-    <th>Resource</th>{% if installed %}<th style="width:11%">Installed</th>{% endif %}<th style="width:11%">First seen</th>
+    <th>Resource</th><th style="width:18%">Type</th><th style="width:22%">Where</th>
+    {% if installed %}<th style="width:11%">Installed</th>{% endif %}<th style="width:11%">First seen</th>
   </tr></thead>
   <tbody>{% for r in block.rows %}
     <tr>
+      <td><span class="strong">{{ r.name or "—" }}</span>{% if r.result %}<span class="result">{{ r.result }}</span>{% endif %}<span class="sub">{{ r.uid }}</span></td>
+      <td>{{ type_cell(r.type, r.type_words) }}</td>
       <td>{{ where(r) }}</td>
-      <td class="mono">{{ r.type or "—" }}</td>
-      <td><span class="strong">{{ r.name or "—" }}</span><span class="sub">{{ r.uid }}</span></td>
       {% if installed %}<td class="mono">{{ r.installed or "—" }}</td>{% endif %}
       <td class="mono">{{ r.first_seen or "—" }}</td>
     </tr>
@@ -60,5 +80,50 @@
   {% endfor %}
 {% else %}
   <p class="prose missing">No fix steps from the tool.</p>
+{% endif %}
+{%- endmacro %}
+
+{#- A resource's CVEs, worst first: the CVE, its severity, CVSS, package, installed and fixed
+    versions, and a public exploit; with `describe`, the scanner's description under each one. -#}
+{% macro cves(lines, describe=false) -%}
+<table class="list cves">
+  <thead><tr><th style="width:19%">CVE</th><th style="width:14%">Severity</th><th class="num" style="width:7%">CVSS</th>
+    <th>Package</th><th style="width:14%">Installed</th><th style="width:14%">Fixed in</th><th style="width:8%">Exploit</th></tr></thead>
+  {% for p in lines %}{% set f = p.facts %}
+  <tbody class="pair"><tr>
+    <td class="mono strong">{{ f.cve or p.check_id }}</td>
+    <td>{{ pill(p.severity) }}</td>
+    <td class="num mono">{{ f.cvss if f.cvss is not none else "—" }}</td>
+    <td class="mono">{{ f.package or p.title }}</td>
+    <td class="mono">{{ f.installed or "—" }}</td>
+    <td class="mono">{% if f.fixed %}{{ f.fixed }}{% else %}<span class="missing">no fix yet</span>{% endif %}</td>
+    <td>{% if f.exploit %}<span class="sev-critical">Yes</span>{% else %}No{% endif %}</td>
+  </tr>
+  {% if describe and p.description %}<tr class="desc"><td colspan="7"><span class="what">Description</span>{{ p.description }}</td></tr>{% endif %}
+  </tbody>
+  {% endfor %}
+</table>
+{%- endmacro %}
+
+{#- The resources past the detailed blocks: named with where they are and their counts. -#}
+{% macro named_resources(ctx, unit) -%}
+{% if ctx.others %}
+<section class="block">
+  <div class="subsection">Also in this report</div>
+  <p class="caption">These {{ ctx.others | length | num }} resources are counted above but not detailed here. The CSV report lists their {{ unit }}.</p>
+  <table class="list">
+    <thead><tr><th>Resource</th><th style="width:18%">Type</th><th style="width:24%">Where</th><th style="width:18%">Severity</th><th class="num" style="width:7%">Total</th></tr></thead>
+    <tbody>{% for o in ctx.others %}
+      <tr>
+        <td><span class="strong">{{ o.name or "—" }}</span><span class="sub">{{ o.uid }}</span></td>
+        <td>{{ type_cell(o.type, o.type_words) }}</td>
+        <td>{{ where(o) }}</td>
+        <td>{% for c in o.chips %}{{ chip(c) }} {% endfor %}</td>
+        <td class="num mono">{{ o.total | num }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  {% if ctx.more_others %}<div class="caption more">and {{ ctx.more_others | num }} more resources: the CSV report has them all</div>{% endif %}
+</section>
 {% endif %}
 {%- endmacro %}

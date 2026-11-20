@@ -1,9 +1,9 @@
-"""The asset taxonomy (metrics.categories): the one the screens and the PDF reports group by. Its
+"""The asset taxonomy (metrics.categories): the one the screens group by. Its
 cases came with it from the frontend (assetTypes.test.ts, 2026-11-10) on 2026-11-19."""
 
 import pytest
 
-from argus.metrics import ASSET_CATEGORIES, asset_category, by_category
+from argus.metrics import ASSET_CATEGORIES, asset_category
 
 CASES = [
     ("aws_ec2_instance", "Compute"),
@@ -59,24 +59,3 @@ def test_eleven_categories_other_last() -> None:
         "Management",
         "Other",
     )
-
-
-def test_counts_sum_by_category_largest_first_other_last() -> None:
-    rows = [
-        {"type": "aws_ec2_instance", "count": 66},
-        {"type": "aws_iam_role", "count": 65},
-        {"type": "aws_s3_bucket", "count": 40},
-        {"type": "aws_lambda_function", "count": 40},
-        {"type": "aws_something_new", "count": 200},
-        {"type": "aws_rds_db_instance", "count": 3},
-        {"type": "aws_glue_job", "count": 3},
-        {"type": "aws_sqs_queue", "count": 0},
-    ]
-    assert by_category(rows) == [
-        {"category": "Compute", "count": 106},
-        {"category": "Identity", "count": 65},
-        {"category": "Storage", "count": 40},
-        {"category": "Database", "count": 3},  # a tie keeps the categories' own order
-        {"category": "Analytics", "count": 3},
-        {"category": "Other", "count": 200},
-    ]

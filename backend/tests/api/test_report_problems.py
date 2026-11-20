@@ -112,6 +112,14 @@ def test_a_pdf_lists_each_resource_with_its_misconfigurations_and_cves(
     sources = context["by_source"]
     assert sum(sources["misconfiguration"]) > 0 and sum(sources["vulnerability"]) > 0
     assert sum(sources["misconfiguration"]) + sum(sources["vulnerability"]) == context["total"]
+    # By resource type (owner, 2026-11-20): the inventory's types, split by source, worst first.
+    by_type = context["by_type"]
+    assert "worst" not in context and by_type
+    assert sum(t["total"] for t in by_type) == context["total"] or context["more_types"]
+    for t in by_type:
+        assert t["misconfigurations"] + t["vulnerabilities"] == t["total"] == sum(t["counts"])
+        assert t["words"] == pdf.type_words(t["type"]) and t["type"].startswith("aws_")
+    assert sum(t["resources"] for t in by_type) == context["resources"] or context["more_types"]
 
     blocks = context["blocks"]
     assert blocks and len(blocks) == min(len(expected), reports.model.PDF_RESOURCE_BLOCKS)
@@ -131,6 +139,7 @@ def test_a_pdf_lists_each_resource_with_its_misconfigurations_and_cves(
         shown = len(block["misconfigurations"]) + len(block["vulnerabilities"])
         assert block["total"] == expected[rid] == shown + block["more"]
         assert block["account"] and block["account_id"] and block["type"]
+        assert block["type_words"] == pdf.type_words(block["type"])
         # A CVE's facts (a code finding, CWE, has no CVE id: the template shows its check id).
         assert all(p["facts"] and "cve" in p["facts"] for p in block["vulnerabilities"])
         assert all(p["facts"] is None for p in block["misconfigurations"])
@@ -181,8 +190,8 @@ def test_severities_and_the_lists_filters_narrow_it(
 def test_the_caps_cut_the_list_never_the_counts(worker: Engine, demo: int) -> None:
     filters = ResourceProblemFilters(resources=ResourceListFilters(connection_ids=(demo,)))
     with worker.connect() as conn:
-        full = problems.collect(conn, filters, today=DAY)
-        cut = problems.collect(conn, filters, today=DAY, blocks=3, per_resource=1, cap=2)
+        full = problems.collect(conn, filters)
+        cut = problems.collect(conn, filters, blocks=3, per_resource=1, cap=2)
     assert cut.total == full.total and cut.by_severity == full.by_severity
     assert len(cut.rows) == 3 and cut.listed == 2 and cut.truncated
     assert [r.resource_id for r in cut.resources] == [r.resource_id for r in full.resources]

@@ -644,61 +644,6 @@ def asset_types(
     return None if read.day is None else _by_type(read.rows)
 
 
-def asset_types_of(
-    conn: Connection, connection_ids: list[int], *, today: date
-) -> list[dict[str, Any]] | None:
-    """The assets by type of these connections, each at its own latest Steampipe load however
-    old (inside the history window), summed, largest first; None when none has a load. A
-    report's "Assets by category" reads this: its accounts, enabled or not, as it lists them."""
-    if not connection_ids:
-        return None
-    start = today - timedelta(days=HISTORY_DAYS)
-    rows = conn.execute(
-        text("""
-            WITH latest AS (
-              SELECT connection_id, max(snapshot_date) AS day FROM metric_daily
-              WHERE metric = :mm AND dimension = :md
-                AND connection_id = ANY(CAST(:ids AS bigint[]))
-                AND snapshot_date BETWEEN :s AND :e
-              GROUP BY connection_id
-            )
-            SELECT md.dimension, sum(md.value)
-            FROM latest l
-            JOIN metric_daily md ON md.connection_id = l.connection_id
-              AND md.snapshot_date = l.day AND md.metric = :m
-            WHERE md.snapshot_date BETWEEN :s AND :e
-            GROUP BY md.dimension
-        """),
-        {
-            "mm": ASSETS.marker[0],
-            "md": ASSETS.marker[1],
-            "m": ASSETS_BY_TYPE,
-            "ids": [c for c in connection_ids if c != ALL_CONNECTIONS],
-            "s": start,
-            "e": today,
-        },
-    ).all()
-    loaded = conn.execute(
-        text("""
-            SELECT 1 FROM metric_daily
-            WHERE metric = :mm AND dimension = :md
-              AND connection_id = ANY(CAST(:ids AS bigint[]))
-              AND snapshot_date BETWEEN :s AND :e
-            LIMIT 1
-        """),
-        {
-            "mm": ASSETS.marker[0],
-            "md": ASSETS.marker[1],
-            "ids": [c for c in connection_ids if c != ALL_CONNECTIONS],
-            "s": start,
-            "e": today,
-        },
-    ).first()
-    if loaded is None:
-        return None
-    return _by_type({ASSETS_BY_TYPE: {dim: float(value) for dim, value in rows}})
-
-
 def resource_summary(
     conn: Connection, *, connection_id: int = ALL_CONNECTIONS, today: date
 ) -> dict[str, Any]:

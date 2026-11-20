@@ -4,7 +4,7 @@ never count snapshot rows at request time).
 Owns metric_daily. connection_id 0 means "all connections".
 """
 
-from argus.metrics.categories import ASSET_CATEGORIES, asset_category, by_category
+from argus.metrics.categories import ASSET_CATEGORIES, asset_category
 from argus.metrics.compliance import (
     compliance_by_account,
     compliance_history,
@@ -23,7 +23,6 @@ from argus.metrics.store import (
 )
 from argus.metrics.summary import (
     asset_types,
-    asset_types_of,
     misconfiguration_summary,
     resource_summary,
     vulnerability_months,
@@ -36,9 +35,7 @@ __all__ = [
     "Range",
     "asset_category",
     "asset_types",
-    "asset_types_of",
     "build_overview",
-    "by_category",
     "carried_days",
     "compliance_by_account",
     "compliance_history",
