@@ -4423,7 +4423,8 @@
             "enum": [
               "misconfigurations",
               "vulnerabilities",
-              "resources"
+              "resources",
+              "resource-problems"
             ],
             "title": "Kind",
             "type": "string"
@@ -5194,6 +5195,231 @@
           "data_through"
         ],
         "title": "ResourcePage",
+        "type": "object"
+      },
+      "ResourceProblemFilterQuery": {
+        "description": "A by-resource report's filters: the Resources list's, which choose the resources, then\nthe severities and tags of the problems it keeps (ADR-0047 section 3d).",
+        "properties": {
+          "assets": {
+            "default": false,
+            "title": "Assets",
+            "type": "boolean"
+          },
+          "connection_id": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "title": "Connection Id",
+            "type": "array"
+          },
+          "deleted_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted From"
+          },
+          "deleted_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted To"
+          },
+          "first_seen_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen From"
+          },
+          "first_seen_to": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Seen To"
+          },
+          "include_deleted": {
+            "default": false,
+            "title": "Include Deleted",
+            "type": "boolean"
+          },
+          "internet": {
+            "default": false,
+            "title": "Internet",
+            "type": "boolean"
+          },
+          "misconfigurations": {
+            "anyOf": [
+              {
+                "enum": [
+                  "any",
+                  "high"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Misconfigurations"
+          },
+          "no_workload": {
+            "default": false,
+            "title": "No Workload",
+            "type": "boolean"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "region": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Region",
+            "type": "array"
+          },
+          "resource_id": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource Id"
+          },
+          "role_unused": {
+            "anyOf": [
+              {
+                "enum": [
+                  "90",
+                  "180",
+                  "365"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role Unused"
+          },
+          "severity": {
+            "items": {
+              "enum": [
+                "critical",
+                "high",
+                "medium",
+                "low",
+                "informational"
+              ],
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Severity",
+            "type": "array"
+          },
+          "tag": {
+            "items": {
+              "maxLength": 2400,
+              "minLength": 7,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Tag",
+            "type": "array"
+          },
+          "type": {
+            "items": {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Type",
+            "type": "array"
+          },
+          "vulnerabilities": {
+            "anyOf": [
+              {
+                "enum": [
+                  "any",
+                  "high",
+                  "exploitable"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vulnerabilities"
+          }
+        },
+        "title": "ResourceProblemFilterQuery",
+        "type": "object"
+      },
+      "ResourceProblemsReportIn": {
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/ResourceProblemFilterQuery"
+          },
+          "format": {
+            "default": "pdf",
+            "enum": [
+              "csv",
+              "pdf"
+            ],
+            "title": "Format",
+            "type": "string"
+          },
+          "kind": {
+            "const": "resource-problems",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ResourceProblemsReportIn",
         "type": "object"
       },
       "ResourceRow": {
@@ -13952,6 +14178,7 @@
                 "discriminator": {
                   "mapping": {
                     "misconfigurations": "#/components/schemas/MisconfigurationReportIn",
+                    "resource-problems": "#/components/schemas/ResourceProblemsReportIn",
                     "resources": "#/components/schemas/ResourcesReportIn",
                     "vulnerabilities": "#/components/schemas/VulnerabilityReportIn"
                   },
@@ -13966,6 +14193,9 @@
                   },
                   {
                     "$ref": "#/components/schemas/ResourcesReportIn"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ResourceProblemsReportIn"
                   }
                 ],
                 "title": "Body"

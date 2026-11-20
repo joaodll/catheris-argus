@@ -244,9 +244,10 @@ def reports_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Reports:
 def _sweep_reports(
     client: TestClient, worker: Engine, setup: _Reports, bodies: dict[str, str]
 ) -> None:
-    """Every open finding and CVE as a report, CSV and PDF, and every resource as a CSV and as
-    JSON Lines with its links and configuration (ADR-0047 3c): the list, each report, each file
-    (a JSON Lines file decompressed), and each PDF's context."""
+    """Every open finding and CVE as a report, CSV and PDF, every resource as a CSV and as
+    JSON Lines with its links and configuration (ADR-0047 3c), and every resource's problems
+    together (3d): the list, each report, each file (a JSON Lines file decompressed), and each
+    PDF's context."""
     for kind, fmt in (
         ("misconfigurations", "csv"),
         ("vulnerabilities", "csv"),
@@ -254,6 +255,8 @@ def _sweep_reports(
         ("resources", "jsonl"),
         ("misconfigurations", "pdf"),
         ("vulnerabilities", "pdf"),
+        ("resource-problems", "csv"),
+        ("resource-problems", "pdf"),
     ):
         asked = client.post(
             "/api/v1/reports", headers=csrf(client), json={"kind": kind, "format": fmt}
@@ -269,7 +272,7 @@ def _sweep_reports(
             gzipped = path.endswith("/download") and fmt == "jsonl"
             bodies[path] = gzip.decompress(response.content).decode() if gzipped else response.text
     bodies["/api/v1/reports"] = client.get("/api/v1/reports").text
-    assert len(setup.contexts) == 2
+    assert len(setup.contexts) == 3
     assert not any(MARKERS.search(context) for context in setup.contexts)
 
 

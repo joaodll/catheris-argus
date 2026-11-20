@@ -28,7 +28,7 @@ from weasyprint import HTML
 from weasyprint.urls import URLFetcher
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
-KINDS = ("misconfigurations", "vulnerabilities")
+KINDS = ("misconfigurations", "vulnerabilities", "resource-problems")
 ADDRESS_SPACE = 2 << 30  # 2 GiB: a worst-case render peaked at 605 MiB resident (2026-11-11)
 CPU_SECONDS = 600
 FILE_SIZE = 256 << 20  # no file it writes, the PDF included, can outgrow Argus's 200 MB cap by much
@@ -100,7 +100,7 @@ def render_html(context: dict[str, Any]) -> str:
     )
     env.filters["num"] = _number
     env.filters["web_link"] = _web_link
-    return env.get_template(f"{kind}.html").render(ctx=context)
+    return env.get_template(f"{kind.replace('-', '_')}.html").render(ctx=context)
 
 
 def render_pdf(html: str) -> tuple[bytes, int, list[str]]:
@@ -115,7 +115,10 @@ HOSTILE = "<script>alert(1)</script><img src=http://169.254.169.254/x> url(file:
 
 
 def sample(kind: str, *, blocks: int, rows: int, text: str, others: int = 1) -> dict[str, Any]:
-    """A context in the shape argus.reports.pdf.build_context makes, every string set to text."""
+    """A context in the shape argus.reports.pdf.build_context makes (problems.build_context for
+    the by-resource kind), every string set to text."""
+    if kind == "resource-problems":
+        return sample_problems(blocks=blocks, rows=rows, text=text, others=others)
 
     def row(i: int) -> dict[str, Any]:
         return {
@@ -228,6 +231,98 @@ def sample(kind: str, *, blocks: int, rows: int, text: str, others: int = 1) -> 
                 "count": 1,
                 "tool": "prowler",
             }
+            for i in range(others)
+        ],
+        "more_others": 7 if others else 0,
+    }
+
+
+FACTS = {
+    "cve": "CVE-2026-0001",
+    "cvss": 9.8,
+    "epss": 0.42,
+    "exploit": True,
+    "package": "openssl",
+    "installed": "1.0.2k",
+    "fixed": None,
+    "fix_available": "NO",
+    "scanner": "aws-inspector",
+}
+
+
+def sample_problems(*, blocks: int, rows: int, text: str, others: int) -> dict[str, Any]:
+    """A by-resource context (argus.reports.problems.build_context), every string set to text."""
+    base = sample("misconfigurations", blocks=0, rows=0, text=text, others=0)
+    per = max(rows // max(blocks, 1), 1)
+
+    def where(i: int) -> dict[str, Any]:
+        return {
+            "name": f"{text}-{i}" if i % 4 else None,
+            "uid": f"arn:aws:ec2:us-east-1:123456789012:instance/i-{i:017x}",
+            "account": text,
+            "account_id": "123456789012",
+            "region": "us-east-1" if i % 3 else None,
+            "type": "aws_ec2_instance",
+            "vpc_id": "vpc-0abc" if i % 2 else None,
+        }
+
+    chips = [
+        {"severity": "critical", "letter": "C", "count": 2},
+        {"severity": text, "letter": "x", "count": 1},
+    ]
+
+    def problem(i: int, cve: bool) -> dict[str, Any]:
+        return {
+            "severity": SEVERITIES[i % 5],
+            "tool": "vulnerabilities" if cve else "prowler",
+            "check_id": f"check_{i}",
+            "title": text,
+            "result": None if cve else f"{text} " * 3,
+            "first_seen": "2026-10-01",
+            "facts": dict(FACTS, package=text) if cve else None,
+        }
+
+    return {
+        **base,
+        "kind": "resource-problems",
+        "total": blocks * per * 2,
+        "listed": blocks * per,
+        "caps": {"per_block": 40, "total": 5000, "blocks": 300},
+        "by_source": {"misconfiguration": [2, 3, 1, 0, 0], "vulnerability": [1, 0, 4, 0, 1]},
+        "worst": [
+            {**where(i), "chips": chips, "total": 3, "misconfigurations": 2, "vulnerabilities": 1}
+            for i in range(min(rows, 25))
+        ],
+        "blocks": [
+            {
+                **where(b),
+                "chips": {"misconfiguration": chips, "vulnerability": chips[:1]},
+                "total": per * 2,
+                "misconfigurations": [problem(b * per + i, False) for i in range((per + 1) // 2)],
+                "vulnerabilities": [problem(b * per + i, True) for i in range(per // 2)],
+                "more": per,
+            }
+            for b in range(blocks)
+        ],
+        "reference": [
+            {
+                "tool": "vulnerabilities" if r % 2 else "prowler",
+                "check_id": f"check_{r}",
+                "title": text,
+                "severity": SEVERITIES[r % 5],
+                "resources": 3,
+                "risk": None if r % 2 else f"{text} " * 20,
+                "description": text,
+                "fix": text,
+                "fix_link": "javascript:alert(1)" if r == 1 else "https://docs.aws.amazon.com/",
+                "code": [{"label": "CLI", "text": f"aws ec2 modify --name '{text}'"}],
+                "facts": dict(FACTS) if r % 2 else None,
+            }
+            for r in range(min(blocks, 300))
+        ],
+        "more_reference": 2,
+        "others": [
+            {**where(i), "chips": chips, "total": 3, "misconfigurations": 2, "vulnerabilities": 1}
             for i in range(others)
         ],
         "more_others": 7 if others else 0,

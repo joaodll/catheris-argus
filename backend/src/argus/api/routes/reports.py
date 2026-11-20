@@ -1,5 +1,5 @@
 """Operate -> Reports (ADR-0047): exports of the Misconfigurations, Vulnerabilities and Resources
-lists.
+lists, and the by-resource "Misconfigurations and vulnerabilities" report (section 3d).
 
 The API queues a report and serves its file; the Compose worker or a Kubernetes report Job builds
 it (the API has a 5 s statement timeout and a capped pool). Operator and Admin only: a report
@@ -23,9 +23,10 @@ from sqlalchemy import Connection
 from argus import reports
 from argus.api import deps
 from argus.api.deps import Db, OperatorUser, client_ip
-from argus.api.routes.findings import FindingFilterQuery, finding_filters
+from argus.api.routes.findings import FindingFilterQuery, Severity, finding_filters
 from argus.api.routes.resources import ResourceFilterQuery, resource_list_filters
 from argus.api.routes.vulnerabilities import VulnerabilityFilterQuery, vulnerability_filters
+from argus.api.types import TagFilter, tag_pairs
 from argus.auth import SessionUser
 from argus.core import audit
 from argus.core.aws import NoWebIdentityError, web_identity_available, web_identity_s3_client
@@ -72,8 +73,26 @@ class ResourcesReportIn(BaseModel):
     filters: ResourceFilterQuery = Field(default_factory=ResourceFilterQuery)
 
 
+class ResourceProblemFilterQuery(ResourceFilterQuery):
+    """A by-resource report's filters: the Resources list's, which choose the resources, then
+    the severities and tags of the problems it keeps (ADR-0047 section 3d)."""
+
+    severity: list[Severity] = Field(default_factory=list, max_length=5)
+    # ["name","value"] pairs, as the finding lists take them: values of one name are OR, names
+    # are AND. A problem of a resource without the tags is left out.
+    tag: list[TagFilter] = Field(default_factory=list, max_length=50)
+    # One resource, from its sheet; the other filters then only bound its accounts.
+    resource_id: int | None = Field(None, ge=1)
+
+
+class ResourceProblemsReportIn(BaseModel):
+    kind: Literal["resource-problems"]
+    format: Literal["csv", "pdf"] = "pdf"
+    filters: ResourceProblemFilterQuery = Field(default_factory=ResourceProblemFilterQuery)
+
+
 ReportIn = Annotated[
-    MisconfigurationReportIn | VulnerabilityReportIn | ResourcesReportIn,
+    MisconfigurationReportIn | VulnerabilityReportIn | ResourcesReportIn | ResourceProblemsReportIn,
     Field(discriminator="kind"),
 ]
 
@@ -220,6 +239,13 @@ def request_report(body: ReportIn, conn: Db, user: OperatorUser, request: Reques
             filters = vulnerability_filters(body.filters)
         case ResourcesReportIn():
             filters = resource_list_filters(body.filters)
+        case ResourceProblemsReportIn():
+            filters = reports.ResourceProblemFilters(
+                resources=resource_list_filters(body.filters),
+                severities=tuple(body.filters.severity),
+                tags=tag_pairs(body.filters.tag),
+                resource_id=body.filters.resource_id,
+            )
     report_id = reports.request_report(
         conn,
         kind=body.kind,

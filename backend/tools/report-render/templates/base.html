@@ -103,6 +103,16 @@ table.list td.num, table.list th.num { text-align: right; }
 .keep { page-break-inside: avoid; break-inside: avoid; }
 table.list thead { display: table-header-group; }
 .gap { margin-top: 12pt; }
+.with-next { page-break-after: avoid; break-after: avoid; }
+.sources { margin-bottom: 10pt; }
+.sources td.src { width: 32%; }
+.sources .n { font-family: "JetBrains Mono", monospace; font-weight: 600; margin-left: 6pt; }
+.res-head { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.res-head td { vertical-align: top; padding: 0; }
+.res-head .t { font-size: 10.5pt; font-weight: 600; overflow-wrap: anywhere; }
+.res-head .chips { text-align: right; width: 38%; }
+.res-head .chips .lbl { font-size: 6.5pt; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin-left: 6pt; }
+.result { display: block; font-size: 7pt; color: var(--text-2); overflow-wrap: anywhere; margin-top: 1pt; }
 .read { margin-top: 12pt; }
 .read p { margin: 0 0 2pt; }
 
@@ -113,7 +123,7 @@ table.list thead { display: table-header-group; }
 .block-title td { vertical-align: top; padding: 0; }
 .block-title .t { font-size: 10.5pt; font-weight: 600; padding: 0 8pt; overflow-wrap: anywhere; }
 .block-title .id { text-align: right; font-family: "JetBrains Mono", monospace; font-size: 7pt; color: var(--text-3);
-  white-space: nowrap; width: 35%; overflow-wrap: anywhere; }
+  width: 35%; overflow-wrap: anywhere; }
 .prose { margin: 0; overflow-wrap: anywhere; white-space: pre-line; }
 .missing { color: var(--text-3); font-style: italic; }
 pre.code { background: var(--sunken); border: 1px solid var(--border); border-radius: 3pt; padding: 6pt;
@@ -126,17 +136,32 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
 </style>
 </head>
 <body>
-<span class="running-kind">{{ "Misconfigurations report" if ctx.kind == "misconfigurations" else "Vulnerabilities report" }}</span>
+{#- Every word that depends on the report's kind, in one place. -#}
+{% set words = {
+  "misconfigurations": {"name": "Misconfigurations report", "title": "Findings to fix", "hero": "open findings in scope",
+    "unit": "findings", "common": "Most common checks", "item": "Check", "items": "checks",
+    "read": "Worst first: each block is one check, with its risk, the fix, and the resources it affects.",
+    "caps": "A block lists at most %d resources, and this report at most %s. The CSV report has every row."},
+  "vulnerabilities": {"name": "Vulnerabilities report", "title": "Vulnerabilities to fix", "hero": "vulnerabilities in scope",
+    "unit": "vulnerabilities", "common": "Most common vulnerabilities", "item": "Vulnerability", "items": "vulnerabilities",
+    "read": "Worst first: each block is one vulnerability, with its description, the fix, and the resources it affects.",
+    "caps": "A block lists at most %d resources, and this report at most %s. The CSV report has every row."},
+  "resource-problems": {"name": "Misconfigurations and vulnerabilities report", "title": "Resources to fix", "hero": "open problems in scope",
+    "unit": "problems", "common": "Most common problems", "item": "Problem", "items": "problems",
+    "read": "Worst first: each block is one resource, with its misconfigurations and its vulnerabilities. Each check's or vulnerability's risk and fix are in the Reference, once.",
+    "caps": "A block lists at most %d problems, and this report at most %s. The CSV report has every row."},
+}[ctx.kind] %}
+<span class="running-kind">{{ words.name }}</span>
 <span class="running-footer">CONFIDENTIAL · Argus report #{{ ctx.report_id }} · generated {{ ctx.generated_at }} UTC</span>
 
 <section class="cover">
   <div class="brand"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5ce1e6" stroke-width="2"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>CatherIs Argus</div>
   <div class="eyebrow-rule"></div>
-  <div class="eyebrow">{{ "Misconfigurations report" if ctx.kind == "misconfigurations" else "Vulnerabilities report" }}</div>
-  <h1>{{ "Findings to fix" if ctx.kind == "misconfigurations" else "Vulnerabilities to fix" }}</h1>
+  <div class="eyebrow">{{ words.name }}</div>
+  <h1>{{ words.title }}</h1>
   <div class="scope">{{ ctx.scope or "All open findings" }}</div>
   <div class="hero">{{ ctx.total | num }}</div>
-  <div class="hero-caption">{{ "open findings in scope" if ctx.kind == "misconfigurations" else "vulnerabilities in scope" }}</div>
+  <div class="hero-caption">{{ words.hero }}</div>
   <table class="meta">
     <tr>
       <td><span class="label">Accounts</span><span class="value">{{ ctx.account_names | length }}{% if ctx.account_names %}: {{ ctx.account_names[:6] | join(", ") }}{% if ctx.account_names | length > 6 %} +{{ (ctx.account_names | length) - 6 }} more{% endif %}{% endif %}</span></td>
@@ -160,7 +185,7 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
   "low": "Fix as part of routine work.",
   "informational": "Fix as part of routine work.",
 } %}
-{% set unit = "findings" if ctx.kind == "misconfigurations" else "vulnerabilities" %}
+{% set unit = words.unit %}
 <section>
   <h2 class="section">Summary</h2>
   <table class="strip"><tr>
@@ -176,6 +201,15 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
     {% for b in ctx.shares %}<rect x="{{ b.x }}" y="0" width="{{ b.width - 2 if not loop.last and b.width > 2 else b.width }}" height="6" fill="{{ fills[m.known(b.severity)] }}"/>{% endfor %}
   </svg>
   <div class="legend">{% for b in ctx.shares %}<span class="item"><span class="swatch fill-{{ m.known(b.severity) }}"></span>{{ b.severity }} {{ "%.1f" | format(b.percent) }}%</span>{% endfor %}</div>
+  {% endif %}
+  {% if ctx.by_source is defined and ctx.total %}
+  <table class="list sources"><tbody>
+    {% for source, label in (("misconfiguration", "Misconfigurations"), ("vulnerability", "Vulnerabilities")) %}
+    {% set counts = ctx.by_source[source] %}
+    <tr><td class="src">{{ label }}<span class="n">{{ counts | sum | num }}</span></td>
+      <td>{% for n in counts %}{% if n %}{{ m.chip({"severity": ("critical", "high", "medium", "low", "informational")[loop.index0], "count": n}) }} {% endif %}{% endfor %}</td></tr>
+    {% endfor %}
+  </tbody></table>
   {% endif %}
   {% if ctx.total == 0 %}
   <p class="empty">Nothing matched this report's filters{% if ctx.data_through %} on {{ ctx.data_through }}{% endif %}.</p>
@@ -199,20 +233,20 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
         <td><span class="strong">{{ r.name or "—" }}</span><span class="sub">{{ r.uid }}</span></td>
         <td>{{ m.where(r) }}</td>
         <td class="mono">{{ r.type or "—" }}</td>
-        <td>{% for c in r.chips %}{{ m.chip(c) }} {% endfor %}</td>
+        <td>{% for c in r.chips %}{{ m.chip(c) }} {% endfor %}{% if r.misconfigurations is defined %}<span class="sub">{{ r.misconfigurations | num }} misconfig. · {{ r.vulnerabilities | num }} CVE</span>{% endif %}</td>
         <td class="num mono">{{ r.total | num }}</td>
       </tr>
     {% endfor %}</tbody>
   </table>
   <div class="caption more">C critical · H high · M medium · L low · I informational</div>
 
-  <div class="gap"><div class="label">{{ "Most common checks" if ctx.kind == "misconfigurations" else "Most common vulnerabilities" }}</div></div>
+  <div class="gap"><div class="label">{{ words.common }}</div></div>
   <table class="list">
-    <thead><tr><th style="width:14%">Severity</th><th>{{ "Check" if ctx.kind == "misconfigurations" else "Vulnerability" }}</th><th class="num" style="width:14%">Resources</th><th class="num" style="width:14%">Accounts</th></tr></thead>
+    <thead><tr><th style="width:14%">Severity</th><th>{{ words.item }}</th><th class="num" style="width:14%">Resources</th><th class="num" style="width:14%">Accounts</th></tr></thead>
     <tbody>{% for c in ctx.common %}
       <tr>
         <td>{{ m.pill(c.severity) }}</td>
-        {% if ctx.kind == "misconfigurations" %}
+        {% if ctx.kind != "vulnerabilities" %}
         <td>{{ c.title }}<span class="sub">{{ c.tool }} · {{ c.check_id }}</span></td>
         {% else %}
         <td><span class="mono strong">{{ c.check_id }}</span><span class="sub">{{ c.title }}</span></td>
@@ -278,25 +312,25 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
 
   {% if ctx.total %}
   <div class="read caption">
-    <p>Worst first: each block is one {{ "check, with its risk" if ctx.kind == "misconfigurations" else "vulnerability, with its description" }}, the fix, and the resources it affects.</p>
-    <p>A block lists at most {{ ctx.caps.per_block }} resources, and this report at most {{ ctx.caps.total | num }}. The CSV report has every row.</p>
+    <p>{{ words.read }}</p>
+    <p>{{ words.caps | format(ctx.caps.per_block, ctx.caps.total | num) }}</p>
   </div>
   {% endif %}
 </section>
 
 {% block body %}{% endblock %}
 
-{% if ctx.others %}
+{% if ctx.others and ctx.kind != "resource-problems" %}
 <section class="block">
   <h2 class="section">Also in this report</h2>
-  <p class="caption">These {{ ctx.others | length | num }} {{ "checks" if ctx.kind == "misconfigurations" else "vulnerabilities" }} are counted above but not detailed here. The CSV report lists their resources.</p>
+  <p class="caption">These {{ ctx.others | length | num }} {{ words.items }} are counted above but not detailed here. The CSV report lists their resources.</p>
   <table class="list">
-    <thead><tr><th style="width:16%">Severity</th><th>{{ "Check" if ctx.kind == "misconfigurations" else "Vulnerability" }}</th><th class="num" style="width:12%">Findings</th></tr></thead>
+    <thead><tr><th style="width:16%">Severity</th><th>{{ words.item }}</th><th class="num" style="width:12%">Findings</th></tr></thead>
     <tbody>{% for o in ctx.others %}
       <tr><td>{{ m.pill(o.severity) }}</td><td>{{ o.title }}<span class="sub">{{ o.tool }} · {{ o.check_id }}</span></td><td class="num mono">{{ o.count | num }}</td></tr>
     {% endfor %}</tbody>
   </table>
-  {% if ctx.more_others %}<div class="caption more">and {{ ctx.more_others | num }} more {{ "checks" if ctx.kind == "misconfigurations" else "vulnerabilities" }}: the CSV report has them all</div>{% endif %}
+  {% if ctx.more_others %}<div class="caption more">and {{ ctx.more_others | num }} more {{ words.items }}: the CSV report has them all</div>{% endif %}
 </section>
 {% endif %}
 </body>

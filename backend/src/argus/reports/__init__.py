@@ -15,7 +15,7 @@ Public interface:
 """
 
 from argus.reports.build import build_pending
-from argus.reports.filters import ReportFilters
+from argus.reports.filters import ReportFilters, ResourceProblemFilters
 from argus.reports.model import (
     EXPIRY_DAYS,
     FILE_ENDINGS,
@@ -67,6 +67,7 @@ __all__ = [
     "ReportStore",
     "ReportStoreError",
     "ReportStoreUnavailableError",
+    "ResourceProblemFilters",
     "S3ReportStore",
     "build_pending",
     "expired_files",

@@ -11,7 +11,7 @@ from sqlalchemy import Connection, text
 
 from argus.connections import DIRECTORY_SQL
 from argus.core.db import count_sql, like_contains
-from argus.findings.model import OPEN_MISCONFIGURATION, VULNERABILITY_TOOL
+from argus.findings.model import OPEN_MISCONFIGURATION, OPEN_VULNERABILITY, VULNERABILITY_TOOL
 from argus.inventory import TAGGED_RESOURCES_SQL
 
 FindingState = Literal["open", "reopened", "resolved", "accepted_risk"]
@@ -217,6 +217,33 @@ def iter_findings(
         if len(rows) < batch:
             return
         after = rows[-1]["id"]
+
+
+def resource_problems(
+    conn: Connection,
+    resource_ids: list[int],
+    *,
+    severities: tuple[str, ...] = (),
+    tags: tuple[tuple[str, tuple[str, ...]], ...] = (),
+) -> list[dict[str, Any]]:
+    """The open problems of these resources (one page, bounded by the caller): their open
+    misconfigurations (OPEN_MISCONFIGURATION) and open CVEs (OPEN_VULNERABILITY), as list rows
+    with the account id, by resource then id. `severities` and `tags` narrow them as the lists'
+    filters do. The by-resource report reads it, a page of the Resources list at a time."""
+    if not resource_ids:
+        return []
+    rows = conn.execute(
+        text(f"""
+        {_SELECT_WITH_ACCOUNT}
+        WHERE f.resource_id = ANY(CAST(:ids AS bigint[]))
+          AND (({OPEN_MISCONFIGURATION}) OR ({OPEN_VULNERABILITY}))
+          AND (CAST(:sev AS text[]) IS NULL OR f.severity = ANY(CAST(:sev AS text[])))
+          AND (CAST(:tag_keys AS text[]) IS NULL OR f.resource_id IN ({TAGGED_RESOURCES_SQL}))
+        ORDER BY f.resource_id, f.id
+    """),
+        {"ids": resource_ids, "sev": _any(severities), **_tag_params(tags)},
+    )
+    return [dict(r._mapping) for r in rows]
 
 
 # Findings by check: worst first, then the checks with the most findings. Over `per`, the

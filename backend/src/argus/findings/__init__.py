@@ -92,6 +92,7 @@ from argus.findings.queries import (
     list_findings,
     open_finding_counts,
     open_finding_severities,
+    resource_problems,
 )
 from argus.findings.repair import remove_compliance_items
 from argus.findings.resource_list import (
@@ -190,6 +191,7 @@ __all__ = [
     "refresh_tag_facets",
     "remove_compliance_items",
     "resource_coverage",
+    "resource_problems",
     "resource_vulnerabilities",
     "scanned_resources",
     "scanner_for",

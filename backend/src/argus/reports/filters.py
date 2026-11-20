@@ -1,9 +1,11 @@
 """A report's filters as stored (jsonb) and as the build reads them. The API validates what it
 stores; reading back refuses anything else. A Misconfigurations or Vulnerabilities report runs
 findings.FindingFilters, and its kind, not its filters, decides which tools it covers; a
-Resources report runs findings.ResourceListFilters (the Resources list's own)."""
+Resources report runs findings.ResourceListFilters (the Resources list's own); a by-resource
+report runs ResourceProblemFilters (the Resources list's, then its problems' severities and
+tags)."""
 
-from dataclasses import asdict, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date
 from typing import Any
 
@@ -15,7 +17,26 @@ from argus.findings import (
 )
 from argus.reports.model import ReportKind
 
-ReportFilters = FindingFilters | ResourceListFilters
+
+@dataclass(frozen=True)
+class ResourceProblemFilters:
+    """A by-resource report's filters (ADR-0047 section 3d): the Resources list's, which choose
+    the resources, then the severities and tags of the problems kept. Stored flat: the list's
+    fields beside `severities` and `tags`."""
+
+    resources: ResourceListFilters = field(default_factory=ResourceListFilters)
+    severities: tuple[str, ...] = ()
+    tags: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    # One resource, from its sheet: the list's filters then only bound its accounts.
+    resource_id: int | None = None
+
+    @property
+    def connection_ids(self) -> tuple[int, ...]:
+        """The accounts asked for: the Resources list's own."""
+        return self.resources.connection_ids
+
+
+ReportFilters = FindingFilters | ResourceListFilters | ResourceProblemFilters
 
 # Stored as ISO days: every day bound of either filter set (first seen, removed).
 _DATES = {"first_seen_from", "first_seen_to", "deleted_from", "deleted_to"}
@@ -29,10 +50,19 @@ KIND_TOOLS: dict[str, tuple[str, ...]] = {
     "misconfigurations": MISCONFIGURATION_TOOLS,
     "vulnerabilities": (VULNERABILITY_TOOL,),
     "resources": ("steampipe",),
+    "resource-problems": (*MISCONFIGURATION_TOOLS, VULNERABILITY_TOOL),
 }
+# The fields a by-resource report adds to the Resources list's.
+_PROBLEM_FIELDS = {"severities", "tags", "resource_id"}
 
 
 def to_json(filters: ReportFilters) -> dict[str, Any]:
+    if isinstance(filters, ResourceProblemFilters):
+        flat = to_json(filters.resources)
+        flat["severities"] = list(filters.severities)
+        flat["tags"] = [[key, list(values)] for key, values in filters.tags]
+        flat["resource_id"] = filters.resource_id
+        return flat
     out: dict[str, Any] = {}
     for name, value in asdict(filters).items():
         if isinstance(value, tuple):
@@ -57,7 +87,15 @@ def _tags(stored: Any) -> tuple[tuple[str, tuple[str, ...]], ...]:
     return tuple(out)
 
 
-def _values(cls: type[ReportFilters], stored: dict[str, Any]) -> dict[str, Any]:
+def _resource_id(stored: Any) -> int | None:
+    if stored is None or (isinstance(stored, int) and not isinstance(stored, bool) and stored > 0):
+        return stored
+    raise ValueError("malformed report resource filter")
+
+
+def _values(
+    cls: type[FindingFilters] | type[ResourceListFilters], stored: dict[str, Any]
+) -> dict[str, Any]:
     """The stored filters as `cls`'s field values, the report's own fields left out. An unknown
     filter is refused."""
     known = {f.name: f for f in fields(cls)}
@@ -88,6 +126,19 @@ def from_json(
     if kind == "resources":
         return ResourceListFilters(
             **_values(ResourceListFilters, stored), connection_ids=tuple(connection_ids)
+        )
+    if kind == "resource-problems":
+        rest = {k: v for k, v in stored.items() if k not in _PROBLEM_FIELDS}
+        severities = stored.get("severities") or ()
+        if not all(isinstance(s, str) for s in severities):
+            raise ValueError("malformed report severity filter")
+        return ResourceProblemFilters(
+            resources=ResourceListFilters(
+                **_values(ResourceListFilters, rest), connection_ids=tuple(connection_ids)
+            ),
+            severities=tuple(severities),
+            tags=_tags(stored.get("tags")),
+            resource_id=_resource_id(stored.get("resource_id")),
         )
     values = _values(FindingFilters, stored)
     allowed = KIND_TOOLS[kind]
