@@ -126,7 +126,7 @@ const cards = computed<Card[]>(() => {
       typeLabel: [what, routeDraw.value?.accounts.get(node.uid) ?? null, node.deleted_on ? `removed ${node.deleted_on}` : null]
         .filter(Boolean)
         .join(' · '),
-      icon: cardGlyph(kind, node.type),
+      icon: cardGlyph(kind, node.type, node.category ?? null),
       w,
       h,
       pill: count && worst ? { count, severity: worst } : null,
@@ -144,7 +144,7 @@ const cards = computed<Card[]>(() => {
       name: plural(group.resource_type ? typeLabel(group.resource_type) : 'resource', group.count),
       type: group.resource_type,
       typeLabel: `${edgeWord(group.edge_type)} ${group.direction === 'out' ? '←' : '→'} ${anchor ? nodeName(anchor) : group.anchor_uid}`,
-      icon: cardGlyph('group', group.resource_type),
+      icon: cardGlyph('group', group.resource_type, group.category ?? null),
       w: NODE_WIDTH,
       h: NODE_HEIGHT,
       pill: null,

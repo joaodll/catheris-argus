@@ -182,6 +182,19 @@
       },
       "AssetTypeCount": {
         "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type's asset category (metrics.asset_category): the one taxonomy every screen\nand report groups by.",
+            "readOnly": true,
+            "title": "Category"
+          },
           "count": {
             "title": "Count",
             "type": "integer"
@@ -193,7 +206,8 @@
         },
         "required": [
           "type",
-          "count"
+          "count",
+          "category"
         ],
         "title": "AssetTypeCount",
         "type": "object"
@@ -2993,6 +3007,19 @@
             "title": "Anchor Uid",
             "type": "string"
           },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The members' asset category, for the group card's glyph; null without a\ntype.",
+            "readOnly": true,
+            "title": "Category"
+          },
           "count": {
             "title": "Count",
             "type": "integer"
@@ -3043,7 +3070,8 @@
           "edge_type",
           "resource_type",
           "count",
-          "layer"
+          "layer",
+          "category"
         ],
         "title": "MapGroup",
         "type": "object"
@@ -3053,6 +3081,19 @@
           "boundary": {
             "title": "Boundary",
             "type": "boolean"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type's asset category, for the card's glyph; null without a type.",
+            "readOnly": true,
+            "title": "Category"
           },
           "connection_id": {
             "anyOf": [
@@ -3163,7 +3204,8 @@
           "connection_id",
           "deleted_on",
           "expanded",
-          "boundary"
+          "boundary",
+          "category"
         ],
         "title": "MapNode",
         "type": "object"
@@ -3322,6 +3364,17 @@
       },
       "MapResourcePage": {
         "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
           "data_through": {
             "anyOf": [
               {
@@ -3354,13 +3407,27 @@
           "items",
           "total",
           "total_capped",
-          "data_through"
+          "data_through",
+          "category"
         ],
         "title": "MapResourcePage",
         "type": "object"
       },
       "MapTypeCount": {
         "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type's asset category (metrics.asset_category): the one taxonomy every screen\nand report groups by.",
+            "readOnly": true,
+            "title": "Category"
+          },
           "count": {
             "title": "Count",
             "type": "integer"
@@ -3372,7 +3439,8 @@
         },
         "required": [
           "type",
-          "count"
+          "count",
+          "category"
         ],
         "title": "MapTypeCount",
         "type": "object"
@@ -3786,6 +3854,19 @@
       "NodeRef": {
         "description": "A resource on a route, or a pseudo-node (internet, an account's administrator, an\nexternal host, every store of a service).",
         "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type's asset category, for the card's glyph on the Map's Attack Path view; null\nwithout a type.",
+            "readOnly": true,
+            "title": "Category"
+          },
           "connection_id": {
             "anyOf": [
               {
@@ -3865,7 +3946,8 @@
           "type",
           "name",
           "connection_id",
-          "deleted_on"
+          "deleted_on",
+          "category"
         ],
         "title": "NodeRef",
         "type": "object"
@@ -6697,6 +6779,19 @@
             "title": "Boundary",
             "type": "boolean"
           },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type's asset category, for the card's glyph; null without a type.",
+            "readOnly": true,
+            "title": "Category"
+          },
           "connection_id": {
             "anyOf": [
               {
@@ -6817,7 +6912,8 @@
           "deleted_on",
           "expanded",
           "boundary",
-          "facts"
+          "facts",
+          "category"
         ],
         "title": "SecurityNode",
         "type": "object"
@@ -7185,6 +7281,19 @@
       },
       "StepNode": {
         "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type's asset category, for the card's glyph on the Map's Attack Path view; null\nwithout a type.",
+            "readOnly": true,
+            "title": "Category"
+          },
           "connection_id": {
             "anyOf": [
               {
@@ -7275,7 +7384,8 @@
           "name",
           "connection_id",
           "deleted_on",
-          "facts"
+          "facts",
+          "category"
         ],
         "title": "StepNode",
         "type": "object"
@@ -8094,6 +8204,19 @@
       },
       "TypeCount": {
         "properties": {
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The type's asset category (metrics.asset_category): the one taxonomy every screen\nand report groups by.",
+            "readOnly": true,
+            "title": "Category"
+          },
           "count": {
             "title": "Count",
             "type": "number"
@@ -8105,7 +8228,8 @@
         },
         "required": [
           "type",
-          "count"
+          "count",
+          "category"
         ],
         "title": "TypeCount",
         "type": "object"

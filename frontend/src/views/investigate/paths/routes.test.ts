@@ -10,7 +10,7 @@ const names: Names = {
 
 function node(uid: string, extra: Partial<StepOut['source']> = {}): StepOut['source'] {
   const kind = uid === 'internet' ? 'internet' : uid.startsWith('admin:') ? 'admin' : uid.startsWith('any:') ? 'any' : 'resource'
-  return { uid, kind, resource_id: kind === 'resource' ? 7 : null, type: null, name: null, connection_id: kind === 'resource' ? 1 : null, deleted_on: null, facts: null, ...extra }
+  return { uid, kind, resource_id: kind === 'resource' ? 7 : null, type: null, category: null, name: null, connection_id: kind === 'resource' ? 1 : null, deleted_on: null, facts: null, ...extra }
 }
 
 function step(n: number, type: string, source: string, target: string, extra: Partial<StepOut> = {}): StepOut {

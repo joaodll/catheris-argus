@@ -1,10 +1,9 @@
 /**
  * A resource type's glyph (ADR-0051; spec in the palace, frontend/f3152e04): about 30 named
- * types have their own, every other type its category's (assetTypes.categoryOf). One colour:
+ * types have their own, every other type its category's (the API sends it). One colour:
  * the glyph tells types apart at a glance, and the text beside it always names the type.
  */
 import type { IconName } from '@/components/icons'
-import { categoryOf } from '@/views/overview/assetTypes'
 
 // The first pattern that matches wins, so a narrower one comes before its family's.
 const NAMED: [RegExp, IconName][] = [
@@ -59,9 +58,10 @@ const BY_CATEGORY: Record<string, IconName> = {
   Other: 'cube',
 }
 
-/** The glyph for a resource type; a resource Argus has no type for is a plain cube. */
-export function resourceGlyph(type: string | null): IconName {
+/** The glyph for a resource type, then its category's (as the API gives it); a resource Argus
+ * has no type for is a plain cube. */
+export function resourceGlyph(type: string | null, category: string | null | undefined = null): IconName {
   if (!type) return 'cube'
   for (const [pattern, glyph] of NAMED) if (pattern.test(type)) return glyph
-  return BY_CATEGORY[categoryOf(type)] ?? 'cube'
+  return (category && BY_CATEGORY[category]) || 'cube'
 }

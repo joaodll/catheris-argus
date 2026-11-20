@@ -26,6 +26,7 @@ NODE_FIELDS = {
     "resource_id",
     "provider",
     "type",
+    "category",  # the type's asset category, for the card's glyph (metrics.categories)
     "name",
     "region",
     "connection_id",

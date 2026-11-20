@@ -93,6 +93,7 @@ const account = (r: RecentResource) =>
               :label="`${label(r)}, ${typeLabel(r.type)}, ${account(r)}`"
               :title="r.uid"
               :type="r.type"
+              :category="r.category ?? null"
               show-disc
               :meta="`${typeLabel(r.type)} · ${account(r)}`"
             />

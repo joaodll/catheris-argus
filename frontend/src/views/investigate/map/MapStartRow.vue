@@ -13,6 +13,7 @@ defineProps<{
   label: string
   title?: string
   type?: string | null
+  category?: string | null
   showDisc?: boolean
   meta?: string
   mono?: boolean
@@ -24,7 +25,7 @@ defineProps<{
 <template>
   <RouterLink class="open" :to="to" :title="title" :aria-label="label">
     <span v-if="showDisc" class="disc" aria-hidden="true">
-      <AppIcon :name="resourceGlyph(type ?? null)" :size="16" :stroke="1.6" />
+      <AppIcon :name="resourceGlyph(type ?? null, category)" :size="16" :stroke="1.6" />
     </span>
     <span class="text">
       <span class="name" :class="{ mono }">{{ name }}</span>

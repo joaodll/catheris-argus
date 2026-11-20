@@ -1476,7 +1476,7 @@ def test_a_pdf_context_is_measured(estate: Engine, label: str, connection_ids: l
     before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     start = time.perf_counter()
     with estate.connect() as conn:
-        collected = report_pdf.collect(conn, "misconfigurations", filters)
+        collected = report_pdf.collect(conn, "misconfigurations", filters, today=TODAY)
         context = report_pdf.build_context(
             collected,
             report_id=1,

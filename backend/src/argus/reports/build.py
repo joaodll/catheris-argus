@@ -322,7 +322,7 @@ def _write_pdf(engine: Engine, report: ClaimedReport, out_path: Path, *, local: 
         filters, through = _scope(conn, report, local=local)
         if not isinstance(filters, FindingFilters):
             raise ReportRefusedError(queue.FORMAT_REFUSED[report.kind])
-        collected = pdf.collect(conn, report.kind, filters)
+        collected = pdf.collect(conn, report.kind, filters, today=datetime.now(UTC).date())
     context = pdf.build_context(
         collected,
         report_id=report.id,

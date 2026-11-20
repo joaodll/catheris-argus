@@ -10,6 +10,7 @@ Three steps, so the database is held only as long as reading takes:
    Argus's secrets (core.process.run_isolated), and gets the PDF back.
 """
 
+import heapq
 import json
 import re
 from collections import Counter
@@ -20,7 +21,7 @@ from urllib.parse import urlsplit
 
 from sqlalchemy import Connection
 
-from argus import findings, inventory
+from argus import findings, inventory, metrics
 from argus.core.process import run_isolated
 from argus.findings import FindingFilters
 from argus.reports.model import (
@@ -37,8 +38,13 @@ RENDER_TIMEOUT_SECONDS = 600
 RENDER_MAX_BYTES = 200 * 1024 * 1024
 SEVERITIES = ("critical", "high", "medium", "low", "informational")
 _RANK = {s: i for i, s in enumerate(SEVERITIES)}
-# How many accounts and resource types the summary names; the rest are counted.
+# How many accounts, regions and resource types the summary names; the rest are counted.
 SUMMARY_ROWS = 15
+# The summary's "Resources with problems" (worst first) and "Most common" checks or CVEs.
+TOP_RESOURCES = 25
+TOP_COMMON = 10
+# The share bar's units: integer parts of a whole, so the renderer draws numbers, never text.
+BAR_UNITS = 1000
 
 
 @dataclass
@@ -52,7 +58,33 @@ class _Group:
     sample_id: int  # the finding whose CVE facts stand for the group's
     count: int = 0
     accounts: set[int] = field(default_factory=set)
+    resources: set[int | str] = field(default_factory=set)  # distinct resources (_key)
     rows: list[dict[str, Any]] = field(default_factory=list)
+
+
+class _Resource:
+    """One resource's findings in the report, by severity, and where it is."""
+
+    __slots__ = ("connection_id", "counts", "region", "reported_name", "resource_id", "type", "uid")
+
+    def __init__(self, row: dict[str, Any]) -> None:
+        self.connection_id: int = row["connection_id"]
+        self.resource_id: int | None = row["resource_id"]
+        self.uid: str = row["resource_uid"]
+        self.region: str | None = row["region"]
+        self.type: str | None = row["resource_type"]
+        self.reported_name: str | None = row["reported_resource_name"]
+        self.counts = [0] * len(SEVERITIES)
+
+    def rank(self) -> tuple[int | str, ...]:
+        """Worst first: most critical, then most high, and so on, then most in all."""
+        return (*(-n for n in self.counts), -sum(self.counts), self.uid)
+
+
+def _key(row: dict[str, Any]) -> int | str:
+    """A resource: its inventory id, or its uid when the inventory has none."""
+    rid: int | None = row["resource_id"]
+    return rid if rid is not None else row["resource_uid"]
 
 
 @dataclass
@@ -62,11 +94,17 @@ class Collected:
     by_severity: Counter[str]
     by_account: Counter[int]
     by_type: Counter[str]
+    by_region: Counter[str]
     accounts: dict[int, tuple[str, str]]  # connection id -> (name, account id)
     groups: list[_Group]
     texts: dict[tuple[str, str], dict[str, Any]]
     facts: dict[int, findings.VulnerabilityFacts]
     names: dict[int, str]
+    resources: int  # distinct resources with a finding in the report
+    worst: list[_Resource]  # the first TOP_RESOURCES, worst first
+    # The accounts' assets by type at their latest inventory scan (not filtered by the report);
+    # None when none of them has one.
+    assets: list[dict[str, Any]] | None
 
     @property
     def truncated(self) -> bool:
@@ -79,6 +117,7 @@ def collect(
     kind: ReportKind,
     filters: FindingFilters,
     *,
+    today: date,
     per_block: int = PDF_RESOURCES_PER_BLOCK,
     cap: int = PDF_RESOURCE_CAP,
 ) -> Collected:
@@ -86,8 +125,10 @@ def collect(
     by_severity: Counter[str] = Counter()
     by_account: Counter[int] = Counter()
     by_type: Counter[str] = Counter()
+    by_region: Counter[str] = Counter()
     accounts: dict[int, tuple[str, str]] = {}
     groups: dict[tuple[str, str], _Group] = {}
+    resources: dict[int | str, _Resource] = {}
     total = listed = 0
     for batch in findings.iter_findings(conn, filters):
         for row in batch:
@@ -95,7 +136,15 @@ def collect(
             by_severity[row["severity"]] += 1
             by_account[row["connection_id"]] += 1
             by_type[row["resource_type"] or "unknown"] += 1
+            by_region[row["region"] or ""] += 1
             accounts.setdefault(row["connection_id"], (row["connection"], row["account_id"]))
+            where = _key(row)
+            resource = resources.get(where)
+            if resource is None:
+                resource = resources[where] = _Resource(row)
+            rank = _RANK.get(row["severity"])
+            if rank is not None:
+                resource.counts[rank] += 1
             key = (row["tool"], row["check_id"])
             group = groups.get(key)
             if group is None:
@@ -112,6 +161,7 @@ def collect(
                 group.severity = row["severity"]
             group.count += 1
             group.accounts.add(row["connection_id"])
+            group.resources.add(where)
             if len(group.rows) < per_block and listed < cap:
                 group.rows.append(
                     {
@@ -130,9 +180,9 @@ def collect(
         groups.values(), key=lambda g: (_RANK.get(g.severity, 9), -g.count, g.tool, g.check_id)
     )
     listed_rows = [r for g in ordered for r in g.rows]
-    names = inventory.resource_names(
-        conn, [r["resource_id"] for r in listed_rows if r["resource_id"] is not None]
-    )
+    worst = heapq.nsmallest(TOP_RESOURCES, resources.values(), key=_Resource.rank)
+    named = {r["resource_id"] for r in listed_rows} | {w.resource_id for w in worst}
+    names = inventory.resource_names(conn, sorted(i for i in named if i is not None))
     facts = (
         findings.vulnerability_facts(
             conn, [g.sample_id for g in ordered] + [r["id"] for r in listed_rows]
@@ -149,11 +199,15 @@ def collect(
         by_severity=by_severity,
         by_account=by_account,
         by_type=by_type,
+        by_region=by_region,
         accounts=accounts,
         groups=ordered,
         texts=texts,
         facts=facts,
         names=names,
+        resources=len(resources),
+        worst=worst,
+        assets=metrics.asset_types_of(conn, list(filters.connection_ids), today=today),
     )
 
 
@@ -253,6 +307,70 @@ def _block(c: Collected, group: _Group, kind: ReportKind) -> dict[str, Any]:
     }
 
 
+_LETTERS = {"critical": "C", "high": "H", "medium": "M", "low": "L", "informational": "I"}
+
+
+def _shares(by_severity: Counter[str], total: int) -> list[dict[str, Any]]:
+    """The share bar: each severity with findings, its start and width in BAR_UNITS (integers
+    that add up to BAR_UNITS, by largest remainder) and its percent to one decimal."""
+    present = [(s, by_severity.get(s, 0)) for s in SEVERITIES if by_severity.get(s, 0)]
+    # The bar's whole is the five severities' findings: a word outside them (none today) would
+    # otherwise leave the parts short of the whole, and the renderer refuses that.
+    whole = sum(n for _, n in present)
+    if not total or not whole:
+        return []
+    exact = [n * BAR_UNITS / whole for _, n in present]
+    units = [int(e) for e in exact]
+    for i in sorted(range(len(units)), key=lambda i: units[i] - exact[i])[: BAR_UNITS - sum(units)]:
+        units[i] += 1
+    out, x = [], 0
+    for (severity, n), width in zip(present, units, strict=True):
+        out.append(
+            {"severity": severity, "x": x, "width": width, "percent": round(n * 100 / total, 1)}
+        )
+        x += width
+    return out
+
+
+def _resource_row(c: Collected, r: _Resource) -> dict[str, Any]:
+    name, account_id = c.accounts.get(r.connection_id, ("", ""))
+    return {
+        "name": (c.names.get(r.resource_id) if r.resource_id is not None else None)
+        or r.reported_name,
+        "uid": r.uid,
+        "account": name,
+        "account_id": account_id,
+        "region": r.region,
+        "type": r.type,
+        "chips": [
+            {"severity": s, "letter": _LETTERS[s], "count": n}
+            for s, n in zip(SEVERITIES, r.counts, strict=True)
+            if n
+        ],
+        "total": sum(r.counts),
+    }
+
+
+def _common(c: Collected) -> list[dict[str, Any]]:
+    """The checks or CVEs that affect the most resources, then the worst, then by id."""
+    top = heapq.nsmallest(
+        TOP_COMMON,
+        c.groups,
+        key=lambda g: (-len(g.resources), _RANK.get(g.severity, 9), g.tool, g.check_id),
+    )
+    return [
+        {
+            "severity": g.severity,
+            "title": g.title,
+            "tool": g.tool,
+            "check_id": g.check_id,
+            "resources": len(g.resources),
+            "accounts": len(g.accounts),
+        }
+        for g in top
+    ]
+
+
 def build_context(
     c: Collected,
     *,
@@ -297,6 +415,15 @@ def build_context(
         "more_accounts": max(len(c.by_account) - SUMMARY_ROWS, 0),
         "by_type": [{"type": t, "findings": n} for t, n in c.by_type.most_common(SUMMARY_ROWS)],
         "more_types": max(len(c.by_type) - SUMMARY_ROWS, 0),
+        "by_region": [
+            {"region": r or None, "findings": n} for r, n in c.by_region.most_common(SUMMARY_ROWS)
+        ],
+        "more_regions": max(len(c.by_region) - SUMMARY_ROWS, 0),
+        "shares": _shares(c.by_severity, c.total),
+        "resources": c.resources,
+        "worst": [_resource_row(c, r) for r in c.worst],
+        "common": _common(c),
+        "assets": metrics.by_category(c.assets) if c.assets is not None else None,
         "blocks": [_block(c, g, kind) for g in detailed],
         "others": [
             {

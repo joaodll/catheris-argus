@@ -13,7 +13,7 @@ const accounts: Accounts = {
 
 function node(uid: string, extra: Partial<StepOut['source']> = {}): StepOut['source'] {
   const kind = uid === 'internet' ? 'internet' : uid.startsWith('any:') ? 'any' : uid.startsWith('external:') ? 'external' : uid.startsWith('admin:') ? 'admin' : 'resource'
-  return { uid, kind, resource_id: kind === 'resource' ? 7 : null, type: null, name: uid, connection_id: kind === 'resource' ? 1 : null, deleted_on: null, facts: null, ...extra }
+  return { uid, kind, resource_id: kind === 'resource' ? 7 : null, type: null, category: null, name: uid, connection_id: kind === 'resource' ? 1 : null, deleted_on: null, facts: null, ...extra }
 }
 
 function step(n: number, type: string, source: StepOut['source'], target: StepOut['target'], extra: Partial<StepOut> = {}): StepOut {

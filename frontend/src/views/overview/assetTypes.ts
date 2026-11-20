@@ -20,56 +20,34 @@ export const OTHER = 'Other'
 const CATEGORY_COLOR = 'var(--tool-steampipe)'
 const OTHER_COLOR = 'var(--muted)'
 
-// By service (argus_v8: every configuration table is inventoried, so types are matched by
-// their service segment, not listed one by one). Parts, settings and links are not assets
-// and never reach these counts (the backend leaves them out of assets.by_type). A service
-// listed nowhere falls into Other.
-const service = (t: string) => t.split('_')[1] ?? ''
-// EC2 holds both instances and their network: these are its compute types, the rest is Network.
-const isEc2Compute = (t: string) => /^aws_ec2_(instance|ami|autoscaling|launch|fleet|spot|capacity|placement|key_pair)/.test(t)
+// The categories' display order, Other last. Which category a type is in is the backend's
+// (metrics.categories, the one taxonomy the screens and the PDF reports share): every row the
+// API sends carries it. A category this list does not name yet goes just before Other.
+export const CATEGORIES = ['Compute', 'Containers', 'Storage', 'Database', 'Network', 'Identity', 'Security', 'Analytics', 'Integration', 'Management', OTHER]
 
-const SERVICES: Record<string, string[]> = {
-  Compute: ['lambda', 'batch', 'elastic', 'lightsail', 'app', 'appstream', 'workspaces', 'serverlessapplicationrepository', 'amplify'],
-  Containers: ['ecs', 'eks', 'ecr', 'ecrpublic'],
-  Storage: ['s3', 's3tables', 'ebs', 'efs', 'fsx', 'glacier', 'backup', 'dlm', 'drs', 'datasync', 'transfer', 'media'],
-  Database: ['rds', 'dynamodb', 'docdb', 'neptune', 'dax', 'memorydb', 'elasticache', 'keyspaces', 'timestreamwrite', 'redshift', 'redshiftserverless', 'dms'],
-  Network: ['vpc', 'ec2', 'route53', 'cloudfront', 'api', 'globalaccelerator', 'directconnect', 'service'],
-  Identity: ['iam', 'identitystore', 'ssoadmin', 'cognito', 'rolesanywhere', 'organizations', 'directory', 'ram'],
-  Security: [
-    'kms', 'acm', 'acmpca', 'secretsmanager', 'accessanalyzer', 'guardduty', 'inspector', 'inspector2', 'macie2', 'securityhub',
-    'securitylake', 'shield', 'waf', 'wafregional', 'wafv2', 'fms', 'networkfirewall', 'auditmanager',
-  ],
-  Analytics: [
-    'athena', 'glue', 'lakeformation', 'emr', 'kinesis', 'kinesisanalyticsv2', 'msk', 'mskconnect', 'opensearch', 'elasticsearch',
-    'cloudsearch', 'quicksight', 'sagemaker', 'bedrock',
-  ],
-  Integration: ['sns', 'sqs', 'eventbridge', 'pipes', 'scheduler', 'sfn', 'mq', 'appsync', 'ses', 'pinpoint'],
-  Management: [
-    'cloudformation', 'cloudtrail', 'cloudwatch', 'config', 'ssm', 'ssmincidents', 'servicecatalog', 'servicequotas', 'account', 'oam',
-    'resource', 'region', 'synthetics', 'appconfig', 'mgn', 'codeartifact', 'codebuild', 'codecommit', 'codedeploy', 'codepipeline', 'codestar',
-  ],
+/** A count of one type, with the category the API gives it. */
+export interface TypeCount {
+  type: string
+  count: number
+  category: string | null
 }
-/** The categories in their fixed order, Other last. */
-export const CATEGORIES = [...Object.keys(SERVICES), OTHER]
-const CATEGORY_OF = new Map(Object.entries(SERVICES).flatMap(([name, services]) => services.map((s) => [s, name] as const)))
 
-/** A type's category; EC2's compute types are Compute, its other types Network. */
-export function categoryOf(type: string): string {
-  if (isEc2Compute(type)) return 'Compute'
-  return CATEGORY_OF.get(service(type)) ?? OTHER
+const order = (name: string) => {
+  const i = CATEGORIES.indexOf(name)
+  return i === -1 ? CATEGORIES.length - 1.5 : i
 }
 
 /** The types grouped by category, in the fixed order, empty categories left out. */
-export function groupTypes(byType: { type: string; count: number }[]): TypeGroup[] {
+export function groupTypes(byType: TypeCount[]): TypeGroup[] {
   const groups = new Map<string, TypeGroup>()
-  for (const { type, count } of byType) {
-    const name = categoryOf(type)
+  for (const { type, count, category } of byType) {
+    const name = category ?? OTHER
     const entry = groups.get(name) ?? { name, color: name === OTHER ? OTHER_COLOR : CATEGORY_COLOR, count: 0, types: [] }
     entry.count += count
     entry.types.push(type)
     groups.set(name, entry)
   }
-  return CATEGORIES.map((name) => groups.get(name)).filter((g): g is TypeGroup => g !== undefined && g.count > 0)
+  return [...groups.values()].filter((g) => g.count > 0).sort((a, b) => order(a.name) - order(b.name))
 }
 
 /** Largest first, Other always last. */
@@ -88,7 +66,7 @@ export interface ProviderInventory {
 }
 
 /** Splits the Steampipe types by their provider prefix (aws_, gcp_, oci_), then groups each. */
-export function byProvider(byType: { type: string; count: number }[], coverage: Record<string, string>): ProviderInventory[] {
+export function byProvider(byType: TypeCount[], coverage: Record<string, string>): ProviderInventory[] {
   return PROVIDERS.map(({ id, name }) => {
     const groups = bySize(groupTypes(byType.filter((t) => t.type.startsWith(`${id}_`))))
     const total = groups.reduce((n, g) => n + g.count, 0)

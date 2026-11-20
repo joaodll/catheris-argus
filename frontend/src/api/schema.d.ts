@@ -1408,6 +1408,12 @@ export interface components {
         };
         /** AssetTypeCount */
         AssetTypeCount: {
+            /**
+             * Category
+             * @description The type's asset category (metrics.asset_category): the one taxonomy every screen
+             *     and report groups by.
+             */
+            readonly category: string | null;
             /** Count */
             count: number;
             /** Type */
@@ -2285,6 +2291,12 @@ export interface components {
         MapGroup: {
             /** Anchor Uid */
             anchor_uid: string;
+            /**
+             * Category
+             * @description The members' asset category, for the group card's glyph; null without a
+             *     type.
+             */
+            readonly category: string | null;
             /** Count */
             count: number;
             /**
@@ -2305,6 +2317,11 @@ export interface components {
         MapNode: {
             /** Boundary */
             boundary: boolean;
+            /**
+             * Category
+             * @description The type's asset category, for the card's glyph; null without a type.
+             */
+            readonly category: string | null;
             /** Connection Id */
             connection_id: number | null;
             /** Deleted On */
@@ -2387,6 +2404,8 @@ export interface components {
         };
         /** MapResourcePage */
         MapResourcePage: {
+            /** Category */
+            category: string | null;
             /** Data Through */
             data_through: string | null;
             /** Items */
@@ -2398,6 +2417,12 @@ export interface components {
         };
         /** MapTypeCount */
         MapTypeCount: {
+            /**
+             * Category
+             * @description The type's asset category (metrics.asset_category): the one taxonomy every screen
+             *     and report groups by.
+             */
+            readonly category: string | null;
             /** Count */
             count: number;
             /** Type */
@@ -2523,6 +2548,12 @@ export interface components {
          *     external host, every store of a service).
          */
         NodeRef: {
+            /**
+             * Category
+             * @description The type's asset category, for the card's glyph on the Map's Attack Path view; null
+             *     without a type.
+             */
+            readonly category: string | null;
             /** Connection Id */
             connection_id: number | null;
             /** Deleted On */
@@ -3472,6 +3503,11 @@ export interface components {
         SecurityNode: {
             /** Boundary */
             boundary: boolean;
+            /**
+             * Category
+             * @description The type's asset category, for the card's glyph; null without a type.
+             */
+            readonly category: string | null;
             /** Connection Id */
             connection_id: number | null;
             /** Deleted On */
@@ -3609,6 +3645,12 @@ export interface components {
         };
         /** StepNode */
         StepNode: {
+            /**
+             * Category
+             * @description The type's asset category, for the card's glyph on the Map's Attack Path view; null
+             *     without a type.
+             */
+            readonly category: string | null;
             /** Connection Id */
             connection_id: number | null;
             /** Deleted On */
@@ -3923,6 +3965,12 @@ export interface components {
         };
         /** TypeCount */
         TypeCount: {
+            /**
+             * Category
+             * @description The type's asset category (metrics.asset_category): the one taxonomy every screen
+             *     and report groups by.
+             */
+            readonly category: string | null;
             /** Count */
             count: number;
             /** Type */

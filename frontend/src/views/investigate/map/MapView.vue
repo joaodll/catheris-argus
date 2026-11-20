@@ -160,6 +160,7 @@ function remember(focus: string, connectionId: number): void {
     uid: focus,
     name: node.name ?? null,
     type: node.type ?? null,
+    category: node.category ?? null,
     connectionId: node.connection_id ?? connectionId,
     connectionName: connections.data.value?.find((c) => c.id === (node.connection_id ?? connectionId))?.name ?? null,
   })

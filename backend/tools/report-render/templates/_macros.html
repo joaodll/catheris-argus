@@ -5,6 +5,23 @@
 <span class="pill sev-{{ known }}">{{ severity }}</span>
 {%- endmacro %}
 
+{#- A severity checked against the five known words; anything else reads as informational. -#}
+{% macro known(severity) -%}
+{{ severity if severity in ("critical", "high", "medium", "low", "informational") else "informational" }}
+{%- endmacro %}
+
+{#- One severity count as a chip: "2C". The letter comes from the checked severity, never from
+    the context. -#}
+{% macro chip(c) -%}
+{%- set k = known(c.severity) -%}
+<span class="chip tint-{{ k }} sev-{{ k }}">{{ c.count | num }}{{ {"critical": "C", "high": "H", "medium": "M", "low": "L", "informational": "I"}[k] }}</span>
+{%- endmacro %}
+
+{#- Where a resource is: its account, then region and account id underneath. -#}
+{% macro where(r) -%}
+{{ r.account or "—" }}<span class="sub">{{ r.region or "global" }} · {{ r.account_id or "—" }}</span>
+{%- endmacro %}
+
 {% macro link(url) -%}
 {%- set checked = url | web_link -%}
 {%- if checked %}<a href="{{ checked }}">{{ checked }}</a>{% elif url %}{{ url }}{% endif -%}
@@ -15,15 +32,14 @@
 <div class="label">Affected resources</div>
 <table class="list">
   <thead><tr>
-    <th style="width:22%">Account</th><th style="width:12%">Region</th><th style="width:19%">Type</th>
+    <th style="width:26%">Where</th><th style="width:18%">Type</th>
     <th>Resource</th>{% if installed %}<th style="width:11%">Installed</th>{% endif %}<th style="width:11%">First seen</th>
   </tr></thead>
   <tbody>{% for r in block.rows %}
     <tr>
-      <td>{{ r.account }}<span class="sub">{{ r.account_id }}</span></td>
-      <td class="mono">{{ r.region or "—" }}</td>
+      <td>{{ where(r) }}</td>
       <td class="mono">{{ r.type or "—" }}</td>
-      <td>{{ r.name or "—" }}<span class="sub">{{ r.uid }}</span></td>
+      <td><span class="strong">{{ r.name or "—" }}</span><span class="sub">{{ r.uid }}</span></td>
       {% if installed %}<td class="mono">{{ r.installed or "—" }}</td>{% endif %}
       <td class="mono">{{ r.first_seen or "—" }}</td>
     </tr>

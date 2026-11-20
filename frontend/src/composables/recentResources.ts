@@ -10,6 +10,8 @@ export interface RecentResource {
   uid: string
   name: string | null
   type: string | null
+  // The type's asset category, for the row's glyph (absent in entries stored before it).
+  category?: string | null
   connectionId: number | null
   connectionName: string | null
 }
@@ -31,6 +33,7 @@ function isRecent(v: unknown): v is RecentResource {
     r.uid !== '' &&
     text(r.name) &&
     text(r.type) &&
+    (r.category === undefined || text(r.category)) &&
     (r.connectionId === null || Number.isInteger(r.connectionId)) &&
     text(r.connectionName)
   )

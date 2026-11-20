@@ -82,10 +82,10 @@ const TYPE_LABELS: [RegExp, string][] = [
 
 /** A card's glyph: the resource type's (a group's members' type), the internet's globe, or the
  * mark of something outside the inventory. */
-export function cardGlyph(kind: NodeKind | string, type: string | null): IconName {
+export function cardGlyph(kind: NodeKind | string, type: string | null, category: string | null = null): IconName {
   if (kind === 'internet') return 'globe'
   if (kind === 'external' || kind === 'any') return 'external'
-  return resourceGlyph(type)
+  return resourceGlyph(type, category)
 }
 
 export function typeLabel(type: string | null): string {
