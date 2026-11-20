@@ -63,6 +63,7 @@ def main() -> int:
             max_runs=settings.max_run_jobs,
             # A report is written to the Job's scratch volume, then uploaded in one PUT.
             scratch=settings.raw_staging_root / "reports",
+            tool_time_limit=settings.tool_time_limit_seconds,
         )
     except Exception:
         log.exception("job failed")

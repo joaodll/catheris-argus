@@ -15,7 +15,7 @@ import logging
 import threading
 import traceback
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 from uuid import UUID
@@ -44,6 +44,63 @@ class Cancelled(Exception):
 
 # The chart's values block that sizes each tool's scan Job (ADR-0046).
 _JOB_WORK = {"steampipe": "steampipe", "vulnerabilities": "steampipe"}
+
+
+# How long Prowler or CloudFox may run on Docker Compose, where the worker has no deadline of its
+# own. A Kubernetes scan Job sets its own (TimeLimit.for_this_process).
+DEFAULT_TOOL_TIME_LIMIT = timedelta(hours=4)
+
+
+def span(duration: timedelta) -> str:
+    """A duration in words a log reader takes in at a glance: "42 s", "12 min", "3 h 5 min"."""
+    seconds = int(duration.total_seconds())
+    if seconds < 60:
+        return f"{seconds} s"
+    hours, minutes = divmod(seconds // 60, 60)
+    if not hours:
+        return f"{minutes} min"
+    return f"{hours} h {minutes} min" if minutes else f"{hours} h"
+
+
+@dataclass
+class TimeLimit:
+    """How long one tool (Prowler, CloudFox) may run, and whether this run reached it. The tool
+    runner sets `reached` when it stops the tool there; the run is then not retried, since it
+    would stop at the same place again (owner, 2026-11-19)."""
+
+    span: timedelta = DEFAULT_TOOL_TIME_LIMIT
+    # Set by the chart from the scan Job's deadline (ARGUS_TOOL_TIME_LIMIT_SECONDS): the run
+    # then names the values to raise. Off on Docker Compose.
+    from_deployment: bool = False
+    reached: bool = False
+
+    @classmethod
+    def for_this_process(cls, seconds: int | None) -> "TimeLimit":
+        if seconds is None:
+            return cls()
+        return cls(span=timedelta(seconds=seconds), from_deployment=True)
+
+
+def stopped_at_time_limit(tool: str, limit: TimeLimit) -> str:
+    """Why a run stopped at its time limit, and what to change."""
+    work = _JOB_WORK.get(tool, tool)
+    if limit.from_deployment:
+        change = (
+            f"Raise scanJobs.work.{work}.activeDeadlineSeconds (the tool gets 30 minutes less, "
+            "for the upload and the ingest)"
+        )
+        if tool == "prowler":
+            change += ", or skip Prowler services in Settings, Collection"
+    elif tool == "prowler":
+        change = (
+            "On Docker Compose the limit is fixed: skip Prowler services in Settings, Collection"
+        )
+    else:
+        change = "On Docker Compose the limit is fixed"
+    return (
+        f"{tool.capitalize()} was stopped at its time limit of {span(limit.span)}, and the run "
+        f"is not retried: it would stop there again. {change}."
+    )
 
 
 def stopped_for_memory(tool: str, reading: Reading) -> str:
@@ -87,6 +144,9 @@ class CollectOptions:
     # Given only where the run is alone in its container (a Kubernetes scan Job): the source
     # stops its tool near the memory limit, and the run fails saying so (core/memory.py).
     memory_guard: MemoryGuard | None = field(default=None, repr=False, compare=False)
+    # How long Prowler or CloudFox may run; the tool runner marks it when the tool is stopped
+    # there. None: DEFAULT_TOOL_TIME_LIMIT.
+    time_limit: TimeLimit | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass

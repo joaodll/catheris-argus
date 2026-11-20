@@ -822,7 +822,7 @@ def test_a_run_stopped_for_memory_fails_saying_so_and_is_not_retried(
     monkeypatch.setattr(runner, "source_for", lambda kind: _OverMemory())
     rid = _request(owner, target.connection_id, "prowler", reason="schedule", day=date(2026, 10, 2))
     status = runner.run_once(
-        worker, store=store, rules_dir=RULES_DIR, worker_id="t", guard_memory=True
+        worker, store=store, rules_dir=RULES_DIR, worker_id="t", scan_job=runner.ScanJob()
     )
     assert status == "failed"
     with owner.connect() as conn:
@@ -840,6 +840,110 @@ def test_a_run_stopped_for_memory_fails_saying_so_and_is_not_retried(
     )
     assert row.error.startswith(sentence)
     assert sentence in log_tail
+
+
+class _PastItsTime:
+    """A tool stopped at its time limit: the tool runner marks the limit reached and the run
+    fails (collection/aws/tools.py, _run)."""
+
+    name = "synthetic"
+
+    def __init__(self) -> None:
+        self.span: timedelta | None = None
+
+    def collect(self, *, options: CollectOptions, **_: object) -> Outcome:
+        assert options.time_limit is not None
+        self.span = options.time_limit.span
+        options.time_limit.reached = True
+        now = datetime.now(UTC)
+        return Outcome(
+            status="failed",
+            exit_code=-9,
+            tool_version="5.50.0",
+            started_at=now,
+            finished_at=now,
+            region_scope=[],
+            log_lines=["argus: stopped after its time limit of 11 h 30 min"],
+        )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        (
+            runner.ScanJob(tool_time_limit=41400),
+            timedelta(hours=11, minutes=30),
+            "Prowler was stopped at its time limit of 11 h 30 min, and the run is not retried: "
+            "it would stop there again. Raise scanJobs.work.prowler.activeDeadlineSeconds",
+        ),
+        (
+            None,
+            timedelta(hours=4),
+            "Prowler was stopped at its time limit of 4 h, and the run is not retried: it would "
+            "stop there again. On Docker Compose the limit is fixed: skip Prowler services",
+        ),
+    ],
+    ids=["scan-job", "compose"],
+)
+def test_a_run_stopped_at_its_time_limit_fails_saying_so_and_is_not_retried(
+    owner: Engine,
+    worker: Engine,
+    store: FilesystemRawStore,
+    monkeypatch: pytest.MonkeyPatch,
+    case: tuple[runner.ScanJob | None, timedelta, str],
+) -> None:
+    """A retry would run as long and stop at the same place: 12-18 hours of "Running" for
+    nothing (owner, 2026-11-19). The run says which value to raise."""
+    scan_job, span, says = case
+    target = make_demo(owner)
+    tool = _PastItsTime()
+    monkeypatch.setattr(runner.MemoryGuard, "for_this_container", lambda: None)
+    monkeypatch.setattr(runner, "source_for", lambda kind: tool)
+    rid = _request(owner, target.connection_id, "prowler", reason="schedule", day=date(2026, 10, 2))
+    status = runner.run_once(
+        worker, store=store, rules_dir=RULES_DIR, worker_id="t", scan_job=scan_job
+    )
+    assert status == "failed"
+    assert tool.span == span
+    with owner.connect() as conn:
+        row = conn.execute(
+            text("SELECT status, error FROM run_request WHERE id = :i"), {"i": rid}
+        ).one()
+        queued = conn.execute(
+            text("SELECT count(*) FROM run_request WHERE status = 'queued'")
+        ).scalar_one()
+    assert row.status == "finished" and queued == 0
+    assert row.error.startswith(says)
+
+
+def test_a_failed_run_that_was_not_stopped_at_its_time_limit_is_still_retried(
+    owner: Engine, worker: Engine, store: FilesystemRawStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only the time limit stops the retry: an ordinary failure is retried as before."""
+    target = make_demo(owner)
+
+    class Failing:
+        name = "synthetic"
+
+        def collect(self, **_: object) -> Outcome:
+            now = datetime.now(UTC)
+            return Outcome(
+                status="failed",
+                exit_code=1,
+                tool_version="unknown",
+                started_at=now,
+                finished_at=now,
+                region_scope=[],
+            )
+
+    monkeypatch.setattr(runner, "source_for", lambda kind: Failing())
+    _request(owner, target.connection_id, "prowler", reason="schedule", day=date(2026, 10, 2))
+    assert runner.run_once(worker, store=store, rules_dir=RULES_DIR, worker_id="t") == "failed"
+    with owner.connect() as conn:
+        queued = conn.execute(
+            text("SELECT count(*) FROM run_request WHERE status = 'queued' AND reason = 'retry'")
+        ).scalar_one()
+    assert queued == 1
 
 
 def test_without_a_guard_a_run_never_reads_memory(

@@ -274,7 +274,10 @@ scheduler:
 scanJobs:
   # Finished Jobs (and their logs) are deleted after this many seconds.
   ttlSecondsAfterFinished: 600
-  # Steampipe has no overall time limit of its own: this is it. A scan past it counts as lost.
+  # Every Job's deadline, unless its work below sets its own. Steampipe has no overall time
+  # limit of its own: this is it, and a scan past it counts as lost. Prowler and CloudFox stop
+  # their tool 30 minutes before their Job's deadline, for the upload and the ingest; a run
+  # stopped there fails saying so, and is not retried.
   activeDeadlineSeconds: 21600
   # One template per work, each with its own image and pod size (ADR-0046). The admission
   # policy pins each template whole, these resources included. Every Job's memory is requested
@@ -291,11 +294,13 @@ scanJobs:
     # Steampipe and Vulnerabilities.
     steampipe:
       resources:
-        requests: {cpu: 500m, memory: 6Gi}
+        requests: {cpu: "1", memory: 6Gi}
         limits: {memory: 6Gi}
+    # Prowler on a large account runs for hours, CPU-bound: 12 hours, two CPUs requested.
     prowler:
+      activeDeadlineSeconds: 43200
       resources:
-        requests: {cpu: 500m, memory: 6Gi}
+        requests: {cpu: "2", memory: 6Gi}
         limits: {memory: 6Gi}
     cloudfox:
       resources:

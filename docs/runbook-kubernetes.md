@@ -170,7 +170,15 @@ Also review:
   minutes and peaked at 2.33 GiB, and one with nothing new 3.6 minutes and 1.2 GiB (2026-11-16),
   so `scanJobs.work.paths.resources` requests 3 Gi and limits it to 3 Gi. It shares the scan Jobs'
   placement.
-  `scanJobs.activeDeadlineSeconds` (6 hours): a scan past it is lost and counted.
+  `scanJobs.activeDeadlineSeconds` (6 hours): every Job's deadline, unless its work sets its own
+  (`scanJobs.work.<work>.activeDeadlineSeconds`; Prowler's is 12 hours). A Steampipe scan past it
+  is lost and counted. Prowler and CloudFox stop their tool 30 minutes before their Job's
+  deadline, for the upload and the ingest: the run then fails with a sentence naming the value to
+  raise, and is not retried, because the same limit would stop it again. A deadline below 5,400
+  seconds (an hour for the tool) is refused for these two. A scan that waits for a node waits
+  inside its deadline.
+  `scanJobs.work.<work>.resources.requests.cpu`: Prowler requests 2 CPUs and Steampipe 1, since
+  both spend hours CPU-bound on a large account; CloudFox, test, paths and report 500m or less.
   `scanJobs.scratch.size` (20 Gi): the node disk a scan's raw output may use.
   `scanJobs.work.<work>.resources`: each template's pod size. A connection test needs far less
   than a scan. The admission policy pins these sizes, so change them here, never on a Job.
@@ -415,9 +423,9 @@ spec:
       requirements:
         - {key: karpenter.sh/capacity-type, operator: In, values: [on-demand]}
         - {key: kubernetes.io/arch, operator: In, values: [amd64]}
-      # Longer than scanJobs.activeDeadlineSeconds (6 h): a node is not expired under a scan.
+      # Longer than the longest scan deadline (Prowler's 12 h): a node is not expired under a scan.
       expireAfter: 720h
-      terminationGracePeriod: 8h
+      terminationGracePeriod: 13h
       nodeClassRef: {group: karpenter.k8s.aws, kind: EC2NodeClass, name: default}
   disruption:
     consolidationPolicy: WhenEmpty
@@ -541,6 +549,13 @@ now names the chart's PriorityClass, and a PDB covers Job pods, so a drain waits
 Jobs. `scanJobs.onePerNode` is off until you turn it on ([Scan nodes](#scan-nodes)). The
 installer needs the right to create a PriorityClass (cluster-wide), as it already creates the
 admission policy.
+
+**To a chart with a deadline per tool** (2026-11-19): the Prowler Job's deadline is now 12 hours
+(`scanJobs.work.prowler.activeDeadlineSeconds`, was the shared 6 hours), Prowler requests 2 CPUs
+and Steampipe 1 (were 500m), and Prowler and CloudFox stop their tool 30 minutes before their
+deadline (they stopped at 4 hours). A run stopped there fails saying so and is no longer retried.
+Check that the scan nodes hold the new CPU requests, and that a Karpenter NodePool's
+`terminationGracePeriod` is longer than the longest deadline.
 
 **To a chart that requires memory requested whole** (2026-11-19): the chart refuses a Job
 template whose `requests.memory` differs from its `limits.memory`, so values such as

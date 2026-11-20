@@ -43,7 +43,7 @@ from argus.collection.aws.stream import (
     ToolStream,
     pump,
 )
-from argus.collection.collect import Cancelled
+from argus.collection.collect import Cancelled, CollectOptions, TimeLimit, span
 from argus.collection.prowler_lists import prowler_checks, prowler_frameworks, prowler_services
 from argus.collection.tables import (
     INSPECTOR_TABLES,
@@ -73,7 +73,6 @@ TOOL_BINARIES: dict[str, str] = {
     "prowler": PROWLER,
     "cloudfox": CLOUDFOX,
 }
-TOOL_TIMEOUT = timedelta(hours=4)
 TABLE_TIMEOUT = timedelta(minutes=30)
 # Tables that take longer than TABLE_TIMEOUT on a large account. Inspector's findings: every
 # open finding of the account, its packages and resources in every row, every region; on a
@@ -382,7 +381,7 @@ def _run(
     *,
     env: dict[str, str],
     log: Path,
-    timeout: timedelta,
+    limit: TimeLimit,
     cancel: threading.Event | None = None,
     stream: ToolStream | None = None,
     guard: MemoryGuard | None = None,
@@ -390,10 +389,10 @@ def _run(
     routing: Routing | None = None,
 ) -> int:
     """Runs a tool in its own process group, output to `log` and, line by line, to the live
-    log (`stream`), each line where `routing` says (stream.pump). Kills the group on timeout, or
-    when the run is asked to stop (Cancelled). With `tty`, the tool writes to a
-    pseudo-terminal: a progress bar that draws only on a terminal (Prowler's) then reaches the
-    live log."""
+    log (`stream`), each line where `routing` says (stream.pump). Kills the group at its time
+    limit (and marks it reached), or when the run is asked to stop (Cancelled). With `tty`,
+    the tool writes to a pseudo-terminal: a progress bar that draws only on a terminal
+    (Prowler's) then reaches the live log."""
     with log.open("ab") as out:
         if tty:
             try:
@@ -430,14 +429,15 @@ def _run(
         )
         reader.start()
         try:
-            rc = _wait(process, timeout, cancel, guard)
+            rc = _wait(process, limit.span, cancel, guard)
         finally:
             # The pipe closes when the tool's group exits; a process of it that outlived the
             # wait (killed or not) is not waited for longer.
             reader.join(timeout=READER_JOIN_SECONDS)
             source.close()
         if rc is None:
-            out.write(f"\nargus: killed after {timeout}\n".encode())
+            out.write(f"\n{TIMED_OUT_NOTE} {span(limit.span)}\n".encode())
+            limit.reached = True
             return -9
         return rc
 
@@ -948,17 +948,6 @@ def _say_table(stream: ToolStream, run: _TableRun, rows: Path, at: str, seconds:
         stream.note(f"table {run.table} finished in {took}, {_count_rows(rows)} rows {at}")
 
 
-def span(duration: timedelta) -> str:
-    """A duration in words a log reader takes in at a glance: "42 s", "12 min", "3 h 5 min"."""
-    seconds = int(duration.total_seconds())
-    if seconds < 60:
-        return f"{seconds} s"
-    hours, minutes = divmod(seconds // 60, 60)
-    if not hours:
-        return f"{minutes} min"
-    return f"{hours} h {minutes} min" if minutes else f"{hours} h"
-
-
 def _count_rows(rows: Path) -> int:
     """A JSONL file's rows (its lines), read in blocks."""
     count = 0
@@ -1052,15 +1041,12 @@ def run_prowler(
     out_dir: Path,
     env: dict[str, str],
     regions: list[str],
-    cancel: threading.Event | None = None,
+    options: CollectOptions,
     *,
-    retry_attempts: int = AWS_MAX_ATTEMPTS,
-    skip_services: Sequence[str] = (),
-    skip_checks: Sequence[str] = (),
     stream: ToolStream | None = None,
-    guard: MemoryGuard | None = None,
 ) -> ToolResult:
     """Every check in the regions set, unless Collection settings skip services or checks.
+    Stopped when the run is asked to, near the memory limit, or at its time limit (options).
 
     A skip changes how Prowler 5.50.0 chooses what to write: with --excluded-* it writes no
     compliance results unless --compliance names the frameworks, and --compliance runs only
@@ -1085,13 +1071,15 @@ def run_prowler(
         "--log-level",
         "INFO",
         "--aws-retries-max-attempts",
-        str(retry_attempts),
+        str(options.prowler_retry_attempts),
         # Exit code 3 means "some checks failed", the expected result of a scan.
         "--ignore-exit-code-3",
     ]
     if regions:
         cmd += ["--region", *regions]
-    services, checks, notes = _prowler_skips(skip_services, skip_checks)
+    services, checks, notes = _prowler_skips(
+        options.prowler_skip_services, options.prowler_skip_checks
+    )
     if services:
         cmd += ["--excluded-service", *services]
     if checks:
@@ -1107,10 +1095,10 @@ def run_prowler(
         cmd,
         env=env,
         log=log,
-        timeout=TOOL_TIMEOUT,
-        cancel=cancel,
+        limit=options.time_limit or TimeLimit(),
+        cancel=options.cancel,
         stream=stream,
-        guard=guard,
+        guard=options.memory_guard,
         tty=True,
         routing=Routing(_prowler_fate(stream), rewrite=prowler_line),
     )
@@ -1179,11 +1167,9 @@ def run_cloudfox(
     out_dir: Path,
     env: dict[str, str],
     account_id: str,
-    max_goroutines: int,
-    cancel: threading.Event | None = None,
+    options: CollectOptions,
     *,
     stream: ToolStream | None = None,
-    guard: MemoryGuard | None = None,
 ) -> ToolResult:
     """All checks, including env-vars (decided 2026-10-02). --verbosity 1 prints control
     messages only: higher levels print module output, which includes secret values."""
@@ -1200,7 +1186,7 @@ def run_cloudfox(
         "1",
         "--yes",
         "--max-goroutines",
-        str(max_goroutines),
+        str(options.cloudfox_max_goroutines),
     ]
     errors_from = _size(CLOUDFOX_ERROR_LOG)
     tail = _ErrorLogTail(errors_from, account_id, stream)
@@ -1210,10 +1196,10 @@ def run_cloudfox(
                 cmd,
                 env=env,
                 log=log,
-                timeout=TOOL_TIMEOUT,
-                cancel=cancel,
+                limit=options.time_limit or TimeLimit(),
+                cancel=options.cancel,
                 stream=stream,
-                guard=guard,
+                guard=options.memory_guard,
             )
     finally:
         # CloudFox 2.0.5 also caches what it read (env-var values included) next to its

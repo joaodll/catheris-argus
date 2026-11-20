@@ -29,7 +29,7 @@ from argus import reports
 from argus.collection import missing_tools
 from argus.core.rawstore import FilesystemRawStore
 from argus.scheduling import connection_checks, paths
-from argus.scheduling.runner import run_once
+from argus.scheduling.runner import ScanJob, run_once
 
 log = logging.getLogger("argus.job")
 Done = Literal["test", "scan", "report", "paths", "nothing"]
@@ -81,9 +81,11 @@ def run_job(
     worker_id: str,
     max_runs: int,
     scratch: Path,
+    tool_time_limit: int | None = None,
 ) -> Done:
     """Does this Job's one unit of work. Returns which it was. `scratch` is where a report is
-    written before its upload."""
+    written before its upload; `tool_time_limit` (seconds) is how long Prowler or CloudFox may
+    run, the Job's deadline less the time its upload and ingest need (the chart sets it)."""
     if work == TEST:
         return "test" if connection_checks.run_pending(engine) else "nothing"
     if work == PATHS:
@@ -105,7 +107,8 @@ def run_job(
         kinds=("aws",),
         tools=SCAN_WORK[work],
         max_parallel=max_runs,
-        # One run in this pod: its cgroup's memory is the run's (core/memory.py).
-        guard_memory=True,
+        # One run in this pod: its cgroup's memory is the run's (core/memory.py), and its
+        # tool's time limit comes from the Job's deadline.
+        scan_job=ScanJob(tool_time_limit=tool_time_limit),
     )
     return "nothing" if status is None else "scan"

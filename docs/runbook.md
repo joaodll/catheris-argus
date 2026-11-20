@@ -387,7 +387,10 @@ storage first (above). Then:
    adapter cannot read shows as **Failed** too, with the reason. So does a run that ended before
    it could be recorded (no bucket set, a manifest the database refused): its log tail starts
    "argus: the run ended before it was recorded:", followed by the error. Like any failed run, it is
-   retried up to twice.
+   retried up to twice. Two failed runs are not retried, because they would stop at the same
+   place again: one stopped near its memory limit (Kubernetes), and a Prowler or CloudFox run
+   stopped at its time limit (4 hours on Docker Compose; on Kubernetes the Job's deadline less 30
+   minutes). Its message says what to change.
 
 **Prowler runs Partial from throttling.** Lighten Prowler in **Settings → Collection**, in this
 order: scan fewer regions (**AWS regions to scan**), raise **Retry attempts per AWS call**, then

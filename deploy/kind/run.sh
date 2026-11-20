@@ -348,6 +348,10 @@ CROSS_JOBS=(
   "another work in the environment|prowler|(.spec.template.spec.containers[0].env[] | select(.name == \"ARGUS_JOB_WORK\") | .value) = \"steampipe\""
   "another work's label|cloudfox|.spec.template.metadata.labels[\"argus/work\"] = \"prowler\""
   "a tool Job's size on the test Job|test|.spec.template.spec.containers[0].resources = \$other.spec.template.spec.containers[0].resources"
+  # Each template's own deadline (Prowler 12 h): a Steampipe Job can't take Prowler's, and the
+  # tool's time limit in the environment can't be widened past it.
+  "Prowler's deadline on the Steampipe Job|steampipe|.spec.activeDeadlineSeconds = \$other.spec.activeDeadlineSeconds"
+  "a longer tool time limit|prowler|(.spec.template.spec.containers[0].env[] | select(.name == \"ARGUS_TOOL_TIME_LIMIT_SECONDS\") | .value) = \"86400\""
   "no memory limit|prowler|del(.spec.template.spec.containers[0].resources.limits)"
   "the test Job on a tool's image|test|.spec.template.spec.containers[0].image = \$other.spec.template.spec.containers[0].image"
   "metadata reachable|test|.spec.template.spec.containers[0].env |= map(select(.name != \"AWS_EC2_METADATA_DISABLED\"))"

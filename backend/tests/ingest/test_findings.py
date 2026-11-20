@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 from sqlalchemy import Engine, text
@@ -248,7 +249,7 @@ def test_each_finding_says_what_is_wrong_and_each_check_how_to_fix_it(
     assert any(c.code_cli for c in checks) and any(c.code_terraform for c in checks)
 
 
-def test_only_the_code_columns_of_the_findings_csv_are_read() -> None:
+def test_only_the_code_columns_of_the_findings_csv_are_read(tmp_path: Path) -> None:
     """RESOURCE_DETAILS and the other columns can hold secret values: they are never read."""
     planted = "pw-0123456789ab"
     header = "CHECK_ID;RESOURCE_DETAILS;STATUS_EXTENDED;REMEDIATION_CODE_CLI;REMEDIATION_CODE_OTHER"
@@ -256,7 +257,9 @@ def test_only_the_code_columns_of_the_findings_csv_are_read() -> None:
         f"s3_check;{planted};{planted};aws s3api get-bucket-acl --bucket b;",
         f"s3_check;{planted};x;a second row of the same check;",
     ]
-    code = prowler_adapter._code("\r\n".join([header, *rows]) + "\r\n", quoted=False)
+    findings_csv = tmp_path / "findings.csv"
+    findings_csv.write_text("\r\n".join([header, *rows]) + "\r\n", encoding="utf-8", newline="")
+    code = prowler_adapter._code(findings_csv, quoted=False)
     assert code == {"s3_check": {"code_cli": "aws s3api get-bucket-acl --bucket b"}}
     assert planted not in repr(code)
 

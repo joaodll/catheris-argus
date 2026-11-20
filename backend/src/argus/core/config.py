@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # A scan Job's work, set by its template (ADR-0046): test, steampipe, prowler or cloudfox.
     # The Job refuses to start without one.
     job_work: str = ""
+    # How long Prowler or CloudFox may run in a scan Job (a deployment bound): the chart sets it
+    # to the Job's deadline less 30 minutes, for the upload and the ingest. Unset (Docker
+    # Compose): 4 hours (collection.collect.DEFAULT_TOOL_TIME_LIMIT).
+    tool_time_limit_seconds: int | None = Field(default=None, ge=3600, le=7 * 86400)
     # Addresses whose X-Forwarded-For the API believes: the reverse proxy in front of it.
     trusted_proxies: str = "127.0.0.1"
     # Deployment layout (operator-owned paths, not administration settings).

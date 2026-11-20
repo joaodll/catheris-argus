@@ -93,6 +93,15 @@ check_render() {
   [ -z "$(yq -N 'select(.kind == "ServiceAccount" and .metadata.name == "argus-paths") | .metadata.annotations // ""' "$OUT/$name.yaml")" ] \
     || fail "the paths account carries an annotation (an identity)"
   echo "paths: argus-paths (no identity), argus_paths, no keyring, memory requested whole"
+  # Each tool's time limit is its Job's deadline less 30 minutes; Steampipe has none (a limit per
+  # table), and no other work carries one.
+  for work in ${works//,/ }; do
+    jq -e --arg w "$work" '([.spec.template.spec.containers[0].env[] | select(.name == "ARGUS_TOOL_TIME_LIMIT_SECONDS") | .value | tonumber]) as $l
+        | if ($w == "prowler" or $w == "cloudfox") then $l == [.spec.activeDeadlineSeconds - 1800] else $l == [] end' \
+      "$OUT/$name-$work.json" > /dev/null \
+      || fail "the $work template's tool time limit is not its deadline less 30 minutes"
+  done
+  echo "tool time limits: prowler $(jq -r '.spec.activeDeadlineSeconds' "$OUT/$name-prowler.json") s deadline less 1800 s, cloudfox likewise, none elsewhere"
   if [ -n "$irsa" ]; then
     # The report Job: its own account, component and database role, and no keyring.
     jq -e '.spec.template.spec.serviceAccountName == "argus-report"
@@ -157,6 +166,8 @@ refused "more database connections than Postgres allows" --set api.autoscaling.e
 refused "a scan Job pool below a run's peak" --set database.pools.scanJob=2
 refused "a scan Job that can use more memory than it requested" --set scanJobs.work.prowler.resources.requests.memory=2Gi
 refused "a test Job that can use more memory than it requested" --set scanJobs.work.test.resources.limits.memory=1Gi
+refused "a Prowler deadline too short for its tool and its ingest" --set scanJobs.work.prowler.activeDeadlineSeconds=3600
+refused "a CloudFox deadline too short for its tool and its ingest" --set scanJobs.activeDeadlineSeconds=3600
 refused "a session of no minutes" --set api.session.idleMinutes=0
 refused "no sign-in failures allowed" --set api.signIn.maxFailures=0
 refused "a lockout longer than retention keeps failures" --set api.signIn.lockoutMinutes=43201

@@ -70,17 +70,7 @@ class AwsSource:
                     guard=guard,
                 )
             elif tool == "prowler":
-                result = run_prowler(
-                    out_dir,
-                    env,
-                    regions,
-                    options.cancel,
-                    retry_attempts=options.prowler_retry_attempts,
-                    skip_services=options.prowler_skip_services,
-                    skip_checks=options.prowler_skip_checks,
-                    stream=stream,
-                    guard=guard,
-                )
+                result = run_prowler(out_dir, env, regions, options, stream=stream)
             elif tool == "vulnerabilities":  # on AWS, Inspector is the scanner
                 result = run_inspector(
                     out_dir,
@@ -92,15 +82,7 @@ class AwsSource:
                     guard=guard,
                 )
             else:
-                result = run_cloudfox(
-                    out_dir,
-                    env,
-                    target.account_id,
-                    options.cloudfox_max_goroutines,
-                    options.cancel,
-                    stream=stream,
-                    guard=guard,
-                )
+                result = run_cloudfox(out_dir, env, target.account_id, options, stream=stream)
             # The most the run used, so the operator can size the Job (core/memory.py).
             peak = guard.peak_line() if guard is not None else None
             if peak is not None:
