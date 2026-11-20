@@ -146,6 +146,11 @@ RUN set -eu; cd /tmp; \
       > /tmp/installed-regions; \
     grep -v '^#' /tmp/aws_regions.txt | grep . | diff -u - /tmp/installed-regions; \
     rm -f /tmp/aws_regions.txt /tmp/installed-regions
+# What Argus runs (collection/aws/tools.py PROWLER): Prowler's own entry point, which also lets
+# botocore's retry lines out so the scan's live log counts AWS's retries (owner, 2026-11-19).
+# The build checks that it starts this Prowler, offline.
+COPY --chmod=0755 tools/prowler/launch.py /opt/prowler/bin/prowler-argus
+RUN /opt/prowler/bin/prowler-argus aws --list-services --no-banner | grep -qx -- "- ec2"
 
 # The report renderer from its own lock (tools/report-render/uv.lock), in a venv apart from Argus's
 # so the API image never holds a PDF library (ADR-0047). The script and templates sit beside it.

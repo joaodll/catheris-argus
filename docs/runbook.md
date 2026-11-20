@@ -456,13 +456,26 @@ Watch a run with `docker compose logs -f worker`. It logs "run started", "collec
 "raw output stored" and "run request finished". While a tool runs, its console output also
 appears line by line, on the logger `argus.tool`:
 - `tool`, `connection_id` and `run_uid` tell parallel runs apart.
-- A progress bar is shown at most every 10 seconds.
-- Steampipe has one line per table: started, then finished with its row count, or failed with
-  its first error.
-- A heartbeat every minute says the tool is still running.
+- A progress bar is shown at most every 10 seconds. Prowler runs on a pseudo-terminal, so its
+  bar (`-> Scanning ec2 service`, checks done of total) is shown, with its INFO lines naming the
+  service and call it is on (`EC2 - Starting threads for 'describe_instances' ...`).
+- Steampipe has one line per table: started, then finished with its row count and how long it
+  took, or failed with its reason (a table stopped at its time limit, or killed by the system,
+  says so). Its warnings and errors appear as they come, tagged `[<table>]`.
+- CloudFox's error log (what a module could not read) appears as it is written, tagged
+  `[error log]`.
+- A heartbeat every minute says the tool is still running, with its memory, the Steampipe tables
+  running and how much each has written, and what was counted since the last heartbeat:
+  `AWS calls retried` (a throttle or a transient error that a retry may still answer) and
+  `calls given up throttled` (a call whose retries ran out: its data is missing, and the run
+  ends Partial). The busiest tables are named.
+- A tool printing more than 20 lines a second has the rest left out, and the heartbeat says how
+  many.
 
 Every line is redacted before it is logged, as the Runs page's log is. Tools keep their quiet
-modes, and CloudFox stays at `--verbosity 1`; a louder level prints secret values. To read only
+modes, and CloudFox stays at `--verbosity 1`; a louder level prints secret values. Prowler runs at
+INFO, never DEBUG (botocore then prints requests and answers whole); only botocore's one-line
+retry notice is let out, and it is counted, not printed. To read only
 the tool's words:
 
 ```bash

@@ -10,7 +10,7 @@ import stat
 import threading
 import time
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -119,6 +119,16 @@ def fakes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             # A table the export stopped: exit 1, the SDK's error on stdout, no rows (1.34.1).
             'if grep -qx "$1" "$HOME/../exit1.txt" 2>/dev/null; then\n'
             '  echo "[ERROR] Error executing query: aws: operation error X: Y"; exit 1; fi\n'
+            # A table whose calls were retried and then answered: at INFO, as Argus runs it.
+            'if grep -qx "$1" "$HOME/../retried.txt" 2>/dev/null; then\n'
+            '  echo "[INFO]  1: BackoffDelay: attempt=1, retryTime=63ms, err=api error '
+            'Throttling: Rate exceeded" >&2\n'
+            '  echo "[INFO]  2: listRegions: connection_name=aws" >&2; fi\n'
+            # A table still running when its time limit comes (a row out, then nothing).
+            'if grep -qx "$1" "$HOME/../slow.txt" 2>/dev/null; then\n'
+            '  echo \'{"arn": "x"}\'; sleep 60; fi\n'
+            # A table the kernel kills (its OOM killer, in a scan Job), not Argus.
+            'if grep -qx "$1" "$HOME/../killed.txt" 2>/dev/null; then kill -9 $$; fi\n'
             'echo \'{"arn": "x"}\'\n',
         ),
     )
@@ -858,6 +868,10 @@ def test_a_not_applicable_table_keeps_its_reason_too(fakes: Path) -> None:
     ("errors", "expected"),
     [
         ("", "aws_x: exit code 1, nothing on standard error"),
+        (
+            "[ERROR] 1: aws_x.list: retried\nargus: stopped after its time limit of 3 h\n",
+            "aws_x: stopped after its time limit of 3 h",
+        ),
         ("Plugin.getSchema failed\n", "aws_x: Plugin.getSchema failed"),
         (
             '[ERROR] 1: aws_x.list: api_error="operation error FMS: ListPolicies, https '
@@ -869,7 +883,7 @@ def test_a_not_applicable_table_keeps_its_reason_too(fakes: Path) -> None:
         ("[ERROR] 1: " + "word " * 100, None),  # cut to the limit
         (f"[ERROR] 1: DB_PASSWORD={SECRET}\n", None),  # redacted
     ],
-    ids=["nothing-printed", "stdout-only", "sdk-answer", "too-long", "secret"],
+    ids=["nothing-printed", "timed-out", "stdout-only", "sdk-answer", "too-long", "secret"],
 )
 def test_a_table_reason_fits_the_manifest(errors: str, expected: str | None) -> None:
     reason = aws_tools.table_error("aws_x", 1, errors)
@@ -1092,11 +1106,12 @@ def test_steampipe_says_each_table_live(fakes: Path, caplog: pytest.LogCaptureFi
     total = len(aws_tools.steampipe_tables())
     assert "argus: table aws_iam_role started" in lines
     assert any(
-        re.fullmatch(rf"argus: table aws_iam_role finished, 1 rows \(\d+ of {total}\)", m)
+        re.fullmatch(rf"argus: table aws_iam_role finished in \d+ s, 1 rows \(\d+ of {total}\)", m)
         for m in lines
     )
     assert any(
-        m.startswith("argus: table aws_s3_bucket failed (") and "AccessDenied" in m for m in lines
+        re.match(r"argus: table aws_s3_bucket failed after \d+ s \(", m) and "AccessDenied" in m
+        for m in lines
     )
     assert all(r.tool == "steampipe" for r in caplog.records if r.name == "argus.tool")  # type: ignore[attr-defined]
 
@@ -1110,3 +1125,176 @@ def test_prowler_output_reaches_the_live_log(fakes: Path, caplog: pytest.LogCapt
         r.getMessage() for r in caplog.records if r.name == "argus.tool"
     ]
     assert "-> Scanning accessanalyzer service" in manifest.log_tail  # the Runs page, unchanged
+
+
+@pytest.mark.parametrize(
+    ("rc", "errors", "expected"),
+    [
+        (-9, "", "aws_x: killed by the system (most likely out of memory)"),
+        (
+            -9,
+            "[ERROR] 1: aws_x.list: retried\n",
+            "aws_x: killed by the system (most likely out of memory)",
+        ),
+        (-15, "", "aws_x: killed by signal 15, nothing on standard error"),
+    ],
+    ids=["oom-silent", "oom-after-errors", "terminated"],
+)
+def test_a_table_killed_not_by_argus_says_so(rc: int, errors: str, expected: str) -> None:
+    """The owner's Inspector table read "exit code -9, nothing on standard error" (2026-11-19):
+    a -9 that Argus did not send is the kernel's OOM killer, and the reason says so."""
+    assert aws_tools.table_error("aws_x", rc, errors) == expected
+
+
+def test_a_table_past_its_time_limit_is_stopped_and_named(
+    fakes: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Each table has its own limit (Inspector's findings take hours on a large account); a
+    table stopped at it is left out with that reason, never taken for "not applicable"."""
+    monkeypatch.setattr(aws_tools, "TABLE_TIMEOUTS", {"aws_iam_role": timedelta(seconds=1)})
+    _control(fakes / "homes", "slow.txt", "aws_iam_role\n")
+    _control(fakes / "homes", "denied.txt", "aws_iam_role\n")
+    _control(fakes / "homes", "denied.err", STEAMPIPE_NOT_USED)  # would read "not applicable"
+    with caplog.at_level(logging.INFO, logger="argus.tool"):
+        _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
+    assert aws_tools.table_timeout("aws_iam_role") == timedelta(seconds=1)
+    assert aws_tools.table_timeout("aws_s3_bucket") == aws_tools.TABLE_TIMEOUT
+    assert manifest.status == "partial"
+    assert "aws_iam_role" in manifest.incomplete_tables
+    assert "aws_iam_role" not in manifest.not_applicable_tables
+    assert "aws_iam_role: stopped after its time limit of 1 s" in manifest.table_errors
+    assert not any(f.path == "aws_iam_role.jsonl" for f in manifest.files)  # its rows dropped
+    lines = [r.getMessage() for r in caplog.records if r.name == "argus.tool"]
+    assert any(
+        m.startswith("argus: table aws_iam_role failed after ")
+        and m.endswith("aws_iam_role: stopped after its time limit of 1 s")
+        for m in lines
+    )
+
+
+def test_a_table_the_kernel_kills_is_named_as_such(fakes: Path) -> None:
+    _control(fakes / "homes", "killed.txt", "aws_iam_role\n")
+    _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
+    assert manifest.status == "partial"
+    assert "aws_iam_role: killed by the system (most likely out of memory)" in manifest.table_errors
+
+
+def _reference_only_json_rows(text: bytes) -> bool:
+    """What table_failed checked before it read in blocks (on newline-split lines)."""
+    return all(line.startswith(b"{") for line in text.split(b"\n") if line not in (b"", b"\r"))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        b"",
+        b'{"a": 1}\n{"b": 2}\n',
+        b'{"a": 1}\n{"b": 2}',
+        b'{"a": 1}\r\n{"b": 2}\r\n',
+        b'{"a": 1}\n\n\n{"b": 2}\n',
+        b'{"a": "a long value that spans many blocks"}\nError: no\n',
+        b"Error: aws: operation error\n",
+        b'{"a": 1}\nx',
+        b'{"a": "no { at a block start"}\n{"b": "x"}\n',
+    ],
+    ids=[
+        "empty",
+        "rows",
+        "no-final-newline",
+        "crlf",
+        "blank-lines",
+        "error-after-long-row",
+        "error-only",
+        "error-at-end",
+        "brace-mid-row",
+    ],
+)
+@pytest.mark.parametrize("block", [1, 2, 3, 5, 7, 1 << 20], ids=lambda b: f"block-{b}")
+def test_rows_are_judged_in_blocks_as_they_were_whole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, text: bytes, block: int
+) -> None:
+    """A large account's table is gigabytes: read whole it killed the scan Job (2026-11-19).
+    Read in blocks of any size, the verdict is the one the whole file gave."""
+    monkeypatch.setattr(aws_tools, "READ_BLOCK", block)
+    rows = tmp_path / "t.jsonl"
+    rows.write_bytes(text)
+    assert aws_tools.only_json_rows(rows) is _reference_only_json_rows(text)
+
+
+@pytest.mark.parametrize(
+    ("seconds", "words"),
+    [
+        (0, "0 s"),
+        (59, "59 s"),
+        (60, "1 min"),
+        (1799, "29 min"),
+        (3600, "1 h"),
+        (11100, "3 h 5 min"),
+    ],
+)
+def test_a_duration_reads_at_a_glance(seconds: int, words: str) -> None:
+    assert aws_tools.span(timedelta(seconds=seconds)) == words
+
+
+def test_a_table_whose_retries_succeeded_is_complete_and_counted(
+    fakes: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The plugin runs at INFO so the live log can count its retries (owner, 2026-11-19); a
+    retry that was answered loses nothing, so the table stays complete: its error file gets
+    what the default level gave, no INFO line."""
+    _control(fakes / "homes", "retried.txt", "aws_iam_role\n")
+    with caplog.at_level(logging.INFO, logger="argus.tool"):
+        _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
+    assert manifest.status == "complete"
+    assert manifest.throttle_events == 0
+    assert "aws_iam_role" not in manifest.incomplete_tables
+    env = (fakes / "homes" / "env-steampipe.txt").read_text().splitlines()
+    assert "STEAMPIPE_LOG_LEVEL=INFO" in env
+    messages = [r.getMessage() for r in caplog.records if r.name == "argus.tool"]
+    assert not any("BackoffDelay" in m or "listRegions" in m for m in messages)
+
+
+def test_prowler_says_live_what_it_does_and_the_runs_page_keeps_its_errors(
+    fakes: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    info = (
+        "2026-11-19 18:20:38,438 [File: service.py:63] \t[Module: service]\t INFO: EC2 - "
+        "Starting threads for 'describe_instances' function across 17 regions..."
+    )
+    retry = (
+        "2026-11-19 18:20:38,534 [File: standard.py:91] \t[Module: standard]\t DEBUG: Retry "
+        "needed, retrying request after delay of: 0.34"
+    )
+    error = (
+        "2026-11-19 18:20:39,000 [File: service.py:90] \t[Module: service]\t ERROR: us-east-1 "
+        "-- ClientError[90]: An error occurred (InternalError) when calling DescribeInstances"
+    )
+    _control(fakes / "homes", "prowler.out", f"{info}\n{retry}\n{error}\n")
+    with caplog.at_level(logging.INFO, logger="argus.tool"):
+        _, manifest = _run(fakes, "prowler")
+    argv = (fakes / "homes" / "argv.txt").read_text()
+    assert "--log-level INFO" in argv
+    assert "DEBUG" not in argv
+    messages = [r.getMessage() for r in caplog.records if r.name == "argus.tool"]
+    assert any("Starting threads for 'describe_instances'" in m for m in messages), messages
+    assert not any("Retry needed" in m for m in messages)  # counted, not printed
+    assert "InternalError" in manifest.log_tail
+    assert "Starting threads" not in manifest.log_tail
+    assert "Retry needed" not in manifest.log_tail
+
+
+def test_cloudfox_errors_reach_the_live_log_as_it_runs(
+    fakes: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _control(
+        fakes / "homes",
+        "cloudfox.errors",
+        'time="t" level=error module=lambda msg="operation error Lambda: ListFunctions, '
+        'api error ThrottlingException: Rate exceeded arn:aws:lambda:us-east-1:210987654321:x"\n'
+        'time="t" level=error msg="another account arn:aws:iam::123456789012:role/r"\n',
+    )
+    with caplog.at_level(logging.INFO, logger="argus.tool"):
+        _run(fakes, "cloudfox")
+    messages = [r.getMessage() for r in caplog.records if r.name == "argus.tool"]
+    assert any(m.startswith("[error log]") and "ThrottlingException" in m for m in messages)
+    assert not any("123456789012" in m for m in messages)

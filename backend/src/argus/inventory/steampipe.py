@@ -11,9 +11,10 @@ hashing, so a counter that changes every day does not create a new configuration
 
 import hashlib
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, NamedTuple
 
 from argus.core.manifest import Manifest
@@ -347,9 +348,7 @@ def parse_steampipe(run: RawRun) -> InventoryBatch:
         cols = COLUMNS.get(table)
         built = BUILT_UIDS.get(table)
         aws_owned = AWS_OWNED.get(table)
-        for line in run.path(file.path).read_text().splitlines():
-            if not line:
-                continue
+        for line in _rows(run.path(file.path)):
             # Decoded before anything reads the row, and before redaction.
             row = {k: _decode(v) for k, v in json.loads(line).items()}
             if aws_owned and aws_owned(row):
@@ -408,3 +407,15 @@ def _scope(
     if manifest.status == "partial" and incomplete:
         return seen - incomplete, incomplete
     return frozenset(), None
+
+
+def _rows(path: Path) -> Iterator[bytes]:
+    """A table file's non-empty JSONL lines, one at a time: a large account's table is
+    gigabytes, read whole it killed the scan Job that ingests it (2026-11-19). Split on newlines
+    only: the export writes one row per line, and a row's text may hold other line breaks
+    (U+0085) that str.splitlines would cut it at."""
+    with path.open("rb") as data:
+        for raw in data:
+            line = raw.rstrip(b"\r\n")
+            if line:
+                yield line

@@ -254,11 +254,21 @@ def describe_files(run_dir: Path) -> list[ManifestFile]:
         rel = file.relative_to(run_dir).as_posix()
         if rel == MANIFEST_NAME or rel.startswith("."):
             continue
-        data = file.read_bytes()
-        files.append(
-            ManifestFile(path=rel, bytes=len(data), sha256=hashlib.sha256(data).hexdigest())
-        )
+        size, digest = _measure(file)
+        files.append(ManifestFile(path=rel, bytes=size, sha256=digest))
     return files
+
+
+def _measure(file: Path) -> tuple[int, str]:
+    """A file's size and sha256, read in blocks: a large account's table is gigabytes, which
+    must never sit in a scan Job's memory at once (2026-11-19)."""
+    digest = hashlib.sha256()
+    size = 0
+    with file.open("rb") as data:
+        while block := data.read(1 << 20):
+            digest.update(block)
+            size += len(block)
+    return size, digest.hexdigest()
 
 
 def read_run(store: RawStore, path: str) -> RawRun:
