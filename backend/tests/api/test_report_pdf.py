@@ -3,6 +3,7 @@ venv in the reports and worker images and proves itself at image build (render.p
 here its input is checked: what crosses into it, grouped, capped, and named."""
 
 import json
+from collections import Counter
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -122,8 +123,8 @@ def test_a_vulnerabilities_pdf_carries_each_cves_facts(
 def test_the_caps_cut_the_list_never_the_counts(owner: Engine, worker: Engine, demo: int) -> None:
     filters = FindingFilters(connection_ids=(demo,), tools=("prowler", "cloudfox"))
     with worker.connect() as conn:
-        full = pdf.collect(conn, "misconfigurations", filters)
-        cut = pdf.collect(conn, "misconfigurations", filters, per_block=2, cap=7)
+        full = pdf.collect(conn, "misconfigurations", filters, today=DAY)
+        cut = pdf.collect(conn, "misconfigurations", filters, today=DAY, per_block=2, cap=7)
     assert cut.total == full.total and cut.by_severity == full.by_severity
     assert cut.listed == 7 and cut.truncated
     assert all(len(g.rows) <= 2 for g in cut.groups)
@@ -234,6 +235,7 @@ def test_the_context_is_plain_json(demo: int, worker: Engine) -> None:
             conn,
             "vulnerabilities",
             FindingFilters(connection_ids=(demo,), tools=("vulnerabilities",)),
+            today=DAY,
         )
     context = pdf.build_context(
         collected,
@@ -272,7 +274,10 @@ def test_past_the_detailed_blocks_checks_are_named_then_counted(
     monkeypatch.setattr(pdf, "PDF_NAMED_CAP", 4)
     with worker.connect() as conn:
         collected = pdf.collect(
-            conn, "misconfigurations", FindingFilters(connection_ids=(demo,), tools=("prowler",))
+            conn,
+            "misconfigurations",
+            FindingFilters(connection_ids=(demo,), tools=("prowler",)),
+            today=DAY,
         )
     context = pdf.build_context(
         collected,
@@ -290,3 +295,143 @@ def test_past_the_detailed_blocks_checks_are_named_then_counted(
     assert context["more_others"] == groups - 7
     named = [o["check_id"] for o in context["others"]]
     assert named == [g.check_id for g in collected.groups[3:7]]  # worst first, after the blocks
+
+
+def _context(conn: Connection, kind: str, demo: int) -> dict[str, Any]:
+    tools = ("prowler", "cloudfox") if kind == "misconfigurations" else ("vulnerabilities",)
+    collected = pdf.collect(
+        conn,
+        kind,
+        FindingFilters(connection_ids=(demo,), tools=tools),
+        today=DAY,  # type: ignore[arg-type]
+    )
+    return pdf.build_context(
+        collected,
+        report_id=1,
+        kind=kind,  # type: ignore[arg-type]
+        requested_by="admin",
+        generated_at=datetime(2026, 11, 19, tzinfo=UTC),
+        scope_words="all",
+        severities_in_scope=list(pdf.SEVERITIES),
+        data_through={demo: DAY},
+    )
+
+
+@pytest.mark.parametrize("kind", ["misconfigurations", "vulnerabilities"])
+def test_the_summary_names_the_worst_resources_and_where_they_are(
+    worker: Engine, demo: int, kind: str
+) -> None:
+    """Spec frontend/709108a0: resources worst first with their counts by severity, the most
+    common checks or CVEs by resources, the regions, and the severity share bar."""
+    tools = ("prowler", "cloudfox") if kind == "misconfigurations" else ("vulnerabilities",)
+    with worker.connect() as conn:
+        context = _context(conn, kind, demo)
+        rows = [
+            r
+            for batch in findings.iter_findings(
+                conn, FindingFilters(connection_ids=(demo,), tools=tools)
+            )
+            for r in batch
+        ]
+    per_resource: dict[Any, list[int]] = {}
+    for r in rows:
+        key = r["resource_id"] if r["resource_id"] is not None else r["resource_uid"]
+        counts = per_resource.setdefault(key, [0] * 5)
+        counts[pdf.SEVERITIES.index(r["severity"])] += 1
+    assert context["resources"] == len(per_resource) > 0
+
+    worst = context["worst"]
+    assert 0 < len(worst) <= pdf.TOP_RESOURCES
+    ranks = [
+        tuple(
+            -next((c["count"] for c in w["chips"] if c["severity"] == s), 0) for s in pdf.SEVERITIES
+        )
+        for w in worst
+    ]
+    assert ranks == sorted(ranks)  # most critical first, then most high, and so on
+    expected_first = min(tuple(-n for n in counts) for counts in per_resource.values())
+    assert ranks[0] == expected_first
+    for w in worst:
+        assert w["total"] == sum(c["count"] for c in w["chips"]) > 0
+        assert w["uid"] and w["account"] and w["account_id"]
+        assert all(c["count"] > 0 and c["letter"] for c in w["chips"])
+
+    common = context["common"]
+    assert 0 < len(common) <= pdf.TOP_COMMON
+    assert [c["resources"] for c in common] == sorted(
+        (c["resources"] for c in common), reverse=True
+    )
+
+    assert (
+        sum(r["findings"] for r in context["by_region"]) == context["total"]
+        or context["more_regions"]
+    )
+    shares = context["shares"]
+    assert sum(s["width"] for s in shares) == pdf.BAR_UNITS
+    assert [s["x"] for s in shares] == [
+        sum(s["width"] for s in shares[:i]) for i in range(len(shares))
+    ]
+    assert round(sum(s["percent"] for s in shares)) == 100
+
+
+def test_assets_by_category_are_the_overviews(
+    signed_in: TestClient, worker: Engine, demo: int
+) -> None:
+    """The PDF's "Assets by category" counts what the Overview's Inventory card counts: one
+    taxonomy (metrics.categories), each account at its latest inventory scan."""
+    with worker.connect() as conn:
+        context = _context(conn, "misconfigurations", demo)
+    overview = signed_in.get(
+        "/api/v1/overview", params={"connection_id": demo, "as_of": DAY.isoformat()}
+    ).json()
+    by_category: dict[str, int] = {}
+    for row in overview["inventory"]["by_type"]:
+        by_category[row["category"]] = by_category.get(row["category"], 0) + int(row["count"])
+    assert {a["category"]: a["count"] for a in context["assets"]} == by_category
+    assert context["assets"][-1]["category"] == "Other" or "Other" not in by_category
+    counts = [a["count"] for a in context["assets"] if a["category"] != "Other"]
+    assert counts == sorted(counts, reverse=True)
+
+
+def test_a_pdf_without_any_inventory_says_not_covered(
+    owner: Engine, worker: Engine, store: FilesystemRawStore
+) -> None:
+    target = make_demo(owner)
+    run_tool(worker, store, target, "prowler", DAY)
+    with worker.connect() as conn:
+        context = _context(conn, "misconfigurations", target.connection_id)
+    assert context["total"] > 0 and context["assets"] is None  # "not covered", never 0
+
+
+def test_the_report_role_builds_a_pdf_with_its_assets(
+    signed_in: TestClient,
+    reports_role: Engine,
+    root: Path,
+    demo: int,
+    rendered: list[dict[str, Any]],
+) -> None:
+    """argus_reports (the Kubernetes report Job) reads metric_daily since migration 0058."""
+    report_id = _ask(signed_in, "misconfigurations").json()["id"]
+    assert reports.build_pending(reports_role, store=reports.LocalReportStore(root))
+    report = signed_in.get(f"/api/v1/reports/{report_id}").json()
+    assert report["status"] == "ready", report["error"]
+    (context,) = rendered
+    assert context["assets"] and context["worst"]
+
+
+def test_the_share_bar_always_makes_the_whole() -> None:
+    """Whole thousandths in order, by largest remainder, even with a severity word Argus does not
+    know (the renderer refuses a bar that is not exactly the whole)."""
+    for counts in (
+        {"critical": 1, "high": 1, "medium": 1},
+        {"critical": 114, "high": 151, "medium": 199, "low": 22},
+        {"low": 7},
+        {"critical": 1, "unheard-of": 5},
+    ):
+        shares = pdf._shares(Counter(counts), sum(counts.values()))
+        assert sum(s["width"] for s in shares) == pdf.BAR_UNITS
+        assert all(isinstance(s["x"], int) and isinstance(s["width"], int) for s in shares)
+        assert [s["x"] for s in shares] == [
+            sum(s["width"] for s in shares[:i]) for i in range(len(shares))
+        ]
+    assert pdf._shares(Counter(), 0) == []

@@ -11,10 +11,10 @@ from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from sqlalchemy import Connection
 
-from argus import attackpaths, ingest, inventory, relationships
+from argus import attackpaths, ingest, inventory, metrics, relationships
 from argus.api.deps import Db, Viewer
 from argus.api.routes.resource_map import NodeFacts, resource_facts
 from argus.core.config import get_settings
@@ -39,6 +39,13 @@ class NodeRef(BaseModel):
     name: str | None
     connection_id: int | None
     deleted_on: date | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def category(self) -> str | None:
+        """The type's asset category, for the card's glyph on the Map's Attack Path view; null
+        without a type."""
+        return metrics.asset_category(self.type)
 
 
 class StepNode(NodeRef):

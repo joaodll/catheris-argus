@@ -15,6 +15,10 @@
   --text: #14171a; --text-2: #434a53; --text-3: #5b636d; --link: #08676d;
   --sev-critical: #b51f43; --sev-high: #9e4a06; --sev-medium: #7d6000; --sev-low: #6b5d27;
   --sev-informational: #2157bb;
+  /* The light theme's severity colours at 12% over white (tiles, chips), and at full strength
+     (the share bar). Words over a tint keep the text grade above. */
+  --tint-critical: #fae5ea; --tint-high: #faeae0; --tint-medium: #f1ede0; --tint-low: #eeede7;
+  --tint-informational: #e6edfa;
 }
 @page {
   size: A4;
@@ -79,6 +83,26 @@ table.list td { padding: 3pt 4pt; border-bottom: 1px solid var(--border); vertic
 table.list tbody tr:nth-child(even) td { background: var(--sunken); }
 table.list td.num, table.list th.num { text-align: right; }
 .sub { display: block; font-family: "JetBrains Mono", monospace; font-size: 6.5pt; color: var(--text-3); overflow-wrap: anywhere; }
+.strong { font-weight: 600; }
+.tint-critical, .strip td.tint-critical { background: var(--tint-critical); }
+.tint-high, .strip td.tint-high { background: var(--tint-high); }
+.tint-medium, .strip td.tint-medium { background: var(--tint-medium); }
+.tint-low, .strip td.tint-low { background: var(--tint-low); }
+.tint-informational, .strip td.tint-informational { background: var(--tint-informational); }
+.strip td.out { background: var(--tile); }
+.bar { display: block; width: 100%; height: 6pt; margin: 0 0 3pt; }
+.legend { font-size: 6.5pt; letter-spacing: .06em; text-transform: uppercase; color: var(--text-3); margin-bottom: 10pt; }
+.legend .item { margin-right: 10pt; white-space: nowrap; }
+.swatch { display: inline-block; width: 6pt; height: 6pt; margin-right: 3pt; vertical-align: 0; }
+.fill-critical { background: #d42a52; } .fill-high { background: #b35200; } .fill-medium { background: #8a6800; }
+.fill-low { background: #73673a; } .fill-informational { background: #2d6bd8; }
+.chip { display: inline-block; border-radius: 2pt; padding: 0 3pt; margin: 0 2pt 1pt 0; font-family: "JetBrains Mono", monospace;
+  font-size: 6.5pt; font-weight: 700; line-height: 1.6; white-space: nowrap; }
+.actions td.sev { width: 32%; white-space: nowrap; }
+.actions .n { font-family: "JetBrains Mono", monospace; font-weight: 600; margin-left: 4pt; }
+.keep { page-break-inside: avoid; break-inside: avoid; }
+table.list thead { display: table-header-group; }
+.gap { margin-top: 12pt; }
 .read { margin-top: 12pt; }
 .read p { margin: 0 0 2pt; }
 
@@ -128,19 +152,78 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
   <div class="confidential">CONFIDENTIAL. This report names the security weaknesses of the accounts above. Share it only with the people who fix them.</div>
 </section>
 
+{% set fills = {"critical": "#d42a52", "high": "#b35200", "medium": "#8a6800", "low": "#73673a", "informational": "#2d6bd8"} %}
+{% set actions = {
+  "critical": "Fix first: these are the most likely to be exploited.",
+  "high": "Plan the fix now.",
+  "medium": "Include in the next change cycle.",
+  "low": "Fix as part of routine work.",
+  "informational": "Fix as part of routine work.",
+} %}
+{% set unit = "findings" if ctx.kind == "misconfigurations" else "vulnerabilities" %}
 <section>
   <h2 class="section">Summary</h2>
   <table class="strip"><tr>
     {% for s in ctx.severities %}
-    <td><span class="pill sev-{{ s.severity }}">{{ s.severity }}</span>
-      <span class="count">{% if s.in_scope %}{{ s.count | num }}{% else %}—{% endif %}</span>
+    {% set k = m.known(s.severity) %}
+    <td class="{{ 'tint-' ~ k if s.in_scope else 'out' }}"><span class="pill sev-{{ k }}">{{ s.severity }}</span>
+      <span class="count{% if s.in_scope %} sev-{{ k }}{% endif %}">{% if s.in_scope %}{{ s.count | num }}{% else %}—{% endif %}</span>
       {% if not s.in_scope %}<span class="caption">not in this report</span>{% endif %}</td>
     {% endfor %}
   </tr></table>
+  {% if ctx.shares %}
+  <svg class="bar" viewBox="0 0 1000 6" preserveAspectRatio="none" role="img" aria-label="Share of each severity">
+    {% for b in ctx.shares %}<rect x="{{ b.x }}" y="0" width="{{ b.width - 2 if not loop.last and b.width > 2 else b.width }}" height="6" fill="{{ fills[m.known(b.severity)] }}"/>{% endfor %}
+  </svg>
+  <div class="legend">{% for b in ctx.shares %}<span class="item"><span class="swatch fill-{{ m.known(b.severity) }}"></span>{{ b.severity }} {{ "%.1f" | format(b.percent) }}%</span>{% endfor %}</div>
+  {% endif %}
   {% if ctx.total == 0 %}
   <p class="empty">Nothing matched this report's filters{% if ctx.data_through %} on {{ ctx.data_through }}{% endif %}.</p>
   {% else %}
-  <table class="halves"><tr>
+  <div class="keep">
+    <div class="label">Recommended actions</div>
+    <table class="list actions"><tbody>
+      {% for s in ctx.severities if s.in_scope and s.count %}
+      {% set k = m.known(s.severity) %}
+      <tr><td class="sev"><span class="pill sev-{{ k }}">{{ s.severity }}</span><span class="n sev-{{ k }}">{{ s.count | num }}</span> <span class="caption">{{ unit }}</span></td><td>{{ actions[k] }}</td></tr>
+      {% endfor %}
+    </tbody></table>
+  </div>
+
+  <div class="gap"><div class="label">Resources with problems</div>
+  <p class="caption">Worst first: most critical, then high, and so on. {{ ctx.worst | length | num }} of {{ ctx.resources | num }} resources with {{ unit }} in this report.</p></div>
+  <table class="list">
+    <thead><tr><th>Resource</th><th style="width:26%">Where</th><th style="width:16%">Type</th><th style="width:16%">Severity</th><th class="num" style="width:8%">Total</th></tr></thead>
+    <tbody>{% for r in ctx.worst %}
+      <tr>
+        <td><span class="strong">{{ r.name or "—" }}</span><span class="sub">{{ r.uid }}</span></td>
+        <td>{{ m.where(r) }}</td>
+        <td class="mono">{{ r.type or "—" }}</td>
+        <td>{% for c in r.chips %}{{ m.chip(c) }} {% endfor %}</td>
+        <td class="num mono">{{ r.total | num }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  <div class="caption more">C critical · H high · M medium · L low · I informational</div>
+
+  <div class="gap"><div class="label">{{ "Most common checks" if ctx.kind == "misconfigurations" else "Most common vulnerabilities" }}</div></div>
+  <table class="list">
+    <thead><tr><th style="width:14%">Severity</th><th>{{ "Check" if ctx.kind == "misconfigurations" else "Vulnerability" }}</th><th class="num" style="width:14%">Resources</th><th class="num" style="width:14%">Accounts</th></tr></thead>
+    <tbody>{% for c in ctx.common %}
+      <tr>
+        <td>{{ m.pill(c.severity) }}</td>
+        {% if ctx.kind == "misconfigurations" %}
+        <td>{{ c.title }}<span class="sub">{{ c.tool }} · {{ c.check_id }}</span></td>
+        {% else %}
+        <td><span class="mono strong">{{ c.check_id }}</span><span class="sub">{{ c.title }}</span></td>
+        {% endif %}
+        <td class="num mono">{{ c.resources | num }}</td>
+        <td class="num mono">{{ c.accounts | num }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+
+  <table class="halves gap"><tr>
     <td>
       <div class="label">By account</div>
       <table class="list">
@@ -162,6 +245,38 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
       {% if ctx.more_types %}<div class="caption more">and {{ ctx.more_types | num }} more types</div>{% endif %}
     </td>
   </tr></table>
+  {% endif %}
+
+  <table class="halves gap keep"><tr>
+    <td>
+      {% if ctx.total %}
+      <div class="label">By region</div>
+      <table class="list">
+        <thead><tr><th>Region</th><th class="num">Findings</th></tr></thead>
+        <tbody>{% for r in ctx.by_region %}
+          <tr><td class="mono">{{ r.region or "global" }}</td><td class="num mono">{{ r.findings | num }}</td></tr>
+        {% endfor %}</tbody>
+      </table>
+      {% if ctx.more_regions %}<div class="caption more">and {{ ctx.more_regions | num }} more regions</div>{% endif %}
+      {% endif %}
+    </td>
+    <td>
+      <div class="label">Assets by category</div>
+      {% if ctx.assets is none %}
+      <p class="caption">Not covered: no inventory scan yet for these accounts.</p>
+      {% else %}
+      <table class="list">
+        <thead><tr><th>Category</th><th class="num">Assets</th></tr></thead>
+        <tbody>{% for a in ctx.assets %}
+          <tr><td>{{ a.category }}</td><td class="num mono">{{ a.count | num }}</td></tr>
+        {% endfor %}</tbody>
+      </table>
+      <div class="caption more">Whole accounts at their latest inventory scan, not filtered by this report.</div>
+      {% endif %}
+    </td>
+  </tr></table>
+
+  {% if ctx.total %}
   <div class="read caption">
     <p>Worst first: each block is one {{ "check, with its risk" if ctx.kind == "misconfigurations" else "vulnerability, with its description" }}, the fix, and the resources it affects.</p>
     <p>A block lists at most {{ ctx.caps.per_block }} resources, and this report at most {{ ctx.caps.total | num }}. The CSV report has every row.</p>

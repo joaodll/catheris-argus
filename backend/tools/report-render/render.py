@@ -66,10 +66,31 @@ def _web_link(url: Any) -> str:
     return ""
 
 
+BAR_UNITS = 1000
+
+
+def _check_bar(shares: Any) -> None:
+    """The share bar's numbers go into SVG attributes: integers only, inside the bar, adding up
+    to the whole. Anything else is refused, so no text from the context reaches the drawing."""
+    if not isinstance(shares, list):
+        raise ValueError("shares: not a list")
+    x = 0
+    for share in shares:
+        start, width = share.get("x"), share.get("width")
+        if type(start) is not int or type(width) is not int or start != x or width < 0:
+            raise ValueError("shares: not whole units in order")
+        if share.get("severity") not in SEVERITIES:
+            raise ValueError("shares: unknown severity")
+        x += width
+    if shares and x != BAR_UNITS:
+        raise ValueError("shares: the parts do not make the whole")
+
+
 def render_html(context: dict[str, Any]) -> str:
     kind = context["kind"]
     if kind not in KINDS:
         raise ValueError(f"unknown report kind: {kind!r}")
+    _check_bar(context["shares"])
     env = Environment(
         loader=FileSystemLoader(TEMPLATES),
         autoescape=True,
@@ -129,6 +150,44 @@ def sample(kind: str, *, blocks: int, rows: int, text: str, others: int = 1) -> 
         "more_accounts": 2,
         "by_type": [{"type": text, "findings": 9}],
         "more_types": 0,
+        "by_region": [{"region": text, "findings": 9}, {"region": None, "findings": 2}],
+        "more_regions": 1,
+        "shares": [
+            {"severity": "critical", "x": 0, "width": 189, "percent": 18.9},
+            {"severity": "high", "x": 189, "width": 324, "percent": 32.4},
+            {"severity": "medium", "x": 513, "width": 297, "percent": 29.7},
+            {"severity": "informational", "x": 810, "width": 190, "percent": 19.0},
+        ],
+        "resources": max(rows, 1) * 2,
+        "worst": [
+            {
+                "name": f"{text}-{i}" if i % 4 else None,
+                "uid": f"arn:aws:ec2:us-east-1:123456789012:instance/i-{i:017x}",
+                "account": text,
+                "account_id": "123456789012",
+                "region": "us-east-1" if i % 3 else None,
+                "type": "aws_ec2_instance",
+                "chips": [
+                    {"severity": "critical", "letter": "C", "count": 2},
+                    {"severity": "high", "letter": "H", "count": 3},
+                    {"severity": text, "letter": text, "count": 1},
+                ],
+                "total": 6,
+            }
+            for i in range(min(rows, 25))
+        ],
+        "common": [
+            {
+                "severity": SEVERITIES[i % 5],
+                "title": text,
+                "tool": "prowler",
+                "check_id": f"check_{i}",
+                "resources": 40 - i,
+                "accounts": 2,
+            }
+            for i in range(min(blocks, 10))
+        ],
+        "assets": [{"category": "Compute", "count": 106}, {"category": text, "count": 2}],
         "blocks": [
             {
                 "tool": "prowler",
@@ -199,8 +258,20 @@ def self_test() -> None:
         _, pages, refused = render_pdf(html)
         _check(refused == [], f"the renderer was asked to fetch {refused}")
         _check(pages >= 3, f"{kind}: {pages} pages")
+        bad = sample(kind, blocks=1, rows=1, text="x")
+        for shares in (
+            [{"severity": "critical", "x": 0, "width": "100%", "percent": 1}],
+            [{"severity": "critical", "x": 0, "width": 999, "percent": 1}],
+            [{"severity": HOSTILE, "x": 0, "width": 1000, "percent": 1}],
+        ):
+            try:
+                render_html({**bad, "shares": shares})
+            except ValueError:
+                continue
+            raise SelfTestError(f"a share bar of {shares!r} was drawn")
         empty = sample(kind, blocks=0, rows=0, text="none")
-        _, empty_pages, _ = render_pdf(render_html({**empty, "total": 0, "listed": 0}))
+        empty = {**empty, "total": 0, "listed": 0, "shares": [], "assets": None}
+        _, empty_pages, _ = render_pdf(render_html(empty))
         _check(empty_pages >= 2, f"{kind} empty: {empty_pages} pages")
     print("self-test passed")
 

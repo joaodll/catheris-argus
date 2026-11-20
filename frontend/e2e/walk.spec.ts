@@ -808,7 +808,7 @@ test('map, Infrastructure view: the start, a map as a diagram, the panel and the
   const graph = (await (await answered).json()) as { nodes: Record<string, unknown>[] }
   expect(graph.nodes.length).toBeGreaterThan(1)
   for (const node of graph.nodes) {
-    expect(Object.keys(node).sort()).toEqual(['boundary', 'connection_id', 'deleted_on', 'expanded', 'kind', 'name', 'provider', 'region', 'resource_id', 'type', 'uid'])
+    expect(Object.keys(node).sort()).toEqual(['boundary', 'category', 'connection_id', 'deleted_on', 'expanded', 'kind', 'name', 'provider', 'region', 'resource_id', 'type', 'uid'])
   }
   // A map opens at the canvas's full width; the panel comes when a card is chosen.
   await expect(page.getByRole('complementary', { name: 'Resource panel' })).toHaveCount(0)

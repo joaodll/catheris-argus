@@ -16,27 +16,18 @@ describe("a resource type's glyph", () => {
   it("keeps a narrower type apart from its family's", () => {
     expect(resourceGlyph('aws_vpc')).toBe('vpc')
     expect(resourceGlyph('aws_vpc_subnet')).toBe('subnet')
-    expect(resourceGlyph('aws_vpc_route_table')).toBe('nodes') // no glyph of its own: Network
+    expect(resourceGlyph('aws_vpc_route_table', 'Network')).toBe('nodes') // no glyph of its own: its category's
     expect(resourceGlyph('aws_ec2_target_group')).toBe('target')
   })
 
-  it("falls back to the category's glyph, a different one for each", () => {
-    const samples: Record<string, string> = {
-      Compute: 'aws_ec2_ami',
-      Containers: 'aws_ecs_cluster',
-      Storage: 'aws_efs_file_system',
-      Database: 'aws_redshift_cluster',
-      Network: 'aws_vpc_route_table',
-      Identity: 'aws_iam_server_certificate',
-      Security: 'aws_guardduty_detector',
-      Analytics: 'aws_glue_job',
-      Integration: 'aws_mq_broker',
-      Management: 'aws_ssm_document',
-      Other: 'aws_unheard_of_thing',
-    }
-    expect(Object.keys(samples)).toEqual(CATEGORIES)
-    const glyphs = Object.values(samples).map(resourceGlyph)
+  it("falls back to the category the API gives, a different glyph for each", () => {
+    const glyphs = CATEGORIES.map((category) => resourceGlyph('aws_unheard_of_thing', category))
     expect(new Set(glyphs).size).toBe(CATEGORIES.length)
+  })
+
+  it('draws a cube for a type without a named glyph or a known category', () => {
+    expect(resourceGlyph('aws_unheard_of_thing')).toBe('cube')
+    expect(resourceGlyph('aws_unheard_of_thing', 'Not a category')).toBe('cube')
   })
 
   it('draws a cube for a resource with no type', () => {

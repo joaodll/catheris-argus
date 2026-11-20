@@ -70,7 +70,7 @@ function goTo(page: number): void {
     </RouterLink>
     <div class="head">
       <span class="disc" aria-hidden="true">
-        <AppIcon :name="resourceGlyph(type)" :size="18" :stroke="1.6" />
+        <AppIcon :name="resourceGlyph(type, list.data.value?.category)" :size="18" :stroke="1.6" />
       </span>
       <div class="titles">
         <h3 id="map-type-h" ref="heading" class="h3-type" tabindex="-1">{{ label }}</h3>

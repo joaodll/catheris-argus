@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { addMember, boundaryLabel, drawnEdges, emptyGraph, lineStyle, mergeGraph, nodeName, replay, scanLine, traceOf, withoutExpand, type MapEdge, type MapNode, type Step } from './mapGraph'
 
 function node(uid: string, extra: Partial<MapNode> = {}): MapNode {
-  return { uid, kind: 'resource', resource_id: 1, provider: 'aws', type: 'aws_lambda_function', name: uid, region: 'us-east-1', connection_id: 1, deleted_on: null, expanded: false, boundary: false, ...extra }
+  return { uid, kind: 'resource', resource_id: 1, provider: 'aws', type: 'aws_lambda_function', category: 'Compute', name: uid, region: 'us-east-1', connection_id: 1, deleted_on: null, expanded: false, boundary: false, ...extra }
 }
 let next = 1
 function edge(source: string, target: string, origin = 'rule:x@1', type = 'ROUTES_TO'): MapEdge {
@@ -35,7 +35,7 @@ describe('Resource map graph state', () => {
     const merged = mergeGraph(emptyGraph(), {
       nodes: [node('a'), node('b'), node('c')],
       edges: [edge('a', 'b'), edge('a', 'c')],
-      groups: [{ id: 'g1', anchor_uid: 'c', direction: 'out', edge_type: 'IN_NETWORK', resource_type: 'aws_ec2_instance', count: 40, layer: 'network' }],
+      groups: [{ id: 'g1', anchor_uid: 'c', direction: 'out', edge_type: 'IN_NETWORK', resource_type: 'aws_ec2_instance', category: 'Compute', count: 40, layer: 'network' }],
     }, 2)
     expect(merged.capped).toBe(true)
     expect([...merged.state.nodes.keys()]).toEqual(['a', 'b'])
@@ -54,7 +54,7 @@ describe('Resource map graph state', () => {
     const state = mergeGraph(emptyGraph(), {
       nodes: [node('internet', { kind: 'internet' }), node('lb'), node('role')],
       edges: [edge('internet', 'lb', 'cloudfox', 'INTERNET_REACHABLE'), edge('internet', 'lb', 'rule:internet-entry@1', 'INTERNET_REACHABLE'), edge('lb', 'role', 'cloudfox', 'RUNS_AS')],
-      groups: [{ id: 'g', anchor_uid: 'lb', direction: 'in', edge_type: 'MEMBER_OF', resource_type: null, count: 30, layer: 'network' }],
+      groups: [{ id: 'g', anchor_uid: 'lb', direction: 'in', edge_type: 'MEMBER_OF', resource_type: null, category: null, count: 30, layer: 'network' }],
     }).state
     const lines = drawnEdges(state)
     const both = lines.find((l) => l.source === 'internet')!

@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 from argus import connections, ingest, metrics
 from argus.api.deps import Db, Viewer
@@ -83,6 +83,13 @@ class SeverityOverTime(BaseModel):
 class TypeCount(BaseModel):
     type: str
     count: float
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def category(self) -> str | None:
+        """The type's asset category (metrics.asset_category): the one taxonomy every screen
+        and report groups by."""
+        return metrics.asset_category(self.type)
 
 
 class Inventory(BaseModel):

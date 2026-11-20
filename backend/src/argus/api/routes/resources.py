@@ -5,7 +5,7 @@ from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from sqlalchemy import Connection
 
 from argus import findings, ingest, inventory, metrics, relationships
@@ -363,6 +363,13 @@ class ResourcesSummaryAtRisk(BaseModel):
 class AssetTypeCount(BaseModel):
     type: str
     count: int
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def category(self) -> str | None:
+        """The type's asset category (metrics.asset_category): the one taxonomy every screen
+        and report groups by."""
+        return metrics.asset_category(self.type)
 
 
 class CountItem(BaseModel):

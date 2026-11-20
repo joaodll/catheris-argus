@@ -20,7 +20,7 @@ from datetime import UTC, date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 from sqlalchemy import Connection
 
 from argus import connections, findings, ingest, inventory, metrics, relationships
@@ -56,6 +56,12 @@ class MapNode(BaseModel):
     # Owned by another connection, or an ARN of another account: drawn, never expanded.
     boundary: bool
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def category(self) -> str | None:
+        """The type's asset category, for the card's glyph; null without a type."""
+        return metrics.asset_category(self.type)
+
 
 class MapEdge(BaseModel):
     id: int
@@ -84,6 +90,13 @@ class MapGroup(BaseModel):
     count: int
     # Its edges' layer (as MapEdge.layer).
     layer: str | None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def category(self) -> str | None:
+        """The members' asset category, for the group card's glyph; null without a
+        type."""
+        return metrics.asset_category(self.resource_type)
 
 
 class MapDays(BaseModel):
@@ -371,6 +384,13 @@ class MapTypeCount(BaseModel):
     type: str
     count: int
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def category(self) -> str | None:
+        """The type's asset category (metrics.asset_category): the one taxonomy every screen
+        and report groups by."""
+        return metrics.asset_category(self.type)
+
 
 class MapTypesOut(BaseModel):
     """The start's "What's here": the inventory's assets by type, largest first, as the
@@ -415,6 +435,8 @@ class MapResourcePage(BaseModel):
     total: int
     total_capped: bool  # a search matched more than `total` (the count stops at 10,000)
     data_through: date | None
+    # The asked type's asset category, for the list's glyph; null unless exactly one type.
+    category: str | None
 
 
 @router.get("/map/resources")
@@ -438,6 +460,7 @@ def map_resources(
         data_through=ingest.data_through(
             conn, connection_ids=query.connection_id, tools=["steampipe"]
         ),
+        category=metrics.asset_category(query.type[0]) if len(query.type) == 1 else None,
     )
 
 

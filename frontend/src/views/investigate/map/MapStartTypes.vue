@@ -73,6 +73,7 @@ onMounted(() => {
               :label="`${typeLabel(type)}, ${resources(countOf.get(type) ?? 0)}`"
               :title="type"
               :type="type"
+              :category="group.name"
               show-disc
               :meta="(shared.get(typeLabel(type)) ?? 0) > 1 ? type : undefined"
               mono-meta
