@@ -137,3 +137,18 @@ def test_the_stored_asset_column_is_is_asset(owner: Engine) -> None:
         conn.rollback()
     assert kept == {n for n in names if is_asset(n)}
     assert kept and len(kept) < len(names)
+
+
+def test_rows_are_read_one_line_at_a_time_and_only_split_at_newlines(tmp_path: Path) -> None:
+    """A large account's table is gigabytes and was read whole (2026-11-19); now line by line.
+    A value holding a line break other than a newline (U+0085, which the export writes as is)
+    stays in its row, and blank lines and CRLF endings are skipped."""
+    run = _run(tmp_path, {"aws_sns_topic": []})
+    (path,) = [run.path(f.path) for f in run.manifest.files if f.path == "aws_sns_topic.jsonl"]
+    path.write_bytes(
+        b'{"topic_arn": "%s", "title": "a\xc2\x85b", "akas": ["%s"], "region": "us-east-1"}'
+        b"\r\n\n" % (TOPIC_ARN.encode(), TOPIC_ARN.encode())
+    )
+    (resource,) = parse_steampipe(run).resources
+    assert resource.uid == TOPIC_ARN
+    assert resource.name == "a\u0085b"

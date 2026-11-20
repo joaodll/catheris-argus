@@ -109,6 +109,13 @@ def _unknown_skips(body: CollectionSettings) -> list[str]:
     )
 
 
+def _runs_no_check(body: CollectionSettings) -> bool:
+    """Whether the skips leave Prowler nothing to run: every check is skipped by name or by its
+    service (a check's service is the first word of its id)."""
+    services, checks = set(body.prowler_skip_services), set(body.prowler_skip_checks)
+    return all(c in checks or c.split("_", 1)[0] in services for c in prowler_checks())
+
+
 @router.put("/collection")
 def write_collection(
     body: CollectionSettings, conn: Db, user: Operator, request: Request
@@ -118,6 +125,11 @@ def write_collection(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT,
             f"Prowler has no such service or check: {', '.join(unknown[:10])}",
+        )
+    if _runs_no_check(body):
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "Prowler would run no check: leave at least one service and one of its checks.",
         )
     platform_settings.write_topic(conn, topic="collection", values=body.model_dump(), actor=user)
     audit.record(

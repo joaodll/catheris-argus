@@ -13,14 +13,18 @@ hides its own environment at start (core.process). What that user can read stays
 worker's disk and, on Compose, another run's profile (docs/security-model.md, Known limits).
 """
 
+import fcntl
 import logging
 import os
+import pty
 import pwd
 import re
 import shutil
 import signal
+import struct
 import subprocess
 import tempfile
+import termios
 import threading
 import time
 from collections.abc import Callable, Iterator, Sequence
@@ -31,7 +35,14 @@ from datetime import timedelta
 from pathlib import Path
 from typing import IO
 
-from argus.collection.aws.stream import ToolStream, pump
+from argus.collection.aws.stream import (
+    RETRIED,
+    THROTTLED,
+    LineFate,
+    Routing,
+    ToolStream,
+    pump,
+)
 from argus.collection.collect import Cancelled
 from argus.collection.prowler_lists import prowler_checks, prowler_frameworks, prowler_services
 from argus.collection.tables import (
@@ -48,7 +59,9 @@ from argus.core.redaction import redact_text
 logger = logging.getLogger("argus.collection")
 PROFILE = "argus"
 # Absolute paths, as the worker image installs them (backend/Dockerfile, target worker).
-PROWLER = "/opt/prowler/bin/prowler"
+# Prowler's own entry point, started by a launcher that only lets botocore's retry lines out
+# (backend/tools/prowler/launch.py): the live log counts AWS's retries. Prowler is unchanged.
+PROWLER = "/opt/prowler/bin/prowler-argus"
 PROWLER_PYTHON = "/opt/prowler/bin/python"
 STEAMPIPE = "/usr/local/bin/steampipe_export_aws"
 CLOUDFOX = "/usr/local/bin/cloudfox"
@@ -62,6 +75,17 @@ TOOL_BINARIES: dict[str, str] = {
 }
 TOOL_TIMEOUT = timedelta(hours=4)
 TABLE_TIMEOUT = timedelta(minutes=30)
+# Tables that take longer than TABLE_TIMEOUT on a large account. Inspector's findings: every
+# open finding of the account, its packages and resources in every row, every region; on a
+# large account that is hours, not minutes (2026-11-19). Each stays inside the scan Job's
+# deadline (chart scanJobs.activeDeadlineSeconds, 6 h).
+TABLE_TIMEOUTS = {"aws_inspector2_finding": timedelta(hours=3)}
+# Written into a table's error file when Argus stops it at its limit, so the reason on the Runs
+# page says so (table_error) and the table is never taken for "not applicable".
+TIMED_OUT_NOTE = "argus: stopped after its time limit of"
+# Bytes read at a time when a tool's output file is looked at whole: a large account's tables
+# reach gigabytes, which must never sit in the scan Job's memory at once.
+READ_BLOCK = 1 << 20
 VERSION_TIMEOUT = 60
 LOG_TAIL_LINES = 200
 # How often a waiting tool is checked for a request to stop.
@@ -362,22 +386,47 @@ def _run(
     cancel: threading.Event | None = None,
     stream: ToolStream | None = None,
     guard: MemoryGuard | None = None,
+    tty: bool = False,
+    routing: Routing | None = None,
 ) -> int:
     """Runs a tool in its own process group, output to `log` and, line by line, to the live
-    log (`stream`). Kills the group on timeout, or when the run is asked to stop (Cancelled)."""
+    log (`stream`), each line where `routing` says (stream.pump). Kills the group on timeout, or
+    when the run is asked to stop (Cancelled). With `tty`, the tool writes to a
+    pseudo-terminal: a progress bar that draws only on a terminal (Prowler's) then reaches the
+    live log."""
     with log.open("ab") as out:
-        process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-            cmd,
-            env=env,
-            cwd=env["HOME"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        assert process.stdout is not None  # noqa: S101 - stdout=PIPE above
+        if tty:
+            try:
+                terminal, tool_end = pty.openpty()
+                _plain_terminal(tool_end)
+            except OSError as exc:  # no pseudo-terminal here: a bar unseen, never a lost run
+                tty = False
+                if stream is not None:
+                    stream.note(f"no pseudo-terminal ({exc.strerror}): progress bar not shown")
+        output: int | IO[bytes] = tool_end if tty else subprocess.PIPE
+        try:
+            process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+                cmd,
+                env=env,
+                cwd=env["HOME"],
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        finally:
+            if tty:
+                os.close(tool_end)  # the tool holds its own copy
+        if tty:
+            source: IO[bytes] = os.fdopen(terminal, "rb", buffering=0)
+        else:
+            assert process.stdout is not None  # noqa: S101 - stdout=PIPE above
+            source = process.stdout
         reader = threading.Thread(
-            target=pump, args=(process.stdout, out, stream), name="tool-output", daemon=True
+            target=pump,
+            args=(source, out, stream, routing),
+            name="tool-output",
+            daemon=True,
         )
         reader.start()
         try:
@@ -386,11 +435,24 @@ def _run(
             # The pipe closes when the tool's group exits; a process of it that outlived the
             # wait (killed or not) is not waited for longer.
             reader.join(timeout=READER_JOIN_SECONDS)
-            process.stdout.close()
+            source.close()
         if rc is None:
             out.write(f"\nargus: killed after {timeout}\n".encode())
             return -9
         return rc
+
+
+# The pseudo-terminal a tool draws on: wide enough for Prowler's bar and its service name, and
+# no "\n" -> "\r\n" translation or echo, so its lines read as a pipe's.
+TERMINAL_ROWS, TERMINAL_COLUMNS = 50, 160
+
+
+def _plain_terminal(fd: int) -> None:
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", TERMINAL_ROWS, TERMINAL_COLUMNS, 0, 0))
+    attrs = termios.tcgetattr(fd)
+    attrs[1] &= ~termios.ONLCR  # output flags
+    attrs[3] &= ~termios.ECHO  # local flags
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 
 def _version(cmd: list[str], env: dict[str, str]) -> str:
@@ -435,6 +497,33 @@ def _status(ok: bool, throttle_events: int) -> str:
 _PLUGIN_API_ERROR = re.compile(r"^\[ERROR\]\s+\d+: aws_[a-z0-9_]+\.[A-Za-z0-9_]+: api_error=")
 
 
+def table_timeout(table: str) -> timedelta:
+    """How long one table's export may run (TABLE_TIMEOUTS, else TABLE_TIMEOUT)."""
+    return TABLE_TIMEOUTS.get(table, TABLE_TIMEOUT)
+
+
+def table_timed_out(errors: str) -> bool:
+    """Whether Argus stopped the table at its time limit (TIMED_OUT_NOTE)."""
+    return any(line.startswith(TIMED_OUT_NOTE) for line in errors.splitlines())
+
+
+def only_json_rows(rows: Path) -> bool:
+    """Whether every non-empty line of a table's output starts with "{". Read in blocks, looking
+    only at the first byte of each line: the file can be gigabytes (a large account's Inspector
+    findings), and holding it whole killed a scan Job (2026-11-19)."""
+    at_line_start = True
+    with rows.open("rb") as data:
+        while block := data.read(READ_BLOCK):
+            parts = block.split(b"\n")
+            for n, part in enumerate(parts):
+                starts_line = at_line_start if n == 0 else True
+                if starts_line and part not in (b"", b"\r") and not part.startswith(b"{"):
+                    return False
+            # The block's last part continues on the next block unless the block ended a line.
+            at_line_start = parts[-1] == b""
+    return True
+
+
 def table_failed(rc: int, errors: str, rows: Path) -> bool:
     """Whether the export says the table failed: its rows are not kept. Three signs, any one:
     a non-zero exit; stdout holding anything but JSON rows (some failures are printed there);
@@ -442,8 +531,7 @@ def table_failed(rc: int, errors: str, rows: Path) -> bool:
     answer the plugin ignores leaves only that record, exit 0 and every row; one that stops the
     table also exits 1, prints to stdout and, from a hydrate call, logs "callHydrate ...
     finished with error" (owner, 2026-11-05; tests pin each shape for the pinned version)."""
-    bad_rows = any(not line.startswith("{") for line in rows.read_text().splitlines() if line)
-    return rc != 0 or _stopped(errors) or bad_rows
+    return rc != 0 or _stopped(errors) or not only_json_rows(rows)
 
 
 def _stopped(errors: str) -> bool:
@@ -499,15 +587,27 @@ def table_error(table: str, rc: int, errors: str) -> str:
     """Why a table was left out, for the Runs page: "<table>: <its most telling error line>",
     redacted, on one line and at most MAX_TABLE_ERROR_CHARS (manifest.TABLE_ERROR_PATTERN)."""
     lines = [line.strip() for line in errors.splitlines() if line.strip()]
-    line = min(lines, key=_error_rank) if lines else ""
-    line = _LOG_PREFIX.sub("", line)
-    if sdk := _SDK_ANSWER.search(line):
-        line = f"{sdk['op']} (HTTP {sdk['status']}): {sdk['answer']}"
-    for pattern, replacement in _DROPPED:
-        line = pattern.sub(replacement, line)
-    line = " ".join(redact_text(line).split()).rstrip('"')
+    if table_timed_out(errors):
+        # Argus stopped it: the lines before are what the table met on the way, not why.
+        line = next(x for x in lines if x.startswith(TIMED_OUT_NOTE)).removeprefix("argus: ")
+    elif rc == -signal.SIGKILL:
+        # Killed, and not by Argus (its limit writes TIMED_OUT_NOTE; its memory guard and a
+        # cancel end the whole run instead): the kernel's OOM killer, in a scan Job.
+        line = "killed by the system (most likely out of memory)"
+    else:
+        line = min(lines, key=_error_rank) if lines else ""
+        line = _LOG_PREFIX.sub("", line)
+        if sdk := _SDK_ANSWER.search(line):
+            line = f"{sdk['op']} (HTTP {sdk['status']}): {sdk['answer']}"
+        for pattern, replacement in _DROPPED:
+            line = pattern.sub(replacement, line)
+        line = " ".join(redact_text(line).split()).rstrip('"')
     if not line:
-        line = f"exit code {rc}, nothing on standard error"
+        line = (
+            f"killed by signal {-rc}, nothing on standard error"
+            if rc < 0
+            else f"exit code {rc}, nothing on standard error"
+        )
     if len(line) > MAX_TABLE_ERROR_CHARS:
         line = line[: MAX_TABLE_ERROR_CHARS - 1] + "\u2026"
     return f"{table}: {line}"
@@ -549,7 +649,10 @@ def _judge_tables(runs: list[_TableRun], out_dir: Path, log: Path) -> _Tables:
         if table_failed(run.rc, run.errors, out):
             # A table only not applicable or refused here carries its rows forward without
             # making the run partial; any other failure does both.
-            outcome = None if throttling or missing else table_outcome(run.errors)
+            # Stopped at its limit: whatever its errors say, its rows are missing, not "not
+            # applicable".
+            stopped = throttling or missing or table_timed_out(run.errors)
+            outcome = None if stopped else table_outcome(run.errors)
             t.incomplete.append(run.table)
             if outcome == "not_applicable":
                 t.not_applicable.append(run.table)
@@ -660,31 +763,11 @@ def _export_tables(
         f"  regions = [{region_list}]\n}}\n"
     )
 
-    done = 0
-    done_lock = threading.Lock()
-
-    def export(table: str) -> _TableRun:
-        nonlocal done
-        if cancel is not None and cancel.is_set():
-            raise Cancelled  # a table still waiting its turn never starts
-        if guard is not None:
-            guard.stop_if_over()  # nor after the run's memory neared its limit
-        out, err = out_dir / f"{table}.jsonl", home / f"{table}.err"
-        command = _table_command(table, config_dir, options(table))
-        if stream is not None:
-            stream.note(f"table {table} started")
-        with out.open("wb") as rows:
-            rc = _run_table(command, env, rows, err, cancel, guard)
-        run = _TableRun(table, rc, err.read_text(errors="replace") if err.exists() else "")
-        if stream is not None:
-            with done_lock:
-                done += 1
-                at = f"({done} of {len(tables)})"
-            _say_table(stream, run, out, at)
-        return run
-
+    exports = _TableExports(
+        out_dir, env, config_dir, tables, options, cancel=cancel, stream=stream, guard=guard
+    )
     with ThreadPoolExecutor(max_workers=max(1, parallel_tables)) as pool:
-        runs = list(pool.map(export, tables))
+        runs = list(pool.map(exports.export, tables))
 
     log = home / "steampipe.log"
     judged = _judge_tables(runs, out_dir, log)
@@ -729,13 +812,151 @@ def _export_tables(
     )
 
 
-def _say_table(stream: ToolStream, run: _TableRun, rows: Path, at: str) -> None:
-    """A table's end in the live log. A light look (the judgement, which reads every row, is
-    _judge_tables's): the exit code and the error lines."""
+class _TableExports:
+    """One run's table exports, each in its own process: what is running (for the heartbeat)
+    and how many have ended (for each table's line in the live log)."""
+
+    def __init__(
+        self,
+        out_dir: Path,
+        env: dict[str, str],
+        config_dir: Path,
+        tables: Sequence[str],
+        options: Callable[[str], tuple[str, ...]],
+        *,
+        cancel: threading.Event | None,
+        stream: ToolStream | None,
+        guard: MemoryGuard | None,
+    ) -> None:
+        self.out_dir, self.home, self.config_dir = out_dir, Path(env["HOME"]), config_dir
+        self.total, self.options = len(tables), options
+        self.cancel, self.stream, self.guard = cancel, stream, guard
+        # INFO makes the plugin log every retry ("[INFO] ... BackoffDelay: ..."), counted for
+        # the live log; the table's error file still gets only what it got at the default
+        # level (WARN and above), so the judgement reads what it always read (_table_fate).
+        self.env = {**env, "STEAMPIPE_LOG_LEVEL": "INFO"}
+        self.lock = threading.Lock()
+        self.done = 0
+        self.running: dict[str, tuple[float, Path]] = {}  # table -> (started, its rows file)
+        if stream is not None:
+            stream.add_status(lambda: _tables_running(self.running, self.lock))
+
+    def export(self, table: str) -> _TableRun:
+        if self.cancel is not None and self.cancel.is_set():
+            raise Cancelled  # a table still waiting its turn never starts
+        if self.guard is not None:
+            self.guard.stop_if_over()  # nor after the run's memory neared its limit
+        out, err = self.out_dir / f"{table}.jsonl", self.home / f"{table}.err"
+        command = _table_command(table, self.config_dir, self.options(table))
+        if self.stream is not None:
+            self.stream.note(f"table {table} started")
+        started = time.monotonic()
+        with self.lock:
+            self.running[table] = (started, out)
+        try:
+            with out.open("wb") as rows:
+                rc = _run_table(
+                    command,
+                    self.env,
+                    rows,
+                    err,
+                    self.cancel,
+                    self.guard,
+                    timeout=table_timeout(table),
+                    stream=self.stream,
+                    table=table,
+                )
+        finally:
+            with self.lock:
+                self.running.pop(table, None)
+        run = _TableRun(table, rc, err.read_text(errors="replace") if err.exists() else "")
+        if self.stream is not None:
+            with self.lock:
+                self.done += 1
+                at = f"({self.done} of {self.total})"
+            _say_table(self.stream, run, out, at, time.monotonic() - started)
+        return run
+
+
+# The plugin's log lines (steampipe-plugin-sdk, hclog): "[LEVEL] <ts>: ...". At INFO each
+# retry it makes is "[INFO] <ts>: BackoffDelay: attempt=N, retryTime=..., err=..."
+# (steampipe-plugin-aws 1.36.0, aws/service.go; seen 2026-11-19).
+_PLUGIN_LEVEL = re.compile(r"^\[(TRACE|DEBUG|INFO)\]")
+_PLUGIN_RETRY = re.compile(r"^\[INFO\]\s+\d+: BackoffDelay: ")
+# hclog writes a multi-line value on lines of its own, each starting "  | ".
+_PLUGIN_CONTINUATION = re.compile(r"^\s+\|")
+
+
+def _table_fate(stream: ToolStream | None, table: str) -> LineFate:
+    """Where each line a table's export logs goes: a retry is counted (it may yet succeed);
+    any other line below WARN is dropped, so the table's error file, which the judgement
+    reads, holds what the default level gave (2026-11-19: at WARN no retry line is logged, and
+    a throttling line means the call gave up); WARN, ERROR and the rest go to both, a throttling
+    one also counted."""
+
+    entry = ["log"]  # the fate of the entry a continuation line belongs to
+
+    def fate(text: str) -> str:
+        if _PLUGIN_CONTINUATION.match(text):
+            return entry[0]
+        if _PLUGIN_RETRY.match(text):
+            if stream is not None:
+                stream.count(RETRIED, table)
+            entry[0] = "drop"
+        elif _PLUGIN_LEVEL.match(text):
+            entry[0] = "drop"
+        else:
+            if THROTTLING.search(text) and stream is not None:
+                stream.count(THROTTLED, table)
+            entry[0] = "log"
+        return entry[0]
+
+    return fate
+
+
+def _tables_running(running: dict[str, tuple[float, Path]], lock: threading.Lock) -> str | None:
+    """The heartbeat's word on the tables running now: how long each has run and how much it
+    has written, longest first, at most five named."""
+    now = time.monotonic()
+    with lock:
+        tables = sorted(running.items(), key=lambda item: item[1][0])
+    if not tables:
+        return None
+    named = [
+        f"{t} {span(timedelta(seconds=now - began))} {_size_words(out)}"
+        for t, (began, out) in tables[:5]
+    ]
+    more = f" and {len(tables) - 5} more" if len(tables) > 5 else ""
+    return f"tables running: {', '.join(named)}{more}"
+
+
+def _size_words(path: Path) -> str:
+    size = _size(path)
+    if size >= 1 << 30:
+        return f"{size / (1 << 30):.1f} GB"
+    return f"{size / (1 << 20):.0f} MB" if size >= 1 << 20 else f"{size // 1024} KB"
+
+
+def _say_table(stream: ToolStream, run: _TableRun, rows: Path, at: str, seconds: float) -> None:
+    """A table's end in the live log, with how long it took. A light look (the judgement, which
+    reads every row, is _judge_tables's): the exit code and the error lines."""
+    took = span(timedelta(seconds=seconds))
     if run.rc != 0 or _stopped(run.errors):
-        stream.note(f"table {run.table} failed {at}: {table_error(run.table, run.rc, run.errors)}")
+        why = table_error(run.table, run.rc, run.errors)
+        stream.note(f"table {run.table} failed after {took} {at}: {why}")
     else:
-        stream.note(f"table {run.table} finished, {_count_rows(rows)} rows {at}")
+        stream.note(f"table {run.table} finished in {took}, {_count_rows(rows)} rows {at}")
+
+
+def span(duration: timedelta) -> str:
+    """A duration in words a log reader takes in at a glance: "42 s", "12 min", "3 h 5 min"."""
+    seconds = int(duration.total_seconds())
+    if seconds < 60:
+        return f"{seconds} s"
+    hours, minutes = divmod(seconds // 60, 60)
+    if not hours:
+        return f"{minutes} min"
+    return f"{hours} h {minutes} min" if minutes else f"{hours} h"
 
 
 def _count_rows(rows: Path) -> int:
@@ -771,19 +992,41 @@ def _run_table(
     err: Path,
     cancel: threading.Event | None = None,
     guard: MemoryGuard | None = None,
+    *,
+    timeout: timedelta = TABLE_TIMEOUT,
+    stream: ToolStream | None = None,
+    table: str = "",
 ) -> int:
+    """One table's export: rows to `rows`, its log lines to `err` and, as they come, to the
+    live log under the table's name (_table_fate)."""
     with err.open("wb") as errors:
         process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             command,
             env=env,
             cwd=env["HOME"],
             stdout=rows,
-            stderr=errors,
+            stderr=subprocess.PIPE,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
         )
-        rc = _wait(process, TABLE_TIMEOUT, cancel, guard)
-        return -9 if rc is None else rc
+        assert process.stderr is not None  # noqa: S101 - stderr=PIPE above
+        reader = threading.Thread(
+            target=pump,
+            args=(process.stderr, errors, stream, Routing(_table_fate(stream, table))),
+            kwargs={"label": table},
+            name="table-errors",
+            daemon=True,
+        )
+        reader.start()
+        try:
+            rc = _wait(process, timeout, cancel, guard)
+        finally:
+            reader.join(timeout=READER_JOIN_SECONDS)
+            process.stderr.close()
+        if rc is None:
+            errors.write(f"\n{TIMED_OUT_NOTE} {span(timeout)}\n".encode())
+            return -signal.SIGKILL
+        return rc
 
 
 def _prowler_skips(
@@ -836,9 +1079,11 @@ def run_prowler(
         "--output-directory",
         str(out_dir),
         "--no-banner",
+        # INFO says which service and call Prowler is on (owner, 2026-11-19); a throttled call
+        # is still logged, at ERROR, only once its retries ran out. Never DEBUG: botocore then
+        # prints requests and answers whole.
         "--log-level",
-        "ERROR",
-        # At ERROR, a throttled call is logged only once its retries ran out.
+        "INFO",
         "--aws-retries-max-attempts",
         str(retry_attempts),
         # Exit code 3 means "some checks failed", the expected result of a scan.
@@ -859,7 +1104,15 @@ def run_prowler(
         " ".join(prowler_frameworks()), f"<every AWS framework: {len(prowler_frameworks())}>"
     )
     rc = _run(
-        cmd, env=env, log=log, timeout=TOOL_TIMEOUT, cancel=cancel, stream=stream, guard=guard
+        cmd,
+        env=env,
+        log=log,
+        timeout=TOOL_TIMEOUT,
+        cancel=cancel,
+        stream=stream,
+        guard=guard,
+        tty=True,
+        routing=Routing(_prowler_fate(stream), rewrite=prowler_line),
     )
     lines, throttled = _read_log(log)
     lines = [*notes, *lines]
@@ -882,6 +1135,44 @@ def run_prowler(
         refused_actions=_denied_list(denials.refused),
         blocked_actions=blocked,
     )
+
+
+# Prowler's log lines (prowler/lib/logger.py): "<time> [File: <f>:<n>] \t[Module: <m>]\t
+# <LEVEL>: <message>". botocore's "Retry needed, ..." comes through the launcher only.
+_PROWLER_INFO = re.compile(r"\]\s+INFO: ")
+# The two tabs of that format, around "[Module: <m>]": redact_text drops a line with two tabs
+# as a table row (tables print data), so every Prowler log line, errors included, read
+# "[table row omitted]" on the Runs page and in the live log (found 2026-11-19). Only these two
+# are replaced; a tab inside the message still marks a table row.
+_PROWLER_FORMAT_TABS = re.compile(
+    r"^(.{0,40}\[File: [^\]\t]{1,200}\]) \t(\[Module: [^\]\t]{1,100}\])\t "
+)
+
+
+def prowler_line(text: str) -> str:
+    """A line of Prowler's in one shape redaction reads as text: its log format's own two tabs
+    become spaces (_PROWLER_FORMAT_TABS); everything else is as Prowler wrote it."""
+    return _PROWLER_FORMAT_TABS.sub(r"\1 \2 ", text, count=1)
+
+
+_PROWLER_RETRY = re.compile(r"\]\s+DEBUG: Retry needed")
+
+
+def _prowler_fate(stream: ToolStream | None) -> LineFate:
+    """Where each line of Prowler's goes: a retry is counted; an INFO line (the service and
+    call it is on) goes to the live log only, so the Runs page's tail keeps its errors; the
+    rest, errors included, goes to both."""
+
+    def fate(text: str) -> str:
+        if _PROWLER_RETRY.search(text):
+            if stream is not None:
+                stream.count(RETRIED)
+            return "drop"
+        if THROTTLING.search(text) and stream is not None:
+            stream.count(THROTTLED)
+        return "live" if _PROWLER_INFO.search(text) else "log"
+
+    return fate
 
 
 def run_cloudfox(
@@ -912,10 +1203,18 @@ def run_cloudfox(
         str(max_goroutines),
     ]
     errors_from = _size(CLOUDFOX_ERROR_LOG)
+    tail = _ErrorLogTail(errors_from, account_id, stream)
     try:
-        rc = _run(
-            cmd, env=env, log=log, timeout=TOOL_TIMEOUT, cancel=cancel, stream=stream, guard=guard
-        )
+        with tail:
+            rc = _run(
+                cmd,
+                env=env,
+                log=log,
+                timeout=TOOL_TIMEOUT,
+                cancel=cancel,
+                stream=stream,
+                guard=guard,
+            )
     finally:
         # CloudFox 2.0.5 also caches what it read (env-var values included) next to its
         # output: it is not output, so it is never archived.
@@ -1022,6 +1321,56 @@ def _cloudfox_failure(rc: int, console: str, out_dir: Path) -> str | None:
     if not any(out_dir.iterdir()):
         return "it wrote no output"
     return None
+
+
+class _ErrorLogTail:
+    """CloudFox's error log in the live log while it runs (owner, 2026-11-19): what a module
+    could not read, throttling included (counted too), as CloudFox writes it there and not on
+    its console. The same lines as a failed run's tail (_cloudfox_error_tail): only what this
+    run added, never a line naming another account, each cut to CLOUDFOX_ERROR_LINE_CHARS."""
+
+    EVERY = 2.0  # seconds between looks at the file
+
+    def __init__(self, start: int, account_id: str, stream: ToolStream | None) -> None:
+        self.offset, self.account_id, self.stream = start, account_id, stream
+        self.pending = b""
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self._follow, name="cloudfox-errors", daemon=True)
+
+    def __enter__(self) -> "_ErrorLogTail":
+        if self.stream is not None:
+            self.thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        if self.stream is not None:
+            self.stop.set()
+            self.thread.join(timeout=READER_JOIN_SECONDS)
+
+    def _follow(self) -> None:
+        while not self.stop.wait(self.EVERY):
+            self.read()
+        self.read(final=True)
+
+    def read(self, *, final: bool = False) -> None:
+        try:
+            with CLOUDFOX_ERROR_LOG.open("rb") as errors:
+                errors.seek(self.offset)
+                added = errors.read(1 << 20)
+        except OSError:
+            return
+        self.offset += len(added)
+        *lines, self.pending = (self.pending + added).split(b"\n")
+        if final:
+            lines, self.pending = [*lines, self.pending], b""
+        for raw in lines:
+            line = raw.decode(errors="replace").strip()
+            if not line or any(f != self.account_id for f in _ACCOUNT_IN_LINE.findall(line)):
+                continue
+            assert self.stream is not None  # noqa: S101 - started only with a stream
+            if THROTTLING.search(line):
+                self.stream.count(THROTTLED)
+            self.stream.capped(f"[error log] {line[:CLOUDFOX_ERROR_LINE_CHARS]}")
 
 
 def _cloudfox_log_added(start: int) -> str:

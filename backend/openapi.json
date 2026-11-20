@@ -502,7 +502,7 @@
               "pattern": "^[a-z][a-z0-9_]{1,119}$",
               "type": "string"
             },
-            "maxItems": 700,
+            "maxItems": 2000,
             "title": "Prowler Skip Checks",
             "type": "array"
           },
@@ -511,7 +511,7 @@
               "pattern": "^[a-z][a-z0-9]{1,39}$",
               "type": "string"
             },
-            "maxItems": 100,
+            "maxItems": 300,
             "title": "Prowler Skip Services",
             "type": "array"
           },
@@ -4313,7 +4313,8 @@
           "format": {
             "enum": [
               "csv",
-              "pdf"
+              "pdf",
+              "jsonl"
             ],
             "title": "Format",
             "type": "string"
@@ -5235,8 +5236,11 @@
             "$ref": "#/components/schemas/ResourceFilterQuery"
           },
           "format": {
-            "const": "csv",
             "default": "csv",
+            "enum": [
+              "csv",
+              "jsonl"
+            ],
             "title": "Format",
             "type": "string"
           },
@@ -13988,6 +13992,7 @@
         "responses": {
           "200": {
             "content": {
+              "application/gzip": {},
               "application/pdf": {},
               "text/csv": {}
             },

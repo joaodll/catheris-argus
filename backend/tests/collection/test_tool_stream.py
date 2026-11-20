@@ -18,6 +18,7 @@ from argus.collection.aws.stream import ToolStream
 from argus.collection.collect import Cancelled
 from argus.core.logging import JsonFormatter
 from argus.core.memory import MemoryGuard, OutOfMemory
+from argus.core.redaction import TABLE_ROW_OMITTED, redact_text
 
 
 class _Lines(logging.Handler):
@@ -222,3 +223,199 @@ def test_a_tool_near_the_memory_limit_is_killed(tmp_path: Path) -> None:
         )
     assert time.monotonic() - started < 10
     assert guard.over is not None
+
+
+# What the tools print, as seen 2026-11-19 (ids made up): the plugin's retry at INFO, Prowler's
+# INFO line and botocore's retry through the launcher.
+PLUGIN_RETRY = (
+    "[INFO]  1795110796697: BackoffDelay: attempt=1, retryTime=63ms, err=operation error EC2: "
+    "DescribeInstances, https response error StatusCode: 400, api error Throttling: Rate exceeded"
+)
+PLUGIN_GAVE_UP = (
+    "[WARN]  1795110796698: error channel received aws: operation error EC2: DescribeInstances, "
+    "exceeded maximum number of attempts, 10, api error Throttling: Rate exceeded"
+)
+PROWLER_INFO = (
+    "2026-11-19 18:20:38,438 [File: service.py:63] \t[Module: service]\t INFO: EC2 - Starting "
+    "threads for 'describe_instances' function across 17 regions..."
+)
+PROWLER_RETRY = (
+    "2026-11-19 18:20:38,534 [File: standard.py:91] \t[Module: standard]\t DEBUG: Retry needed, "
+    "retrying request after delay of: 0.34"
+)
+PROWLER_ERROR = (
+    "2026-11-19 18:20:39,000 [File: service.py:90] \t[Module: service]\t ERROR: us-east-1 -- "
+    "ClientError[90]: An error occurred (ThrottlingException) when calling DescribeInstances"
+)
+
+
+def test_a_heartbeat_says_what_was_counted_since_the_last(captured: _Lines) -> None:
+    """The owner could not see throttling while a scan ran (2026-11-19): retries and calls
+    given up are counted, said once a heartbeat, busiest first, and start again from zero."""
+    now = [0.0]
+    stream = ToolStream("steampipe", clock=lambda: now[0])
+    stream.add_status(lambda: "tables running: aws_s3_bucket 3 min 12 MB")
+    for _ in range(3):
+        stream.count(live.RETRIED, "aws_ec2_instance")
+    stream.count(live.RETRIED, "aws_s3_bucket")
+    stream.count(live.THROTTLED, "aws_ec2_instance")
+    now[0] = 60.0
+    stream.heartbeat()
+    now[0] = 120.0
+    stream.heartbeat()
+    assert captured.messages() == [
+        "argus: steampipe running 1m, tables running: aws_s3_bucket 3 min 12 MB, "
+        "AWS calls retried in the last 1m: 4 (aws_ec2_instance 3, aws_s3_bucket 1), "
+        "calls given up throttled in the last 1m: 1 (aws_ec2_instance 1)",
+        "argus: steampipe running 2m, tables running: aws_s3_bucket 3 min 12 MB",
+    ]
+
+
+def test_a_tool_printing_too_fast_is_cut_to_a_number_of_lines_a_second(captured: _Lines) -> None:
+    now = [5.0]
+    stream = ToolStream("prowler", clock=lambda: now[0])
+    for n in range(live.MAX_LINES_PER_SECOND + 7):
+        stream.capped(f"line {n}")
+    now[0] = 6.0
+    stream.capped("next second")
+    stream.heartbeat()
+    assert len(captured.messages()) == live.MAX_LINES_PER_SECOND + 2
+    assert captured.messages()[-2] == "next second"
+    assert captured.messages()[-1].endswith("7 lines left out (more than 20 a second)")
+
+
+def test_with_a_fate_each_line_goes_where_it_says(tmp_path: Path, captured: _Lines) -> None:
+    """The log file (the Runs page's tail, the denials) gets whole lines, and a progress bar
+    only as the state the tool ended on; a counted line reaches neither; terminal codes are
+    stripped."""
+    cmd = _tool(
+        tmp_path / "tool",
+        "printf 'start\\n10%%\\r50%%\\r\\033[31mred error\\033[0m\\n'\n"
+        "printf 'live only\\ncounted\\n90%%\\r'\n",
+    )
+    fates = {"live only": "live", "counted": "drop"}
+    log = tmp_path / "tool.log"
+    stream = ToolStream("prowler", progress_every=0)
+    aws_tools._run(
+        cmd,
+        env=_env(tmp_path),
+        log=log,
+        timeout=timedelta(seconds=10),
+        stream=stream,
+        routing=live.Routing(lambda text: fates.get(text, "log")),
+    )
+    stream.flush()
+    assert log.read_text() == "start\nred error\n90%\n"  # a line replaces a redraw
+    assert captured.messages() == ["start", "10%", "50%", "red error", "live only", "90%"]
+
+
+def test_a_tool_on_a_terminal_draws_its_bar_into_the_live_log(
+    tmp_path: Path, captured: _Lines
+) -> None:
+    """Prowler draws its progress bar only on a terminal (seen 2026-11-19): with tty, the tool
+    sees one, a wide one, and its lines end in "\\n", not "\\r\\n"."""
+    cmd = _tool(
+        tmp_path / "tool",
+        "[ -t 1 ] && echo terminal || echo pipe\nstty -F /proc/self/fd/1 size\n"
+        "printf 'a\\rb\\nend\\n'\n",
+    )
+    log = tmp_path / "tool.log"
+    aws_tools._run(
+        cmd,
+        env=_env(tmp_path),
+        log=log,
+        timeout=timedelta(seconds=10),
+        stream=ToolStream("prowler", progress_every=0),
+        tty=True,
+        routing=live.Routing(lambda _t: "log"),
+    )
+    assert log.read_text() == (
+        f"terminal\n{aws_tools.TERMINAL_ROWS} {aws_tools.TERMINAL_COLUMNS}\nb\nend\n"
+    )
+    assert "terminal" in captured.messages()
+
+
+@pytest.mark.parametrize(
+    ("line", "fate", "counted"),
+    [
+        (PLUGIN_RETRY, "drop", (live.RETRIED, "aws_ec2_instance")),
+        ("[INFO]  1795110796697: listRegions: connection_name=aws", "drop", None),
+        ("  | a continuation of the entry above", "drop", None),
+        (PLUGIN_GAVE_UP, "log", (live.THROTTLED, "aws_ec2_instance")),
+        ("[ERROR] 1: aws_ec2_instance.list: api_error=AccessDenied", "log", None),
+        ("Plugin.getSchema failed", "log", None),
+    ],
+    ids=["retry", "info", "continuation", "gave-up", "error", "no-level"],
+)
+def test_a_tables_log_line_is_counted_dropped_or_kept(
+    line: str, fate: str, counted: tuple[str, str] | None
+) -> None:
+    """At INFO the plugin logs every retry; its error file, which the judgement reads, still
+    gets only what the default level (WARN) gave."""
+    stream = ToolStream("steampipe")
+    table_fate = aws_tools._table_fate(stream, "aws_ec2_instance")
+    table_fate("[INFO]  1: an INFO entry first")  # a continuation follows the entry before it
+    assert table_fate(line) == fate
+    found = {(what, where) for what, c in stream._counts.items() for where in c}
+    assert found == ({counted} if counted else set())
+
+
+@pytest.mark.parametrize(
+    ("line", "fate", "counted"),
+    [
+        (PROWLER_RETRY, "drop", live.RETRIED),
+        (PROWLER_INFO, "live", None),
+        (PROWLER_ERROR, "log", live.THROTTLED),
+        ("-> Scanning ec2 service", "log", None),
+    ],
+    ids=["retry", "info", "throttled-error", "console"],
+)
+def test_a_prowler_line_is_counted_kept_live_or_logged(
+    line: str, fate: str, counted: str | None
+) -> None:
+    stream = ToolStream("prowler")
+    assert aws_tools._prowler_fate(stream)(line) == fate
+    assert set(stream._counts) == ({counted} if counted else set())
+
+
+def test_a_prowler_log_line_is_text_to_the_redactor_and_keeps_what_denials_read() -> None:
+    """Prowler's log format puts two tabs around "[Module: ...]", and redact_text drops a line
+    with two tabs as a table row: every Prowler error read "[table row omitted]" (found
+    2026-11-19). Only those two tabs go; a tab-separated message is still dropped."""
+    line = aws_tools.prowler_line(PROWLER_ERROR)
+    assert "\t" not in line
+    assert line.startswith("2026-11-19 18:20:39,000 [File: service.py:90] [Module: service] ERROR:")
+    assert redact_text(line) == line
+    assert redact_text(PROWLER_ERROR) == TABLE_ROW_OMITTED  # as it was
+    data = PROWLER_ERROR.replace("ERROR: ", "ERROR: name\tvalue\tsecret ")
+    assert redact_text(aws_tools.prowler_line(data)) == TABLE_ROW_OMITTED
+    denied = (
+        "2026-11-19 18:20:39,000 [File: glue_service.py:66] \t[Module: glue_service]\t ERROR: "
+        "us-east-1 -- ClientError[66]: An error occurred (AccessDeniedException) when calling "
+        "the GetDevEndpoints operation"
+    )
+    assert aws_tools.read_denials(aws_tools.prowler_line(denied)).denied == {"glue:GetDevEndpoints"}
+
+
+def test_without_a_pseudo_terminal_the_tool_still_runs(
+    tmp_path: Path, captured: _Lines, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def no_terminal() -> tuple[int, int]:
+        raise OSError(2, "No such file or directory")
+
+    monkeypatch.setattr(aws_tools.pty, "openpty", no_terminal)
+    cmd = _tool(tmp_path / "tool", "[ -t 1 ] && echo terminal || echo pipe\n")
+    rc = aws_tools._run(
+        cmd,
+        env=_env(tmp_path),
+        log=tmp_path / "tool.log",
+        timeout=timedelta(seconds=10),
+        stream=ToolStream("prowler"),
+        tty=True,
+        routing=live.Routing(lambda _t: "log"),
+    )
+    assert rc == 0
+    assert captured.messages() == [
+        "argus: no pseudo-terminal (No such file or directory): progress bar not shown",
+        "pipe",
+    ]

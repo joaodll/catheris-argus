@@ -12,6 +12,7 @@ Owns edge, edge_snapshot, edge_load and role_workload. Public interface:
     internet_reach()  what the internet rules say about each resource facing the internet,
                       and why (InternetReach, Door)
     edges_at()        a resource's edges as they stood on a day
+    edges_of_resources()   the same for a batch of one connection's resources (reports)
     EFFECTIVE_EDGES_SQL, latest_loads(), standing_edges(), EdgeLoad, edge_attributes()
                       the edges that stand now, for the attack-path walk, its kinds and its
                       steps (ADR-0052)
@@ -56,6 +57,7 @@ from argus.relationships.graph import (
     MapScope,
     Origin,
     edge_layers,
+    edges_of_resources,
     group_members,
     kind_of,
     map_edges_at,
@@ -103,6 +105,7 @@ __all__ = [
     "edge_attributes",
     "edge_layers",
     "edges_at",
+    "edges_of_resources",
     "effective_days",
     "group_members",
     "internet_reach",

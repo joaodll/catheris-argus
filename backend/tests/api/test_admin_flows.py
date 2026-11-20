@@ -5,6 +5,7 @@ state. So each test also proves that the change needs no restart and no environm
 the worker picks it up because it re-reads Postgres on every tick and every claim.
 """
 
+import gzip
 import json
 import logging
 import re
@@ -243,12 +244,14 @@ def reports_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _Reports:
 def _sweep_reports(
     client: TestClient, worker: Engine, setup: _Reports, bodies: dict[str, str]
 ) -> None:
-    """Every open finding and CVE as a report, CSV and PDF, and every resource as a CSV: the list,
-    each report, each file, and each PDF's context."""
+    """Every open finding and CVE as a report, CSV and PDF, and every resource as a CSV and as
+    JSON Lines with its links and configuration (ADR-0047 3c): the list, each report, each file
+    (a JSON Lines file decompressed), and each PDF's context."""
     for kind, fmt in (
         ("misconfigurations", "csv"),
         ("vulnerabilities", "csv"),
         ("resources", "csv"),
+        ("resources", "jsonl"),
         ("misconfigurations", "pdf"),
         ("vulnerabilities", "pdf"),
     ):
@@ -263,7 +266,8 @@ def _sweep_reports(
         ):
             response = client.get(path)
             assert response.status_code == 200, (path, response.text)
-            bodies[path] = response.text
+            gzipped = path.endswith("/download") and fmt == "jsonl"
+            bodies[path] = gzip.decompress(response.content).decode() if gzipped else response.text
     bodies["/api/v1/reports"] = client.get("/api/v1/reports").text
     assert len(setup.contexts) == 2
     assert not any(MARKERS.search(context) for context in setup.contexts)
@@ -506,3 +510,27 @@ def test_prowler_skips_are_names_of_the_pinned_prowler(signed_in: TestClient) ->
     assert saved["prowler_retry_attempts"] == 6
     assert saved["prowler_skip_services"] == ["cloudtrail"]
     assert saved["prowler_skip_checks"] == ["iam_root_mfa_enabled"]
+
+
+def test_select_all_saves_unless_it_leaves_prowler_no_check(signed_in: TestClient) -> None:
+    """The skip lists' Select all (owner, 2026-11-19): every check, or every service, saves
+    within the caps; skipping everything at once is refused, since Prowler would run nothing."""
+    options = signed_in.get("/api/v1/settings/collection/prowler-options").json()
+    services, checks = options["services"], options["checks"]
+    _put_collection(signed_in, prowler_skip_checks=checks[1:], prowler_skip_services=[])
+    _put_collection(signed_in, prowler_skip_services=services[1:], prowler_skip_checks=[])
+    current = signed_in.get("/api/v1/settings/collection").json()
+    for values in (
+        {"prowler_skip_services": services, "prowler_skip_checks": []},
+        {"prowler_skip_services": [], "prowler_skip_checks": checks},
+        {
+            "prowler_skip_services": services[1:],
+            "prowler_skip_checks": [c for c in checks if c.split("_", 1)[0] == services[0]],
+        },
+    ):
+        refused = signed_in.put(
+            "/api/v1/settings/collection", headers=csrf(signed_in), json={**current, **values}
+        )
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["detail"].startswith("Prowler would run no check")
+    assert signed_in.get("/api/v1/settings/collection").json() == current
