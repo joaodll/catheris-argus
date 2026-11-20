@@ -398,6 +398,27 @@ admissionPolicy:
   # image as the `run` service account.
   acknowledgeUnenforced: false
 
+# Pod disruption budgets (policy/v1): what a voluntary disruption (kubectl drain, a node group
+# upgrade, Karpenter consolidation) may take down. Nothing here stops a spot reclaim or a node
+# failure. Turn one off with enabled: false.
+podDisruptionBudgets:
+  # One pod of each at a time. An integer or a percentage ("25%").
+  api:
+    enabled: true
+    maxUnavailable: 1
+  web:
+    enabled: true
+    maxUnavailable: 1
+  # Every Argus Job pod (scans, connection tests, attack routes, reports). Only an integer
+  # minAvailable works here: a Job has no scale subresource, so Kubernetes can't evaluate
+  # maxUnavailable or a percentage for its pods and the budget stays unsynced (SyncFailed).
+  # null: the most Job pods that can run at once (scheduler.maxRunJobs + maxTestJobs + the report
+  # Jobs + the paths Job), so a running Job pod is never voluntarily evicted: a drain waits for
+  # it to end. A lower number lets the Job pods above it be evicted; 0 lets every one go.
+  jobs:
+    enabled: true
+    minAvailable: null
+
 # How many pods and Jobs can exist (review S1). pods 0: derived from the replicas (the
 # autoscaling maximum when on) and the scan bounds.
 resourceQuota:

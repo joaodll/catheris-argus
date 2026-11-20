@@ -271,13 +271,34 @@ for one in true false; do
   jq -e 'select(.kind == "PriorityClass") | .metadata.name == "argus-argus-jobs" and .value == 4242
       and .preemptionPolicy == "Never" and .globalDefault == false' "$OUT/one-per-node-$one.json" > /dev/null \
     || fail "the PriorityClass is not the chart's"
-  jq -e 'select(.kind == "PodDisruptionBudget" and .metadata.name == "argus-jobs")
-      | .spec.maxUnavailable == 0
+  # The Job ceiling: maxRunJobs + maxTestJobs + report Jobs (IRSA in these values) + paths.
+  ceiling=$(yq '.scheduler.maxRunJobs + .scheduler.maxTestJobs + .scheduler.maxReportJobs + 1' "$CHART/values.yaml")
+  jq -e --argjson n "$ceiling" 'select(.kind == "PodDisruptionBudget" and .metadata.name == "argus-jobs")
+      | .spec.minAvailable == $n and (.spec | has("maxUnavailable") | not)
         and .spec.selector.matchExpressions == [{"key":"argus/work","operator":"Exists"}]
         and .spec.selector.matchLabels["app.kubernetes.io/instance"] == "argus"' "$OUT/one-per-node-$one.json" > /dev/null \
-    || fail "no PDB over the Job pods"
+    || fail "no PDB over the Job pods, or not minAvailable $ceiling"
 done
-echo "PriorityClass argus-argus-jobs (value as set, preemptionPolicy Never); PDB argus-jobs (maxUnavailable 0)"
+echo "PriorityClass argus-argus-jobs (value as set, preemptionPolicy Never); PDB argus-jobs (minAvailable $ceiling)"
+
+step "the disruption budgets are values"
+pdbs() { # <rendered file> -> name=budget per line
+  yq -N -o=json 'select(.kind == "PodDisruptionBudget")' "$1" \
+    | jq -r '"\(.metadata.name)=\(.spec.maxUnavailable // ("min " + (.spec.minAvailable | tostring)))"' | sort | tr '\n' ' '
+}
+helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" --set podDisruptionBudgets.api.maxUnavailable=25% \
+  --set podDisruptionBudgets.jobs.minAvailable=1 --set podDisruptionBudgets.web.enabled=false > "$OUT/pdb-set.yaml"
+[ "$(pdbs "$OUT/pdb-set.yaml")" = "argus-api=25% argus-jobs=min 1 " ] \
+  || fail "the budgets don't follow their values: $(pdbs "$OUT/pdb-set.yaml")"
+helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" --set podDisruptionBudgets.jobs.enabled=false \
+  --set podDisruptionBudgets.api.enabled=false --set podDisruptionBudgets.web.enabled=false > "$OUT/pdb-none.yaml"
+[ -z "$(pdbs "$OUT/pdb-none.yaml")" ] || fail "a disabled budget still renders: $(pdbs "$OUT/pdb-none.yaml")"
+for refused in "podDisruptionBudgets.jobs.maxUnavailable=0" "podDisruptionBudgets.jobs.minAvailable=50%"; do
+  if helm template argus "$CHART" -n argus -f "$CHART/ci/minimal-values.yaml" --set "$refused" > /dev/null 2>&1; then
+    fail "the schema accepted $refused for the Job pods"
+  fi
+done
+echo "api 25%, web off, jobs min 1 as set; all off renders none; jobs maxUnavailable and a percentage refused"
 
 step "only an ingress changes how web reads the client's address"
 real_ip() { # <rendered file>

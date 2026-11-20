@@ -414,50 +414,76 @@ test_admission() {
 
 # helm install compiles only the kind values' policy, and chart-check compiles none (kubeconform
 # doesn't read CEL). Another release's name, so each is created, not an update of the installed one.
-# scanJobs.onePerNode (owner, 2026-11-18): two pods made from the scan templates, as the Job
-# controller would make them, never share kind's one worker; and the Jobs' PDB refuses to evict a
-# running one. Plain pods, created as the harness: the policy judges the scheduler's Jobs only.
+# scanJobs.onePerNode (owner, 2026-11-18): two pods made from the scan templates never share
+# kind's one worker; and the Jobs' PDB refuses to evict a running one. Each runs under a real Job
+# the harness creates (the policy judges the scheduler's Jobs only): a pod a Job owns is what the
+# budget must hold, and the case a bare pod never showed (maxUnavailable on Job pods is
+# SyncFailed, 2026-11-19).
 test_scan_placement() {
   step "one scan per node, and no eviction of a running Job's pod"
-  local tmp work out reason
+  local tmp work out reason pod budget
   tmp=$(mktemp -d)
-  trap 'k delete pod "$FULL-place-prowler" "$FULL-place-steampipe" --ignore-not-found --wait=false > /dev/null; rm -rf "$tmp"; trap - RETURN' RETURN
+  trap 'k delete job "$FULL-place-prowler" "$FULL-place-steampipe" --ignore-not-found --wait=false > /dev/null; rm -rf "$tmp"; trap - RETURN' RETURN
   for work in prowler steampipe; do
     k get configmap "$FULL-job-templates" -o json | jq -r --arg f "$work.json" '.data[$f]' \
       | jq --arg n "$FULL-place-$work" '.spec.template
-          | {apiVersion: "v1", kind: "Pod", metadata: {name: $n, labels: .metadata.labels},
-             spec: (.spec | .restartPolicy = "Never" | .terminationGracePeriodSeconds = 0
-                    | .containers[0].command = ["sleep", "600"] | .containers[0].env = [])}' \
+          | {apiVersion: "batch/v1", kind: "Job", metadata: {name: $n},
+             spec: {backoffLimit: 0, ttlSecondsAfterFinished: 60,
+                    template: {metadata: {labels: .metadata.labels},
+                               spec: (.spec | .restartPolicy = "Never" | .terminationGracePeriodSeconds = 0
+                                      | .containers[0].command = ["sleep", "600"] | .containers[0].env = [])}}}' \
       > "$tmp/$work.json"
-    jq -e '.spec.affinity.podAntiAffinity and .spec.priorityClassName' "$tmp/$work.json" > /dev/null \
+    jq -e '.spec.template.spec.affinity.podAntiAffinity and .spec.template.spec.priorityClassName' "$tmp/$work.json" > /dev/null \
       || fail "the $work template has no one-per-node term or priority class (kind values: onePerNode)"
   done
+  job_pod() { # <job> -> its pod's name, once the Job controller made it
+    local name=""
+    for _ in $(seq 30); do
+      name=$(k get pods -l "batch.kubernetes.io/job-name=$1" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+      [ -n "$name" ] && break
+      sleep 2
+    done
+    [ -n "$name" ] || fail "the Job $1 made no pod"
+    echo "$name"
+  }
   k create -f "$tmp/prowler.json" > /dev/null
-  k wait --for=condition=Ready "pod/$FULL-place-prowler" --timeout=120s > /dev/null \
-    || fail "the first scan pod did not start"
-  ok "a scan pod runs on $(k get pod "$FULL-place-prowler" -o jsonpath='{.spec.nodeName}')"
+  pod=$(job_pod "$FULL-place-prowler")
+  k wait --for=condition=Ready "pod/$pod" --timeout=120s > /dev/null || fail "the first scan pod did not start"
+  ok "a scan pod runs on $(k get pod "$pod" -o jsonpath='{.spec.nodeName}'), owned by a Job"
   k create -f "$tmp/steampipe.json" > /dev/null
+  local second
+  second=$(job_pod "$FULL-place-steampipe")
   for _ in $(seq 30); do
-    reason=$(k get events --field-selector "involvedObject.name=$FULL-place-steampipe,reason=FailedScheduling" \
+    reason=$(k get events --field-selector "involvedObject.name=$second,reason=FailedScheduling" \
                -o jsonpath='{.items[-1:].message}' 2>/dev/null || true)
     [ -n "$reason" ] && break
     sleep 2
   done
-  [ "$(k get pod "$FULL-place-steampipe" -o jsonpath='{.status.phase}')" = Pending ] \
+  [ "$(k get pod "$second" -o jsonpath='{.status.phase}')" = Pending ] \
     || fail "a second scan pod started beside the first"
   grep -qi 'anti-affinity' <<< "$reason" || fail "the second scan pod waits for another reason: ${reason:-none}"
   ok "a second scan pod waits for a node of its own: $reason"
-  [ "$(k get pod "$FULL-place-prowler" -o jsonpath='{.spec.priority}')" = "$(kubectl get priorityclass \
-       "$(jq -r .spec.priorityClassName "$tmp/prowler.json")" -o jsonpath='{.value}')" ] \
+  [ "$(k get pod "$pod" -o jsonpath='{.spec.priority}')" = "$(kubectl get priorityclass \
+       "$(jq -r .spec.template.spec.priorityClassName "$tmp/prowler.json")" -o jsonpath='{.value}')" ] \
     || fail "the scan pod does not carry its class's priority"
-  ok "the scan pod carries the Jobs' priority ($(k get pod "$FULL-place-prowler" -o jsonpath='{.spec.priority}'), preemption $(k get pod "$FULL-place-prowler" -o jsonpath='{.spec.preemptionPolicy}'))"
+  ok "the scan pod carries the Jobs' priority ($(k get pod "$pod" -o jsonpath='{.spec.priority}'), preemption $(k get pod "$pod" -o jsonpath='{.spec.preemptionPolicy}'))"
+  for _ in $(seq 15); do # the disruption controller syncs the budget after the pod is Ready
+    budget=$(k get pdb "$FULL-jobs" -o json)
+    jq -e '.status.observedGeneration == .metadata.generation and .status.currentHealthy >= 1' <<< "$budget" > /dev/null && break
+    sleep 2
+  done
+  jq -e '[.status.conditions[]? | select(.reason == "SyncFailed")] | length == 0' <<< "$budget" > /dev/null \
+    || fail "the Jobs' budget is not synced: $(jq -c '.status.conditions' <<< "$budget")"
+  jq -e '.status.disruptionsAllowed == 0' <<< "$budget" > /dev/null \
+    || fail "the Jobs' budget allows disruptions: $(jq -c '.status' <<< "$budget")"
+  ok "the Jobs' budget is synced over a Job's pod: minAvailable $(jq .spec.minAvailable <<< "$budget"), healthy $(jq .status.currentHealthy <<< "$budget"), disruptions allowed 0"
   if out=$(printf '{"apiVersion":"policy/v1","kind":"Eviction","metadata":{"name":"%s","namespace":"%s"}}' \
-             "$FULL-place-prowler" "$NAMESPACE" \
-           | kubectl create --raw "/api/v1/namespaces/$NAMESPACE/pods/$FULL-place-prowler/eviction" -f - 2>&1); then
+             "$pod" "$NAMESPACE" \
+           | kubectl create --raw "/api/v1/namespaces/$NAMESPACE/pods/$pod/eviction" -f - 2>&1); then
     fail "a running Job pod was evicted: $out"
   fi
   grep -qi 'disruption budget' <<< "$out" || fail "the eviction was refused for another reason: $out"
-  ok "an eviction of a running Job pod is refused by the PDB"
+  ok "an eviction of a running Job's pod is refused by the PDB"
 }
 
 test_policy_compiles() {

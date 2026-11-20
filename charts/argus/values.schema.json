@@ -1398,6 +1398,87 @@
         }
       },
       "additionalProperties": false
+    },
+    "podDisruptionBudgets": {
+      "type": "object",
+      "properties": {
+        "api": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "maxUnavailable": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(100|[1-9]?[0-9])%$"
+                }
+              ]
+            }
+          },
+          "required": [
+            "enabled",
+            "maxUnavailable"
+          ],
+          "additionalProperties": false
+        },
+        "web": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "maxUnavailable": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                {
+                  "type": "string",
+                  "pattern": "^(100|[1-9]?[0-9])%$"
+                }
+              ]
+            }
+          },
+          "required": [
+            "enabled",
+            "maxUnavailable"
+          ],
+          "additionalProperties": false
+        },
+        "jobs": {
+          "type": "object",
+          "description": "Job pods: only an integer minAvailable (a Job has no scale subresource, so maxUnavailable or a percentage leaves the budget SyncFailed). Unset or null = the most Job pods that can run at once.",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "minAvailable": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          },
+          "required": [
+            "enabled"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "api",
+        "web",
+        "jobs"
+      ],
+      "additionalProperties": false
     }
   }
 }
