@@ -981,6 +981,11 @@
                     "requests",
                     "limits"
                   ]
+                },
+                "activeDeadlineSeconds": {
+                  "type": "integer",
+                  "minimum": 5400,
+                  "description": "This work's Job deadline, in place of scanJobs.activeDeadlineSeconds. Prowler and CloudFox stop their tool 30 minutes before it."
                 }
               },
               "additionalProperties": false,
@@ -1006,6 +1011,11 @@
                     "requests",
                     "limits"
                   ]
+                },
+                "activeDeadlineSeconds": {
+                  "type": "integer",
+                  "minimum": 5400,
+                  "description": "This work's Job deadline, in place of scanJobs.activeDeadlineSeconds. Prowler and CloudFox stop their tool 30 minutes before it."
                 }
               },
               "additionalProperties": false,
@@ -1031,6 +1041,11 @@
                     "requests",
                     "limits"
                   ]
+                },
+                "activeDeadlineSeconds": {
+                  "type": "integer",
+                  "minimum": 5400,
+                  "description": "This work's Job deadline, in place of scanJobs.activeDeadlineSeconds. Prowler and CloudFox stop their tool 30 minutes before it."
                 }
               },
               "additionalProperties": false,

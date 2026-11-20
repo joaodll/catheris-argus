@@ -21,6 +21,7 @@ import re
 from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 from typing import Any
 
 from argus.core.rawstore import RawRun
@@ -230,20 +231,72 @@ def _check(item: dict[str, Any]) -> CheckText:
     )
 
 
-def _code(text: str, *, quoted: bool) -> dict[str, dict[str, str]]:
-    """Each check's remediation code from the findings CSV. Only CHECK_ID and the code columns
-    are read; every other column, the resource details among them, is skipped."""
+# How much of Prowler's OCSF file is held at once: a large account's file runs to gigabytes, and
+# ingest runs in the scan Job, under the same memory limit as the tool (2026-11-19).
+OCSF_BLOCK = 1 << 20
+# One finding is a few kilobytes: a file that never closes one is broken, not large.
+MAX_FINDING_CHARS = 32 << 20
+
+
+def ocsf_items(path: Path, *, block: int = OCSF_BLOCK) -> Iterator[dict[str, Any]]:
+    """The findings of a Prowler OCSF file, one at a time. Prowler 5.50.0 writes one JSON
+    array, "[" then each finding indented and followed by "," then "]"
+    (lib/outputs/ocsf/ocsf.py, batch_write_data_to_file): read in blocks, so only one block
+    and one finding are held. Anything but an array of objects raises ValueError."""
+    decoder = json.JSONDecoder()
+    with path.open(encoding="utf-8") as file:
+        buffer = file.read(block)
+        at = _skip(buffer, 0)
+        if buffer[at : at + 1] != "[":
+            raise ValueError(f"{path.name}: not a JSON array")
+        at += 1
+        ended = False
+        while True:
+            at = _skip(buffer, at)
+            if at < len(buffer) and buffer[at] == "]":
+                return
+            if at < len(buffer) and buffer[at] == ",":
+                at = _skip(buffer, at + 1)
+            try:
+                item, end = decoder.raw_decode(buffer, at)
+            except json.JSONDecodeError:
+                if ended or len(buffer) - at > MAX_FINDING_CHARS:
+                    raise ValueError(f"{path.name}: not a complete JSON array") from None
+                more = file.read(block)
+                ended = not more
+                buffer = buffer[at:] + more
+                at = 0
+                continue
+            if not isinstance(item, dict):
+                raise ValueError(f"{path.name}: a finding that is not an object")
+            yield item
+            at = end
+            if at > block:  # what was read is behind: drop it
+                buffer, at = buffer[at:], 0
+
+
+def _skip(text: str, at: int) -> int:
+    while at < len(text) and text[at] in " \t\r\n":
+        at += 1
+    return at
+
+
+def _code(path: Path, *, quoted: bool) -> dict[str, dict[str, str]]:
+    """Each check's remediation code from the findings CSV, read row by row. Only CHECK_ID and
+    the code columns are read; every other column, the resource details among them, is
+    skipped."""
     unquote = _unquote if quoted else str
     code: dict[str, dict[str, str]] = {}
-    for row in csv.DictReader(io.StringIO(text), delimiter=";"):
-        check_id = unquote(row.get("CHECK_ID") or "")
-        if not check_id or check_id in code:
-            continue
-        code[check_id] = {
-            name: unquote(value)[:MAX_TEXT]
-            for column, name in _CODE_COLUMNS.items()
-            if (value := row.get(column) or "").strip()
-        }
+    with path.open(encoding="utf-8", newline="") as file:
+        for row in csv.DictReader(file, delimiter=";"):
+            check_id = unquote(row.get("CHECK_ID") or "")
+            if not check_id or check_id in code:
+                continue
+            code[check_id] = {
+                name: unquote(value)[:MAX_TEXT]
+                for column, name in _CODE_COLUMNS.items()
+                if (value := row.get(column) or "").strip()
+            }
     return code
 
 
@@ -299,7 +352,7 @@ def parse_prowler(run: RawRun) -> ProwlerBatch:
     code: dict[str, dict[str, str]] = {}
     for file in manifest.files:
         if "/" not in file.path and file.path.endswith(".ocsf.json"):
-            for item in json.loads(run.path(file.path).read_text()):
+            for item in ocsf_items(run.path(file.path)):
                 result = _finding(item)
                 if result.check_id not in checks:
                     checks[result.check_id] = _check(item)
@@ -309,7 +362,7 @@ def parse_prowler(run: RawRun) -> ProwlerBatch:
                 if item["status_code"] in ("FAIL", "MANUAL"):
                     findings.append(result)
         elif "/" not in file.path and file.path.endswith(".csv"):
-            code.update(_code(run.path(file.path).read_text(), quoted=quoted))
+            code.update(_code(run.path(file.path), quoted=quoted))
         elif file.path.startswith("compliance/") and file.path.endswith(".csv"):
             # prowler-output-<account>-<timestamp>_<framework>.csv: the prefix holds no "_",
             # so the framework (cis_6.0_aws, prowler_threatscore_aws, ...) follows the first.

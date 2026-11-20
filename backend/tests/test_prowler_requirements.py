@@ -3,11 +3,13 @@ the quoting, from 5.45.0, of cells a spreadsheet would read as a formula."""
 
 import csv
 import io
+import json
+from pathlib import Path
 
 import pytest
 
 from argus.collection.synthetic.prowler import _QuotingWriter, _sanitize_csv_value
-from argus.findings.prowler import _code, _requirements, _unquote
+from argus.findings.prowler import _code, _requirements, _unquote, ocsf_items
 
 MITRE = (
     "PROVIDER;DESCRIPTION;ACCOUNTID;REGION;ASSESSMENTDATE;REQUIREMENTS_ID;REQUIREMENTS_NAME;"
@@ -158,15 +160,54 @@ def test_a_5_45_compliance_csv_reads_as_prowler_meant_it() -> None:
     assert raw.description == "'- Ensure root has MFA"
 
 
-def test_a_5_45_findings_csv_gives_the_code_as_prowler_meant_it() -> None:
+def test_a_5_45_findings_csv_gives_the_code_as_prowler_meant_it(tmp_path: Path) -> None:
     row = {
         "CHECK_ID": "s3_check",
         "REMEDIATION_CODE_CLI": "-- see the console",
         "RESOURCE_DETAILS": "=x",
     }
-    code = _code(_quoted_csv(row), quoted=True)
+    findings_csv = tmp_path / "findings.csv"
+    findings_csv.write_text(_quoted_csv(row), encoding="utf-8", newline="")
+    code = _code(findings_csv, quoted=True)
     assert code == {"s3_check": {"code_cli": "-- see the console"}}
     assert (
         list(csv.reader(io.StringIO(_quoted_csv(row)), delimiter=";"))[1][1]
         == "'-- see the console"
     )
+
+
+def _ocsf(items: list[dict[str, object]]) -> str:
+    """A file as Prowler 5.50.0 writes it: "[", each finding indented and followed by ",",
+    the last comma replaced by "]" (lib/outputs/ocsf/ocsf.py)."""
+    return "[" + "".join(json.dumps(i, indent=4) + "," for i in items)[:-1] + "]"
+
+
+@pytest.mark.parametrize("block", [7, 64, 1 << 20], ids=["tiny", "small", "default"])
+def test_an_ocsf_file_is_read_one_finding_at_a_time(tmp_path: Path, block: int) -> None:
+    """A large account's file is gigabytes: read in blocks, whatever the block cuts through
+    (a string with brackets, commas and escaped quotes included)."""
+    items = [
+        {"status_code": "FAIL", "message": f'bucket "a,b]{n}" is {{public}}', "n": n}
+        for n in range(50)
+    ]
+    path = tmp_path / "out.ocsf.json"
+    path.write_text(_ocsf(items), encoding="utf-8")
+    assert list(ocsf_items(path, block=block)) == items
+
+
+def test_an_empty_ocsf_file_is_no_finding(tmp_path: Path) -> None:
+    path = tmp_path / "out.ocsf.json"
+    path.write_text("[]", encoding="utf-8")
+    assert list(ocsf_items(path)) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    ['[{"a": 1},{"a": 2', '{"a": 1}', '[{"a": 1},[1]]'],
+    ids=["cut-short", "not-an-array", "not-an-object"],
+)
+def test_a_broken_ocsf_file_is_refused(tmp_path: Path, text: str) -> None:
+    path = tmp_path / "out.ocsf.json"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError):
+        list(ocsf_items(path, block=4))

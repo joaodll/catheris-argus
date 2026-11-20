@@ -15,7 +15,7 @@ import pytest
 from argus.collection.aws import stream as live
 from argus.collection.aws import tools as aws_tools
 from argus.collection.aws.stream import ToolStream
-from argus.collection.collect import Cancelled
+from argus.collection.collect import Cancelled, TimeLimit
 from argus.core.logging import JsonFormatter
 from argus.core.memory import MemoryGuard, OutOfMemory
 from argus.core.redaction import TABLE_ROW_OMITTED, redact_text
@@ -70,7 +70,7 @@ def test_lines_reach_the_live_log_while_the_tool_runs(tmp_path: Path, captured: 
                     cmd,
                     env=_env(tmp_path),
                     log=tmp_path / "tool.log",
-                    timeout=timedelta(seconds=30),
+                    limit=TimeLimit(timedelta(seconds=30)),
                     stream=stream,
                 )
             )
@@ -96,7 +96,7 @@ def test_the_log_file_keeps_every_byte_as_the_tool_wrote_it(
             cmd,
             env=_env(tmp_path),
             log=tmp_path / "tool.log",
-            timeout=timedelta(seconds=30),
+            limit=TimeLimit(timedelta(seconds=30)),
             stream=stream,
         )
     assert (tmp_path / "tool.log").read_bytes() == b"one\r\ntwo\r 10%\r 20%\nthree"
@@ -129,7 +129,7 @@ def test_every_line_is_redacted(tmp_path: Path, captured: _Lines) -> None:
             cmd,
             env=_env(tmp_path),
             log=tmp_path / "tool.log",
-            timeout=timedelta(seconds=30),
+            limit=TimeLimit(timedelta(seconds=30)),
             stream=stream,
         )
     assert captured.records
@@ -148,7 +148,7 @@ def test_a_cancelled_tool_is_killed_and_its_output_stops(tmp_path: Path, capture
             cmd,
             env=_env(tmp_path),
             log=tmp_path / "tool.log",
-            timeout=timedelta(seconds=30),
+            limit=TimeLimit(timedelta(seconds=30)),
             cancel=cancel,
             stream=stream,
         )
@@ -164,11 +164,33 @@ def test_a_child_holding_the_output_open_does_not_hold_the_run(
     cmd = _tool(tmp_path / "tool", "(sleep 3 &)\necho parent done\n")
     started = time.monotonic()
     rc = aws_tools._run(
-        cmd, env=_env(tmp_path), log=tmp_path / "tool.log", timeout=timedelta(seconds=30)
+        cmd, env=_env(tmp_path), log=tmp_path / "tool.log", limit=TimeLimit(timedelta(seconds=30))
     )
     assert rc == 0
     assert time.monotonic() - started < 2.5
     assert b"parent done" in (tmp_path / "tool.log").read_bytes()
+
+
+def test_a_tool_past_its_time_limit_is_killed_and_the_limit_marked(tmp_path: Path) -> None:
+    """The run then fails without a retry (scheduling.runner): the mark is what says so."""
+    cmd = _tool(tmp_path / "tool", "echo started\nwhile true; do sleep 0.05; done\n")
+    limit = TimeLimit(timedelta(seconds=1))
+    started = time.monotonic()
+    rc = aws_tools._run(cmd, env=_env(tmp_path), log=tmp_path / "tool.log", limit=limit)
+    assert rc == -9 and limit.reached
+    assert time.monotonic() - started < 5
+    assert b"argus: stopped after its time limit of 1 s" in (tmp_path / "tool.log").read_bytes()
+
+
+def test_a_tool_that_ends_in_time_leaves_the_limit_unmarked(tmp_path: Path) -> None:
+    limit = TimeLimit(timedelta(seconds=30))
+    rc = aws_tools._run(
+        _tool(tmp_path / "tool", "echo done\n"),
+        env=_env(tmp_path),
+        log=tmp_path / "t.log",
+        limit=limit,
+    )
+    assert rc == 0 and not limit.reached
 
 
 def test_a_heartbeat_says_the_tool_is_still_running(captured: _Lines) -> None:
@@ -218,7 +240,7 @@ def test_a_tool_near_the_memory_limit_is_killed(tmp_path: Path) -> None:
             cmd,
             env=_env(tmp_path),
             log=tmp_path / "tool.log",
-            timeout=timedelta(seconds=30),
+            limit=TimeLimit(timedelta(seconds=30)),
             guard=guard,
         )
     assert time.monotonic() - started < 10
@@ -300,7 +322,7 @@ def test_with_a_fate_each_line_goes_where_it_says(tmp_path: Path, captured: _Lin
         cmd,
         env=_env(tmp_path),
         log=log,
-        timeout=timedelta(seconds=10),
+        limit=TimeLimit(timedelta(seconds=10)),
         stream=stream,
         routing=live.Routing(lambda text: fates.get(text, "log")),
     )
@@ -324,7 +346,7 @@ def test_a_tool_on_a_terminal_draws_its_bar_into_the_live_log(
         cmd,
         env=_env(tmp_path),
         log=log,
-        timeout=timedelta(seconds=10),
+        limit=TimeLimit(timedelta(seconds=10)),
         stream=ToolStream("prowler", progress_every=0),
         tty=True,
         routing=live.Routing(lambda _t: "log"),
@@ -409,7 +431,7 @@ def test_without_a_pseudo_terminal_the_tool_still_runs(
         cmd,
         env=_env(tmp_path),
         log=tmp_path / "tool.log",
-        timeout=timedelta(seconds=10),
+        limit=TimeLimit(timedelta(seconds=10)),
         stream=ToolStream("prowler"),
         tty=True,
         routing=live.Routing(lambda _t: "log"),

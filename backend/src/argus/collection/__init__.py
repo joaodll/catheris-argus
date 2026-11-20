@@ -24,7 +24,9 @@ from argus.collection.collect import (
     Cancelled,
     CollectOptions,
     CollectTarget,
+    TimeLimit,
     collect,
+    stopped_at_time_limit,
     stopped_for_memory,
 )
 from argus.collection.prowler_lists import prowler_checks, prowler_frameworks, prowler_services
@@ -46,6 +48,7 @@ __all__ = [
     "RawRun",
     "RawStorageNotConfiguredError",
     "RawStore",
+    "TimeLimit",
     "access_for",
     "collect",
     "missing_tools",
@@ -55,6 +58,7 @@ __all__ = [
     "read_run",
     "source_for",
     "steampipe_tables",
+    "stopped_at_time_limit",
     "stopped_for_memory",
     "store_for",
 ]

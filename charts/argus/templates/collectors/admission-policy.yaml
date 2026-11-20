@@ -6,7 +6,7 @@ two cannot drift.
 - One template per work: five (the paths Job's, ADR-0052, among them), and a sixth (report) on
   IRSA installs (ADR-0047 round 5). What
   differs between them (the name prefix, the labels, the service account, the image, the
-  environment, the resources) is held per template, keyed by name prefix: a Job is checked whole
+  environment, the resources, the deadline) is held per template, keyed by name prefix: a Job is checked whole
   against the one template its prefix names, so one template's work on another's image, account
   or resources matches none. An unknown prefix is denied first. The chart refuses to render if
   the templates differ in anything else, so the shared checks below hold for all of them.
@@ -27,7 +27,7 @@ policy 2Gi for the 2048Mi the chart rendered.
 {{- if .Values.admissionPolicy.enabled }}
 {{- $ns := .Release.Namespace }}
 {{- $schedulerSA := include "argus.serviceAccount" (dict "root" . "name" "scheduler") }}
-{{- $images := dict }}{{- $labelsBy := dict }}{{- $envBy := dict }}{{- $requestsBy := dict }}{{- $limitsBy := dict }}{{- $accountBy := dict }}{{- $aloneBy := dict }}
+{{- $images := dict }}{{- $deadlineBy := dict }}{{- $labelsBy := dict }}{{- $envBy := dict }}{{- $requestsBy := dict }}{{- $limitsBy := dict }}{{- $accountBy := dict }}{{- $aloneBy := dict }}
 {{- $shared := "" }}
 {{- $job := dict }}
 {{- range $work, $_ := include "argus.scanWorks" . | fromYaml }}
@@ -37,6 +37,7 @@ policy 2Gi for the 2048Mi the chart rendered.
 {{- $_ := set $images $prefix $jc.image }}
 {{- $_ := set $labelsBy $prefix $j.spec.template.metadata.labels }}
 {{- $_ := set $accountBy $prefix $j.spec.template.spec.serviceAccountName }}
+{{- $_ := set $deadlineBy $prefix ($j.spec.activeDeadlineSeconds | int) }}
 {{- /* Whether this template carries the one-scan-per-node anti-affinity (scanJobs.onePerNode). */}}
 {{- $_ := set $aloneBy $prefix (hasKey $j.spec.template.spec "affinity") }}
 {{- $env := dict }}
@@ -54,13 +55,13 @@ policy 2Gi for the 2048Mi the chart rendered.
 {{- $_ := set $limitsBy $prefix $q }}
 {{- /* Everything else must be the same in every template. */ -}}
 {{- $rest := deepCopy $j }}
-{{- $_ := unset $rest.metadata "generateName" }}{{- $_ := unset $rest.metadata "labels" }}
+{{- $_ := unset $rest.metadata "generateName" }}{{- $_ := unset $rest.metadata "labels" }}{{- $_ := unset $rest.spec "activeDeadlineSeconds" }}
 {{- $_ := unset $rest.spec.template.metadata "labels" }}
 {{- $_ := unset $rest.spec.template.spec "serviceAccountName" }}{{- $_ := unset $rest.spec.template.spec "affinity" }}
 {{- $rc := index $rest.spec.template.spec.containers 0 }}
 {{- $_ := unset $rc "image" }}{{- $_ := unset $rc "env" }}{{- $_ := unset $rc "resources" }}
 {{- if and $shared (ne $shared (toJson $rest)) }}
-{{- fail (printf "Job template %q differs from the others beyond its prefix, labels, service account, affinity, image, environment and resources" $work) }}
+{{- fail (printf "Job template %q differs from the others beyond its prefix, labels, service account, affinity, image, environment, resources and deadline" $work) }}
 {{- end }}
 {{- $shared = toJson $rest }}
 {{- $job = $j }}
@@ -124,7 +125,7 @@ spec:
     - expression: >-
         object.spec.parallelism == 1 && object.spec.completions == 1
         && object.spec.backoffLimit == 0
-        && object.spec.activeDeadlineSeconds == {{ $job.spec.activeDeadlineSeconds | int }}
+        && object.spec.activeDeadlineSeconds == {{ $deadlineBy | toJson }}[variables.prefix]
         && !has(object.spec.podFailurePolicy) && !has(object.spec.successPolicy)
         && !has(object.spec.managedBy)
         && (!has(object.spec.completionMode) || object.spec.completionMode == 'NonIndexed')

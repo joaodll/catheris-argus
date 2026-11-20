@@ -457,7 +457,7 @@ spec:
   backoffLimit: 0
   completions: 1
   parallelism: 1
-  activeDeadlineSeconds: {{ $s.activeDeadlineSeconds }}
+  activeDeadlineSeconds: {{ include "argus.scanJob.deadline" . }}
   ttlSecondsAfterFinished: {{ $s.ttlSecondsAfterFinished }}
   template:
     metadata:
@@ -483,6 +483,20 @@ spec:
           "mounts" "- {name: scratch, mountPath: /var/lib/argus-staging}"))) | nindent 6 }}
 {{- end }}
 
+{{/* A Job template's deadline: its work's own (scanJobs.work.<work>.activeDeadlineSeconds) or
+scanJobs.activeDeadlineSeconds. Called with (dict "root" $ "work" <work>). */}}
+{{- define "argus.scanJob.deadline" -}}
+{{- $s := .root.Values.scanJobs }}
+{{- (index $s.work .work).activeDeadlineSeconds | default $s.activeDeadlineSeconds | int }}
+{{- end }}
+
+{{/* The works whose tool runs under one time limit of its own: the Job's deadline less 30
+minutes for the upload and the ingest (collection.collect.TimeLimit). Steampipe has one per
+table instead. */}}
+{{- define "argus.scanJob.timed" -}}
+[cloudfox, prowler]
+{{- end }}
+
 {{- define "argus.scanJob.env" -}}
 {{- if eq .work "report" }}
 # No keyring: a report Job renders names from scanned clouds and needs no sealed value
@@ -497,6 +511,16 @@ spec:
 # The deployment's bound on scans at once.
 - name: ARGUS_MAX_RUN_JOBS
   value: {{ .root.Values.scheduler.maxRunJobs | quote }}
+{{- if has .work (include "argus.scanJob.timed" .root | fromYamlArray) }}
+{{- $limit := sub (include "argus.scanJob.deadline" . | int) 1800 }}
+{{- if lt $limit 3600 }}
+{{- fail (printf "scanJobs: the %s Job's deadline must be at least 5400 seconds: its tool gets the deadline less 30 minutes, and at least an hour" .work) }}
+{{- end }}
+# How long the tool may run: the Job's deadline less 30 minutes for the upload and the ingest.
+# Stopped there, the run fails saying which value to raise, and is not retried.
+- name: ARGUS_TOOL_TIME_LIMIT_SECONDS
+  value: {{ $limit | quote }}
+{{- end }}
 {{- end }}
 # The work this Job does (ADR-0046); the Job refuses to start without a known one.
 - name: ARGUS_JOB_WORK
