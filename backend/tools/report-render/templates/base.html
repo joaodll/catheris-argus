@@ -23,14 +23,12 @@
 @page {
   size: A4;
   margin: 18mm 16mm 20mm 16mm;
-  @top-right { content: string(kind); font: 6.5pt Inter; color: #5b636d; letter-spacing: .06em; }
   @bottom-left { content: string(footer); font: 6.5pt Inter; color: #5b636d; letter-spacing: .04em; }
   @bottom-right { content: "page " counter(page) " of " counter(pages); font: 6.5pt "JetBrains Mono"; color: #5b636d; }
 }
 @page :first {
   margin: 0;
   background: #08090a;
-  @top-right { content: none; }
   @bottom-left { content: none; }
   @bottom-right { content: none; }
 }
@@ -39,31 +37,44 @@ body { margin: 0; }
 .mono, code, pre, td.mono { font-family: "JetBrains Mono", monospace; }
 /* Running strings for the page margins. Hidden by visibility, not display: WeasyPrint sets no
    string from an element that is not laid out. */
-.running-kind { string-set: kind content(); }
 .running-footer { string-set: footer content(); }
-.running-kind, .running-footer { visibility: hidden; display: block; height: 0; margin: 0; overflow: hidden; }
+.running-footer { visibility: hidden; display: block; height: 0; margin: 0; overflow: hidden; }
 a { color: var(--link); text-decoration: none; overflow-wrap: anywhere; }
 
-/* ---- cover ---- */
+/* ---- cover (laid out like the Catheris Platform report; spec palace frontend/a9b886af) ---- */
 .cover { height: 297mm; padding: 22mm 20mm; box-sizing: border-box; color: var(--cover-text);
   background: var(--cover-bg); position: relative; page-break-after: always; }
 .brand { font-size: 9pt; font-weight: 600; }
 .brand svg { vertical-align: -3pt; margin-right: 6pt; }
-.eyebrow-rule { width: 24mm; height: 2pt; background: var(--accent); margin: 52mm 0 6pt; }
+.cover-main { position: absolute; left: 20mm; right: 20mm; bottom: 20mm; }
+.eyebrow-rule { width: 24mm; height: 2pt; background: var(--accent); margin: 0 0 6pt; }
 .eyebrow { font-size: 8pt; letter-spacing: .14em; color: var(--cover-text-2); text-transform: uppercase; }
-.cover h1 { font-size: 26pt; font-weight: 700; margin: 6pt 0 4pt; }
+.cover h1 { font-size: 28pt; font-weight: 700; line-height: 1.15; margin: 6pt 0 4pt; }
 .cover .scope { font-size: 10pt; color: var(--cover-text-2); overflow-wrap: anywhere; }
-.hero { margin: 18mm 0 4pt; font-family: "JetBrains Mono", monospace; font-size: 40pt; font-weight: 700; }
-.hero-caption { color: var(--cover-text-3); font-size: 8pt; }
-.meta { width: 100%; border-collapse: collapse; margin-top: 14mm; table-layout: fixed; }
-.meta td { vertical-align: top; padding: 0 10pt 12pt 0; border-top: 1px solid var(--cover-border); padding-top: 6pt; }
-.meta .label { display: block; font-size: 6.5pt; letter-spacing: .1em; text-transform: uppercase; color: var(--cover-text-3); }
-.meta .value { display: block; font-family: "JetBrains Mono", monospace; font-size: 8.5pt; overflow-wrap: anywhere; }
-.confidential { position: absolute; left: 20mm; right: 20mm; bottom: 20mm; font-size: 7pt; color: var(--cover-text-3);
-  border-top: 1px solid var(--cover-border); padding-top: 6pt; }
+.meta { width: 100%; border-collapse: collapse; margin-top: 12mm; table-layout: fixed; }
+.meta td { vertical-align: top; padding: 0 12pt 10pt 0; }
+.meta .label { display: block; font-size: 6.5pt; letter-spacing: .1em; text-transform: uppercase; color: var(--cover-text-3);
+  margin: 0 0 2pt; border: 0; padding: 0; }
+.meta .value { display: block; font-size: 10pt; font-weight: 600; overflow-wrap: anywhere; }
+.meta .total { color: #f28b9e; }
+.cover-foot { width: 100%; border-collapse: collapse; margin-top: 6mm; border-top: 1px solid var(--cover-border); }
+.cover-foot td { vertical-align: middle; padding-top: 8pt; font-size: 7pt; color: var(--cover-text-3); }
+.cover-foot .tag { text-align: right; width: 28%; }
+.tag span { display: inline-block; border: 1px solid var(--accent); color: var(--accent); border-radius: 8pt;
+  padding: 1pt 7pt; font-size: 6.5pt; letter-spacing: .1em; text-transform: uppercase; }
 
 /* ---- pages ---- */
-h2.section { font-size: 15pt; font-weight: 700; margin: 0 0 8pt; }
+/* Titles and sub-sections share one left and right edge with every table (owner, 2026-11-20). */
+table.section { width: 100%; border-collapse: collapse; border-bottom: 1.5pt solid var(--text); margin: 0 0 10pt; }
+table.section td { padding: 0 0 4pt; vertical-align: bottom; }
+table.section h2 { font-size: 15pt; font-weight: 700; margin: 0; }
+table.section .of { text-align: right; font-size: 7pt; color: var(--text-3); white-space: nowrap; }
+.subsection { font-size: 6.5pt; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); font-weight: 600;
+  border-bottom: 0.75pt solid var(--border); padding: 0 0 3pt; margin: 14pt 0 6pt; }
+.subsection + .caption { margin: -2pt 0 6pt; }
+/* The first block under a section title: the title's rule is its top edge. */
+table.section + section.block { border-top: 0; padding-top: 0; margin-top: 0; }
+.res-head .count { font-size: 7pt; color: var(--text-3); margin-left: 4pt; }
 .caption { font-size: 7pt; color: var(--text-3); }
 .label { font-size: 6.5pt; letter-spacing: .1em; text-transform: uppercase; color: var(--text-3); margin: 8pt 0 2pt; }
 .pill { display: inline-block; border: 1px solid; border-radius: 3pt; padding: 0 4pt; font-size: 7pt; font-weight: 700;
@@ -74,8 +85,6 @@ h2.section { font-size: 15pt; font-weight: 700; margin: 0 0 8pt; }
 .strip { width: 100%; border-collapse: separate; border-spacing: 4pt 0; margin: 0 -4pt 12pt; table-layout: fixed; }
 .strip td { background: var(--tile); border-radius: 4pt; padding: 6pt 8pt; vertical-align: top; }
 .strip .count { display: block; font-family: "JetBrains Mono", monospace; font-size: 16pt; font-weight: 700; margin-top: 3pt; }
-.halves { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.halves > tbody > tr > td { vertical-align: top; padding-right: 10pt; }
 table.list { width: 100%; border-collapse: collapse; font-size: 7.5pt; table-layout: fixed; }
 table.list th { text-align: left; font-size: 6.5pt; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3);
   font-weight: 600; border-bottom: 1px solid var(--border-strong); padding: 3pt 4pt; }
@@ -102,7 +111,6 @@ table.list td.num, table.list th.num { text-align: right; }
 .actions .n { font-family: "JetBrains Mono", monospace; font-weight: 600; margin-left: 4pt; }
 .keep { page-break-inside: avoid; break-inside: avoid; }
 table.list thead { display: table-header-group; }
-.gap { margin-top: 12pt; }
 .with-next { page-break-after: avoid; break-after: avoid; }
 .sources { margin-bottom: 10pt; }
 .sources td.src { width: 32%; }
@@ -113,12 +121,19 @@ table.list thead { display: table-header-group; }
 .res-head .chips { text-align: right; width: 38%; }
 .res-head .chips .lbl { font-size: 6.5pt; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin-left: 6pt; }
 .result { display: block; font-size: 7pt; color: var(--text-2); overflow-wrap: anywhere; margin-top: 1pt; }
-.read { margin-top: 12pt; }
+.read { margin-top: 14pt; }
+.regions { font-family: "JetBrains Mono", monospace; font-size: 7pt; }
+.regions .sep { color: var(--text-3); }
+table.cves tr.desc td { padding-top: 0; font-size: 7pt; color: var(--text-2); }
+table.cves tr.desc .what { font-size: 6pt; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3); margin-right: 4pt; }
+table.cves tbody tr:nth-child(even) td { background: transparent; }
+table.cves tbody.pair:nth-of-type(even) td { background: var(--sunken); }
+table.cves tbody.pair { page-break-inside: avoid; break-inside: avoid; }
 .read p { margin: 0 0 2pt; }
 
 /* ---- blocks ---- */
 .block { border-top: 1px solid var(--border-strong); padding-top: 9pt; margin-top: 10pt; }
-.block-head { page-break-inside: avoid; break-inside: avoid; }
+.block-head { page-break-inside: avoid; break-inside: avoid; page-break-after: avoid; break-after: avoid; }
 .block-title { width: 100%; border-collapse: collapse; }
 .block-title td { vertical-align: top; padding: 0; }
 .block-title .t { font-size: 10.5pt; font-weight: 600; padding: 0 8pt; overflow-wrap: anywhere; }
@@ -133,48 +148,58 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
 .facts .value { display: block; font-family: "JetBrains Mono", monospace; font-size: 8.5pt; overflow-wrap: anywhere; }
 .more { margin-top: 3pt; }
 .empty { margin-top: 14pt; font-size: 10pt; }
+/* The summary's "By resource type": a count per in-scope severity, a zero muted (it is a real
+   count, never missing data). The column's word says the severity, not its colour alone. */
+table.types td.n { font-family: "JetBrains Mono", monospace; text-align: right; font-weight: 600; }
+table.types td.n.zero { color: var(--text-3); font-weight: 400; }
+table.types th.sev { text-align: right; width: 8%; }
+table.list tr { page-break-inside: avoid; break-inside: avoid; }
 </style>
 </head>
 <body>
 {#- Every word that depends on the report's kind, in one place. -#}
 {% set words = {
-  "misconfigurations": {"name": "Misconfigurations report", "title": "Findings to fix", "hero": "open findings in scope",
+  "misconfigurations": {"total": "open findings",
     "unit": "findings", "common": "Most common checks", "item": "Check", "items": "checks",
-    "read": "Worst first: each block is one check, with its risk, the fix, and the resources it affects.",
+    "read": "Worst first: each block is one check, with the resources it failed on, then its risk and the fix.",
     "caps": "A block lists at most %d resources, and this report at most %s. The CSV report has every row."},
-  "vulnerabilities": {"name": "Vulnerabilities report", "title": "Vulnerabilities to fix", "hero": "vulnerabilities in scope",
+  "vulnerabilities": {"total": "vulnerabilities",
     "unit": "vulnerabilities", "common": "Most common vulnerabilities", "item": "Vulnerability", "items": "vulnerabilities",
-    "read": "Worst first: each block is one vulnerability, with its description, the fix, and the resources it affects.",
-    "caps": "A block lists at most %d resources, and this report at most %s. The CSV report has every row."},
-  "resource-problems": {"name": "Misconfigurations and vulnerabilities report", "title": "Resources to fix", "hero": "open problems in scope",
+    "read": "Worst first: each block is one resource, with its vulnerabilities, worst first, each described in a line.",
+    "caps": "A block lists at most %d vulnerabilities, and this report at most %s. The CSV report has every row."},
+  "resource-problems": {"total": "open problems",
     "unit": "problems", "common": "Most common problems", "item": "Problem", "items": "problems",
     "read": "Worst first: each block is one resource, with its misconfigurations and its vulnerabilities. Each check's or vulnerability's risk and fix are in the Reference, once.",
     "caps": "A block lists at most %d problems, and this report at most %s. The CSV report has every row."},
 }[ctx.kind] %}
-<span class="running-kind">{{ words.name }}</span>
 <span class="running-footer">CONFIDENTIAL · Argus report #{{ ctx.report_id }} · generated {{ ctx.generated_at }} UTC</span>
 
 <section class="cover">
   <div class="brand"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5ce1e6" stroke-width="2"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"/><path d="M9 12l2 2 4-4"/></svg>CatherIs Argus</div>
-  <div class="eyebrow-rule"></div>
-  <div class="eyebrow">{{ words.name }}</div>
-  <h1>{{ words.title }}</h1>
-  <div class="scope">{{ ctx.scope or "All open findings" }}</div>
-  <div class="hero">{{ ctx.total | num }}</div>
-  <div class="hero-caption">{{ words.hero }}</div>
-  <table class="meta">
-    <tr>
-      <td><span class="label">Accounts</span><span class="value">{{ ctx.account_names | length }}{% if ctx.account_names %}: {{ ctx.account_names[:6] | join(", ") }}{% if ctx.account_names | length > 6 %} +{{ (ctx.account_names | length) - 6 }} more{% endif %}{% endif %}</span></td>
-      <td><span class="label">Generated</span><span class="value">{{ ctx.generated_at }} UTC</span></td>
-      <td><span class="label">Requested by</span><span class="value">{{ ctx.requested_by }}</span></td>
-    </tr>
-    <tr>
-      <td><span class="label">Report</span><span class="value">#{{ ctx.report_id }} · PDF</span></td>
-      <td><span class="label">Data through</span><span class="value">{% if ctx.data_through %}{{ ctx.data_through }}{% if ctx.data_through_differs %} (accounts differ: see the summary){% endif %}{% else %}no scan yet{% endif %}</span></td>
-      <td><span class="label">Listed</span><span class="value">{% if ctx.truncated %}{{ ctx.listed | num }} of {{ ctx.total | num }} resources: the full list is in the CSV{% else %}every affected resource{% endif %}</span></td>
-    </tr>
-  </table>
-  <div class="confidential">CONFIDENTIAL. This report names the security weaknesses of the accounts above. Share it only with the people who fix them.</div>
+  <div class="cover-main">
+    <div class="eyebrow-rule"></div>
+    <div class="eyebrow">Report</div>
+    <h1>{{ m.TITLES[ctx.kind] }}</h1>
+    <div class="scope">{{ ctx.scope or "All open findings" }}</div>
+    <table class="meta">
+      <tr>
+        <td><span class="label">Accounts</span><span class="value">{{ ctx.account_names | length }}{% if ctx.account_names %}: {{ ctx.account_names[:6] | join(", ") }}{% if ctx.account_names | length > 6 %} +{{ (ctx.account_names | length) - 6 }} more{% endif %}{% endif %}</span></td>
+        <td><span class="label">Generated</span><span class="value">{{ ctx.generated_at }} UTC</span></td>
+      </tr>
+      <tr>
+        <td><span class="label">Requested by</span><span class="value">{{ ctx.requested_by }}</span></td>
+        <td><span class="label">Data through</span><span class="value">{% if ctx.data_through %}{{ ctx.data_through }}{% if ctx.data_through_differs %} (accounts differ: see the summary){% endif %}{% else %}no scan yet{% endif %}</span></td>
+      </tr>
+      <tr>
+        <td><span class="label">Listed</span><span class="value">{% if ctx.truncated %}{{ ctx.listed | num }} of {{ ctx.total | num }} {{ words.unit }}: the full list is in the CSV{% else %}all {{ ctx.total | num }} {{ words.unit }}{% endif %}</span></td>
+        <td><span class="label">Total</span><span class="value{% if ctx.total %} total{% endif %}">{{ ctx.total | num }} {{ words.total }}</span></td>
+      </tr>
+    </table>
+    <table class="cover-foot"><tr>
+      <td>Generated by CatherIs Argus · Report #{{ ctx.report_id }} · PDF<br>This report names the security weaknesses of the accounts above. Share it only with the people who fix them.</td>
+      <td class="tag"><span>Confidential</span></td>
+    </tr></table>
+  </div>
 </section>
 
 {% set fills = {"critical": "#d42a52", "high": "#b35200", "medium": "#8a6800", "low": "#73673a", "informational": "#2d6bd8"} %}
@@ -187,7 +212,7 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
 } %}
 {% set unit = words.unit %}
 <section>
-  <h2 class="section">Summary</h2>
+  {{ m.section("Summary", ctx) }}
   <table class="strip"><tr>
     {% for s in ctx.severities %}
     {% set k = m.known(s.severity) %}
@@ -215,7 +240,7 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
   <p class="empty">Nothing matched this report's filters{% if ctx.data_through %} on {{ ctx.data_through }}{% endif %}.</p>
   {% else %}
   <div class="keep">
-    <div class="label">Recommended actions</div>
+    <div class="subsection">Recommended actions</div>
     <table class="list actions"><tbody>
       {% for s in ctx.severities if s.in_scope and s.count %}
       {% set k = m.known(s.severity) %}
@@ -224,25 +249,29 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
     </tbody></table>
   </div>
 
-  <div class="gap"><div class="label">Resources with problems</div>
-  <p class="caption">Worst first: most critical, then high, and so on. {{ ctx.worst | length | num }} of {{ ctx.resources | num }} resources with {{ unit }} in this report.</p></div>
-  <table class="list">
-    <thead><tr><th>Resource</th><th style="width:26%">Where</th><th style="width:16%">Type</th><th style="width:16%">Severity</th><th class="num" style="width:8%">Total</th></tr></thead>
-    <tbody>{% for r in ctx.worst %}
+  <div class="subsection with-next">By resource type</div>
+  <p class="caption">Worst first: most critical, then high, and so on. {{ ctx.by_type | length | num }}{% if ctx.more_types %} of {{ (ctx.by_type | length) + ctx.more_types }}{% endif %} types, {{ ctx.resources | num }} resources with {{ unit }} in this report.</p>
+  {% set labels = {"critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "informational": "Info"} %}
+  <table class="list types">
+    <thead><tr><th>Type</th><th class="num" style="width:10%">Resources</th>
+      {% for s in ctx.severities if s.in_scope %}<th class="sev">{{ labels[m.known(s.severity)] }}</th>{% endfor %}
+      <th class="num" style="width:8%">Total</th></tr></thead>
+    <tbody>{% for t in ctx.by_type %}
       <tr>
-        <td><span class="strong">{{ r.name or "—" }}</span><span class="sub">{{ r.uid }}</span></td>
-        <td>{{ m.where(r) }}</td>
-        <td class="mono">{{ r.type or "—" }}</td>
-        <td>{% for c in r.chips %}{{ m.chip(c) }} {% endfor %}{% if r.misconfigurations is defined %}<span class="sub">{{ r.misconfigurations | num }} misconfig. · {{ r.vulnerabilities | num }} CVE</span>{% endif %}</td>
-        <td class="num mono">{{ r.total | num }}</td>
+        <td>{{ m.type_cell(t.type, t.words) }}{% if t.misconfigurations is defined %}<span class="sub">{{ t.misconfigurations | num }} misconfig. · {{ t.vulnerabilities | num }} CVE</span>{% endif %}</td>
+        <td class="num mono">{{ t.resources | num }}</td>
+        {% for s in ctx.severities %}{% if s.in_scope %}{% set n = t.counts[loop.index0] %}
+        <td class="n {{ 'sev-' ~ m.known(s.severity) if n else 'zero' }}">{{ n | num }}</td>
+        {% endif %}{% endfor %}
+        <td class="num mono strong">{{ t.total | num }}</td>
       </tr>
     {% endfor %}</tbody>
   </table>
-  <div class="caption more">C critical · H high · M medium · L low · I informational</div>
+  {% if ctx.more_types %}<div class="caption more">and {{ ctx.more_types | num }} more types</div>{% endif %}
 
-  <div class="gap"><div class="label">{{ words.common }}</div></div>
+  <div class="subsection with-next">{{ words.common }}</div>
   <table class="list">
-    <thead><tr><th style="width:14%">Severity</th><th>{{ words.item }}</th><th class="num" style="width:14%">Resources</th><th class="num" style="width:14%">Accounts</th></tr></thead>
+    <thead><tr><th style="width:15%">Severity</th><th>{{ words.item }}</th><th class="num" style="width:12%">Resources</th><th class="num" style="width:10%">Accounts</th></tr></thead>
     <tbody>{% for c in ctx.common %}
       <tr>
         <td>{{ m.pill(c.severity) }}</td>
@@ -257,60 +286,20 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
     {% endfor %}</tbody>
   </table>
 
-  <table class="halves gap"><tr>
-    <td>
-      <div class="label">By account</div>
-      <table class="list">
-        <thead><tr><th>Account</th><th class="num">Findings</th><th>Data through</th></tr></thead>
-        <tbody>{% for a in ctx.by_account %}
-          <tr><td>{{ a.name }}<span class="sub">{{ a.account_id }}</span></td><td class="num mono">{{ a.findings | num }}</td><td class="mono">{{ a.data_through or "no scan yet" }}</td></tr>
-        {% endfor %}</tbody>
-      </table>
-      {% if ctx.more_accounts %}<div class="caption more">and {{ ctx.more_accounts | num }} more accounts</div>{% endif %}
-    </td>
-    <td>
-      <div class="label">By resource type</div>
-      <table class="list">
-        <thead><tr><th>Resource type</th><th class="num">Findings</th></tr></thead>
-        <tbody>{% for t in ctx.by_type %}
-          <tr><td class="mono">{{ t.type }}</td><td class="num mono">{{ t.findings | num }}</td></tr>
-        {% endfor %}</tbody>
-      </table>
-      {% if ctx.more_types %}<div class="caption more">and {{ ctx.more_types | num }} more types</div>{% endif %}
-    </td>
-  </tr></table>
-  {% endif %}
+  <div class="subsection with-next">By account and region</div>
+  <table class="list">
+    <thead><tr><th style="width:27%">Account</th><th style="width:13%">Data through</th><th class="num" style="width:15%">{{ unit | capitalize }}</th><th>Regions</th></tr></thead>
+    <tbody>{% for a in ctx.by_account %}
+      <tr>
+        <td>{{ a.name }}<span class="sub">{{ a.account_id }}</span></td>
+        <td class="mono">{{ a.data_through or "no scan yet" }}</td>
+        <td class="num mono">{{ a.findings | num }}</td>
+        <td class="regions">{% for r in a.regions %}{{ r.region or "global" }} {{ r.findings | num }}{% if not loop.last %}<span class="sep"> · </span>{% endif %}{% endfor %}{% if a.more_regions %}<span class="sep"> · </span>+{{ a.more_regions | num }} more{% endif %}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  {% if ctx.more_accounts %}<div class="caption more">and {{ ctx.more_accounts | num }} more accounts</div>{% endif %}
 
-  <table class="halves gap keep"><tr>
-    <td>
-      {% if ctx.total %}
-      <div class="label">By region</div>
-      <table class="list">
-        <thead><tr><th>Region</th><th class="num">Findings</th></tr></thead>
-        <tbody>{% for r in ctx.by_region %}
-          <tr><td class="mono">{{ r.region or "global" }}</td><td class="num mono">{{ r.findings | num }}</td></tr>
-        {% endfor %}</tbody>
-      </table>
-      {% if ctx.more_regions %}<div class="caption more">and {{ ctx.more_regions | num }} more regions</div>{% endif %}
-      {% endif %}
-    </td>
-    <td>
-      <div class="label">Assets by category</div>
-      {% if ctx.assets is none %}
-      <p class="caption">Not covered: no inventory scan yet for these accounts.</p>
-      {% else %}
-      <table class="list">
-        <thead><tr><th>Category</th><th class="num">Assets</th></tr></thead>
-        <tbody>{% for a in ctx.assets %}
-          <tr><td>{{ a.category }}</td><td class="num mono">{{ a.count | num }}</td></tr>
-        {% endfor %}</tbody>
-      </table>
-      <div class="caption more">Whole accounts at their latest inventory scan, not filtered by this report.</div>
-      {% endif %}
-    </td>
-  </tr></table>
-
-  {% if ctx.total %}
   <div class="read caption">
     <p>{{ words.read }}</p>
     <p>{{ words.caps | format(ctx.caps.per_block, ctx.caps.total | num) }}</p>
@@ -320,12 +309,12 @@ pre.code { background: var(--sunken); border: 1px solid var(--border); border-ra
 
 {% block body %}{% endblock %}
 
-{% if ctx.others and ctx.kind != "resource-problems" %}
+{% if ctx.others and ctx.kind == "misconfigurations" %}
 <section class="block">
-  <h2 class="section">Also in this report</h2>
+  <div class="subsection">Also in this report</div>
   <p class="caption">These {{ ctx.others | length | num }} {{ words.items }} are counted above but not detailed here. The CSV report lists their resources.</p>
   <table class="list">
-    <thead><tr><th style="width:16%">Severity</th><th>{{ words.item }}</th><th class="num" style="width:12%">Findings</th></tr></thead>
+    <thead><tr><th style="width:15%">Severity</th><th>{{ words.item }}</th><th class="num" style="width:12%">Findings</th></tr></thead>
     <tbody>{% for o in ctx.others %}
       <tr><td>{{ m.pill(o.severity) }}</td><td>{{ o.title }}<span class="sub">{{ o.tool }} · {{ o.check_id }}</span></td><td class="num mono">{{ o.count | num }}</td></tr>
     {% endfor %}</tbody>

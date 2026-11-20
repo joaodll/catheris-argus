@@ -320,15 +320,14 @@ def _write_pdf(engine: Engine, report: ClaimedReport, out_path: Path, *, local: 
     worker role's 5-minute limit on an idle transaction."""
     if "pdf" not in KIND_FORMATS[report.kind]:
         raise ReportRefusedError(queue.FORMAT_REFUSED[report.kind])
-    today = datetime.now(UTC).date()
     with _snapshot(engine) as conn:
         filters, through = _scope(conn, report, local=local)
         if isinstance(filters, report_filters.ResourceProblemFilters):
-            by_resource = problems.collect(conn, filters, today=today)
+            by_resource = problems.collect(conn, filters)
         elif not isinstance(filters, FindingFilters):
             raise ReportRefusedError(queue.FORMAT_REFUSED[report.kind])
         else:
-            collected = pdf.collect(conn, report.kind, filters, today=today)
+            collected = pdf.collect(conn, report.kind, filters)
     if isinstance(filters, report_filters.ResourceProblemFilters):
         context = problems.build_context(
             by_resource,

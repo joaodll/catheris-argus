@@ -105,26 +105,66 @@ def test_a_pdf_report_is_built_from_its_context_and_downloaded(
     assert response.content.startswith(b"%PDF")
 
 
-def test_a_vulnerabilities_pdf_carries_each_cves_facts(
+def test_a_vulnerabilities_pdf_lists_each_resource_with_its_cves(
     signed_in: TestClient, worker: Engine, root: Path, demo: int, rendered: list[dict[str, Any]]
 ) -> None:
+    """Owner, 2026-11-20: the Vulnerabilities PDF is grouped by resource, like the Catheris
+    Platform report: each resource worst first, with its CVEs worst first, their facts and
+    descriptions, read through the report's own filters (here: a public exploit)."""
     _ask(signed_in, "vulnerabilities", exploitable=True)
     assert reports.build_pending(worker, store=reports.LocalReportStore(root))
     (context,) = rendered
-    assert context["blocks"]
-    for block in context["blocks"]:
-        assert block["tool"] == "vulnerabilities"
-        assert block["facts"]["exploit"] is True and block["facts"]["cve"]
-        assert set(block["facts"]) == set(pdf._NO_FACTS)
+    with worker.connect() as conn:
+        rows = [
+            r
+            for batch in findings.iter_findings(
+                conn,
+                FindingFilters(
+                    connection_ids=(demo,), tools=("vulnerabilities",), exploitable=True
+                ),
+            )
+            for r in batch
+        ]
+    per_resource = Counter(r["resource_uid"] for r in rows)
+    blocks = context["blocks"]
+    assert blocks and len(blocks) == min(len(per_resource), reports.model.PDF_RESOURCE_BLOCKS)
+    ranks = [
+        tuple(
+            -next((c["count"] for c in b["chips"] if c["severity"] == s), 0) for s in pdf.SEVERITIES
+        )
+        for b in blocks
+    ]
+    assert ranks == sorted(ranks)  # worst first
+    for block in blocks:
+        assert block["total"] == per_resource[block["uid"]] == len(block["lines"]) + block["more"]
+        assert len(block["lines"]) <= reports.model.PDF_PROBLEMS_PER_RESOURCE
+        order = [pdf.SEVERITIES.index(line["severity"]) for line in block["lines"]]
+        assert order == sorted(order)
+        for line in block["lines"]:
+            assert line["facts"]["exploit"] is True and line["facts"]["cve"]
+            assert set(line["facts"]) == set(pdf._NO_FACTS)
+        assert block["account"] and block["type_words"] == pdf.type_words(block["type"])
+    assert any(line["description"] for b in blocks for line in b["lines"])
+    assert context["listed"] == sum(len(b["lines"]) for b in blocks)
     assert "Public exploit" not in json.dumps(context)  # words live in the template, not the data
     assert context["scope"].endswith("public exploit")
+
+
+def test_a_vulnerabilities_pdf_caps_the_cves_never_the_counts(worker: Engine, demo: int) -> None:
+    filters = FindingFilters(connection_ids=(demo,), tools=("vulnerabilities",))
+    with worker.connect() as conn:
+        full = pdf.collect(conn, "vulnerabilities", filters)
+        cut = pdf.collect(conn, "vulnerabilities", filters, cap=5)
+    assert cut.total == full.total and cut.by_severity == full.by_severity
+    assert cut.listed == 5 < full.listed and cut.truncated
+    assert [r.uid for r in cut.ranked] == [r.uid for r in full.ranked]
 
 
 def test_the_caps_cut_the_list_never_the_counts(owner: Engine, worker: Engine, demo: int) -> None:
     filters = FindingFilters(connection_ids=(demo,), tools=("prowler", "cloudfox"))
     with worker.connect() as conn:
-        full = pdf.collect(conn, "misconfigurations", filters, today=DAY)
-        cut = pdf.collect(conn, "misconfigurations", filters, today=DAY, per_block=2, cap=7)
+        full = pdf.collect(conn, "misconfigurations", filters)
+        cut = pdf.collect(conn, "misconfigurations", filters, per_block=2, cap=7)
     assert cut.total == full.total and cut.by_severity == full.by_severity
     assert cut.listed == 7 and cut.truncated
     assert all(len(g.rows) <= 2 for g in cut.groups)
@@ -235,7 +275,6 @@ def test_the_context_is_plain_json(demo: int, worker: Engine) -> None:
             conn,
             "vulnerabilities",
             FindingFilters(connection_ids=(demo,), tools=("vulnerabilities",)),
-            today=DAY,
         )
     context = pdf.build_context(
         collected,
@@ -277,7 +316,6 @@ def test_past_the_detailed_blocks_checks_are_named_then_counted(
             conn,
             "misconfigurations",
             FindingFilters(connection_ids=(demo,), tools=("prowler",)),
-            today=DAY,
         )
     context = pdf.build_context(
         collected,
@@ -303,7 +341,6 @@ def _context(conn: Connection, kind: str, demo: int) -> dict[str, Any]:
         conn,
         kind,
         FindingFilters(connection_ids=(demo,), tools=tools),
-        today=DAY,  # type: ignore[arg-type]
     )
     return pdf.build_context(
         collected,
@@ -318,11 +355,12 @@ def _context(conn: Connection, kind: str, demo: int) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("kind", ["misconfigurations", "vulnerabilities"])
-def test_the_summary_names_the_worst_resources_and_where_they_are(
+def test_the_summary_counts_each_resource_type_by_severity(
     worker: Engine, demo: int, kind: str
 ) -> None:
-    """Spec frontend/709108a0: resources worst first with their counts by severity, the most
-    common checks or CVEs by resources, the regions, and the severity share bar."""
+    """Spec frontend/924f747a (owner, 2026-11-20): "By resource type" replaces the worst
+    resources: each type's findings by severity and its distinct resources, worst first, as the
+    findings list counts them; then the most common checks or CVEs, the regions, the share bar."""
     tools = ("prowler", "cloudfox") if kind == "misconfigurations" else ("vulnerabilities",)
     with worker.connect() as conn:
         context = _context(conn, kind, demo)
@@ -333,28 +371,27 @@ def test_the_summary_names_the_worst_resources_and_where_they_are(
             )
             for r in batch
         ]
-    per_resource: dict[Any, list[int]] = {}
+    counts: dict[str, list[int]] = {}
+    resources: dict[str, set[Any]] = {}
     for r in rows:
         key = r["resource_id"] if r["resource_id"] is not None else r["resource_uid"]
-        counts = per_resource.setdefault(key, [0] * 5)
-        counts[pdf.SEVERITIES.index(r["severity"])] += 1
-    assert context["resources"] == len(per_resource) > 0
+        kind_of = r["resource_type"] or "unknown"
+        counts.setdefault(kind_of, [0] * 5)[pdf.SEVERITIES.index(r["severity"])] += 1
+        resources.setdefault(kind_of, set()).add(key)
+    assert context["resources"] == len(set().union(*resources.values())) > 0
+    assert "worst" not in context
 
-    worst = context["worst"]
-    assert 0 < len(worst) <= pdf.TOP_RESOURCES
-    ranks = [
-        tuple(
-            -next((c["count"] for c in w["chips"] if c["severity"] == s), 0) for s in pdf.SEVERITIES
-        )
-        for w in worst
-    ]
+    by_type = context["by_type"]
+    assert 0 < len(by_type) <= pdf.TYPE_ROWS
+    assert len(by_type) + context["more_types"] == len(counts)
+    for t in by_type:
+        assert t["counts"] == counts[t["type"]]
+        assert t["resources"] == len(resources[t["type"]])
+        assert t["total"] == sum(t["counts"]) > 0
+        assert t["words"] == pdf.type_words(t["type"])
+    ranks = [(*(-n for n in t["counts"]), -t["total"], t["type"]) for t in by_type]
     assert ranks == sorted(ranks)  # most critical first, then most high, and so on
-    expected_first = min(tuple(-n for n in counts) for counts in per_resource.values())
-    assert ranks[0] == expected_first
-    for w in worst:
-        assert w["total"] == sum(c["count"] for c in w["chips"]) > 0
-        assert w["uid"] and w["account"] and w["account_id"]
-        assert all(c["count"] > 0 and c["letter"] for c in w["chips"])
+    assert ranks[0] == min((*(-n for n in c), -sum(c), k) for k, c in counts.items())
 
     common = context["common"]
     assert 0 < len(common) <= pdf.TOP_COMMON
@@ -362,10 +399,13 @@ def test_the_summary_names_the_worst_resources_and_where_they_are(
         (c["resources"] for c in common), reverse=True
     )
 
-    assert (
-        sum(r["findings"] for r in context["by_region"]) == context["total"]
-        or context["more_regions"]
-    )
+    # By account and region (owner, 2026-11-20): each account's regions add up to its findings.
+    assert sum(a["findings"] for a in context["by_account"]) == context["total"]
+    for a in context["by_account"]:
+        assert len(a["regions"]) <= pdf.REGIONS_PER_ACCOUNT
+        assert sum(r["findings"] for r in a["regions"]) == a["findings"] or a["more_regions"]
+        assert all(r["region"] is None or r["region"] for r in a["regions"])
+    assert "assets" not in context and "by_region" not in context
     shares = context["shares"]
     assert sum(s["width"] for s in shares) == pdf.BAR_UNITS
     assert [s["x"] for s in shares] == [
@@ -374,49 +414,86 @@ def test_the_summary_names_the_worst_resources_and_where_they_are(
     assert round(sum(s["percent"] for s in shares)) == 100
 
 
-def test_assets_by_category_are_the_overviews(
-    signed_in: TestClient, worker: Engine, demo: int
+def test_the_summary_names_at_most_its_rows_of_types() -> None:
+    types = {f"AwsType{i:02d}": pdf.TypeCount(f"AwsType{i:02d}") for i in range(40)}
+    for i, t in enumerate(types.values()):
+        t.add("high" if i % 2 else "low", i)
+    rows = pdf.type_rows(types)
+    assert len(rows) == pdf.TYPE_ROWS
+    assert [r["counts"][1] for r in rows[:20]] == [1] * 20  # every high before any low
+
+
+def test_a_check_lists_each_resource_with_what_the_tool_says_about_it(
+    worker: Engine, demo: int
 ) -> None:
-    """The PDF's "Assets by category" counts what the Overview's Inventory card counts: one
-    taxonomy (metrics.categories), each account at its latest inventory scan."""
+    """Owner, 2026-11-20: "I don't understand in what resource is the finding". A block's rows
+    carry the finding's own sentence (Prowler's status_extended) without Markdown, and say how
+    many distinct resources the check failed on."""
     with worker.connect() as conn:
         context = _context(conn, "misconfigurations", demo)
-    overview = signed_in.get(
-        "/api/v1/overview", params={"connection_id": demo, "as_of": DAY.isoformat()}
-    ).json()
-    by_category: dict[str, int] = {}
-    for row in overview["inventory"]["by_type"]:
-        by_category[row["category"]] = by_category.get(row["category"], 0) + int(row["count"])
-    assert {a["category"]: a["count"] for a in context["assets"]} == by_category
-    assert context["assets"][-1]["category"] == "Other" or "Other" not in by_category
-    counts = [a["count"] for a in context["assets"] if a["category"] != "Other"]
-    assert counts == sorted(counts, reverse=True)
+        details = {
+            pdf._plain(r["detail"])
+            for batch in findings.iter_findings(
+                conn, FindingFilters(connection_ids=(demo,), tools=("prowler",))
+            )
+            for r in batch
+            if r["detail"]
+        }
+    rows = [r for b in context["blocks"] for r in b["rows"]]
+    said = [r for r in rows if r["result"]]
+    assert said, "no block row carries the tool's sentence"
+    for r in said:
+        assert "**" not in r["result"] and "`" not in r["result"]
+        assert r["result"] in details  # one of the tool's own sentences, as it wrote it
+    for b in context["blocks"]:
+        assert 0 < b["resources"] <= b["count"]
+        assert all(r["type_words"] == pdf.type_words(r["type"]) for r in b["rows"])
 
 
-def test_a_pdf_without_any_inventory_says_not_covered(
-    owner: Engine, worker: Engine, store: FilesystemRawStore
-) -> None:
-    target = make_demo(owner)
-    run_tool(worker, store, target, "prowler", DAY)
-    with worker.connect() as conn:
-        context = _context(conn, "misconfigurations", target.connection_id)
-    assert context["total"] > 0 and context["assets"] is None  # "not covered", never 0
+@pytest.mark.parametrize(
+    ("raw", "words"),
+    [
+        ("AwsEc2Instance", "EC2 instance"),
+        ("AwsEc2SecurityGroup", "EC2 security group"),
+        ("AwsS3Bucket", "S3 bucket"),
+        ("AwsIamRole", "IAM role"),
+        ("AwsCloudTrailTrail", "CloudTrail trail"),
+        ("AwsCloudWatchAlarm", "CloudWatch alarm"),
+        ("AwsElbv2LoadBalancer", "ELBv2 load balancer"),
+        ("AwsRdsDbInstance", "RDS DB instance"),
+        ("AwsDynamoDbTable", "DynamoDB table"),
+        ("aws_ec2_instance", "EC2 instance"),
+        ("aws_cloudtrail_trail", "CloudTrail trail"),
+        ("aws_lambda_function", "Lambda function"),
+        ("Other", "Other"),
+        ("unknown", "unknown"),
+        (None, "unknown"),
+        ("Aws", "Aws"),
+    ],
+)
+def test_a_resource_type_reads_as_people_say_it(raw: str | None, words: str) -> None:
+    assert pdf.type_words(raw) == words
 
 
-def test_the_report_role_builds_a_pdf_with_its_assets(
+@pytest.mark.parametrize("kind", ["misconfigurations", "vulnerabilities"])
+def test_the_report_role_builds_a_pdf_and_reads_no_metrics(
     signed_in: TestClient,
     reports_role: Engine,
     root: Path,
     demo: int,
     rendered: list[dict[str, Any]],
+    kind: str,
 ) -> None:
-    """argus_reports (the Kubernetes report Job) reads metric_daily since migration 0058."""
-    report_id = _ask(signed_in, "misconfigurations").json()["id"]
+    """argus_reports (the Kubernetes report Job) builds both PDFs, by check and by resource.
+    Since 0060 it no longer reads metric_daily: the assets left the PDF (owner, 2026-11-20)."""
+    report_id = _ask(signed_in, kind).json()["id"]
     assert reports.build_pending(reports_role, store=reports.LocalReportStore(root))
     report = signed_in.get(f"/api/v1/reports/{report_id}").json()
     assert report["status"] == "ready", report["error"]
     (context,) = rendered
-    assert context["assets"] and context["worst"]
+    assert context["blocks"] and context["by_type"]
+    with reports_role.connect() as conn, pytest.raises(DBAPIError, match="permission denied"):
+        conn.execute(text("SELECT metric FROM metric_daily LIMIT 1"))
 
 
 def test_the_share_bar_always_makes_the_whole() -> None:

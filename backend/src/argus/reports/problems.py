@@ -21,7 +21,7 @@ from typing import Any
 
 from sqlalchemy import Connection
 
-from argus import findings, inventory, metrics
+from argus import findings, inventory
 from argus.reports.filters import ResourceProblemFilters
 from argus.reports.model import (
     PDF_NAMED_CAP,
@@ -31,17 +31,23 @@ from argus.reports.model import (
     PDF_RESOURCE_CAP,
 )
 from argus.reports.pdf import (
-    _LETTERS,
     _RANK,
     SEVERITIES,
     SUMMARY_ROWS,
     TOP_COMMON,
-    TOP_RESOURCES,
+    TYPE_ROWS,
+    TypeCount,
     _day,
     _facts,
     _link,
     _plain,
     _shares,
+    account_rows,
+    chips,
+    count_type,
+    cve_line,
+    type_rows,
+    type_words,
 )
 
 BATCH = 1000
@@ -150,8 +156,8 @@ class Collected:
     by_severity: Counter[str]
     by_source: dict[str, Counter[str]]
     by_account: Counter[int]
-    by_type: Counter[str]
-    by_region: Counter[str]
+    by_type: dict[str, TypeCount]
+    by_region: dict[int, Counter[str]]  # connection id -> its problems by region
     accounts: dict[int, tuple[str, str]]
     resources: list[_Resource]  # every resource with a problem, worst first
     problems: dict[tuple[str, str], _Problem]
@@ -159,7 +165,6 @@ class Collected:
     listed: int
     texts: dict[tuple[str, str], dict[str, Any]]
     facts: dict[int, findings.VulnerabilityFacts]
-    assets: list[dict[str, Any]] | None
 
     @property
     def truncated(self) -> bool:
@@ -174,7 +179,6 @@ def collect(
     conn: Connection,
     filters: ResourceProblemFilters,
     *,
-    today: date,
     blocks: int = PDF_RESOURCE_BLOCKS,
     per_resource: int = PDF_PROBLEMS_PER_RESOURCE,
     cap: int = PDF_RESOURCE_CAP,
@@ -183,8 +187,8 @@ def collect(
     by_severity: Counter[str] = Counter()
     by_source: dict[str, Counter[str]] = {s: Counter() for s in SOURCES}
     by_account: Counter[int] = Counter()
-    by_type: Counter[str] = Counter()
-    by_region: Counter[str] = Counter()
+    by_type: dict[str, TypeCount] = {}
+    by_region: dict[int, Counter[str]] = {}
     accounts: dict[int, tuple[str, str]] = {}
     resources: dict[int, _Resource] = {}
     problems: dict[tuple[str, str], _Problem] = {}
@@ -196,8 +200,8 @@ def collect(
             by_severity[row["severity"]] += 1
             by_source[source][row["severity"]] += 1
             by_account[row["connection_id"]] += 1
-            by_type[row["resource_type"] or "unknown"] += 1
-            by_region[row["region"] or ""] += 1
+            count_type(by_type, row["resource_type"], row["severity"], row["resource_id"], source)
+            by_region.setdefault(row["connection_id"], Counter())[row["region"] or ""] += 1
             accounts.setdefault(row["connection_id"], (row["connection"], row["account_id"]))
             rid = row["resource_id"]
             resource = resources.get(rid)
@@ -273,16 +277,7 @@ def collect(
         listed=listed,
         texts=findings.check_texts(conn, referenced),
         facts=facts,
-        assets=metrics.asset_types_of(conn, list(filters.resources.connection_ids), today=today),
     )
-
-
-def _chips(counts: list[int]) -> list[dict[str, Any]]:
-    return [
-        {"severity": s, "letter": _LETTERS[s], "count": n}
-        for s, n in zip(SEVERITIES, counts, strict=True)
-        if n
-    ]
 
 
 def _where(c: Collected, r: _Resource) -> dict[str, Any]:
@@ -294,16 +289,17 @@ def _where(c: Collected, r: _Resource) -> dict[str, Any]:
         "account_id": account_id,
         "region": r.resource["region"],
         "type": r.resource["resource_type"],
+        "type_words": type_words(r.resource["resource_type"]),
         "vpc_id": r.resource["vpc_id"],
     }
 
 
 def _resource_row(c: Collected, r: _Resource) -> dict[str, Any]:
-    """A resource as the summary and the named list show it: where, chips, totals by source."""
+    """A resource as "Also in this report" shows it: where, chips, totals by source."""
     both = r.total()
     return {
         **_where(c, r),
-        "chips": _chips(both),
+        "chips": chips(both),
         "total": sum(both),
         "misconfigurations": sum(r.counts[MISCONFIGURATION]),
         "vulnerabilities": sum(r.counts[VULNERABILITY]),
@@ -312,14 +308,16 @@ def _resource_row(c: Collected, r: _Resource) -> dict[str, Any]:
 
 def _problem_line(c: Collected, row: dict[str, Any]) -> dict[str, Any]:
     facts = c.facts.get(row["id"])
+    if row["source"] == VULNERABILITY:  # the Reference describes each CVE once
+        return cve_line(row, facts, None)
     return {
         "severity": row["severity"],
         "tool": row["tool"],
         "check_id": row["check_id"],
         "title": row["title"],
-        "result": _plain(row["detail"]) if row["source"] == MISCONFIGURATION else None,
+        "result": _plain(row["detail"]),
         "first_seen": _day(row["first_seen"]),
-        "facts": _facts(facts) if row["source"] == VULNERABILITY else None,
+        "facts": None,
     }
 
 
@@ -328,7 +326,7 @@ def _block(c: Collected, r: _Resource) -> dict[str, Any]:
     both = r.total()
     return {
         **_where(c, r),
-        "chips": {s: _chips(r.counts[s]) for s in SOURCES},
+        "chips": {s: chips(r.counts[s]) for s in SOURCES},
         "total": sum(both),
         "misconfigurations": [
             _problem_line(c, row) for row in kept if row["source"] == MISCONFIGURATION
@@ -411,25 +409,19 @@ def build_context(
         "by_source": {
             source: [c.by_source[source].get(s, 0) for s in SEVERITIES] for source in SOURCES
         },
-        "by_account": [
-            {
-                "name": c.accounts.get(cid, ("", ""))[0],
-                "account_id": c.accounts.get(cid, ("", ""))[1],
-                "findings": n,
-                "data_through": _day(data_through.get(cid)),
-            }
-            for cid, n in c.by_account.most_common(SUMMARY_ROWS)
-        ],
+        "by_account": account_rows(c.accounts, c.by_account, c.by_region, data_through),
         "more_accounts": max(len(c.by_account) - SUMMARY_ROWS, 0),
-        "by_type": [{"type": t, "findings": n} for t, n in c.by_type.most_common(SUMMARY_ROWS)],
-        "more_types": max(len(c.by_type) - SUMMARY_ROWS, 0),
-        "by_region": [
-            {"region": r or None, "findings": n} for r, n in c.by_region.most_common(SUMMARY_ROWS)
+        "by_type": [
+            {
+                **row,
+                "misconfigurations": c.by_type[row["type"]].sources[MISCONFIGURATION],
+                "vulnerabilities": c.by_type[row["type"]].sources[VULNERABILITY],
+            }
+            for row in type_rows(c.by_type)
         ],
-        "more_regions": max(len(c.by_region) - SUMMARY_ROWS, 0),
+        "more_types": max(len(c.by_type) - TYPE_ROWS, 0),
         "shares": _shares(c.by_severity, c.total),
         "resources": len(c.resources),
-        "worst": [_resource_row(c, r) for r in c.resources[:TOP_RESOURCES]],
         "common": [
             {
                 "severity": p.severity,
@@ -441,7 +433,6 @@ def build_context(
             }
             for p in common
         ],
-        "assets": metrics.by_category(c.assets) if c.assets is not None else None,
         "blocks": [_block(c, r) for r in detailed],
         "reference": [_reference(c, k) for k in referenced[:PDF_REFERENCE_CAP]],
         "more_reference": max(len(referenced) - PDF_REFERENCE_CAP, 0),

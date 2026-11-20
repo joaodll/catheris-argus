@@ -4,7 +4,7 @@
     open misconfigurations and open CVEs; each check's or CVE's risk and fix once, in the
     Reference. -#}
 {% block body %}
-{% if ctx.blocks %}<h2 class="section" style="page-break-before: always">Resources to fix</h2>{% endif %}
+{% if ctx.blocks %}{{ m.section("Resources to fix", ctx, new_page=true) }}{% endif %}
 {% for b in ctx.blocks %}
 <section class="block">
   <div class="block-head">
@@ -17,7 +17,7 @@
     </tr></table>
     <table class="facts"><tr>
       <td><span class="label">Where</span><span class="value">{{ b.account or "—" }}</span><span class="sub">{{ b.region or "global" }} · {{ b.account_id or "—" }}</span></td>
-      <td><span class="label">Type</span><span class="value">{{ b.type or "—" }}</span></td>
+      <td><span class="label">Type</span><span class="value">{{ b.type_words or b.type or "—" }}</span>{% if b.type and b.type_words and b.type_words != b.type %}<span class="sub">{{ b.type }}</span>{% endif %}</td>
       <td><span class="label">VPC</span><span class="value">{{ b.vpc_id or "—" }}</span></td>
       <td><span class="label">Problems</span><span class="value">{{ b.total | num }}</span></td>
     </tr></table>
@@ -37,27 +37,14 @@
   {% endif %}
   {% if b.vulnerabilities %}
   <div class="label with-next">Vulnerabilities</div>
-  <table class="list">
-    <thead><tr><th style="width:16%">Severity</th><th>Vulnerability</th><th style="width:14%">Installed</th><th style="width:14%">Fixed in</th><th style="width:9%">Exploit</th><th class="num" style="width:8%">CVSS</th></tr></thead>
-    <tbody>{% for p in b.vulnerabilities %}
-      {% set f = p.facts %}
-      <tr>
-        <td>{{ m.pill(p.severity) }}</td>
-        <td><span class="mono strong">{{ f.cve or p.check_id }}</span><span class="sub">{{ f.package or p.title }}</span></td>
-        <td class="mono">{{ f.installed or "—" }}</td>
-        <td class="mono">{% if f.fixed %}{{ f.fixed }}{% else %}<span class="missing">no fix yet</span>{% endif %}</td>
-        <td>{% if f.exploit %}<span class="sev-critical">Yes</span>{% else %}No{% endif %}</td>
-        <td class="num mono">{{ f.cvss if f.cvss is not none else "—" }}</td>
-      </tr>
-    {% endfor %}</tbody>
-  </table>
+  {{ m.cves(b.vulnerabilities) }}
   {% endif %}
   {% if b.more %}<div class="caption more">and {{ b.more | num }} more problems on this resource in the CSV report</div>{% endif %}
 </section>
 {% endfor %}
 
 {% if ctx.reference %}
-<h2 class="section" style="page-break-before: always">Reference</h2>
+{{ m.section("Reference", ctx, new_page=true) }}
 <p class="caption">What each check or vulnerability above means and how to fix it, worst first.{% if ctx.more_reference %} {{ ctx.more_reference | num }} more are named in the CSV report.{% endif %}</p>
 {% for r in ctx.reference %}
 <section class="block">
@@ -87,22 +74,5 @@
 {% endfor %}
 {% endif %}
 
-{% if ctx.others %}
-<section class="block">
-  <h2 class="section">Also in this report</h2>
-  <p class="caption">These {{ ctx.others | length | num }} resources are counted above but not detailed here. The CSV report lists their problems.</p>
-  <table class="list">
-    <thead><tr><th>Resource</th><th style="width:26%">Where</th><th style="width:20%">Severity</th><th class="num" style="width:8%">Total</th></tr></thead>
-    <tbody>{% for o in ctx.others %}
-      <tr>
-        <td><span class="strong">{{ o.name or "—" }}</span><span class="sub">{{ o.uid }}</span></td>
-        <td>{{ m.where(o) }}</td>
-        <td>{% for c in o.chips %}{{ m.chip(c) }} {% endfor %}</td>
-        <td class="num mono">{{ o.total | num }}</td>
-      </tr>
-    {% endfor %}</tbody>
-  </table>
-  {% if ctx.more_others %}<div class="caption more">and {{ ctx.more_others | num }} more resources: the CSV report has them all</div>{% endif %}
-</section>
-{% endif %}
+{{ m.named_resources(ctx, "problems") }}
 {% endblock %}

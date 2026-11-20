@@ -1,9 +1,9 @@
 """Assets by category: the one taxonomy every screen and report groups inventory types by.
 
-The Overview's Inventory card, the Resources Summary, the Map's start and glyphs, and the PDF
-reports' "Assets by category" all read it from here (round 5, 2026-11-10, palace
-frontend/1d636dd5; moved from the frontend 2026-11-19 so a report and a screen can never count
-differently). The API carries a type's category beside the type; the frontend holds no copy.
+The Overview's Inventory card, the Resources Summary and the Map's start and glyphs read it from
+here (round 5, 2026-11-10, palace frontend/1d636dd5; moved from the frontend 2026-11-19, when the
+PDF reports also counted assets by category, until 2026-11-20). The API carries a type's category
+beside the type; the frontend holds no copy.
 
 Types are matched by their service segment (`aws_<service>_...`): every configuration table is
 inventoried, so they are not listed one by one. EC2 holds both instances and their network: its
@@ -74,19 +74,3 @@ def asset_category(resource_type: str | None) -> str | None:
         return "Compute"
     parts = resource_type.split("_")
     return _CATEGORY_OF.get(parts[1] if len(parts) > 1 else "", OTHER)
-
-
-def by_category(by_type: list[dict[str, object]]) -> list[dict[str, object]]:
-    """Counts by type ({"type", "count"}) summed by category: largest first, Other last, empty
-    categories left out. The order the Overview's Inventory card shows."""
-    totals: dict[str, int] = {}
-    for row in by_type:
-        name = asset_category(str(row["type"])) or OTHER
-        totals[name] = totals.get(name, 0) + int(row["count"])  # type: ignore[call-overload]
-    return [
-        {"category": name, "count": count}
-        for name, count in sorted(
-            totals.items(), key=lambda kv: (kv[0] == OTHER, -kv[1], ASSET_CATEGORIES.index(kv[0]))
-        )
-        if count
-    ]

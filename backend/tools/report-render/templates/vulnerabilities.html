@@ -1,31 +1,25 @@
 {% extends "base.html" %}
 {% import "_macros.html" as m %}
+{#- One block per resource, worst first, with its CVEs worst first, each described in a line
+    (owner, 2026-11-20: grouped by resource, like the Catheris Platform report; spec palace
+    frontend/a9b886af). -#}
 {% block body %}
-{% if ctx.blocks %}<h2 class="section" style="page-break-before: always">Vulnerabilities to fix</h2>{% endif %}
+{% if ctx.blocks %}{{ m.section("Vulnerabilities to fix", ctx, new_page=true) }}{% endif %}
 {% for b in ctx.blocks %}
-{% set f = b.facts %}
 <section class="block">
   <div class="block-head">
-    <table class="block-title"><tr>
-      <td style="width:1%">{{ m.pill(b.severity) }}</td>
-      <td class="t mono">{{ f.cve or b.check_id }}</td>
-      <td class="id">{{ b.title }}</td>
+    <table class="res-head"><tr>
+      <td><span class="t">{{ b.name or "—" }}</span><span class="sub">{{ b.uid }}</span></td>
+      <td class="chips">{% for c in b.chips %}{{ m.chip(c) }} {% endfor %}<span class="count">{{ b.total | num }} {{ "CVE" if b.total == 1 else "CVEs" }}</span></td>
     </tr></table>
-    <div class="caption">{{ b.count | num }} resources · {{ b.accounts | num }} accounts · {{ b.rows | length | num }} listed</div>
     <table class="facts"><tr>
-      <td><span class="label">CVSS</span><span class="value">{{ f.cvss if f.cvss is not none else "—" }}</span></td>
-      <td><span class="label">EPSS</span><span class="value">{% if f.epss is not none %}{{ "%.1f" | format(f.epss * 100) }}%{% else %}—{% endif %}</span></td>
-      <td><span class="label">Public exploit</span><span class="value">{% if f.exploit %}<span class="sev-critical">Yes</span>{% else %}No{% endif %}</span></td>
-      <td><span class="label">Package</span><span class="value">{{ f.package or "—" }}</span></td>
-      <td><span class="label">Installed</span><span class="value">{{ f.installed or "—" }}</span></td>
-      <td><span class="label">Fixed in</span><span class="value">{% if f.fixed %}{{ f.fixed }}{% else %}<span class="missing">no fix yet</span>{% endif %}</span></td>
+      <td><span class="label">Where</span><span class="value">{{ b.account or "—" }}</span><span class="sub">{{ b.region or "global" }} · {{ b.account_id or "—" }}</span></td>
+      <td><span class="label">Type</span><span class="value">{{ b.type_words or b.type or "—" }}</span>{% if b.type and b.type_words and b.type_words != b.type %}<span class="sub">{{ b.type }}</span>{% endif %}</td>
     </tr></table>
-    <div class="label">Description</div>
-    {% if b.description %}<p class="prose">{{ b.description }}</p>
-    {% else %}<p class="prose missing">The scanner gives no description.</p>{% endif %}
   </div>
-  {{ m.fix(b) }}
-  {{ m.resources(b, installed=true) }}
+  {{ m.cves(b.lines, describe=true) }}
+  {% if b.more %}<div class="caption more">and {{ b.more | num }} more {{ "vulnerability" if b.more == 1 else "vulnerabilities" }} on this resource in the CSV report</div>{% endif %}
 </section>
 {% endfor %}
+{{ m.named_resources(ctx, "vulnerabilities") }}
 {% endblock %}
