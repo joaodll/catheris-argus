@@ -3,9 +3,10 @@
  * New report, or Export from a list (ADR-0047; palace frontend/08ff3c8d). From a list the kind is
  * fixed and the list's filters go along as they are; from Operate -> Reports the person picks the
  * kind and, optionally, the accounts. The worker builds it in the background. Resources is exported
- * from its list only, as a CSV (migration 0054).
+ * from its list only, as a CSV or as JSON Lines with each resource's links and configuration
+ * (migrations 0054, 0056; ADR-0047 3c).
  */
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
@@ -16,6 +17,7 @@ import { type TagPair, tagParams } from '@/views/investigate/tagFilter'
 import { describe, type ReportFilters } from './reportFilters'
 
 type Kind = 'misconfigurations' | 'vulnerabilities' | 'resources'
+type Format = 'csv' | 'pdf' | 'jsonl'
 const props = defineProps<{
   // Set when exporting from a list: that list's kind and its filters (the API's query shape).
   kind?: Kind
@@ -30,10 +32,35 @@ const KINDS: { id: Kind; label: string; text: string }[] = [
   { id: 'misconfigurations', label: 'Misconfigurations', text: 'Prowler and CloudFox checks that fail.' },
   { id: 'vulnerabilities', label: 'Vulnerabilities', text: "CVEs from the provider's scanner." },
 ]
+// The formats each kind comes in (the API's KIND_FORMATS), and what each format's choice says.
+const FORMATS: Record<Kind, { id: Format; label: string }[]> = {
+  misconfigurations: [
+    { id: 'csv', label: 'CSV: every row, for a spreadsheet' },
+    { id: 'pdf', label: 'PDF: an audit hand-off to send' },
+  ],
+  vulnerabilities: [
+    { id: 'csv', label: 'CSV: every row, for a spreadsheet' },
+    { id: 'pdf', label: 'PDF: an audit hand-off to send' },
+  ],
+  resources: [
+    { id: 'csv', label: 'CSV: every row, for a spreadsheet' },
+    { id: 'jsonl', label: 'JSON Lines: each resource with its links and configuration' },
+  ],
+}
+const FORMAT_NOTES: Record<Kind, string> = {
+  misconfigurations: "A PDF gives each check's risk and fix, with at most 25 resources per check and 5,000 in all. The CSV has every row.",
+  vulnerabilities: "A PDF gives each CVE's risk and fix, with at most 25 resources per CVE and 5,000 in all. The CSV has every row.",
+  resources:
+    'JSON Lines holds one resource per line: the CSV\'s columns, its links, and its configuration as Argus stores it (secrets masked), plus the resources it links to in these accounts. Compressed (.jsonl.gz), for jq, scripts or a SIEM rather than a spreadsheet.',
+}
 const fromList = props.kind !== undefined
 const kind = ref<Kind>(props.kind ?? 'misconfigurations')
-const format = ref<'csv' | 'pdf'>('csv')
-const csvOnly = computed(() => kind.value === 'resources')
+const format = ref<Format>('csv')
+const formats = computed(() => FORMATS[kind.value])
+// A kind that doesn't come in the chosen format starts again from a CSV.
+watch(kind, (k) => {
+  if (!FORMATS[k].some((f) => f.id === format.value)) format.value = 'csv'
+})
 // From a list, its filters; "Clear filters" drops them (the report then covers all open).
 const listFilters = ref<ReportFilters | null>(props.filters ?? null)
 const allAccounts = ref(true)
@@ -112,7 +139,10 @@ async function send(): Promise<void> {
   sending.value = true
   error.value = null
   try {
-    const body = { kind: kind.value, format: format.value, filters: filtersToSend() } as Schemas['MisconfigurationReportIn']
+    const body = { kind: kind.value, format: format.value, filters: filtersToSend() } as
+      | Schemas['MisconfigurationReportIn']
+      | Schemas['VulnerabilityReportIn']
+      | Schemas['ResourcesReportIn']
     const queued = await unwrap(api.POST('/api/v1/reports', { body }))
     emit('requested', queued.id)
   } catch (err) {
@@ -139,15 +169,10 @@ async function send(): Promise<void> {
           <span><span class="kind-name">{{ k.label }}</span><span class="cap">{{ k.text }}</span></span>
         </label>
       </fieldset>
-      <div v-if="csvOnly" class="field">
-        <span class="lbl">Format</span>
-        <span class="filters">CSV: every row, for a spreadsheet</span>
-      </div>
-      <fieldset v-else class="choices">
+      <fieldset class="choices">
         <legend class="lbl">Format</legend>
-        <label class="check"><input v-model="format" type="radio" name="report-format" value="csv">CSV: every row, for a spreadsheet</label>
-        <label class="check"><input v-model="format" type="radio" name="report-format" value="pdf">PDF: an audit hand-off to send</label>
-        <span class="cap">A PDF gives each check's risk and fix, with at most 25 resources per check and 5,000 in all. The CSV has every row.</span>
+        <label v-for="f in formats" :key="f.id" class="check"><input v-model="format" type="radio" name="report-format" :value="f.id">{{ f.label }}</label>
+        <span class="cap">{{ FORMAT_NOTES[kind] }}</span>
       </fieldset>
       <div v-if="fromList" class="field">
         <span class="lbl">Filters from the list</span>

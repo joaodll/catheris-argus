@@ -7,7 +7,11 @@
    written while reading; a PDF is read first, and drawn by the renderer after the transaction
    closes (pdf.py);
 3. record the result. A failure of any kind fails the report with a redacted reason and
-   removes what was written."""
+   removes what was written.
+
+A Resources report's JSON Lines file (ADR-0047 3c) is written while reading, as a CSV is: each
+batch of the list with its configurations and links, then the linked resources the filters left
+out, in the report's accounts, each once."""
 
 import hashlib
 import logging
@@ -27,8 +31,9 @@ from argus.findings import FindingFilters, ResourceListFilters
 from argus.reports import filters as report_filters
 from argus.reports import pdf, queue
 from argus.reports.csv_report import CsvReport
+from argus.reports.jsonl_report import JsonlReport, link
 from argus.reports.model import (
-    CSV_ONLY_KINDS,
+    KIND_FORMATS,
     MAX_BUILD_SECONDS,
     MAX_REPORT_BYTES,
     ROW_CAP,
@@ -99,33 +104,85 @@ def _finding_rows(
         yield batch
 
 
+@dataclass
+class _ResourceScope:
+    """What every batch of a Resources report reads against: its accounts, the accounts the
+    CVE scanner covers, and the other accounts' names met on links."""
+
+    accounts: dict[int, tuple[str, str]]
+    collected: set[int]
+
+    @classmethod
+    def of(cls, conn: Connection, filters: ResourceListFilters) -> "_ResourceScope":
+        ids = list(filters.connection_ids)
+        collected = ingest.data_through_by_connection(
+            conn, connection_ids=ids, tools=[findings.VULNERABILITY_TOOL]
+        )
+        return cls(queue.scope_accounts(conn, ids), set(collected))
+
+    def account_ids(self, conn: Connection, connection_ids: set[int]) -> dict[int, str]:
+        missing = [c for c in connection_ids if c not in self.accounts]
+        if missing:
+            self.accounts.update(queue.scope_accounts(conn, missing))
+        return {c: self.accounts[c][1] for c in connection_ids if c in self.accounts}
+
+
+def _columns(conn: Connection, batch: list[dict[str, Any]], scope: _ResourceScope) -> None:
+    """A batch's list columns, each read from its owning module for the batch (the list reads
+    them per page): one definition for the CSV and the JSON Lines file."""
+    resource_ids = [r["id"] for r in batch]
+    counts = findings.open_finding_counts(conn, resource_ids)
+    cells = findings.vulnerability_summaries(conn, batch, collected=scope.collected)
+    roles = [r["id"] for r in batch if r["type"] == inventory.ROLE_TYPE]
+    used = inventory.role_last_used(conn, roles)
+    workloads = relationships.role_workloads(conn, roles)
+    for row in batch:
+        rid = row["id"]
+        row["connection"], row["account_id"] = scope.accounts.get(row["connection_id"], ("", ""))
+        row["open_misconfigurations"], row["worst_severity"] = counts.get(rid, (0, None))
+        row["vulnerabilities"] = cells.get(rid)
+        row["role_last_used"] = used.get(rid)
+        row["workloads"] = workloads.get(rid)
+
+
 def _resource_rows(
     conn: Connection, filters: ResourceListFilters
 ) -> Iterator[list[dict[str, Any]]]:
-    """A Resources report's rows, batch by batch: the list's rows with the columns it shows,
-    each read from its owning module for the batch (the list reads them per page)."""
-    ids = list(filters.connection_ids)
-    accounts = queue.scope_accounts(conn, ids)
-    collected = set(
-        ingest.data_through_by_connection(
-            conn, connection_ids=ids, tools=[findings.VULNERABILITY_TOOL]
-        )
-    )
+    """A Resources report's rows, batch by batch: the list's rows with the columns it shows."""
+    scope = _ResourceScope.of(conn, filters)
     for batch in inventory.iter_resources(conn, filters.inventory_filters(), batch=BATCH):
-        resource_ids = [r["id"] for r in batch]
-        counts = findings.open_finding_counts(conn, resource_ids)
-        cells = findings.vulnerability_summaries(conn, batch, collected=collected)
-        roles = [r["id"] for r in batch if r["type"] == inventory.ROLE_TYPE]
-        used = inventory.role_last_used(conn, roles)
-        workloads = relationships.role_workloads(conn, roles)
-        for row in batch:
-            rid = row["id"]
-            row["connection"], row["account_id"] = accounts.get(row["connection_id"], ("", ""))
-            row["open_misconfigurations"], row["worst_severity"] = counts.get(rid, (0, None))
-            row["vulnerabilities"] = cells.get(rid)
-            row["role_last_used"] = used.get(rid)
-            row["workloads"] = workloads.get(rid)
+        _columns(conn, batch, scope)
         yield batch
+
+
+def _links(
+    conn: Connection, batch: list[dict[str, Any]], scope: _ResourceScope, day: date
+) -> tuple[dict[int, list[dict[str, Any]]], dict[int, int]]:
+    """A batch's links as its panels list them, and each other end in the inventory with its
+    connection (the linked resources to export are among them)."""
+    by_connection: dict[int, list[int]] = {}
+    for row in batch:
+        by_connection.setdefault(row["connection_id"], []).append(row["id"])
+    edges: dict[int, list[dict[str, Any]]] = {}
+    for connection_id, ids in by_connection.items():
+        edges.update(
+            relationships.edges_of_resources(conn, ids, connection_id=connection_id, day=day)
+        )
+    others = {
+        end
+        for rid, found in edges.items()
+        for e in found
+        for end in (e["source_resource_id"], e["target_resource_id"])
+        if end is not None and end != rid
+    }
+    heads = inventory.resource_heads(conn, sorted(others))
+    accounts = scope.account_ids(conn, {h["connection_id"] for h in heads.values()})
+    ends = {
+        rid: {**head, "account_id": accounts.get(head["connection_id"])}
+        for rid, head in heads.items()
+    }
+    links = {rid: [link(e, rid, ends) for e in found] for rid, found in edges.items()}
+    return links, {rid: head["connection_id"] for rid, head in heads.items()}
 
 
 @contextmanager
@@ -174,15 +231,97 @@ def _write_csv(
     return _Built(row_count=written, truncated=truncated, data_through=dict(through))
 
 
+class _Lines:
+    """A JSON Lines file being written: its count against the cap, and the resources in it."""
+
+    def __init__(self, out: JsonlReport, cap: int, deadline: float) -> None:
+        self.out, self.cap, self.deadline = out, cap, deadline
+        self.written = 0
+        self.truncated = False
+        self.exported: set[int] = set()
+
+    def write_batch(
+        self,
+        conn: Connection,
+        batch: list[dict[str, Any]],
+        scope: _ResourceScope,
+        *,
+        included: str,
+        day: date,
+    ) -> dict[int, int]:
+        """Writes a batch, up to the cap (then `truncated`); returns its links' other ends in
+        the inventory, each with its connection."""
+        if time.monotonic() > self.deadline:
+            raise _TooLongError
+        _columns(conn, batch, scope)
+        configs = inventory.configs_at(conn, batch, day=day)
+        links, ends = _links(conn, batch, scope, day)
+        for row in batch:
+            if self.written == self.cap:
+                self.truncated = True
+                break
+            self.out.write(
+                row,
+                included=included,
+                links=links.get(row["id"], []),
+                config=configs.get(row["id"]),
+            )
+            self.exported.add(row["id"])
+            self.written += 1
+        return ends
+
+
+def _write_jsonl(
+    engine: Engine,
+    report: ClaimedReport,
+    out_path: Path,
+    *,
+    local: bool,
+    row_cap: int,
+    deadline: float,
+) -> _Built:
+    """A Resources report with each resource's links and configuration (ADR-0047 3c): the
+    matched resources, then each resource one link away that the filters left out, in the
+    report's accounts only (another account's resource is named in the link, never exported)."""
+    day = datetime.now(UTC).date()
+    with _snapshot(engine) as conn:
+        filters, through = _scope(conn, report, local=local)
+        if not isinstance(filters, ResourceListFilters):
+            raise ReportRefusedError(queue.FORMAT_REFUSED[report.kind])
+        scope = _ResourceScope.of(conn, filters)
+        in_scope = set(filters.connection_ids)
+        candidates: set[int] = set()
+        with out_path.open("wb") as raw:
+            out = JsonlReport(raw)
+            try:
+                lines = _Lines(out, row_cap, deadline)
+                for batch in inventory.iter_resources(
+                    conn, filters.inventory_filters(), batch=BATCH
+                ):
+                    ends = lines.write_batch(conn, batch, scope, included="matched", day=day)
+                    candidates.update(r for r, c in ends.items() if c in in_scope)
+                    if lines.truncated:
+                        break
+                pending = sorted(candidates - lines.exported)
+                for start in range(0, len(pending), BATCH):
+                    if lines.truncated:
+                        break
+                    batch = inventory.resources_by_ids(conn, pending[start : start + BATCH])
+                    lines.write_batch(conn, batch, scope, included="linked", day=day)
+            finally:
+                out.close()
+    return _Built(row_count=lines.written, truncated=lines.truncated, data_through=dict(through))
+
+
 def _write_pdf(engine: Engine, report: ClaimedReport, out_path: Path, *, local: bool) -> _Built:
     """Reads inside the transaction, then closes it before rendering: a render can outlast the
     worker role's 5-minute limit on an idle transaction."""
-    if report.kind in CSV_ONLY_KINDS:
-        raise ReportRefusedError(queue.CSV_ONLY)
+    if "pdf" not in KIND_FORMATS[report.kind]:
+        raise ReportRefusedError(queue.FORMAT_REFUSED[report.kind])
     with _snapshot(engine) as conn:
         filters, through = _scope(conn, report, local=local)
         if not isinstance(filters, FindingFilters):
-            raise ReportRefusedError(queue.CSV_ONLY)
+            raise ReportRefusedError(queue.FORMAT_REFUSED[report.kind])
         collected = pdf.collect(conn, report.kind, filters)
     context = pdf.build_context(
         collected,
@@ -262,6 +401,15 @@ def build_pending(
         temp = target.temp_path(key)
         if report.format == "pdf":
             built = _write_pdf(engine, report, temp, local=target.local)
+        elif report.format == "jsonl":
+            built = _write_jsonl(
+                engine,
+                report,
+                temp,
+                local=target.local,
+                row_cap=row_cap,
+                deadline=started + max_seconds,
+            )
         else:
             built = _write_csv(
                 engine,

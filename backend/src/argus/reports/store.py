@@ -22,13 +22,12 @@ from uuid import uuid4
 from botocore.exceptions import BotoCoreError, ClientError
 
 from argus.core.rawstore import FilesystemRawStore, RawRunError
-from argus.reports.model import MAX_REPORT_BYTES, ClaimedReport, ReportFormat
+from argus.reports.model import MAX_REPORT_BYTES, MEDIA_TYPES, ClaimedReport, ReportFormat
 
 FOLDER = "reports"
 # The one shape a key may have; the table's CHECK holds the same pattern.
-_KEY = re.compile(r"^reports/[0-9]+-[0-9a-f]{32}\.(csv|pdf)$")
+_KEY = re.compile(r"^reports/[0-9]+-[0-9a-f]{32}\.(csv|pdf|jsonl)$")
 CHUNK_BYTES = 1 << 20
-_MEDIA_TYPES = {"csv": "text/csv; charset=utf-8", "pdf": "application/pdf"}
 
 
 class ReportStoreError(Exception):
@@ -213,7 +212,7 @@ class S3ReportStore:
                     Key=key,
                     Body=body,
                     ContentLength=size,
-                    ContentType=_MEDIA_TYPES[key.rsplit(".", 1)[1]],
+                    ContentType=MEDIA_TYPES[key.rsplit(".", 1)[1]],
                     ChecksumSHA256=_b64(sha256),
                 )
         except (BotoCoreError, ClientError) as exc:

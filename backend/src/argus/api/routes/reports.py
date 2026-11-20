@@ -46,7 +46,6 @@ UNAVAILABLE: dict[str, str] = {
         "Reports go to the raw-output bucket, and none is set. Set Raw output storage first."
     ),
 }
-MEDIA_TYPES: dict[str, str] = {"csv": "text/csv; charset=utf-8", "pdf": "application/pdf"}
 # local: a local volume, Demo connections only (Docker Compose). s3: the reports/ folder of the
 # raw-output bucket, every connection (Kubernetes with IRSA). The others: no report can be
 # requested now, and UNAVAILABLE says why.
@@ -55,20 +54,21 @@ Storage = Literal["local", "s3", "off", "no_identity", "no_bucket"]
 
 class MisconfigurationReportIn(BaseModel):
     kind: Literal["misconfigurations"]
-    format: reports.ReportFormat = "csv"
+    format: Literal["csv", "pdf"] = "csv"
     filters: FindingFilterQuery = Field(default_factory=FindingFilterQuery)
 
 
 class VulnerabilityReportIn(BaseModel):
     kind: Literal["vulnerabilities"]
-    format: reports.ReportFormat = "csv"
+    format: Literal["csv", "pdf"] = "csv"
     filters: VulnerabilityFilterQuery = Field(default_factory=VulnerabilityFilterQuery)
 
 
 class ResourcesReportIn(BaseModel):
     kind: Literal["resources"]
-    # A Resources report is a CSV only (migration 0054).
-    format: Literal["csv"] = "csv"
+    # A Resources report is a CSV, or a JSON Lines file with each resource's links and
+    # configuration (migrations 0054 and 0056, ADR-0047 3c).
+    format: Literal["csv", "jsonl"] = "csv"
     filters: ResourceFilterQuery = Field(default_factory=ResourceFilterQuery)
 
 
@@ -280,7 +280,7 @@ def _refuse_after(
     response_class=StreamingResponse,
     responses={
         200: {
-            "content": {"text/csv": {}, "application/pdf": {}},
+            "content": {"text/csv": {}, "application/pdf": {}, "application/gzip": {}},
             "description": "The report's file, as its format says.",
         }
     },
@@ -343,11 +343,12 @@ def download_report(
     except Exception:
         _close(chunks)
         raise
+    name = f"argus-{row.kind}-{row.id}.{reports.FILE_ENDINGS[row.format]}"
     return StreamingResponse(
         chunks,
-        media_type=MEDIA_TYPES[row.format],
+        media_type=reports.MEDIA_TYPES[row.format],
         headers={
-            "Content-Disposition": f'attachment; filename="argus-{row.kind}-{row.id}.{row.format}"',
+            "Content-Disposition": f'attachment; filename="{name}"',
             "Content-Length": str(size),
             "Cache-Control": "no-store",
             "X-Content-Type-Options": "nosniff",
