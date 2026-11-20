@@ -59,6 +59,9 @@ in the run's command. Know what a skip costs:
   command line cannot ask for both. Argus names all 44 AWS frameworks, so **compliance stays
   complete**, minus whatever you skipped.
 - With both lists empty, Prowler runs every check, as before.
+- Each list has **Select all** and **Unselect all** (since 2026-11-19): to run only a few
+  services, select all, then unselect the ones to keep. A save that would leave Prowler no check
+  to run is refused.
 
 **Retry attempts per AWS call** is Prowler's only: the other tools keep 10. More attempts make a
 throttled run more patient and longer; a call that still fails after its last attempt is logged,

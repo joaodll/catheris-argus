@@ -128,6 +128,26 @@ describe('MultiSelect', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['critical', 'high']])
     await wrapper.setProps({ modelValue: ['critical', 'high'] })
     expect(foot().text()).not.toContain('Default')
+    expect(foot().text()).not.toContain('Unselect all') // Default is that choice's way back
+    wrapper.unmount()
+  })
+
+  it('offers Select all and Unselect all without a default, and keeps the focus in the list', async () => {
+    const wrapper = make({ modelValue: [], selectAll: true })
+    await wrapper.get('#f-sev').trigger('click')
+    const foot = () => wrapper.get('.ms-foot')
+    const button = (name: string) => foot().findAll('button').find((b) => b.text() === name)
+    expect(button('Select all')).toBeDefined()
+    expect(button('Unselect all')).toBeUndefined() // nothing to unselect
+    await button('Select all')!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['critical', 'high', 'medium']])
+    expect(document.activeElement).toBe(wrapper.get('[role="listbox"]').element)
+    await wrapper.setProps({ modelValue: ['critical', 'high', 'medium'] })
+    expect(button('Select all')).toBeUndefined()
+    await button('Unselect all')!.trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([[]])
+    expect(document.activeElement).toBe(wrapper.get('[role="listbox"]').element)
+    expect(wrapper.find('[role="listbox"]').exists()).toBe(true)
     wrapper.unmount()
   })
 })

@@ -506,3 +506,27 @@ def test_prowler_skips_are_names_of_the_pinned_prowler(signed_in: TestClient) ->
     assert saved["prowler_retry_attempts"] == 6
     assert saved["prowler_skip_services"] == ["cloudtrail"]
     assert saved["prowler_skip_checks"] == ["iam_root_mfa_enabled"]
+
+
+def test_select_all_saves_unless_it_leaves_prowler_no_check(signed_in: TestClient) -> None:
+    """The skip lists' Select all (owner, 2026-11-19): every check, or every service, saves
+    within the caps; skipping everything at once is refused, since Prowler would run nothing."""
+    options = signed_in.get("/api/v1/settings/collection/prowler-options").json()
+    services, checks = options["services"], options["checks"]
+    _put_collection(signed_in, prowler_skip_checks=checks[1:], prowler_skip_services=[])
+    _put_collection(signed_in, prowler_skip_services=services[1:], prowler_skip_checks=[])
+    current = signed_in.get("/api/v1/settings/collection").json()
+    for values in (
+        {"prowler_skip_services": services, "prowler_skip_checks": []},
+        {"prowler_skip_services": [], "prowler_skip_checks": checks},
+        {
+            "prowler_skip_services": services[1:],
+            "prowler_skip_checks": [c for c in checks if c.split("_", 1)[0] == services[0]],
+        },
+    ):
+        refused = signed_in.put(
+            "/api/v1/settings/collection", headers=csrf(signed_in), json={**current, **values}
+        )
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["detail"].startswith("Prowler would run no check")
+    assert signed_in.get("/api/v1/settings/collection").json() == current
