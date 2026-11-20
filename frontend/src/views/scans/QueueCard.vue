@@ -7,6 +7,7 @@ import ToolChip from '@/components/ToolChip.vue'
 import { useResource } from '@/composables/useResource'
 import { toast } from '@/composables/useToasts'
 import { relative, utc } from '@/format'
+import { chosenRegions } from './runNotes'
 
 const TOOL_LABEL: Record<string, string> = { steampipe: 'Steampipe', prowler: 'Prowler', cloudfox: 'CloudFox', vulnerabilities: 'Vulnerabilities' }
 
@@ -111,7 +112,10 @@ defineExpose({ reload: queue.reload })
               <ToolChip :tool="r.tool" />
               <span class="sub conn">{{ r.connection }}</span>
             </td>
-            <td data-label="Reason" class="reason"><span :class="{ mono: r.reason === 'backfill' }">{{ reason(r) }}</span></td>
+            <td data-label="Reason" class="reason">
+              <span :class="{ mono: r.reason === 'backfill' }">{{ reason(r) }}</span>
+              <span v-if="r.reason !== 'backfill'" class="sub mono" :title="chosenRegions(r.aws_regions ?? [], r.tool).title">{{ chosenRegions(r.aws_regions ?? [], r.tool).text }}</span>
+            </td>
             <td data-label="Status">
               <StatusBadge :status="r.status" :label="r.cancel_requested ? 'Cancelling' : undefined" />
               <span v-if="statusLine(r)" class="sub mono">{{ statusLine(r) }}</span>

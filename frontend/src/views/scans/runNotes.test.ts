@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commandLabel, cooldownNote, encryptionLabel, partialReason, partialTables, partialTablesNote, refusedBecause, regionsLabel, shortRunId, storedWithoutKms, tableReasons, triggerLabel } from './runNotes'
+import { chosenRegions, commandLabel, cooldownNote, encryptionLabel, partialReason, partialTables, partialTablesNote, refusedBecause, regionsLabel, shortRunId, storedWithoutKms, tableReasons, triggerLabel } from './runNotes'
 
 describe('run notes', () => {
   it('flags raw output stored without KMS only', () => {
@@ -14,6 +14,14 @@ describe('run notes', () => {
     expect(regionsLabel({ source: 'aws', region_scope: [], api_regions: null })).toBe('All regions')
     expect(regionsLabel({ source: 'aws', region_scope: ['eu-west-1'], api_regions: 1 })).toBe('1 region')
     expect(regionsLabel({ source: 'synthetic', region_scope: [], api_regions: null })).toBe('—')
+  })
+
+  it('says which regions a schedule or a queued run scans', () => {
+    expect(chosenRegions([])).toEqual({ text: 'All regions', title: '' })
+    expect(chosenRegions(['eu-west-1'])).toEqual({ text: 'eu-west-1', title: '' })
+    expect(chosenRegions(['eu-west-1', 'us-east-1'])).toEqual({ text: '2 regions', title: 'eu-west-1, us-east-1' })
+    // CloudFox has no region option: it scans every region whatever was chosen.
+    expect(chosenRegions(['eu-west-1'], 'cloudfox').text).toBe('All regions')
   })
 
   it('shortens a run id to its first block, as the bucket folder starts', () => {

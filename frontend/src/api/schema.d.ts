@@ -965,6 +965,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/schedules/aws-regions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Aws Regions
+         * @description The AWS regions a schedule or a Run now may choose: the commercial partition of the
+         *     pinned tools, in name order.
+         */
+        get: operations["aws_regions_api_v1_schedules_aws_regions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/schedules/preview": {
         parameters: {
             query?: never;
@@ -1429,6 +1450,11 @@ export interface components {
             /** Session Token */
             session_token?: string | null;
         };
+        /** AwsRegions */
+        AwsRegions: {
+            /** Regions */
+            regions: string[];
+        };
         /** BackfillLeft */
         BackfillLeft: {
             /** Connection */
@@ -1478,8 +1504,6 @@ export interface components {
          * @description Throttling-aware collection, layer 1 (ADR-0022).
          */
         CollectionSettings: {
-            /** Aws Regions */
-            aws_regions?: string[];
             /**
              * Cloudfox Max Goroutines
              * @default 5
@@ -2555,6 +2579,8 @@ export interface components {
         PendingRequest: {
             /** Attempt */
             attempt: number;
+            /** Aws Regions */
+            aws_regions?: string[];
             /**
              * Cancel Requested
              * @default false
@@ -3202,6 +3228,8 @@ export interface components {
         };
         /** RunNowIn */
         RunNowIn: {
+            /** Aws Regions */
+            aws_regions?: string[];
             /** Connection Ids */
             connection_ids: number[];
             /** Tools */
@@ -3345,6 +3373,8 @@ export interface components {
         };
         /** ScheduleIn */
         ScheduleIn: {
+            /** Aws Regions */
+            aws_regions?: string[];
             /** Connection Ids */
             connection_ids?: number[] | null;
             /** Cron */
@@ -3363,6 +3393,8 @@ export interface components {
         ScheduleOut: {
             /** All Connections */
             all_connections: boolean;
+            /** Aws Regions */
+            aws_regions: string[];
             /** Connection Ids */
             connection_ids: number[];
             /** Cron */
@@ -6160,6 +6192,40 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScheduleOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    aws_regions_api_v1_schedules_aws_regions_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Argus-CSRF"?: string | null;
+            };
+            path?: never;
+            cookie?: {
+                argus_session?: string | null;
+                argus_csrf?: string | null;
+            };
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AwsRegions"];
                 };
             };
             /** @description Validation Error */

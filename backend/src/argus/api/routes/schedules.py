@@ -8,11 +8,17 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from argus import scheduling
 from argus.api.deps import Db, Operator, Viewer, client_ip
+from argus.collection import aws_regions as aws_region_names
 from argus.scheduling import check_cron
 from argus.settings import read_collection
 
 router = APIRouter(tags=["schedules"])
 Tool = Literal["steampipe", "prowler", "cloudfox", "vulnerabilities"]
+# A region's shape only; scheduling refuses a name the pinned tools don't know (422).
+Region = Annotated[str, Field(pattern=r"^[a-z]{2}(-[a-z]+)+-[0-9]$", max_length=30)]
+# Regions a run scans: Prowler, Steampipe and the vulnerability scanner read only these;
+# CloudFox scans every region whatever is chosen. Empty: every region enabled in the account.
+Regions = Annotated[list[Region], Field(max_length=40)]
 
 
 class ScheduleIn(BaseModel):
@@ -23,6 +29,7 @@ class ScheduleIn(BaseModel):
     cron: str = Field(min_length=9, max_length=100)
     connection_ids: list[int] | None = None  # None or empty: every connection
     enabled: bool = True
+    aws_regions: Regions = Field(default_factory=list)
 
 
 class ScheduleOut(BaseModel):
@@ -37,6 +44,7 @@ class ScheduleOut(BaseModel):
     enabled: bool
     updated_at: datetime
     updated_by: str
+    aws_regions: list[str]
 
 
 class CronIn(BaseModel):
@@ -53,6 +61,7 @@ class RunNowIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     connection_ids: list[int] = Field(min_length=1, max_length=200)
     tools: list[Tool] | None = None  # None: every tool, in order
+    aws_regions: Regions = Field(default_factory=list)
 
 
 class RunNowItem(BaseModel):
@@ -80,6 +89,8 @@ class PendingRequest(BaseModel):
     heartbeat_at: datetime | None
     # A running request that was asked to stop and has not stopped yet.
     cancel_requested: bool = False
+    # The regions it scans; empty: every region.
+    aws_regions: list[str] = Field(default_factory=list)
 
 
 class BackfillLeft(BaseModel):
@@ -126,6 +137,17 @@ def list_schedules(
     )
 
 
+class AwsRegions(BaseModel):
+    regions: list[str]
+
+
+@router.get("/schedules/aws-regions")
+def aws_regions(_user: Viewer) -> AwsRegions:
+    """The AWS regions a schedule or a Run now may choose: the commercial partition of the
+    pinned tools, in name order."""
+    return AwsRegions(regions=sorted(aws_region_names()))
+
+
 @router.post("/schedules/preview")
 def preview(body: CronIn, conn: Db, _user: Operator) -> CronOut:
     """Plain-language preview and next runs, before saving."""
@@ -135,17 +157,21 @@ def preview(body: CronIn, conn: Db, _user: Operator) -> CronOut:
     return CronOut(cron=check.expression, explanation=check.explanation, next_runs=check.next_runs)
 
 
-@router.post("/schedules", status_code=status.HTTP_201_CREATED)
-def create(body: ScheduleIn, conn: Db, user: Operator, request: Request) -> ScheduleOut:
-    schedule_id = scheduling.create_schedule(
-        conn,
+def _spec(body: ScheduleIn) -> scheduling.ScheduleSpec:
+    return scheduling.ScheduleSpec(
         name=body.name,
-        tools=body.tools,
+        tools=list(body.tools),
         cron=body.cron,
         connection_ids=body.connection_ids,
         enabled=body.enabled,
-        actor=user,
-        client_ip=client_ip(request),
+        aws_regions=body.aws_regions,
+    )
+
+
+@router.post("/schedules", status_code=status.HTTP_201_CREATED)
+def create(body: ScheduleIn, conn: Db, user: Operator, request: Request) -> ScheduleOut:
+    schedule_id = scheduling.create_schedule(
+        conn, _spec(body), actor=user, client_ip=client_ip(request)
     )
     conn.commit()
     return _out(conn, schedule_id)
@@ -156,15 +182,7 @@ def update(
     schedule_id: int, body: ScheduleIn, conn: Db, user: Operator, request: Request
 ) -> ScheduleOut:
     scheduling.update_schedule(
-        conn,
-        schedule_id=schedule_id,
-        name=body.name,
-        tools=body.tools,
-        cron=body.cron,
-        connection_ids=body.connection_ids,
-        enabled=body.enabled,
-        actor=user,
-        client_ip=client_ip(request),
+        conn, _spec(body), schedule_id=schedule_id, actor=user, client_ip=client_ip(request)
     )
     conn.commit()
     return _out(conn, schedule_id)
@@ -187,6 +205,7 @@ def run_now(
         connection_ids=body.connection_ids,
         tools=body.tools,
         actor=user,
+        aws_regions=body.aws_regions,
         client_ip=client_ip(request),
     )
     conn.commit()

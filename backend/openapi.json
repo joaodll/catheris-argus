@@ -316,6 +316,22 @@
         "title": "AwsIn",
         "type": "object"
       },
+      "AwsRegions": {
+        "properties": {
+          "regions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Regions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "regions"
+        ],
+        "title": "AwsRegions",
+        "type": "object"
+      },
       "BackfillLeft": {
         "properties": {
           "connection": {
@@ -467,15 +483,6 @@
         "additionalProperties": false,
         "description": "Throttling-aware collection, layer 1 (ADR-0022).",
         "properties": {
-          "aws_regions": {
-            "items": {
-              "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$",
-              "type": "string"
-            },
-            "maxItems": 40,
-            "title": "Aws Regions",
-            "type": "array"
-          },
           "cloudfox_max_goroutines": {
             "default": 5,
             "maximum": 30.0,
@@ -3980,6 +3987,13 @@
             "title": "Attempt",
             "type": "integer"
           },
+          "aws_regions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aws Regions",
+            "type": "array"
+          },
           "cancel_requested": {
             "default": false,
             "title": "Cancel Requested",
@@ -5960,6 +5974,16 @@
       "RunNowIn": {
         "additionalProperties": false,
         "properties": {
+          "aws_regions": {
+            "items": {
+              "maxLength": 30,
+              "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$",
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Aws Regions",
+            "type": "array"
+          },
           "connection_ids": {
             "items": {
               "type": "integer"
@@ -6366,6 +6390,16 @@
       "ScheduleIn": {
         "additionalProperties": false,
         "properties": {
+          "aws_regions": {
+            "items": {
+              "maxLength": 30,
+              "pattern": "^[a-z]{2}(-[a-z]+)+-[0-9]$",
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Aws Regions",
+            "type": "array"
+          },
           "connection_ids": {
             "anyOf": [
               {
@@ -6426,6 +6460,13 @@
           "all_connections": {
             "title": "All Connections",
             "type": "boolean"
+          },
+          "aws_regions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Aws Regions",
+            "type": "array"
           },
           "connection_ids": {
             "items": {
@@ -6490,7 +6531,8 @@
           "connection_ids",
           "enabled",
           "updated_at",
-          "updated_by"
+          "updated_by",
+          "aws_regions"
         ],
         "title": "ScheduleOut",
         "type": "object"
@@ -15316,6 +15358,88 @@
           }
         },
         "summary": "Create",
+        "tags": [
+          "schedules"
+        ]
+      }
+    },
+    "/api/v1/schedules/aws-regions": {
+      "get": {
+        "description": "The AWS regions a schedule or a Run now may choose: the commercial partition of the\npinned tools, in name order.",
+        "operationId": "aws_regions_api_v1_schedules_aws_regions_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Argus-CSRF",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Argus-Csrf"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Session"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "argus_csrf",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Argus Csrf"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AwsRegions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Aws Regions",
         "tags": [
           "schedules"
         ]

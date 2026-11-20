@@ -18,6 +18,7 @@ import { toast } from '@/composables/useToasts'
 import QueueCard from './QueueCard.vue'
 import RunNowCard from './RunNowCard.vue'
 import ScheduleModal from './ScheduleModal.vue'
+import { chosenRegions } from './runNotes'
 
 const PAGE = 20
 const search = ref('') // what is typed
@@ -62,6 +63,9 @@ const collection = useResource(() => unwrap(api.GET('/api/v1/settings/collection
 // Each tool's last run per connection: Run now and a new schedule tick Vulnerabilities only where it ran.
 const context = useResource(() => unwrap(api.GET('/api/v1/context', { params: { query: { connection_id: 0 } } })))
 const lastRuns = computed(() => context.data.value?.last_runs ?? null)
+// The regions a schedule or Run now may choose (the pinned tools' list), loaded once.
+const regions = useResource(() => unwrap(api.GET('/api/v1/schedules/aws-regions')))
+const regionStatus = computed(() => (regions.error.value ? 'error' : regions.data.value ? 'ready' : 'loading'))
 
 const editing = ref<Schemas['ScheduleOut'] | 'new' | null>(null)
 const deleting = ref<number | null>(null)
@@ -90,6 +94,8 @@ async function setEnabled(s: Schemas['ScheduleOut'], enabled: boolean): Promise<
           cron: s.cron,
           connection_ids: s.all_connections ? null : s.connection_ids,
           enabled,
+          // A PUT replaces the whole schedule: its regions go back as they are.
+          aws_regions: s.aws_regions,
         },
       }),
     )
@@ -193,7 +199,10 @@ async function onSaved(message: string): Promise<void> {
                 <span class="mono next">Next {{ s.enabled && s.next_runs[0] ? `${s.next_runs[0].slice(0, 16).replace('T', ' ')} UTC` : '—' }}</span>
               </span>
             </td>
-            <td data-label="Scope"><span :title="scopeOf(s).title">{{ scopeOf(s).text }}</span></td>
+            <td data-label="Scope">
+              <span :title="scopeOf(s).title">{{ scopeOf(s).text }}</span>
+              <span class="sub mono" :title="chosenRegions(s.aws_regions).title">{{ chosenRegions(s.aws_regions).text }}</span>
+            </td>
             <td data-label="Enabled">
               <span v-if="!operator">{{ s.enabled ? 'Enabled' : 'Disabled' }}</span>
               <SwitchToggle v-else :model-value="s.enabled" :busy="toggling.has(s.id)" :label="`Schedule ${s.name}`" @update:model-value="(v) => setEnabled(s, v)" />
@@ -223,6 +232,8 @@ async function onSaved(message: string): Promise<void> {
       :connections="connections.data.value"
       :last-runs="lastRuns"
       :cooldown="collection.data.value?.run_now_cooldown_minutes ?? null"
+      :region-choices="regions.data.value?.regions ?? []"
+      :region-status="regionStatus"
       @queued="queue?.reload()"
     />
     <QueueCard ref="queue" :can-cancel="operator" @running="runningCount = $event" />
@@ -234,6 +245,8 @@ async function onSaved(message: string): Promise<void> {
     :connections="connections.data.value ?? []"
     :last-runs="lastRuns"
     :min-interval="collection.data.value?.schedule_min_interval_minutes ?? null"
+    :region-choices="regions.data.value?.regions ?? []"
+    :region-status="regionStatus"
     @close="editing = null"
     @saved="onSaved"
   />

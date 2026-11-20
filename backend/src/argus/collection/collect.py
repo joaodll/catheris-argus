@@ -32,6 +32,9 @@ if TYPE_CHECKING:
 # then Prowler, then CloudFox, then the vulnerabilities (ADR-0042), after the inventory their
 # CVEs attach to.
 TOOL_ORDER: tuple[Tool, ...] = ("steampipe", "prowler", "cloudfox", "vulnerabilities")
+# Tools with no region option: they scan every region enabled in the account, whatever regions
+# their run was asked for.
+EVERY_REGION_TOOLS: frozenset[Tool] = frozenset({"cloudfox"})
 LOG_TAIL_CHARS = 4000
 MAX_COMMAND_CHARS = 1000
 

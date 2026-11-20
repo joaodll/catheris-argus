@@ -27,6 +27,7 @@ from uuid import uuid4
 
 from sqlalchemy import Connection, text
 
+from argus.collection import EVERY_REGION_TOOLS
 from argus.connections import DIRECTORY_SQL
 from argus.core.redaction import redact_text
 from argus.settings import CollectionSettings
@@ -54,6 +55,9 @@ class ClaimedRequest:
     token: str = ""
     # How many earlier claims of this request the reaper released.
     lost: int = 0
+    # The regions this run scans (its schedule's, its Run now's, or the failed run's it
+    # repeats). Empty: every region enabled in the account.
+    aws_regions: tuple[str, ...] = ()
 
 
 # The reason of a request's first attempt: retries chain through retry_of, at most two hops
@@ -119,7 +123,7 @@ def claim(
     row = conn.execute(
         text(f"""
         SELECT rr.id, rr.connection_id, rr.tool, rr.reason, rr.snapshot_date, rr.attempt,
-               rr.schedule_id, rr.lost, {ORIGIN_SQL} AS origin
+               rr.schedule_id, rr.lost, rr.aws_regions, {ORIGIN_SQL} AS origin
         FROM run_request rr JOIN ({NEXT_REQUESTS_SQL}) n ON n.id = rr.id
         WHERE (CAST(:kinds AS text[]) IS NULL OR n.kind = ANY (CAST(:kinds AS text[])))
           AND (CAST(:tools AS text[]) IS NULL OR n.tool = ANY (CAST(:tools AS text[])))
@@ -155,6 +159,7 @@ def claim(
         row.origin,
         token,
         row.lost,
+        tuple(row.aws_regions),
     )
 
 
@@ -293,7 +298,7 @@ def retry(conn: Connection, request: ClaimedRequest, *, settings: CollectionSett
     """Queues another attempt after a failed run, with jittered backoff. Backfills
     never retry: synthetic history is deterministic and a retry would repeat it. A retry keeps
     the first attempt's schedule and who asked; a scheduled run whose schedule was disabled or
-    deleted meanwhile is not retried."""
+    deleted meanwhile is not retried. A retry scans the regions the failed run was asked for."""
     if request.reason == "backfill" or request.attempt >= MAX_ATTEMPTS:
         return None
     base = settings.retry_delays_minutes[request.attempt - 1]
@@ -301,9 +306,9 @@ def retry(conn: Connection, request: ClaimedRequest, *, settings: CollectionSett
     new_id: int | None = conn.execute(
         text(f"""
         INSERT INTO run_request (connection_id, tool, reason, schedule_id, snapshot_date,
-                                 not_before, attempt, retry_of, requested_by)
+                                 not_before, attempt, retry_of, requested_by, aws_regions)
         SELECT rr.connection_id, rr.tool, 'retry', rr.schedule_id, rr.snapshot_date,
-               now() + CAST(:delay AS interval), :a, rr.id, rr.requested_by
+               now() + CAST(:delay AS interval), :a, rr.id, rr.requested_by, rr.aws_regions
         FROM run_request rr
         WHERE rr.id = :of AND {_SCHEDULE_LIVE}
         RETURNING id
@@ -387,11 +392,19 @@ def request_cancel(conn: Connection, request_id: int, *, actor: str) -> bool:
 
 
 def recently_completed(
-    conn: Connection, *, connection_id: int, tool: str, cooldown_minutes: int
+    conn: Connection,
+    *,
+    connection_id: int,
+    tool: str,
+    cooldown_minutes: int,
+    aws_regions: Collection[str] = (),
 ) -> bool:
     """Run now cooldown: the same tool and account finished within the cooldown, or one is
-    already queued or running. Backfill requests do not count: they rebuild history from the
-    synthetic source and make no cloud API call, and the cooldown protects API limits."""
+    already queued or running, and it scans every region asked for: every region (an empty
+    list), or a list holding all of `aws_regions` when those are named. A tool that scans every
+    region whatever it is asked (CloudFox) always covers. Backfill requests do not count: they
+    rebuild history from the synthetic source and make no cloud API call, and the cooldown
+    protects API limits."""
     return bool(
         conn.execute(
             text("""
@@ -400,8 +413,16 @@ def recently_completed(
             AND reason <> 'backfill'
             AND (status IN ('queued', 'claimed')
                  OR (status = 'finished'
-                     AND finished_at > now() - CAST(:cool AS interval))))
+                     AND finished_at > now() - CAST(:cool AS interval)))
+            AND (:every OR aws_regions = '{}'
+                 OR (cardinality(CAST(:r AS text[])) > 0 AND aws_regions @> CAST(:r AS text[]))))
     """),
-            {"c": connection_id, "t": tool, "cool": f"{cooldown_minutes} minutes"},
+            {
+                "c": connection_id,
+                "t": tool,
+                "cool": f"{cooldown_minutes} minutes",
+                "every": tool in EVERY_REGION_TOOLS,
+                "r": sorted(aws_regions),
+            },
         ).scalar_one()
     )

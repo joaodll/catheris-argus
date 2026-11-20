@@ -7,6 +7,7 @@ Owns the `schedule`, `schedule_connection` and `run_request` tables.
 from argus.scheduling.admin import (
     RunNowResult,
     RunTrigger,
+    ScheduleSpec,
     ScheduleView,
     cancel_request,
     create_schedule,
@@ -29,6 +30,7 @@ __all__ = [
     "InvalidScheduleError",
     "RunNowResult",
     "RunTrigger",
+    "ScheduleSpec",
     "ScheduleView",
     "cancel_request",
     "check_cron",

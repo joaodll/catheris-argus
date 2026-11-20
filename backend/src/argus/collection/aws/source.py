@@ -13,7 +13,7 @@ from argus.collection.aws.tools import (
     run_steampipe,
     tool_profile,
 )
-from argus.collection.collect import CollectOptions, CollectTarget, Outcome
+from argus.collection.collect import EVERY_REGION_TOOLS, CollectOptions, CollectTarget, Outcome
 from argus.core import aws
 from argus.core.aws import SessionCredentials
 from argus.core.manifest import Tool
@@ -114,9 +114,9 @@ class AwsSource:
             finished_at=datetime.now(UTC),
             # The regions asked for. CloudFox ignores the setting and scans every enabled
             # region, as do the others when none is set: an empty scope means every region.
-            region_scope=[] if tool == "cloudfox" else regions,
+            region_scope=[] if tool in EVERY_REGION_TOOLS else regions,
             throttle_events=result.throttle_events,
-            api_regions=None if tool == "cloudfox" else len(regions) or None,
+            api_regions=None if tool in EVERY_REGION_TOOLS else len(regions) or None,
             log_lines=result.log_lines,
             denied_actions=result.denied_actions,
             command=result.command,

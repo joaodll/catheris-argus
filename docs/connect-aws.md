@@ -197,10 +197,12 @@ S3 applied.
 
 ## 6. The first scan
 
-1. In **Administration → Settings → Collection and throttling**, set **AWS regions to scan** to the regions you
-   use. Fewer regions make a run faster. (CloudFox scans every region regardless.)
-2. In **Operate → Schedules**, use **Run now** on the new connection. Steampipe runs first, then
-   Prowler, then CloudFox; Prowler takes the longest.
+1. In **Operate → Schedules**, use **Run now** on the new connection. Under **Regions**, choose the
+   regions you use: fewer regions make a run faster, and none chosen scans every region enabled in
+   the account. (CloudFox scans every region regardless.) Steampipe runs first, then Prowler, then
+   CloudFox; Prowler takes the longest.
+2. Give each schedule the same regions, in its **Regions** field (since 2026-11-19 regions are
+   chosen per schedule and per Run now, not in Settings).
 3. Follow the runs in **Operate → Runs**. Each ends **Complete**, **Partial** (throttled, a denied
    call, or some tables failed) or **Failed**, with its log and the exact command it ran. A partial
    or failed run never marks a finding as fixed.
