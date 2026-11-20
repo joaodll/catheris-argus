@@ -147,12 +147,13 @@ async function save(): Promise<void> {
       </div>
       <fieldset class="group">
         <legend class="lbl">Prowler</legend>
-        <MultiSelect id="prowler-skip-services" v-model="form.skipServices" label="Services to skip" :options="serviceOptions" :status="prowlerStatus" empty-label="None" />
-        <MultiSelect id="prowler-skip-checks" v-model="form.skipChecks" label="Checks to skip" :options="checkOptions" :status="prowlerStatus" empty-label="None" />
+        <MultiSelect id="prowler-skip-services" v-model="form.skipServices" label="Services to skip" :options="serviceOptions" :status="prowlerStatus" empty-label="None" select-all />
+        <MultiSelect id="prowler-skip-checks" v-model="form.skipChecks" label="Checks to skip" :options="checkOptions" :status="prowlerStatus" empty-label="None" select-all />
         <NumberField v-model="form.prowlerRetries" label="Retry attempts per AWS call" :min="1" :max="20" help="How often Prowler tries a throttled call before it gives up on it. Higher is more patient; the run takes longer when AWS throttles." />
         <p class="cap note" :class="{ on: skipping }">
           A skipped service or check keeps its last results until it runs again: nothing is resolved because it was skipped.
-          While anything is skipped, compliance stays complete, but Prowler's 43 checks that belong to no framework don't run either.
+          While anything is skipped, compliance stays complete, but Prowler's checks that belong to no framework don't run either.
+          Prowler must keep at least one check to run.
         </p>
       </fieldset>
     </div>

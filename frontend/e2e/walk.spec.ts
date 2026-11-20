@@ -330,6 +330,33 @@ test('settings: saving one card keeps the edits in another; leaving asks once', 
   expect(questions).toHaveLength(1)
 })
 
+test('settings: a Prowler skip list selects and unselects all; skipping everything is refused', async ({ page }) => {
+  // Saves nothing: the one save tried is refused, and the list ends as it began.
+  await signIn(page)
+  await page.goto('/admin/settings')
+  const collection = page.getByRole('region', { name: 'Collection and throttling' })
+  const services = collection.locator('#prowler-skip-services')
+  await expect(services).toContainText('None')
+  await services.click()
+  await collection.getByRole('button', { name: 'Select all', exact: true }).click()
+  // The panel stays open, with the focus in its list, and the choice is every service.
+  await expect(collection.getByRole('listbox')).toBeFocused()
+  await expect(collection.getByRole('button', { name: 'Select all', exact: true })).toBeHidden()
+  await expect(collection.locator('.ms-foot')).toContainText(/\d+ selected/)
+  await page.keyboard.press('Escape')
+  await expect(services).toContainText(/\+\d+/)
+  // The save is refused (422), as it should be.
+  allowed.push(/422 .*\/settings\/collection/, /status of 422/)
+  await collection.getByRole('button', { name: 'Save collection settings' }).click()
+  await expect(collection.getByText('Prowler would run no check')).toBeVisible()
+  await services.click()
+  await collection.getByRole('button', { name: 'Unselect all' }).click()
+  await expect(collection.getByRole('button', { name: 'Unselect all' })).toBeHidden()
+  await page.keyboard.press('Escape')
+  await expect(services).toContainText('None')
+  await expect(collection.getByText('Unsaved changes')).toBeHidden()
+})
+
 test('investigate: misconfigurations, vulnerabilities and resources, read-only', async ({ page }) => {
   // Three screens with their summaries, lists, sheets and an axe pass each: past the default 30 s.
   test.setTimeout(60_000)

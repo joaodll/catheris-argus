@@ -46,12 +46,13 @@ class CollectionSettings(BaseModel):
     # Services and checks Prowler skips. Only names of the pinned Prowler are accepted (the API
     # and the worker check them against collection's lists; settings sits below collection, so
     # here only their shape: nothing that could read as a flag). Any skip costs the 50 checks
-    # mapped to no compliance framework (decisions, 2026-11-10).
+    # mapped to no compliance framework (decisions, 2026-11-10). The caps leave room for Select
+    # all (94 services, 681 checks in 5.50.0) to keep working after Prowler upgrades.
     prowler_skip_services: list[Annotated[str, Field(pattern=r"^[a-z][a-z0-9]{1,39}$")]] = Field(
-        default_factory=list, max_length=100
+        default_factory=list, max_length=300
     )
     prowler_skip_checks: list[Annotated[str, Field(pattern=r"^[a-z][a-z0-9_]{1,119}$")]] = Field(
-        default_factory=list, max_length=700
+        default_factory=list, max_length=2000
     )
 
 
