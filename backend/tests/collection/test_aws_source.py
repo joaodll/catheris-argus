@@ -119,6 +119,11 @@ def fakes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             # A table the export stopped: exit 1, the SDK's error on stdout, no rows (1.34.1).
             'if grep -qx "$1" "$HOME/../exit1.txt" 2>/dev/null; then\n'
             '  echo "[ERROR] Error executing query: aws: operation error X: Y"; exit 1; fi\n'
+            # A table whose calls were retried and then answered: at INFO, as Argus runs it.
+            'if grep -qx "$1" "$HOME/../retried.txt" 2>/dev/null; then\n'
+            '  echo "[INFO]  1: BackoffDelay: attempt=1, retryTime=63ms, err=api error '
+            'Throttling: Rate exceeded" >&2\n'
+            '  echo "[INFO]  2: listRegions: connection_name=aws" >&2; fi\n'
             # A table still running when its time limit comes (a row out, then nothing).
             'if grep -qx "$1" "$HOME/../slow.txt" 2>/dev/null; then\n'
             '  echo \'{"arn": "x"}\'; sleep 60; fi\n'
@@ -1229,3 +1234,67 @@ def test_rows_are_judged_in_blocks_as_they_were_whole(
 )
 def test_a_duration_reads_at_a_glance(seconds: int, words: str) -> None:
     assert aws_tools.span(timedelta(seconds=seconds)) == words
+
+
+def test_a_table_whose_retries_succeeded_is_complete_and_counted(
+    fakes: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The plugin runs at INFO so the live log can count its retries (owner, 2026-11-19); a
+    retry that was answered loses nothing, so the table stays complete: its error file gets
+    what the default level gave, no INFO line."""
+    _control(fakes / "homes", "retried.txt", "aws_iam_role\n")
+    with caplog.at_level(logging.INFO, logger="argus.tool"):
+        _, manifest = _run(fakes, "steampipe", ("eu-west-1",))
+    assert manifest.status == "complete"
+    assert manifest.throttle_events == 0
+    assert "aws_iam_role" not in manifest.incomplete_tables
+    env = (fakes / "homes" / "env-steampipe.txt").read_text().splitlines()
+    assert "STEAMPIPE_LOG_LEVEL=INFO" in env
+    messages = [r.getMessage() for r in caplog.records if r.name == "argus.tool"]
+    assert not any("BackoffDelay" in m or "listRegions" in m for m in messages)
+
+
+def test_prowler_says_live_what_it_does_and_the_runs_page_keeps_its_errors(
+    fakes: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    info = (
+        "2026-11-19 18:20:38,438 [File: service.py:63] \t[Module: service]\t INFO: EC2 - "
+        "Starting threads for 'describe_instances' function across 17 regions..."
+    )
+    retry = (
+        "2026-11-19 18:20:38,534 [File: standard.py:91] \t[Module: standard]\t DEBUG: Retry "
+        "needed, retrying request after delay of: 0.34"
+    )
+    error = (
+        "2026-11-19 18:20:39,000 [File: service.py:90] \t[Module: service]\t ERROR: us-east-1 "
+        "-- ClientError[90]: An error occurred (InternalError) when calling DescribeInstances"
+    )
+    _control(fakes / "homes", "prowler.out", f"{info}\n{retry}\n{error}\n")
+    with caplog.at_level(logging.INFO, logger="argus.tool"):
+        _, manifest = _run(fakes, "prowler")
+    argv = (fakes / "homes" / "argv.txt").read_text()
+    assert "--log-level INFO" in argv
+    assert "DEBUG" not in argv
+    messages = [r.getMessage() for r in caplog.records if r.name == "argus.tool"]
+    assert any("Starting threads for 'describe_instances'" in m for m in messages), messages
+    assert not any("Retry needed" in m for m in messages)  # counted, not printed
+    assert "InternalError" in manifest.log_tail
+    assert "Starting threads" not in manifest.log_tail
+    assert "Retry needed" not in manifest.log_tail
+
+
+def test_cloudfox_errors_reach_the_live_log_as_it_runs(
+    fakes: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    _control(
+        fakes / "homes",
+        "cloudfox.errors",
+        'time="t" level=error module=lambda msg="operation error Lambda: ListFunctions, '
+        'api error ThrottlingException: Rate exceeded arn:aws:lambda:us-east-1:210987654321:x"\n'
+        'time="t" level=error msg="another account arn:aws:iam::123456789012:role/r"\n',
+    )
+    with caplog.at_level(logging.INFO, logger="argus.tool"):
+        _run(fakes, "cloudfox")
+    messages = [r.getMessage() for r in caplog.records if r.name == "argus.tool"]
+    assert any(m.startswith("[error log]") and "ThrottlingException" in m for m in messages)
+    assert not any("123456789012" in m for m in messages)
