@@ -2665,7 +2665,7 @@ export interface components {
              * Format
              * @enum {string}
              */
-            format: "csv" | "pdf";
+            format: "csv" | "pdf" | "jsonl";
             /** Id */
             id: number;
             /**
@@ -2961,9 +2961,9 @@ export interface components {
             /**
              * Format
              * @default csv
-             * @constant
+             * @enum {string}
              */
-            format: "csv";
+            format: "csv" | "jsonl";
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -5768,6 +5768,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/gzip": unknown;
                     "application/pdf": unknown;
                     "text/csv": unknown;
                 };

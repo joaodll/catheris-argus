@@ -7,7 +7,8 @@
  * never an option, so the arrow keys pass over it.
  *
  * A choice where nothing chosen is not "All" (the map's Connections) passes `selectAll` and
- * `resetTo`: the footer then offers "Select all" and "Default" in place of Clear.
+ * `resetTo`: the footer then offers "Select all" and "Default" in place of Clear. A long list
+ * one picks from (Prowler's skips) passes `selectAll` alone: "Select all" and "Unselect all".
  */
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
@@ -31,7 +32,8 @@ const props = withDefaults(
     status?: 'ready' | 'loading' | 'error'
     // What the trigger says with nothing chosen: "All" for a filter; a skip list says "None".
     emptyLabel?: string
-    // The footer offers "Select all" (every option) in place of Clear.
+    // The footer offers "Select all" (every option), and "Unselect all" unless `resetTo` is set,
+    // in place of Clear.
     selectAll?: boolean
     // The footer offers "Default" (these values) in place of Clear.
     resetTo?: string[]
@@ -260,6 +262,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onOutside))
         <span class="ms-foot-actions">
           <button v-if="selectAll && !allChosen" type="button" class="btn btn-ghost btn-sm" @click="choose(options.map((o) => o.value))">Select all</button>
           <button v-if="resetTo && !atDefault" type="button" class="btn btn-ghost btn-sm" @click="choose([...resetTo])">Default</button>
+          <button v-if="selectAll && !resetTo && modelValue.length" type="button" class="btn btn-ghost btn-sm" @click="choose([])">Unselect all</button>
         </span>
       </div>
       <div v-else-if="modelValue.length" class="ms-foot">

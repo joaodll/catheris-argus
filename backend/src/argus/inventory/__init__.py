@@ -16,6 +16,8 @@ Public interface:
     list_resources(), resource_facets(), resource_names(), resource_at()   the read side
                        (the Resources page, and a resource as of a day)
     iter_resources()   every resource matching the list's filters, in id batches (reports)
+    resources_by_ids(), resource_heads(), configs_at()   a report's linked resources, the
+                       other ends of links, and a batch's configurations (ADR-0047 3c)
     role_last_used(), UNUSED_ROLES_SQL, RoleLastUsed, RoleUnused   each IAM role's last use as
                        AWS records it (roles.py, migration 0053), for the Resources list
     CURRENT_ROLES_SQL  one connection's current roles, for relationships' workload counts
@@ -39,6 +41,7 @@ from argus.inventory.queries import (
     TAGGED_RESOURCES_SQL,
     ResourceFilters,
     ResourceOrder,
+    configs_at,
     delete_loads_before,
     effective_day,
     iter_resources,
@@ -46,10 +49,12 @@ from argus.inventory.queries import (
     list_resources,
     resource_at,
     resource_facets,
+    resource_heads,
     resource_id_sql,
     resource_names,
     resource_nodes,
     resource_types,
+    resources_by_ids,
     uid_by_native_id,
 )
 from argus.inventory.roles import (
@@ -91,6 +96,7 @@ __all__ = [
     "RoleLastUsed",
     "RoleReading",
     "RoleUnused",
+    "configs_at",
     "delete_loads_before",
     "delete_orphan_configs",
     "effective_day",
@@ -103,10 +109,12 @@ __all__ = [
     "put_inventory_metrics",
     "resource_at",
     "resource_facets",
+    "resource_heads",
     "resource_id_sql",
     "resource_names",
     "resource_nodes",
     "resource_types",
+    "resources_by_ids",
     "role_last_used",
     "rollup_inventory_metrics",
     "uid_by_native_id",

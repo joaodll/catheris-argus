@@ -418,7 +418,11 @@ def test_a_build_in_progress_is_not_abandoned(owner: Engine, reports_role: Engin
         "SELECT count(*) FROM app_user",
         "SELECT config_id FROM resource",
         "SELECT tags FROM resource",
-        "SELECT count(*) FROM edge",
+        # The panel's edge columns are readable since migration 0056 (ADR-0047 3c); a manual
+        # edge's note, the edge key and the configuration's hash never are.
+        "SELECT author, reason FROM edge",
+        "SELECT edge_key FROM edge",
+        "SELECT config_hash FROM resource_config",
         "INSERT INTO report_request (kind, format, filters, connection_ids, requested_by) "
         "VALUES ('misconfigurations', 'csv', '{}', ARRAY[1], 'x')",
         "UPDATE report_request SET connection_ids = ARRAY[2]",
@@ -434,7 +438,9 @@ def test_a_build_in_progress_is_not_abandoned(owner: Engine, reports_role: Engin
         "users",
         "configuration",
         "tags",
-        "edges",
+        "edge-notes",
+        "edge-key",
+        "config-hash",
         "request",
         "scope",
         "bucket",

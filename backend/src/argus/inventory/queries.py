@@ -243,8 +243,7 @@ def iter_resources(
             dict(r._mapping)
             for r in conn.execute(
                 text(f"""
-                SELECT r.id, r.resource_uid, r.connection_id, r.provider, r.region, r.type,
-                       r.native_id, r.name, r.vpc_id, r.first_seen, r.last_seen, r.deleted_on
+                SELECT {_LIST_COLUMNS}
                 FROM resource r
                 {where}
                   AND r.id > :after
@@ -260,6 +259,75 @@ def iter_resources(
         if len(rows) < batch:
             return
         after = rows[-1]["id"]
+
+
+_LIST_COLUMNS = """r.id, r.resource_uid, r.connection_id, r.provider, r.region, r.type,
+                   r.native_id, r.name, r.vpc_id, r.first_seen, r.last_seen, r.deleted_on"""
+
+
+def resources_by_ids(conn: Connection, resource_ids: list[int]) -> list[dict[str, Any]]:
+    """These resources as list rows (iter_resources's columns), by id: a report's linked
+    resources, which the list's filters left out. Called with one batch of ids."""
+    if not resource_ids:
+        return []
+    rows = conn.execute(
+        text(f"""
+        SELECT {_LIST_COLUMNS} FROM resource r
+        WHERE r.id = ANY(CAST(:ids AS bigint[])) ORDER BY r.id
+    """),  # noqa: S608 - fixed fragments only
+        {"ids": resource_ids},
+    )
+    return [dict(r._mapping) for r in rows]
+
+
+def resource_heads(conn: Connection, resource_ids: list[int]) -> dict[int, dict[str, Any]]:
+    """Each of these resources' name (or native id), type and connection: what a link says of
+    its other end. Called with one batch's link ends, so the input is bounded."""
+    if not resource_ids:
+        return {}
+    rows = conn.execute(
+        text(
+            "SELECT id, coalesce(name, native_id) AS name, type, connection_id FROM resource "
+            "WHERE id = ANY(CAST(:ids AS bigint[]))"
+        ),
+        {"ids": resource_ids},
+    )
+    return {r.id: {"name": r.name, "type": r.type, "connection_id": r.connection_id} for r in rows}
+
+
+def configs_at(conn: Connection, resources: list[dict[str, Any]], *, day: date) -> dict[int, Any]:
+    """Each of these resources' configuration as of `day`, as resource_at reads one: from its
+    connection's standing inventory (effective_day), redacted at ingest. A resource not in that
+    inventory has none. One read of resource_load, then one of the day's snapshot partition per
+    connection in the batch."""
+    by_connection: dict[int, list[int]] = {}
+    for resource in resources:
+        by_connection.setdefault(resource["connection_id"], []).append(resource["id"])
+    if not by_connection:
+        return {}
+    loads = conn.execute(
+        text("""
+        SELECT connection_id, max(snapshot_date) AS day FROM resource_load
+        WHERE connection_id = ANY(CAST(:c AS bigint[])) AND snapshot_date <= :d
+        GROUP BY connection_id
+    """),
+        {"c": list(by_connection), "d": day},
+    )
+    days: dict[int, date] = {r.connection_id: r.day for r in loads}
+    configs: dict[int, Any] = {}
+    for connection_id, ids in by_connection.items():
+        if (standing := days.get(connection_id)) is None:
+            continue
+        rows = conn.execute(
+            text("""
+            SELECT s.resource_id, c.config
+            FROM resource_snapshot s JOIN resource_config c ON c.id = s.config_id
+            WHERE s.snapshot_date = :d AND s.resource_id = ANY(CAST(:ids AS bigint[]))
+        """),
+            {"d": standing, "ids": ids},
+        )
+        configs.update({r.resource_id: r.config for r in rows})
+    return configs
 
 
 def resource_facets(

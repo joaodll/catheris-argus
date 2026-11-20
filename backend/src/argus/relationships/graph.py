@@ -374,6 +374,56 @@ def edge_layers(conn: Connection, edge_ids: list[int]) -> dict[int, str | None]:
     return {r.id: r.layer for r in rows}
 
 
+def edges_of_resources(
+    conn: Connection, resource_ids: list[int], *, connection_id: int, day: date
+) -> dict[int, list[dict[str, Any]]]:
+    """Each of these resources' edges as its panel lists them (edges_at: the connection's
+    standing loads on `day` plus manual edges, by type then id, at most MAX_EDGES), with each
+    edge's layer: a report's links, one batch of one connection's resources at a time
+    (ADR-0047 3c), in one query."""
+    if not resource_ids:
+        return {}
+    days = all_effective_days(conn, day=day, connection_ids=[connection_id]).get(
+        connection_id, {"rule_day": None, "cloudfox_day": None}
+    )
+    rows = conn.execute(
+        text(f"""
+        WITH r(rid) AS (SELECT unnest(CAST(:ids AS bigint[]))),
+        hits AS (
+          SELECT r.rid, e.id FROM r JOIN edge e ON e.source_resource_id = r.rid
+          UNION
+          SELECT r.rid, e.id FROM r JOIN edge e ON e.target_resource_id = r.rid
+        ),
+        standing AS (
+          SELECT h.rid, e.id, e.source_uid, e.target_uid, e.source_resource_id,
+                 e.target_resource_id, e.type, e.origin, e.attributes, e.first_seen, e.last_seen,
+                 {LAYER_CASE} AS layer,
+                 row_number() OVER (PARTITION BY h.rid ORDER BY e.type, e.id) AS n
+          FROM hits h JOIN edge e ON e.id = h.id
+          WHERE e.origin = 'manual'
+             OR EXISTS (SELECT 1 FROM edge_snapshot s WHERE s.edge_id = e.id
+                        AND s.snapshot_date = CASE WHEN e.origin = 'cloudfox'
+                                                   THEN CAST(:cf AS date)
+                                                   ELSE CAST(:rd AS date) END)
+        )
+        SELECT rid, id, source_uid, target_uid, source_resource_id, target_resource_id, type,
+               origin, attributes, first_seen, last_seen, layer
+        FROM standing WHERE n <= :l ORDER BY rid, type, id
+    """),  # noqa: S608 - fixed fragments only
+        {
+            "ids": resource_ids,
+            "cf": days["cloudfox_day"],
+            "rd": days["rule_day"],
+            "l": MAX_EDGES,
+        },
+    )
+    edges: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        edge = dict(row._mapping)
+        edges.setdefault(edge.pop("rid"), []).append(edge)
+    return edges
+
+
 def map_edges_at(
     conn: Connection, *, resource_id: int, connection_id: int, day: date, kind: Map
 ) -> list[dict[str, Any]]:
