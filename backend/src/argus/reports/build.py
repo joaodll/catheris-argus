@@ -29,7 +29,7 @@ from argus import findings, ingest, inventory, relationships
 from argus.core.process import IsolatedRunError
 from argus.findings import FindingFilters, ResourceListFilters
 from argus.reports import filters as report_filters
-from argus.reports import pdf, queue
+from argus.reports import pdf, problems, queue
 from argus.reports.csv_report import CsvReport
 from argus.reports.jsonl_report import JsonlReport, link
 from argus.reports.model import (
@@ -213,6 +213,8 @@ def _write_csv(
         batches = (
             _finding_rows(conn, report, filters)
             if isinstance(filters, FindingFilters)
+            else problems.iter_rows(conn, filters)
+            if isinstance(filters, report_filters.ResourceProblemFilters)
             else _resource_rows(conn, filters)
         )
         with out_path.open("w", encoding="utf-8", newline="") as out:
@@ -318,11 +320,31 @@ def _write_pdf(engine: Engine, report: ClaimedReport, out_path: Path, *, local: 
     worker role's 5-minute limit on an idle transaction."""
     if "pdf" not in KIND_FORMATS[report.kind]:
         raise ReportRefusedError(queue.FORMAT_REFUSED[report.kind])
+    today = datetime.now(UTC).date()
     with _snapshot(engine) as conn:
         filters, through = _scope(conn, report, local=local)
-        if not isinstance(filters, FindingFilters):
+        if isinstance(filters, report_filters.ResourceProblemFilters):
+            by_resource = problems.collect(conn, filters, today=today)
+        elif not isinstance(filters, FindingFilters):
             raise ReportRefusedError(queue.FORMAT_REFUSED[report.kind])
-        collected = pdf.collect(conn, report.kind, filters, today=datetime.now(UTC).date())
+        else:
+            collected = pdf.collect(conn, report.kind, filters, today=today)
+    if isinstance(filters, report_filters.ResourceProblemFilters):
+        context = problems.build_context(
+            by_resource,
+            report_id=report.id,
+            requested_by=report.requested_by,
+            generated_at=datetime.now(UTC),
+            scope_words=problems.describe(filters, accounts=len(report.connection_ids)),
+            severities_in_scope=list(filters.severities) or list(pdf.SEVERITIES),
+            data_through=through,
+        )
+        out_path.write_bytes(pdf.render(context))
+        return _Built(
+            row_count=by_resource.total,
+            truncated=by_resource.truncated,
+            data_through=dict(through),
+        )
     context = pdf.build_context(
         collected,
         report_id=report.id,

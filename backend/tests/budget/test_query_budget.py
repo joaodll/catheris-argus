@@ -43,6 +43,8 @@ from argus import (
 from argus.api.routes import resource_map
 from argus.metrics.series import calendar_months
 from argus.reports import pdf as report_pdf
+from argus.reports import problems as report_problems
+from argus.reports.filters import ResourceProblemFilters
 
 pytestmark = [pytest.mark.db, pytest.mark.budget]
 BUDGET_MS = 300.0
@@ -1423,8 +1425,13 @@ def test_the_vulnerability_counts_of_one_account_stay_cheap_to_write(estate: Eng
 )
 @pytest.mark.parametrize(
     "report",
-    [("misconfigurations", "csv"), ("resources", "csv"), ("resources", "jsonl")],
-    ids=["misconfigurations-csv", "resources-csv", "resources-jsonl"],
+    [
+        ("misconfigurations", "csv"),
+        ("resources", "csv"),
+        ("resources", "jsonl"),
+        ("resource-problems", "csv"),
+    ],
+    ids=["misconfigurations-csv", "resources-csv", "resources-jsonl", "resource-problems-csv"],
 )
 def test_an_export_is_measured(
     estate: Engine, tmp_path: Path, report: tuple[str, str], label: str, connection_ids: list[int]
@@ -1494,6 +1501,45 @@ def test_a_pdf_context_is_measured(estate: Engine, label: str, connection_ids: l
         f"pdf context, {label}: {collected.total} findings, {collected.listed} listed, "
         f"{len(context['blocks'])} blocks + {len(context['others'])} named, {size / 1e6:.2f} MB "
         f"in {seconds:.1f} s; peak RSS {after / 1024:.0f} MiB (before {before / 1024:.0f} MiB)"
+    )
+    assert collected.total > 0 and collected.listed <= report_pdf.PDF_RESOURCE_CAP
+    assert seconds < 300
+
+
+@pytest.mark.parametrize(
+    ("label", "connection_ids"), [("one account", [2]), ("every account", list(range(1, 37)))]
+)
+def test_a_by_resource_pdf_context_is_measured(
+    estate: Engine, label: str, connection_ids: list[int]
+) -> None:
+    """The data side of the by-resource PDF (ADR-0047 section 3d): every chosen resource's
+    problems read a page of the list at a time, counted and ranked, then the shown resources'
+    problems read again. The render side is bounded by the caps (render.py --measure)."""
+    filters = ResourceProblemFilters(
+        resources=findings.ResourceListFilters(connection_ids=tuple(connection_ids))
+    )
+    before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    start = time.perf_counter()
+    with estate.connect() as conn:
+        collected = report_problems.collect(conn, filters, today=TODAY)
+        context = report_problems.build_context(
+            collected,
+            report_id=1,
+            requested_by="budget",
+            generated_at=datetime(2026, 10, 3, tzinfo=UTC),
+            scope_words="all",
+            severities_in_scope=list(report_pdf.SEVERITIES),
+            data_through={},
+        )
+    seconds = time.perf_counter() - start
+    size = len(json.dumps(context))
+    after = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    print(
+        f"by-resource pdf context, {label}: {collected.total} problems on "
+        f"{len(collected.resources)} resources, {collected.listed} listed, "
+        f"{len(context['blocks'])} blocks + {len(context['others'])} named, "
+        f"{len(context['reference'])} references, {size / 1e6:.2f} MB in {seconds:.1f} s; "
+        f"peak RSS {after / 1024:.0f} MiB (before {before / 1024:.0f} MiB)"
     )
     assert collected.total > 0 and collected.listed <= report_pdf.PDF_RESOURCE_CAP
     assert seconds < 300

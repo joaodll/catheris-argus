@@ -17,6 +17,11 @@ OPEN_MISCONFIGURATION = (
     "f.tool IN ('prowler', 'cloudfox') AND f.state IN ('open', 'reopened') "
     "AND f.status = 'FAIL' AND NOT f.muted"
 )
+# An open CVE: open or reopened, not suppressed in the scanner. The Vulnerabilities cell, its
+# counts and the by-resource report read this one definition.
+OPEN_VULNERABILITY = (
+    f"f.tool = '{VULNERABILITY_TOOL}' AND f.state IN ('open', 'reopened') AND NOT f.muted"
+)
 
 
 @dataclass(frozen=True)

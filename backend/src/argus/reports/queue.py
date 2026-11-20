@@ -41,6 +41,7 @@ FORMAT_REFUSED = {
     "misconfigurations": "A Misconfigurations report is a CSV or a PDF.",
     "vulnerabilities": "A Vulnerabilities report is a CSV or a PDF.",
     "resources": "A Resources report is a CSV or a JSON Lines file.",
+    "resource-problems": "A Misconfigurations and vulnerabilities report is a CSV or a PDF.",
 }
 # report_request.filters' CHECK (migration 0047).
 FILTERS_MAX_CHARS = 16384

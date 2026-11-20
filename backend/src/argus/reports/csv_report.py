@@ -123,6 +123,33 @@ COLUMNS: dict[str, list[tuple[str, Callable[[Row], str]]]] = {
         *_DATES,
         ("scanner", _fact("scanner")),
     ],
+    # One row per problem, by resource (ADR-0047 section 3d). The resource's columns come from
+    # the inventory; a CVE's columns are empty on a misconfiguration's row, and its result on a
+    # CVE's.
+    "resource-problems": [
+        *_COMMON_HEAD,
+        *_RESOURCE,
+        ("source", _field("source")),
+        ("severity", _field("severity")),
+        ("tool", _field("tool")),
+        ("check_id", _field("check_id")),
+        ("title", _field("title")),
+        (
+            "result",
+            lambda row: _text(row.get("detail")) if row.get("source") != "vulnerability" else "",
+        ),
+        ("vulnerability_id", _fact("vulnerability_id")),
+        ("cvss", _fact("cvss_score", number=True)),
+        ("epss", _fact("epss_score", number=True)),
+        ("exploit_available", _fact("exploit_available")),
+        ("package", _fact("package_name")),
+        ("installed_version", _fact("installed_version")),
+        ("fixed_version", _fact("fixed_version")),
+        ("fix_available", _fact("fix_available")),
+        *_DATES,
+        ("remediation", _field("remediation_text")),
+        ("remediation_url", _field("remediation_url")),
+    ],
     "resources": [
         *_COMMON_HEAD,
         ("resource_type", _field("type")),

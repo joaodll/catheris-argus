@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Literal
 
-ReportKind = Literal["misconfigurations", "vulnerabilities", "resources"]
+ReportKind = Literal["misconfigurations", "vulnerabilities", "resources", "resource-problems"]
 ReportFormat = Literal["csv", "pdf", "jsonl"]
 # The formats each kind comes in (migrations 0054 and 0056 hold the same pairs). The Resources
 # list is a table to sort and filter, not a hand-off to read: no PDF. JSON Lines is a resource's
@@ -13,6 +13,9 @@ KIND_FORMATS: dict[str, frozenset[str]] = {
     "misconfigurations": frozenset({"csv", "pdf"}),
     "vulnerabilities": frozenset({"csv", "pdf"}),
     "resources": frozenset({"csv", "jsonl"}),
+    # A resource's open misconfigurations and CVEs together, by resource (ADR-0047 section 3d;
+    # migration 0059): a CSV row per problem, or a PDF block per resource.
+    "resource-problems": frozenset({"csv", "pdf"}),
 }
 # How each format's file is served: its type and the name's ending. A JSON Lines report is
 # gzip-compressed (a resource's configuration is long); its storage key still ends ".jsonl"
@@ -42,6 +45,12 @@ PDF_DETAILED_BLOCKS = 300
 # Past the detailed blocks, at most this many more are named in one table; the CSV has the rest.
 # 10,000 names took the renderer past its 2 GiB limit (2026-11-11).
 PDF_NAMED_CAP = 1_000
+# The by-resource PDF (ADR-0047 section 3d): this many resources in full, at most this many
+# problems each and this many in all, then up to PDF_NAMED_CAP more resources named, the rest
+# counted; and at most this many checks or CVEs explained once in its Reference.
+PDF_RESOURCE_BLOCKS = 300
+PDF_PROBLEMS_PER_RESOURCE = 40
+PDF_REFERENCE_CAP = 300
 # A build that runs longer gives up and fails: the worker's one report thread is then free.
 MAX_BUILD_SECONDS = 3600
 # A report still building this long after it started was abandoned: its Job or worker was

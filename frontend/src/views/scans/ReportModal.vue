@@ -4,7 +4,9 @@
  * fixed and the list's filters go along as they are; from Operate -> Reports the person picks the
  * kind and, optionally, the accounts. The worker builds it in the background. Resources is exported
  * from its list only, as a CSV or as JSON Lines with each resource's links and configuration
- * (migrations 0054, 0056; ADR-0047 3c).
+ * (migrations 0054, 0056; ADR-0047 3c). Misconfigurations and vulnerabilities, by resource (3d), is
+ * offered by New report and by the Resources list's Export (its filters choose the resources), or
+ * for one resource from its sheet; it adds a severity choice.
  */
 import { computed, ref, watch } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
@@ -16,22 +18,42 @@ import TagFilter from '@/views/investigate/TagFilter.vue'
 import { type TagPair, tagParams } from '@/views/investigate/tagFilter'
 import { describe, type ReportFilters } from './reportFilters'
 
-type Kind = 'misconfigurations' | 'vulnerabilities' | 'resources'
+type Kind = 'misconfigurations' | 'vulnerabilities' | 'resources' | 'resource-problems'
 type Format = 'csv' | 'pdf' | 'jsonl'
+type Severity = 'critical' | 'high' | 'medium' | 'low' | 'informational'
 const props = defineProps<{
   // Set when exporting from a list: that list's kind and its filters (the API's query shape).
   kind?: Kind
   filters?: ReportFilters
   connections: Schemas['ConnectionOut'][]
+  // An account's name where `connections` is not at hand (a resource's sheet).
+  accountName?: (id: number) => string
 }>()
 const emit = defineEmits<{ close: []; requested: [id: number] }>()
 
-const KIND_NAMES: Record<Kind, string> = { misconfigurations: 'Misconfigurations', vulnerabilities: 'Vulnerabilities', resources: 'Resources' }
+const KIND_NAMES: Record<Kind, string> = {
+  misconfigurations: 'Misconfigurations',
+  vulnerabilities: 'Vulnerabilities',
+  resources: 'Resources',
+  'resource-problems': 'Misconfigurations and vulnerabilities',
+}
+const PROBLEMS: { id: Kind; label: string; text: string } = {
+  id: 'resource-problems',
+  label: 'Misconfigurations and vulnerabilities',
+  text: 'Each resource with its failing checks and its CVEs together, worst first.',
+}
 // New report's kinds; Resources is exported from its list.
 const KINDS: { id: Kind; label: string; text: string }[] = [
   { id: 'misconfigurations', label: 'Misconfigurations', text: 'Prowler and CloudFox checks that fail.' },
   { id: 'vulnerabilities', label: 'Vulnerabilities', text: "CVEs from the provider's scanner." },
+  PROBLEMS,
 ]
+// The Resources list's Export: the list itself, or its resources' problems.
+const RESOURCE_KINDS: { id: Kind; label: string; text: string }[] = [
+  { id: 'resources', label: 'Resources', text: 'The list as it is filtered, one resource per row.' },
+  PROBLEMS,
+]
+const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'informational']
 // The formats each kind comes in (the API's KIND_FORMATS), and what each format's choice says.
 const FORMATS: Record<Kind, { id: Format; label: string }[]> = {
   misconfigurations: [
@@ -46,15 +68,25 @@ const FORMATS: Record<Kind, { id: Format; label: string }[]> = {
     { id: 'csv', label: 'CSV: every row, for a spreadsheet' },
     { id: 'jsonl', label: 'JSON Lines: each resource with its links and configuration' },
   ],
+  'resource-problems': [
+    { id: 'csv', label: 'CSV: every problem, for a spreadsheet' },
+    { id: 'pdf', label: 'PDF: each resource with its problems, to send' },
+  ],
 }
 const FORMAT_NOTES: Record<Kind, string> = {
   misconfigurations: "A PDF gives each check's risk and fix, with at most 25 resources per check and 5,000 in all. The CSV has every row.",
   vulnerabilities: "A PDF gives each CVE's risk and fix, with at most 25 resources per CVE and 5,000 in all. The CSV has every row.",
+  'resource-problems':
+    'A PDF gives each resource its open misconfigurations and CVEs, worst resource first, with at most 40 problems per resource, 300 resources in full and 5,000 problems in all; each check or CVE is explained once at the end. The CSV has every problem.',
   resources:
     'JSON Lines holds one resource per line: the CSV\'s columns, its links, and its configuration as Argus stores it (secrets masked), plus the resources it links to in these accounts. Compressed (.jsonl.gz), for jq, scripts or a SIEM rather than a spreadsheet.',
 }
 const fromList = props.kind !== undefined
+// From the Resources list, the person picks the list or its resources' problems.
+const fromResources = props.kind === 'resources'
 const kind = ref<Kind>(props.kind ?? 'misconfigurations')
+// The by-resource kind's severities; none chosen is every severity.
+const severities = ref<Severity[]>([])
 const format = ref<Format>('csv')
 const formats = computed(() => FORMATS[kind.value])
 // A kind that doesn't come in the chosen format starts again from a CSV.
@@ -88,9 +120,7 @@ const unavailable = computed((): string | null => {
 // On a local store only Demo connections can be reported on; on S3, every connection.
 const offered = computed(() => props.connections.filter((c) => !local.value || c.kind === 'demo'))
 
-const title = computed(() =>
-  fromList ? `Export ${KIND_NAMES[kind.value]}` : 'New report',
-)
+const title = computed(() => (fromResources ? 'Export' : fromList ? `Export ${KIND_NAMES[kind.value]}` : 'New report'))
 // New report's tags (spec frontend/27ceefe0): the names the kind's list offers over the accounts.
 const tags = ref<TagPair[]>([])
 const scopeIds = computed(() => (allAccounts.value ? offered.value.map((c) => c.id) : chosen.value))
@@ -100,7 +130,7 @@ const tagNames = useResource(
     if (fromList) return null
     const query = { connection_id: scopeIds.value }
     const facets =
-      kind.value === 'misconfigurations'
+      kind.value !== 'vulnerabilities'
         ? await unwrap(api.GET('/api/v1/findings/facets', { params: { query } }))
         : await unwrap(api.GET('/api/v1/vulnerabilities/facets', { params: { query } }))
     return facets.tags
@@ -112,12 +142,14 @@ const tagStatus = computed(() => (tagNames.error.value ? 'error' : tagNames.data
 const everything = computed(() => (kind.value === 'resources' ? 'All resources' : 'All open'))
 const filterWords = computed(() =>
   listFilters.value
-    ? describe(listFilters.value, (id) => props.connections.find((c) => c.id === id)?.name ?? `#${id}`, everything.value)
+    ? describe(listFilters.value, (id) => props.connections.find((c) => c.id === id)?.name ?? props.accountName?.(id) ?? `#${id}`, everything.value)
     : '',
 )
 const dirty = computed(
   () =>
     format.value !== 'csv' ||
+    severities.value.length > 0 ||
+    (fromResources && kind.value !== 'resources') ||
     (!fromList && (kind.value !== 'misconfigurations' || !allAccounts.value || tags.value.length > 0)),
 )
 const canSend = computed(
@@ -128,10 +160,12 @@ const canSend = computed(
 )
 
 function filtersToSend(): ReportFilters {
-  if (listFilters.value) return listFilters.value
+  const severity = kind.value === 'resource-problems' && severities.value.length ? { severity: severities.value } : {}
+  if (listFilters.value) return { ...listFilters.value, ...severity }
+  if (fromList) return severity
   const tag = tags.value.length ? { tag: tagParams(tags.value) } : {}
-  if (allAccounts.value) return offered.value.length ? { connection_id: offered.value.map((c) => c.id), ...tag } : tag
-  return { connection_id: chosen.value, ...tag }
+  if (allAccounts.value) return offered.value.length ? { connection_id: offered.value.map((c) => c.id), ...tag, ...severity } : { ...tag, ...severity }
+  return { connection_id: chosen.value, ...tag, ...severity }
 }
 
 async function send(): Promise<void> {
@@ -143,6 +177,7 @@ async function send(): Promise<void> {
       | Schemas['MisconfigurationReportIn']
       | Schemas['VulnerabilityReportIn']
       | Schemas['ResourcesReportIn']
+      | Schemas['ResourceProblemsReportIn']
     const queued = await unwrap(api.POST('/api/v1/reports', { body }))
     emit('requested', queued.id)
   } catch (err) {
@@ -169,10 +204,24 @@ async function send(): Promise<void> {
           <span><span class="kind-name">{{ k.label }}</span><span class="cap">{{ k.text }}</span></span>
         </label>
       </fieldset>
+      <fieldset v-if="fromResources" class="choices">
+        <legend class="lbl">Report</legend>
+        <label v-for="k in RESOURCE_KINDS" :key="k.id" class="check kind">
+          <input v-model="kind" type="radio" name="report-kind" :value="k.id">
+          <span><span class="kind-name">{{ k.label }}</span><span class="cap">{{ k.text }}</span></span>
+        </label>
+      </fieldset>
       <fieldset class="choices">
         <legend class="lbl">Format</legend>
         <label v-for="f in formats" :key="f.id" class="check"><input v-model="format" type="radio" name="report-format" :value="f.id">{{ f.label }}</label>
         <span class="cap">{{ FORMAT_NOTES[kind] }}</span>
+      </fieldset>
+      <fieldset v-if="kind === 'resource-problems'" class="choices">
+        <legend class="lbl">Severity</legend>
+        <div class="severities">
+          <label v-for="s in SEVERITIES" :key="s" class="check"><input v-model="severities" type="checkbox" :value="s">{{ s.charAt(0).toUpperCase() + s.slice(1) }}</label>
+        </div>
+        <span class="cap">{{ severities.length ? 'Only problems of these severities.' : 'Every severity.' }}</span>
       </fieldset>
       <div v-if="fromList" class="field">
         <span class="lbl">Filters from the list</span>
@@ -231,6 +280,12 @@ async function send(): Promise<void> {
 
 .kind-name {
   font-weight: 600;
+}
+
+.severities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 var(--s-16);
 }
 
 .accounts {

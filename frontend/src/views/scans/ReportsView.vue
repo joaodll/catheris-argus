@@ -65,6 +65,7 @@ const KIND_NAMES: Record<Report['kind'], string> = {
   misconfigurations: 'Misconfigurations',
   vulnerabilities: 'Vulnerabilities',
   resources: 'Resources',
+  'resource-problems': 'Misconfigurations and vulnerabilities',
 }
 
 function words(r: Report): string {

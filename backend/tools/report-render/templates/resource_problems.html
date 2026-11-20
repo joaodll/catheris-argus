@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% import "_macros.html" as m %}
+{#- The by-resource report (ADR-0047 section 3d): one block per resource, worst first, with its
+    open misconfigurations and open CVEs; each check's or CVE's risk and fix once, in the
+    Reference. -#}
+{% block body %}
+{% if ctx.blocks %}<h2 class="section" style="page-break-before: always">Resources to fix</h2>{% endif %}
+{% for b in ctx.blocks %}
+<section class="block">
+  <div class="block-head">
+    <table class="res-head"><tr>
+      <td><span class="t">{{ b.name or "—" }}</span><span class="sub">{{ b.uid }}</span></td>
+      <td class="chips">
+        {% if b.chips.misconfiguration %}<span class="lbl">Misconfig.</span> {% for c in b.chips.misconfiguration %}{{ m.chip(c) }} {% endfor %}{% endif %}
+        {% if b.chips.vulnerability %}<span class="lbl">CVE</span> {% for c in b.chips.vulnerability %}{{ m.chip(c) }} {% endfor %}{% endif %}
+      </td>
+    </tr></table>
+    <table class="facts"><tr>
+      <td><span class="label">Where</span><span class="value">{{ b.account or "—" }}</span><span class="sub">{{ b.region or "global" }} · {{ b.account_id or "—" }}</span></td>
+      <td><span class="label">Type</span><span class="value">{{ b.type or "—" }}</span></td>
+      <td><span class="label">VPC</span><span class="value">{{ b.vpc_id or "—" }}</span></td>
+      <td><span class="label">Problems</span><span class="value">{{ b.total | num }}</span></td>
+    </tr></table>
+  </div>
+  {% if b.misconfigurations %}
+  <div class="label with-next">Misconfigurations</div>
+  <table class="list">
+    <thead><tr><th style="width:16%">Severity</th><th>Check</th><th style="width:13%">First seen</th></tr></thead>
+    <tbody>{% for p in b.misconfigurations %}
+      <tr>
+        <td>{{ m.pill(p.severity) }}</td>
+        <td>{{ p.title }}<span class="sub">{{ p.tool }} · {{ p.check_id }}</span>{% if p.result %}<span class="result">{{ p.result }}</span>{% endif %}</td>
+        <td class="mono">{{ p.first_seen or "—" }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  {% endif %}
+  {% if b.vulnerabilities %}
+  <div class="label with-next">Vulnerabilities</div>
+  <table class="list">
+    <thead><tr><th style="width:16%">Severity</th><th>Vulnerability</th><th style="width:14%">Installed</th><th style="width:14%">Fixed in</th><th style="width:9%">Exploit</th><th class="num" style="width:8%">CVSS</th></tr></thead>
+    <tbody>{% for p in b.vulnerabilities %}
+      {% set f = p.facts %}
+      <tr>
+        <td>{{ m.pill(p.severity) }}</td>
+        <td><span class="mono strong">{{ f.cve or p.check_id }}</span><span class="sub">{{ f.package or p.title }}</span></td>
+        <td class="mono">{{ f.installed or "—" }}</td>
+        <td class="mono">{% if f.fixed %}{{ f.fixed }}{% else %}<span class="missing">no fix yet</span>{% endif %}</td>
+        <td>{% if f.exploit %}<span class="sev-critical">Yes</span>{% else %}No{% endif %}</td>
+        <td class="num mono">{{ f.cvss if f.cvss is not none else "—" }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  {% endif %}
+  {% if b.more %}<div class="caption more">and {{ b.more | num }} more problems on this resource in the CSV report</div>{% endif %}
+</section>
+{% endfor %}
+
+{% if ctx.reference %}
+<h2 class="section" style="page-break-before: always">Reference</h2>
+<p class="caption">What each check or vulnerability above means and how to fix it, worst first.{% if ctx.more_reference %} {{ ctx.more_reference | num }} more are named in the CSV report.{% endif %}</p>
+{% for r in ctx.reference %}
+<section class="block">
+  <div class="block-head">
+    <table class="block-title"><tr>
+      <td style="width:1%">{{ m.pill(r.severity) }}</td>
+      <td class="t">{% if r.facts %}<span class="mono">{{ r.facts.cve or r.check_id }}</span>{% else %}{{ r.title }}{% endif %}</td>
+      <td class="id">{{ r.tool }} · {{ r.check_id }}</td>
+    </tr></table>
+    <div class="caption">{{ r.resources | num }} resources</div>
+    {% if r.facts %}
+    <table class="facts"><tr>
+      <td><span class="label">CVSS</span><span class="value">{{ r.facts.cvss if r.facts.cvss is not none else "—" }}</span></td>
+      <td><span class="label">EPSS</span><span class="value">{% if r.facts.epss is not none %}{{ "%.1f" | format(r.facts.epss * 100) }}%{% else %}—{% endif %}</span></td>
+      <td><span class="label">Public exploit</span><span class="value">{% if r.facts.exploit %}<span class="sev-critical">Yes</span>{% else %}No{% endif %}</span></td>
+      <td><span class="label">Package</span><span class="value">{{ r.facts.package or "—" }}</span></td>
+    </tr></table>
+    {% endif %}
+    <div class="label">{{ "Description" if r.facts else "Risk" }}</div>
+    {% if r.risk %}<p class="prose">{{ r.risk }}</p>
+    {% elif r.description %}<p class="prose">{{ r.description }}</p>
+    {% elif r.tool == "cloudfox" %}<p class="prose missing">CloudFox gives no risk text: see the check's title.</p>
+    {% else %}<p class="prose missing">The tool gives no text for this one.</p>{% endif %}
+  </div>
+  {{ m.fix(r) }}
+</section>
+{% endfor %}
+{% endif %}
+
+{% if ctx.others %}
+<section class="block">
+  <h2 class="section">Also in this report</h2>
+  <p class="caption">These {{ ctx.others | length | num }} resources are counted above but not detailed here. The CSV report lists their problems.</p>
+  <table class="list">
+    <thead><tr><th>Resource</th><th style="width:26%">Where</th><th style="width:20%">Severity</th><th class="num" style="width:8%">Total</th></tr></thead>
+    <tbody>{% for o in ctx.others %}
+      <tr>
+        <td><span class="strong">{{ o.name or "—" }}</span><span class="sub">{{ o.uid }}</span></td>
+        <td>{{ m.where(o) }}</td>
+        <td>{% for c in o.chips %}{{ m.chip(c) }} {% endfor %}</td>
+        <td class="num mono">{{ o.total | num }}</td>
+      </tr>
+    {% endfor %}</tbody>
+  </table>
+  {% if ctx.more_others %}<div class="caption more">and {{ ctx.more_others | num }} more resources: the CSV report has them all</div>{% endif %}
+</section>
+{% endif %}
+{% endblock %}

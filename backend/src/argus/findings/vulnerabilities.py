@@ -21,7 +21,7 @@ from argus.core.rawstore import RawRun
 from argus.core.resolver import record_unresolved, resolve
 from argus.findings.inspector import parse_inspector
 from argus.findings.lifecycle import ANY_CHECK, ANY_REGION, load_checks, load_tool_findings
-from argus.findings.model import VULNERABILITY_TOOL, VulnerabilityBatch
+from argus.findings.model import OPEN_VULNERABILITY, VULNERABILITY_TOOL, VulnerabilityBatch
 from argus.inventory import RESOURCES_IN_REGIONS_SQL, resource_id_sql
 
 
@@ -46,7 +46,7 @@ SCANNERS: dict[str, Scanner] = {
 }
 VulnerabilityLevel = Literal["any", "high", "exploitable"]
 _OPEN_STATE = f"f.tool = '{VULNERABILITY_TOOL}' AND f.state IN ('open', 'reopened')"
-_OPEN = f"{_OPEN_STATE} AND NOT f.muted"
+_OPEN = OPEN_VULNERABILITY
 _SEVERITY_RANK = (
     "array_position(ARRAY['critical','high','medium','low','informational'], f.severity)"
 )

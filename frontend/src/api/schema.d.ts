@@ -2729,7 +2729,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "misconfigurations" | "vulnerabilities" | "resources";
+            kind: "misconfigurations" | "vulnerabilities" | "resources" | "resource-problems";
             /**
              * Requested At
              * Format: date-time
@@ -2972,6 +2972,76 @@ export interface components {
             total: number;
             /** Total Capped */
             total_capped: boolean;
+        };
+        /**
+         * ResourceProblemFilterQuery
+         * @description A by-resource report's filters: the Resources list's, which choose the resources, then
+         *     the severities and tags of the problems it keeps (ADR-0047 section 3d).
+         */
+        ResourceProblemFilterQuery: {
+            /**
+             * Assets
+             * @default false
+             */
+            assets: boolean;
+            /** Connection Id */
+            connection_id?: number[];
+            /** Deleted From */
+            deleted_from?: string | null;
+            /** Deleted To */
+            deleted_to?: string | null;
+            /** First Seen From */
+            first_seen_from?: string | null;
+            /** First Seen To */
+            first_seen_to?: string | null;
+            /**
+             * Include Deleted
+             * @default false
+             */
+            include_deleted: boolean;
+            /**
+             * Internet
+             * @default false
+             */
+            internet: boolean;
+            /** Misconfigurations */
+            misconfigurations?: ("any" | "high") | null;
+            /**
+             * No Workload
+             * @default false
+             */
+            no_workload: boolean;
+            /** Q */
+            q?: string | null;
+            /** Region */
+            region?: string[];
+            /** Resource Id */
+            resource_id?: number | null;
+            /** Role Unused */
+            role_unused?: ("90" | "180" | "365") | null;
+            /** Severity */
+            severity?: ("critical" | "high" | "medium" | "low" | "informational")[];
+            /** Tag */
+            tag?: string[];
+            /** Type */
+            type?: string[];
+            /** Vulnerabilities */
+            vulnerabilities?: ("any" | "high" | "exploitable") | null;
+        };
+        /** ResourceProblemsReportIn */
+        ResourceProblemsReportIn: {
+            filters?: components["schemas"]["ResourceProblemFilterQuery"];
+            /**
+             * Format
+             * @default pdf
+             * @enum {string}
+             */
+            format: "csv" | "pdf";
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "resource-problems";
         };
         /** ResourceRow */
         ResourceRow: {
@@ -5766,7 +5836,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["MisconfigurationReportIn"] | components["schemas"]["VulnerabilityReportIn"] | components["schemas"]["ResourcesReportIn"];
+                "application/json": components["schemas"]["MisconfigurationReportIn"] | components["schemas"]["VulnerabilityReportIn"] | components["schemas"]["ResourcesReportIn"] | components["schemas"]["ResourceProblemsReportIn"];
             };
         };
         responses: {
