@@ -226,7 +226,7 @@ test('administration and scans: connections, schedules, runs, settings', async (
   const vulnerabilitiesTick = runNow.getByRole('checkbox', { name: 'Vulnerabilities' })
   await expect(runNow.getByRole('checkbox', { name: 'Steampipe' })).toBeChecked()
   await expect(vulnerabilitiesTick).not.toBeChecked()
-  await runNow.getByRole('button', { name: 'Select all' }).click()
+  await runNow.getByRole('button', { name: 'Select all', exact: true }).click()
   await expect(vulnerabilitiesTick).toBeChecked()
   await runNow.getByRole('checkbox', { name: 'CloudFox' }).uncheck()
   await runNow.getByRole('checkbox').first().uncheck()
@@ -282,6 +282,102 @@ test('administration and scans: connections, schedules, runs, settings', async (
   // Pages from before 2026-10-06 still open.
   await page.goto('/admin/runs')
   await expect(page).toHaveURL(/\/scans\/runs$/)
+})
+
+test('schedules: regions chosen in Run now and in a schedule, not in Settings; both themes, phone width', async ({ page }) => {
+  // Owner, 2026-11-19. Saves nothing: both writes are intercepted and their bodies read.
+  test.setTimeout(60_000)
+  await signIn(page)
+  await page.goto('/admin/settings')
+  await expect(page.getByRole('heading', { level: 2, name: 'Collection and throttling' })).toBeVisible()
+  await expect(page.getByText('AWS regions to scan')).toHaveCount(0)
+
+  await page.goto('/scans/schedules')
+  const runNow = page.getByRole('region', { name: 'Run now' })
+  const runRegions = runNow.locator('#rn-regions')
+  await expect(runRegions).toContainText('All enabled regions')
+  await runNow.getByRole('button', { name: 'Select all', exact: true }).click() // the connections
+  await runRegions.click()
+  const panel = runNow.locator('.ms-panel')
+  await panel.getByLabel('Filter regions').fill('eu-west')
+  await panel.getByRole('option', { name: 'eu-west-1' }).click()
+  await panel.getByLabel('Filter regions').fill('us-east')
+  await panel.getByRole('option', { name: 'us-east-1' }).click()
+  await expect(panel.locator('.ms-foot')).toContainText('2 selected')
+  await page.keyboard.press('Escape')
+  await expect(runRegions).toContainText('+1')
+  // Closed: an open list overlays the checkboxes above or below it, which axe counts against them.
+  await axe(page, 'run now regions')
+  let sent: { aws_regions?: string[] } | null = null
+  await page.route(/\/api\/v1\/run-requests$/, async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    sent = route.request().postDataJSON() as { aws_regions?: string[] }
+    await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ queued: [], refused: [] }) })
+  })
+  await runNow.getByRole('button', { name: 'Run now' }).click()
+  await expect.poll(() => sent?.aws_regions).toEqual(['eu-west-1', 'us-east-1'])
+  await shot(page, '33-run-now-regions')
+
+  // A schedule: Select all, then Unselect all, then one region.
+  await page.getByRole('button', { name: 'New schedule' }).first().click()
+  const sheet = page.getByRole('dialog', { name: 'New schedule' })
+  await sheet.getByLabel('Name').fill('regions walk')
+  const scheduleRegions = sheet.locator('#s-regions')
+  await expect(scheduleRegions).toContainText('All enabled regions')
+  await scheduleRegions.click()
+  await sheet.getByRole('button', { name: 'Select all', exact: true }).click()
+  await expect(sheet.locator('.ms-foot')).toContainText(/\d{2} selected/)
+  await sheet.getByRole('button', { name: 'Unselect all' }).click()
+  await sheet.getByLabel('Filter regions').fill('sa-east')
+  await sheet.getByRole('option', { name: 'sa-east-1' }).click()
+  await page.keyboard.press('Escape')
+  await expect(scheduleRegions).toContainText('sa-east-1')
+  await expect(sheet).toBeVisible() // Escape closed the list, not the sheet
+  await axe(page, 'schedule regions')
+  let saved: { aws_regions?: string[] } | null = null
+  await page.route(/\/api\/v1\/schedules$/, async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    saved = route.request().postDataJSON() as { aws_regions?: string[] }
+    await route.fulfill({ status: 201, contentType: 'application/json', body: '{}' })
+  })
+  await sheet.getByRole('button', { name: 'Create schedule' }).click()
+  await expect.poll(() => saved?.aws_regions).toEqual(['sa-east-1'])
+  await expect(sheet).toBeHidden()
+
+  // Each schedule says its regions under its scope: one listed as the API gives it.
+  const regional = {
+    id: 9001,
+    name: 'regions walk',
+    tools: ['steampipe', 'prowler'],
+    cron: '0 2 * * *',
+    explanation: 'At 02:00',
+    next_runs: [],
+    all_connections: true,
+    connection_ids: [],
+    enabled: true,
+    updated_at: '2026-11-19T00:00:00Z',
+    updated_by: 'admin',
+    aws_regions: ['eu-west-1', 'us-east-1'],
+  }
+  await page.route(/\/api\/v1\/schedules\?/, (route) =>
+    route.request().method() === 'GET'
+      ? route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [regional], total: 1 }) })
+      : route.fallback(),
+  )
+  await page.reload()
+  const scope = page.locator('td[data-label="Scope"] .sub').first()
+  await expect(scope).toHaveText('2 regions')
+  await expect(scope).toHaveAttribute('title', 'eu-west-1, us-east-1')
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await axe(page, 'light schedules regions')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.reload()
+  await expect(scope).toHaveText('2 regions')
+  await runRegions.scrollIntoViewIfNeeded()
+  await expect(runRegions).toBeVisible()
+  await axe(page, 'phone schedules regions')
+  await shot(page, '33b-phone-run-now-regions')
 })
 
 test('settings: saving one card keeps the edits in another; leaving asks once', async ({ page }) => {
@@ -838,7 +934,7 @@ test('map, Infrastructure view: the start, a map as a diagram, the panel and the
   await page.locator('.ms-foot').getByRole('button', { name: 'Default' }).click()
   await expect(page).not.toHaveURL(/layer=/)
   await expect(kindList).toBeVisible()
-  await page.locator('.ms-foot').getByRole('button', { name: 'Select all' }).click()
+  await page.locator('.ms-foot').getByRole('button', { name: 'Select all', exact: true }).click()
   await expect(kindList.getByRole('option', { selected: true })).toHaveCount(5)
   await page.keyboard.press('Escape')
   await kinds.click()

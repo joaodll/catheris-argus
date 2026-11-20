@@ -29,7 +29,6 @@ written to the audit log.
 | Start window: scheduled runs start spread over this many minutes | 180 | 0–720 |
 | Run now cooldown: a tool is not run again on an account within this many minutes | 60 | 0–1440 |
 | Retry delays: first retry and second retry of a failed run (minutes) | 30, 120 | 1–1440 each |
-| AWS regions to scan (Prowler, Steampipe and the vulnerability scanner; CloudFox scans every region) | every enabled region | up to 40 |
 | Steampipe tables at once | 4 | 1–8 |
 | CloudFox concurrency | 5 | 1–30 |
 | Minimum schedule interval (minutes) | 60 | 15–1440 |
@@ -38,12 +37,21 @@ written to the audit log.
 | Prowler: checks to skip | none | the pinned Prowler's 678 AWS checks |
 | Prowler: retry attempts per AWS call | 10 | 1–20 |
 
-Removing a region from **AWS regions to scan** does not mean its resources are gone or its findings
-fixed. A run says nothing about a region it did not scan, so its resources and findings stay as
+**Regions are chosen per schedule and per Run now** (since 2026-11-19; until then one list here,
+**AWS regions to scan**, which the upgrade copied into every schedule). In **Scans → Schedules**,
+a schedule's **Regions** and Run now's **Regions** pick from the AWS regions of the pinned tools
+(the commercial partition; GovCloud and China are not offered), up to 40. None chosen scans every
+region enabled in the account. Prowler, Steampipe and the vulnerability scanner read only the
+chosen regions; CloudFox scans every region. A retry scans its failed run's regions, and editing a
+schedule changes the regions of the runs it still has queued. The schedule list and the queue show
+each one's regions. The Run now cooldown skips a tool on an account only when a run within it
+covered the regions asked for.
+
+Removing a region from a schedule does not mean its resources are gone or its findings fixed. A run says nothing about a region it did not scan, so its resources and findings stay as
 last scanned, with their last-seen dates, until a run scans that region again. **Compliance scores
 are different:** they come from the latest Prowler run, so they cover only the regions it scanned,
-and removing a region can change a score. Read a score change next to a change of this setting,
-which the audit log records.
+and removing a region can change a score. Read a score change next to a change of the schedule's
+regions, which the audit log records.
 
 **Prowler: skipping services or checks** (since 2026-11-10). Skip a service or a check to make
 Prowler lighter on an account's API limits, for example a service that keeps throttling.

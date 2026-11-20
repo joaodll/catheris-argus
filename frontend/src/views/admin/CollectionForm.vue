@@ -21,15 +21,9 @@ interface Form {
   goroutines: number
   steampipeParallel: number
   throttlePercent: number
-  regions: string
   prowlerRetries: number
   skipServices: string[]
   skipChecks: string[]
-}
-
-/** "eu-west-1, us-east-1" or one per line -> ["eu-west-1", "us-east-1"]. */
-function regionList(text: string): string[] {
-  return text.split(/[\s,]+/).filter(Boolean)
 }
 
 function fromSettings(s: Schemas['CollectionSettings']): Form {
@@ -43,7 +37,6 @@ function fromSettings(s: Schemas['CollectionSettings']): Form {
     goroutines: s.cloudfox_max_goroutines,
     steampipeParallel: s.steampipe_parallel_tables,
     throttlePercent: Math.round(s.synthetic_throttle_share * 1000) / 10,
-    regions: (s.aws_regions ?? []).join(', '),
     prowlerRetries: s.prowler_retry_attempts ?? 10,
     skipServices: [...(s.prowler_skip_services ?? [])],
     skipChecks: [...(s.prowler_skip_checks ?? [])],
@@ -95,7 +88,6 @@ async function save(): Promise<void> {
           cloudfox_max_goroutines: f.goroutines,
           steampipe_parallel_tables: f.steampipeParallel,
           synthetic_throttle_share: f.throttlePercent / 100,
-          aws_regions: regionList(f.regions),
           prowler_retry_attempts: f.prowlerRetries,
           prowler_skip_services: known(f.skipServices, prowler.data.value?.services),
           prowler_skip_checks: known(f.skipChecks, prowler.data.value?.checks),
@@ -140,11 +132,7 @@ async function save(): Promise<void> {
       <NumberField v-model="form.goroutines" label="CloudFox concurrency" :min="1" help="Parallel API calls per CloudFox run. Upstream default is 30; lower is gentler." />
       <NumberField v-model="form.steampipeParallel" label="Steampipe tables at once" :min="1" :max="8" help="Tables exported at the same time in one Steampipe run (about 400 tables). Higher is faster; lower is gentler on API limits." />
       <NumberField v-model="form.throttlePercent" label="Synthetic throttling share" unit="%" :min="0" :max="100" :step="0.1" help="Demo connections only: the share of runs that simulate throttling." />
-      <div class="field">
-        <label class="lbl" for="aws-regions">AWS regions to scan</label>
-        <input id="aws-regions" v-model="form.regions" class="input mono" autocomplete="off" spellcheck="false" placeholder="All enabled regions" aria-describedby="aws-regions-help">
-        <span id="aws-regions-help" class="cap">Prowler, Steampipe and the vulnerability scanner read only these, comma-separated. Empty scans every enabled region. CloudFox always scans every region. What a removed region held stays as last scanned, with its last-seen date, until it is scanned again.</span>
-      </div>
+      <p class="cap regions-note">The regions to scan are chosen per schedule and in Run now, under Scans → Schedules.</p>
       <fieldset class="group">
         <legend class="lbl">Prowler</legend>
         <MultiSelect id="prowler-skip-services" v-model="form.skipServices" label="Services to skip" :options="serviceOptions" :status="prowlerStatus" empty-label="None" select-all />
@@ -183,6 +171,11 @@ async function save(): Promise<void> {
 .group :deep(.ms-trigger) {
   width: 100%;
   max-width: none;
+}
+
+.regions-note {
+  align-self: end;
+  margin: 0;
 }
 
 .group > legend {

@@ -5,6 +5,7 @@ import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import CronField from '@/components/CronField.vue'
 import AppModal from '@/components/AppModal.vue'
+import MultiSelect from '@/components/MultiSelect.vue'
 import SwitchToggle from '@/components/SwitchToggle.vue'
 import { COLLECTORS, defaultTools, type Collector } from '@/tools'
 
@@ -14,6 +15,9 @@ const props = defineProps<{
   connections: Schemas['ConnectionOut'][]
   lastRuns: Schemas['LastRun'][] | null
   minInterval: number | null
+  // The regions a schedule may choose (the pinned tools' list).
+  regionChoices: string[]
+  regionStatus: 'ready' | 'loading' | 'error'
 }>()
 const emit = defineEmits<{ close: []; saved: [message: string] }>()
 
@@ -41,6 +45,10 @@ if (!s) {
   )
 }
 const enabled = ref(s?.enabled ?? true)
+// Nothing chosen: every region enabled in the account.
+const initialRegions = [...(s?.aws_regions ?? [])].sort()
+const regions = ref<string[]>([...initialRegions])
+const regionOptions = computed(() => props.regionChoices.map((r) => ({ value: r, label: r, mono: true })))
 const cronValid = ref(true)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -51,6 +59,7 @@ const dirty = computed(
     (s ? orderedTools().join() !== initialTools.join() : toolsTouched.value) ||
     cron.value !== (s?.cron ?? '0 2 * * *') ||
     enabled.value !== (s?.enabled ?? true) ||
+    [...regions.value].sort().join() !== initialRegions.join() ||
     allConnections.value !== (s ? s.all_connections : true) ||
     (!allConnections.value && [...chosen.value].sort((a, b) => a - b).join() !== initialChosen.join()),
 )
@@ -71,6 +80,7 @@ async function save(): Promise<void> {
     cron: cron.value.trim(),
     connection_ids: allConnections.value ? null : chosen.value,
     enabled: enabled.value,
+    aws_regions: [...regions.value].sort(),
   }
   try {
     if (s) {
@@ -117,6 +127,10 @@ async function save(): Promise<void> {
           <span v-if="chosen.length === 0" class="cap">Choose at least one connection.</span>
         </div>
       </fieldset>
+      <div class="field regions">
+        <MultiSelect id="s-regions" v-model="regions" label="Regions" :options="regionOptions" :status="props.regionStatus" empty-label="All enabled regions" select-all />
+        <span class="cap">Prowler, Steampipe and the vulnerability scanner scan only these; none chosen scans every region enabled in the account. CloudFox always scans every region, and Demo connections use their own. What a region held stays as last scanned until it is scanned again.</span>
+      </div>
       <div class="field">
         <span class="lbl">State</span>
         <SwitchToggle v-model="enabled" label="Schedule state" />
@@ -148,6 +162,12 @@ async function save(): Promise<void> {
   display: flex;
   flex-direction: column;
   gap: 2px;
+}
+
+/* A form field here, not a filter: as wide as the other inputs. */
+.regions :deep(.ms-trigger) {
+  width: 100%;
+  max-width: none;
 }
 
 .choices {

@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { ApiError, api, unwrap, type Schemas } from '@/api/client'
 import AlertBanner from '@/components/AlertBanner.vue'
 import AppIcon from '@/components/AppIcon.vue'
+import MultiSelect from '@/components/MultiSelect.vue'
 import { COLLECTOR_IDS, COLLECTORS, collectorName, defaultTools, type Collector } from '@/tools'
 import { cooldownNote, refusedBecause } from './runNotes'
 
@@ -11,6 +12,9 @@ const props = defineProps<{
   connections: Schemas['ConnectionOut'][] | null
   lastRuns: Schemas['LastRun'][] | null
   cooldown: number | null
+  // The regions a run may scan (the pinned tools' list).
+  regionChoices: string[]
+  regionStatus: 'ready' | 'loading' | 'error'
 }>()
 const emit = defineEmits<{ queued: [] }>()
 
@@ -21,6 +25,9 @@ const chosen = ref<number[]>([])
 const tools = ref<Tool[]>(defaultTools([], []))
 // The ticks follow the chosen connections (defaultTools) until a tick is changed by hand.
 const toolsTouched = ref(false)
+// Nothing chosen: every region enabled in the account.
+const regions = ref<string[]>([])
+const regionOptions = computed(() => props.regionChoices.map((r) => ({ value: r, label: r, mono: true })))
 const busy = ref(false)
 const queued = ref<string | null>(null)
 const refused = ref<string | null>(null)
@@ -49,7 +56,7 @@ async function run(): Promise<void> {
   try {
     const order = COLLECTOR_IDS
     const result = await unwrap(
-      api.POST('/api/v1/run-requests', { body: { connection_ids: chosen.value, tools: order.filter((t) => tools.value.includes(t)) } }),
+      api.POST('/api/v1/run-requests', { body: { connection_ids: chosen.value, tools: order.filter((t) => tools.value.includes(t)), aws_regions: [...regions.value].sort() } }),
     )
     queued.value = `Queued ${result.queued.length} run${result.queued.length === 1 ? '' : 's'}: ${describe(result.queued)}.`
     if (result.refused.length) refused.value = `Skipped, ${refusedBecause(cooldown.value)}: ${describe(result.refused)}.`
@@ -86,6 +93,10 @@ async function run(): Promise<void> {
         <label v-for="c in COLLECTORS" :key="c.id" class="check"><input v-model="tools" type="checkbox" :value="c.id" @change="toolsTouched = true">{{ c.name }}</label>
       </div>
     </fieldset>
+    <div class="regions">
+      <MultiSelect id="rn-regions" v-model="regions" label="Regions" :options="regionOptions" :status="props.regionStatus" empty-label="All enabled regions" select-all />
+      <span class="cap">None chosen scans every region enabled in the account. CloudFox always scans every region.</span>
+    </div>
     <div class="go">
       <button type="button" class="btn btn-primary" :disabled="busy || chosen.length === 0 || tools.length === 0" @click="run">
         <AppIcon v-if="busy" name="spinner" :size="16" :stroke="2.4" />{{ busy ? 'Queueing…' : 'Run now' }}
@@ -113,6 +124,17 @@ async function run(): Promise<void> {
   display: flex;
   gap: var(--s-16);
   flex-wrap: wrap;
+}
+
+.regions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
+.regions :deep(.ms-trigger) {
+  width: 100%;
+  max-width: none;
 }
 
 .go {

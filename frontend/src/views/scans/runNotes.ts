@@ -19,6 +19,14 @@ export function regionsLabel(run: Run): string {
   return run.source === 'aws' && run.region_scope.length === 0 ? 'All regions' : '—'
 }
 
+/** The regions a schedule or a queued run scans: every region when none is chosen, and always
+ *  for CloudFox, which has no region option. `title` lists them all. */
+export function chosenRegions(regions: readonly string[], tool?: string): { text: string; title: string } {
+  if (tool === 'cloudfox' || regions.length === 0) return { text: 'All regions', title: '' }
+  if (regions.length === 1) return { text: regions[0] ?? '', title: '' }
+  return { text: `${regions.length} regions`, title: regions.join(', ') }
+}
+
 /** A run id short enough for a table cell: its first block, as in the bucket's folder name. */
 export function shortRunId(runUid: string): string {
   return runUid.slice(0, 8)

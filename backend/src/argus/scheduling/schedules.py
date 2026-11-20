@@ -72,10 +72,14 @@ def _latest_occurrence(expression: str, now: datetime) -> datetime | None:
 
 
 def tick(conn: Connection, *, now: datetime, settings: CollectionSettings) -> int:
-    """Queues each enabled schedule's latest due occurrence. Returns requests created."""
+    """Queues each enabled schedule's latest due occurrence, each run with the schedule's
+    regions. Returns requests created."""
     created = 0
     schedules = conn.execute(
-        text("SELECT id, tools, cron, all_connections, updated_at FROM schedule WHERE enabled")
+        text(
+            "SELECT id, tools, cron, all_connections, updated_at, aws_regions FROM schedule "
+            "WHERE enabled"
+        )
     ).all()
     for schedule in schedules:
         occurrence = _latest_occurrence(schedule.cron, now)
@@ -107,8 +111,8 @@ def tick(conn: Connection, *, now: datetime, settings: CollectionSettings) -> in
             created += conn.execute(
                 text("""
                 INSERT INTO run_request (connection_id, tool, reason, schedule_id, occurrence_at,
-                                         snapshot_date, not_before, requested_by)
-                VALUES (:c, :tool, 'schedule', :s, :o, :d, :nb, 'scheduler')
+                                         snapshot_date, not_before, requested_by, aws_regions)
+                VALUES (:c, :tool, 'schedule', :s, :o, :d, :nb, 'scheduler', :r)
                 ON CONFLICT (schedule_id, connection_id, tool, occurrence_at)
                   WHERE schedule_id IS NOT NULL AND occurrence_at IS NOT NULL
                 DO NOTHING
@@ -120,6 +124,7 @@ def tick(conn: Connection, *, now: datetime, settings: CollectionSettings) -> in
                     "o": occurrence,
                     "d": occurrence.date(),
                     "nb": not_before,
+                    "r": list(schedule.aws_regions),
                 },
             ).rowcount
     return created

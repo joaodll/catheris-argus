@@ -138,6 +138,14 @@ RUN set -eu; cd /tmp; \
       | sed -n 's/^- \([a-z0-9_.]*_aws\)$/\1/p' | sort > /tmp/installed-frameworks; \
     grep -v '^#' /tmp/lists/prowler_frameworks_aws.txt | grep . | diff -u - /tmp/installed-frameworks; \
     rm -rf /tmp/lists /tmp/installed-checks /tmp/installed-frameworks
+# A schedule or a Run now may choose only the regions Argus ships (owner, 2026-11-19): the
+# commercial partition of this Prowler's botocore, read from its endpoints file, offline.
+COPY src/argus/collection/aws_regions.txt /tmp/aws_regions.txt
+RUN set -eu; cd /tmp; \
+    /opt/prowler/bin/python -c 'import json, os, botocore; d = json.load(open(os.path.join(os.path.dirname(botocore.__file__), "data", "endpoints.json"))); print("\n".join(sorted(next(p for p in d["partitions"] if p["partition"] == "aws")["regions"])))' \
+      > /tmp/installed-regions; \
+    grep -v '^#' /tmp/aws_regions.txt | grep . | diff -u - /tmp/installed-regions; \
+    rm -f /tmp/aws_regions.txt /tmp/installed-regions
 # What Argus runs (collection/aws/tools.py PROWLER): Prowler's own entry point, which also lets
 # botocore's retry lines out so the scan's live log counts AWS's retries (owner, 2026-11-19).
 # The build checks that it starts this Prowler, offline.

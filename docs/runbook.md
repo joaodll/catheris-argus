@@ -371,10 +371,11 @@ storage first (above). Then:
    export a fresh set and enter it in the connection's edit sheet under **Access key → Replace**
    (or in **Settings → Platform identity**). A replacement is always the whole set: key id, secret
    and token.
-3. In **Settings → Collection**, set **AWS regions to scan** to the regions in use, for example
-   `eu-west-1, us-east-1`. Fewer regions make the first run faster. CloudFox ignores this and scans
-   every region.
-4. In **Scans → Schedules → Run now**, run the tools on the new connection. Steampipe goes first;
+3. In **Scans → Schedules → Run now**, choose the regions in use under **Regions**, for example
+   `eu-west-1` and `us-east-1`. Fewer regions make the first run faster; none chosen scans every
+   region enabled in the account. CloudFox ignores the choice and scans every region. A schedule
+   has the same **Regions** field.
+4. Still in **Run now**, run the tools on the new connection. Steampipe goes first;
    Vulnerabilities last, after the inventory its CVEs attach to. On AWS it reads AWS Inspector:
    leave Vulnerabilities out if the account does not use Inspector, or its run ends Partial or
    Failed.
@@ -392,11 +393,11 @@ storage first (above). Then:
    stopped at its time limit (4 hours on Docker Compose; on Kubernetes the Job's deadline less 30
    minutes). Its message says what to change.
 
-**Prowler runs Partial from throttling.** Lighten Prowler in **Settings → Collection**, in this
-order: scan fewer regions (**AWS regions to scan**), raise **Retry attempts per AWS call**, then
-skip the services that keep throttling (**Services to skip**). Read what a skip costs in
-[configuration.md](configuration.md) first. Lowering **Max parallel runs** spreads runs over
-time across accounts, but one account's tools already run one at a time.
+**Prowler runs Partial from throttling.** Lighten Prowler in this order: scan fewer regions (the
+schedule's **Regions**, in **Scans → Schedules**), then in **Settings → Collection** raise **Retry
+attempts per AWS call**, then skip the services that keep throttling (**Services to skip**). Read
+what a skip costs in [configuration.md](configuration.md) first. Lowering **Max parallel runs**
+spreads runs over time across accounts, but one account's tools already run one at a time.
 
 **Missing permissions.** The tools carry on when a call is denied (HTTP 403) and leave that
 data out. Argus reads the denied actions from each tool's output and shows them on the run
@@ -438,8 +439,8 @@ contents Argus must not read. For example, `aws_ec2_instance` leaves out `launch
 and `user_data` (`ec2:GetLaunchTemplateData`, user data) since 2026-10-13. Before that, a real
 scan inventoried no instances. Check a new table in the emulator harness first.
 
-CloudFox ignores **AWS regions to scan** and scans every enabled region; its runs show "All
-regions". In the bucket, a CloudFox run holds CloudFox's `json/`, `csv/`, `table/` and `loot/`
+CloudFox ignores the regions a schedule or Run now chose and scans every enabled region; its runs
+show "All regions". In the bucket, a CloudFox run holds CloudFox's `json/`, `csv/`, `table/` and `loot/`
 folders directly under the run id. Argus removes CloudFox's own `cloudfox-output/aws/<profile>-<account>/`
 wrapper and changes no file.
 

@@ -7,9 +7,11 @@ Public interface:
     read_run()         open a committed run, verifying its manifest and file hashes
     Manifest           the one definition of manifest.json
     TOOL_ORDER         the order tools run against one account (throttling layer 1)
+    EVERY_REGION_TOOLS the tools that scan every region, whatever their run asked for
     steampipe_tables() the versioned Steampipe table list
     prowler_checks(), prowler_services(), prowler_frameworks()
                        the pinned Prowler's AWS checks, their services and its frameworks
+    aws_regions()      the AWS regions a schedule or a Run now may choose
     source_for()       the source a connection kind collects with
     access_for()       how an AWS run reaches its account (credentials are made in collect())
     missing_tools()    the tools whose binary this image does not carry (ADR-0046)
@@ -20,6 +22,7 @@ Everything downstream (ingest) reads raw files through read_run() only, whatever
 
 from argus.collection.aws import AwsAccess, access_for, missing_tools
 from argus.collection.collect import (
+    EVERY_REGION_TOOLS,
     TOOL_ORDER,
     Cancelled,
     CollectOptions,
@@ -29,7 +32,12 @@ from argus.collection.collect import (
     stopped_at_time_limit,
     stopped_for_memory,
 )
-from argus.collection.prowler_lists import prowler_checks, prowler_frameworks, prowler_services
+from argus.collection.prowler_lists import (
+    aws_regions,
+    prowler_checks,
+    prowler_frameworks,
+    prowler_services,
+)
 from argus.collection.sources import source_for
 from argus.collection.stores import RawStorageNotConfiguredError, store_for
 from argus.collection.tables import steampipe_tables
@@ -37,6 +45,7 @@ from argus.core.manifest import Manifest, ManifestFile
 from argus.core.rawstore import FilesystemRawStore, RawRun, RawStore, read_run
 
 __all__ = [
+    "EVERY_REGION_TOOLS",
     "TOOL_ORDER",
     "AwsAccess",
     "Cancelled",
@@ -50,6 +59,7 @@ __all__ = [
     "RawStore",
     "TimeLimit",
     "access_for",
+    "aws_regions",
     "collect",
     "missing_tools",
     "prowler_checks",

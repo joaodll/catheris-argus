@@ -2,13 +2,14 @@
 schedules (validated cron, minimum interval), and Run now (with the cooldown). Every write is
 audited in the caller's transaction."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import Any, Literal
 
 from sqlalchemy import Connection, text
 
 from argus.collection import TOOL_ORDER
+from argus.collection import aws_regions as aws_region_names
 from argus.connections import DIRECTORY_SQL
 from argus.core import audit
 from argus.core.db import like_contains
@@ -38,6 +39,8 @@ class ScheduleView:
     enabled: bool
     updated_at: datetime
     updated_by: str
+    # The regions each run scans; empty: every region enabled in the account.
+    aws_regions: list[str]
 
 
 @dataclass(frozen=True)
@@ -48,7 +51,7 @@ class RunNowResult:
 
 _SCHEDULE_SELECT = """
         SELECT s.id, s.name, s.tools, s.cron, s.all_connections, s.enabled, s.updated_at,
-               s.updated_by,
+               s.updated_by, s.aws_regions,
                COALESCE(array_agg(sc.connection_id) FILTER (WHERE sc.connection_id IS NOT NULL),
                         '{}') AS connection_ids
         FROM schedule s LEFT JOIN schedule_connection sc ON sc.schedule_id = s.id
@@ -69,6 +72,7 @@ def _view(r: Any) -> ScheduleView:
         r.enabled,
         r.updated_at,
         r.updated_by,
+        list(r.aws_regions),
     )
 
 
@@ -106,6 +110,23 @@ def _ordered(tools: list[Tool]) -> list[Tool]:
     return chosen
 
 
+class UnknownRegionsError(ValueError):
+    """Region names the pinned tools don't know (collection.aws_regions)."""
+
+    def __init__(self, names: list[str]) -> None:
+        super().__init__(f"no such AWS region: {', '.join(names[:10])}")
+        self.names = names
+
+
+def _regions(aws_regions: list[str] | None) -> list[str]:
+    """The regions to scan, each once, sorted; empty for every region. Only names of the pinned
+    tools' list: a typo would otherwise be a run that scans nothing."""
+    chosen = sorted(set(aws_regions or ()))
+    if unknown := [r for r in chosen if r not in aws_region_names()]:
+        raise UnknownRegionsError(unknown)
+    return chosen
+
+
 def _scope(conn: Connection, schedule_id: int, connection_ids: list[int] | None) -> None:
     conn.execute(text("DELETE FROM schedule_connection WHERE schedule_id = :s"), {"s": schedule_id})
     if connection_ids:
@@ -115,27 +136,43 @@ def _scope(conn: Connection, schedule_id: int, connection_ids: list[int] | None)
         )
 
 
+@dataclass(frozen=True)
+class ScheduleSpec:
+    """What a schedule is, as the administrator saves it."""
+
+    name: str
+    tools: list[Tool]
+    cron: str
+    connection_ids: list[int] | None  # None or empty: every connection
+    enabled: bool = True
+    aws_regions: list[str] = field(default_factory=list)  # empty: every region
+
+
+def _checked(conn: Connection, spec: ScheduleSpec) -> dict[str, object]:
+    """The row's values, once the tools, the regions and the cron are checked."""
+    check_cron(spec.cron, min_interval_minutes=read_collection(conn).schedule_min_interval_minutes)
+    return {
+        "n": spec.name,
+        "t": _ordered(spec.tools),
+        "c": spec.cron,
+        "all": not spec.connection_ids,
+        "e": spec.enabled,
+        "r": _regions(spec.aws_regions),
+    }
+
+
 def create_schedule(
-    conn: Connection,
-    *,
-    name: str,
-    tools: list[Tool],
-    cron: str,
-    connection_ids: list[int] | None,
-    enabled: bool,
-    actor: str,
-    client_ip: str | None = None,
+    conn: Connection, spec: ScheduleSpec, *, actor: str, client_ip: str | None = None
 ) -> int:
-    chosen = _ordered(tools)
-    check_cron(cron, min_interval_minutes=read_collection(conn).schedule_min_interval_minutes)
+    row = _checked(conn, spec)
     schedule_id: int = conn.execute(
         text("""
-        INSERT INTO schedule (name, tools, cron, all_connections, enabled, updated_by)
-        VALUES (:n, :t, :c, :all, :e, :a) RETURNING id
+        INSERT INTO schedule (name, tools, cron, all_connections, enabled, updated_by, aws_regions)
+        VALUES (:n, :t, :c, :all, :e, :a, :r) RETURNING id
     """),
-        {"n": name, "t": chosen, "c": cron, "all": not connection_ids, "e": enabled, "a": actor},
+        {**row, "a": actor},
     ).scalar_one()
-    _scope(conn, schedule_id, connection_ids)
+    _scope(conn, schedule_id, spec.connection_ids)
     audit.record(
         conn,
         actor=actor,
@@ -143,47 +180,48 @@ def create_schedule(
         target_type="schedule",
         target_id=str(schedule_id),
         client_ip=client_ip,
-        detail={"tools": chosen, "cron": cron, "connections": connection_ids or "all"},
+        detail={
+            "tools": row["t"],
+            "cron": spec.cron,
+            "connections": spec.connection_ids or "all",
+            "regions": row["r"] or "all",
+        },
     )
     return schedule_id
 
 
 def update_schedule(
     conn: Connection,
+    spec: ScheduleSpec,
     *,
     schedule_id: int,
-    name: str,
-    tools: list[Tool],
-    cron: str,
-    connection_ids: list[int] | None,
-    enabled: bool,
     actor: str,
     client_ip: str | None = None,
 ) -> None:
-    chosen = _ordered(tools)
-    check_cron(cron, min_interval_minutes=read_collection(conn).schedule_min_interval_minutes)
+    row = _checked(conn, spec)
     updated = conn.execute(
         text("""
         UPDATE schedule SET name = :n, tools = :t, cron = :c, all_connections = :all,
-          enabled = :e, updated_by = :a, updated_at = now()
+          enabled = :e, updated_by = :a, updated_at = now(), aws_regions = :r
         WHERE id = :i
     """),
-        {
-            "i": schedule_id,
-            "n": name,
-            "t": chosen,
-            "c": cron,
-            "all": not connection_ids,
-            "e": enabled,
-            "a": actor,
-        },
+        {**row, "a": actor, "i": schedule_id},
     ).rowcount
     if not updated:
         raise LookupError(schedule_id)
-    _scope(conn, schedule_id, connection_ids)
+    _scope(conn, schedule_id, spec.connection_ids)
     # Queued runs the schedule no longer covers (disabled, a tool or an account taken out)
     # would otherwise still start, up to the stagger window later.
     cancelled = cancel_queued(conn, schedule_id=schedule_id)
+    # The runs it still has queued, retries included, scan the regions it now names: an edit
+    # applies to what is still waiting, as it does to the tools and the connections.
+    conn.execute(
+        text("""
+        UPDATE run_request SET aws_regions = :r
+        WHERE schedule_id = :s AND status = 'queued' AND aws_regions <> CAST(:r AS text[])
+    """),
+        {"s": schedule_id, "r": row["r"]},
+    )
     audit.record(
         conn,
         actor=actor,
@@ -191,7 +229,13 @@ def update_schedule(
         target_type="schedule",
         target_id=str(schedule_id),
         client_ip=client_ip,
-        detail={"tools": chosen, "cron": cron, "enabled": enabled, "cancelled": cancelled},
+        detail={
+            "tools": row["t"],
+            "cron": spec.cron,
+            "enabled": spec.enabled,
+            "regions": row["r"] or "all",
+            "cancelled": cancelled,
+        },
     )
 
 
@@ -250,11 +294,14 @@ def run_now(
     connection_ids: list[int],
     tools: list[Tool] | None,
     actor: str,
+    aws_regions: list[str] | None = None,
     client_ip: str | None = None,
     today: date | None = None,
 ) -> RunNowResult:
-    """Queues the tools (default: every tool, in order) for each connection, except where the
-    same tool and account is queued, running, or finished within the cooldown."""
+    """Queues the tools (default: every tool, in order) for each connection, scanning
+    `aws_regions` (default: every region), except where the same tool and account is queued,
+    running, or finished within the cooldown, for those regions or more."""
+    regions = _regions(aws_regions)
     cooldown = read_collection(conn).run_now_cooldown_minutes
     day = today or datetime.now(UTC).date()
     queued: list[dict[str, object]] = []
@@ -263,7 +310,11 @@ def run_now(
         for tool in [t for t in TOOL_ORDER if tools is None or t in tools]:
             item: dict[str, object] = {"connection_id": connection_id, "tool": tool}
             if recently_completed(
-                conn, connection_id=connection_id, tool=tool, cooldown_minutes=cooldown
+                conn,
+                connection_id=connection_id,
+                tool=tool,
+                cooldown_minutes=cooldown,
+                aws_regions=regions,
             ):
                 refused.append(
                     {
@@ -274,10 +325,11 @@ def run_now(
                 continue
             conn.execute(
                 text("""
-                INSERT INTO run_request (connection_id, tool, reason, snapshot_date, requested_by)
-                VALUES (:c, :t, 'manual', :d, :a)
+                INSERT INTO run_request (connection_id, tool, reason, snapshot_date, requested_by,
+                                         aws_regions)
+                VALUES (:c, :t, 'manual', :d, :a, :r)
             """),
-                {"c": connection_id, "t": tool, "d": day, "a": actor},
+                {"c": connection_id, "t": tool, "d": day, "a": actor, "r": regions},
             )
             queued.append(item)
     if queued:
@@ -287,7 +339,7 @@ def run_now(
             action="run.request",
             target_type="run_request",
             client_ip=client_ip,
-            detail={"queued": queued},
+            detail={"queued": queued, "regions": regions or "all"},
         )
     return RunNowResult(queued, refused)
 
@@ -297,7 +349,7 @@ def pending_requests(conn: Connection, *, limit: int) -> list[dict[str, object]]
         text(f"""
         SELECT rr.id, rr.connection_id, c.name AS connection, rr.tool, rr.reason, rr.status,
                rr.attempt, rr.snapshot_date, rr.not_before, rr.claimed_at, rr.heartbeat_at,
-               rr.cancel_requested_at IS NOT NULL AS cancel_requested
+               rr.cancel_requested_at IS NOT NULL AS cancel_requested, rr.aws_regions
         FROM run_request rr JOIN ({DIRECTORY_SQL}) c ON c.id = rr.connection_id
         WHERE rr.status IN ('queued', 'claimed')
         -- Running first, so the first page always shows them; then claim order.

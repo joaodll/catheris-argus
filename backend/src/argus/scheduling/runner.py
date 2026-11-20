@@ -206,7 +206,7 @@ def _collect_and_ingest(
             synthetic_throttle_share=settings.synthetic_throttle_share,
             attempt=request.attempt,
             aws_access=aws_access,
-            aws_regions=tuple(settings.aws_regions),
+            aws_regions=request.aws_regions,
             cloudfox_max_goroutines=settings.cloudfox_max_goroutines,
             steampipe_parallel_tables=settings.steampipe_parallel_tables,
             prowler_retry_attempts=settings.prowler_retry_attempts,

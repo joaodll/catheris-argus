@@ -33,11 +33,6 @@ class CollectionSettings(BaseModel):
     # Steampipe tables exported at once in one run (argus_v8: ~400 tables, one at a time is
     # hours). Each export calls one service; more at once is faster and throttles sooner.
     steampipe_parallel_tables: int = Field(4, ge=1, le=8)
-    # AWS regions Prowler and Steampipe scan (CloudFox has no region option). Empty: every
-    # region enabled in the account.
-    aws_regions: list[Annotated[str, Field(pattern=r"^[a-z]{2}(-[a-z]+)+-[0-9]$")]] = Field(
-        default_factory=list, max_length=40
-    )
     schedule_min_interval_minutes: int = Field(60, ge=15, le=1440)
     # Prowler (owner, 2026-11-10). Attempts per AWS call, retries included: Prowler builds its
     # own botocore Config and takes this as --aws-retries-max-attempts (the other tools keep

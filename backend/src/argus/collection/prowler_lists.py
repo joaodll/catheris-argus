@@ -1,8 +1,12 @@
 """The pinned Prowler's AWS checks and compliance frameworks, as Argus ships them
-(prowler_checks_aws.txt, prowler_frameworks_aws.txt). They bound what Collection settings may
+(prowler_checks_aws.txt, prowler_frameworks_aws.txt), and the AWS regions of its botocore
+(aws_regions.txt). They bound what Collection settings may
 skip, and give the frameworks a run that skips something passes, so its compliance stays
 complete (owner, 2026-11-10). The worker image's build checks both against the installed
-Prowler."""
+Prowler.
+
+The regions bound what a schedule or a Run now may choose (owner, 2026-11-19): a name not in
+the list is refused, so a typo never becomes a run that scans nothing."""
 
 from functools import cache
 from importlib import resources
@@ -29,3 +33,8 @@ def prowler_services() -> tuple[str, ...]:
 @cache
 def prowler_frameworks() -> tuple[str, ...]:
     return _lines("prowler_frameworks_aws.txt")
+
+
+@cache
+def aws_regions() -> frozenset[str]:
+    return frozenset(_lines("aws_regions.txt"))

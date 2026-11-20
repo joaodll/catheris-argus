@@ -412,6 +412,7 @@ def test_no_planted_secret_reaches_any_api_response_or_log(
         "/api/v1/settings",
         "/api/v1/settings/collection",
         "/api/v1/settings/collection/prowler-options",
+        "/api/v1/schedules/aws-regions",
         "/api/v1/users",
         "/api/v1/vulnerabilities?limit=200&state=resolved",
         "/api/v1/vulnerabilities/facets",
