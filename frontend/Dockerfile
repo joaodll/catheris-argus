@@ -9,7 +9,9 @@
 #   runtime  nginx + dist/ only. No Node, no source. Listens on 8080 as uid 101.
 
 ARG NODE_IMAGE=node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+# The publisher moved the image from nginxinc/ to nginx/ on Docker Hub from nginx 1.30.6 on; the old
+# name gets no new release (github.com/nginx/docker-nginx-unprivileged, README).
+ARG NGINX_IMAGE=nginx/nginx-unprivileged:1.30-alpine@sha256:0c53a1f2890c3526bfd201440f0fd3970e5b78f80630f58284aad0d34b5ec7bd
 
 FROM ${NODE_IMAGE} AS base
 ENV COREPACK_HOME=/opt/corepack \
